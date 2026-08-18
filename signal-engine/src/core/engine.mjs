@@ -37,7 +37,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 
   for (const rawInput of rawProducts) {
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
-    const productId = stableId("prd", raw.canonicalKey);
+    const productId = stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey);
     const previousProduct = await store.getProduct(productId);
     const officialRrpPence = retailer.officialRrpSource && raw.pricePence != null ? raw.pricePence : previousProduct?.officialRrpPence ?? null;
     const product = {
@@ -45,7 +45,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       canonicalKey: raw.canonicalKey,
       title: previousProduct?.title || raw.title,
       productType: raw.productType,
-      tcg: "pokemon",
+      tcg: retailer.tcg || "pokemon",
       officialRrpPence,
       rrpSource: retailer.officialRrpSource && raw.pricePence != null ? retailer.id : previousProduct?.rrpSource ?? null,
       rrpObservedAt: retailer.officialRrpSource && raw.pricePence != null ? now : previousProduct?.rrpObservedAt ?? null,
@@ -87,10 +87,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const completedAt = Math.floor(Date.now() / 1000);
   await store.saveScan({ retailer, products, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
-  // Persist the signal first, then fan fresh Manifested/Echo events out to Discord.
-  // Discord failures are isolated so retailer scans and signal persistence still succeed.
   const discord = signals.length ? await dispatchDiscordSignals(signals) : { sent: 0, skipped: 0, failed: 0, errors: [] };
-
   return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
 }
 
