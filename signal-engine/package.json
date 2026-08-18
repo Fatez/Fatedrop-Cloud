@@ -1,0 +1,17 @@
+{
+  "name": "fatedrop-signal-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "node --watch src/server.mjs",
+    "start": "node src/server.mjs",
+    "scan": "node src/scan-once.mjs",
+    "test": "node --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "cheerio": "1.1.2",
+    "pg": "8.16.3"
+  }
+}

@@ -1,0 +1,60 @@
+import { env } from "./env.mjs";
+
+// V1 intentionally starts with major UK catalogues. Indies plug into this same adapter contract later.
+export const retailers = [
+  {
+    id: "pokemon-center-uk",
+    name: "Pokémon Center UK",
+    enabled: env.retailers.pokemonCenterUk,
+    baseUrl: "https://www.pokemoncenter.com/en-gb/",
+    catalogueUrls: ["https://www.pokemoncenter.com/en-gb/search/tcg-cards"],
+    productUrlPattern: /pokemoncenter\.com\/en-gb\/product\//i,
+    skuPattern: /\/product\/([^/?#]+)/i,
+    pageParam: "page",
+    maxPages: 40,
+    delayMs: 1800,
+    officialRrpSource: true,
+    include: /pokemon|tcg|trading card/i,
+    exclude: null,
+  },
+  {
+    id: "smyths-uk",
+    name: "Smyths Toys UK",
+    enabled: env.retailers.smythsUk,
+    baseUrl: "https://www.smythstoys.com/uk/en-gb/",
+    catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202"],
+    productUrlPattern: /smythstoys\.com\/uk\/en-gb\/.*\/p\/\d+/i,
+    skuPattern: /\/p\/(\d+)/i,
+    pageParam: "page",
+    maxPages: 4,
+    delayMs: 2200,
+    officialRrpSource: false,
+    include: /pokemon|trading card|tcg/i,
+    exclude: null,
+  },
+  {
+    id: "chaos-cards",
+    name: "Chaos Cards",
+    enabled: env.retailers.chaosCards,
+    baseUrl: "https://www.chaoscards.co.uk/",
+    catalogueUrls: [
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/booster-boxes-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/booster-packs-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/collection-boxes-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/elite-trainer-boxes-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/gift-tins-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/japanese-products-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/other-sealed-products-pokemon",
+      "https://www.chaoscards.co.uk/shop/card-games/pokemon/theme-decks-pokemon"
+    ],
+    productUrlPattern: /chaoscards\.co\.uk\/prod\//i,
+    skuPattern: /\/prod\/[^/]+\/([^/?#]+)$/i,
+    pageParam: "page",
+    maxPages: 20,
+    delayMs: 1800,
+    officialRrpSource: false,
+    include: /pokemon/i,
+    // Singles/code-card inventory is intentionally excluded from Signal Engine V1 to keep stock signals focused on sealed retail product.
+    exclude: /\bsingle\b|code card|online play/i,
+  },
+].filter((retailer) => retailer.enabled);
