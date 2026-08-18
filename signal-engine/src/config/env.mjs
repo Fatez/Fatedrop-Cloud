@@ -1,4 +1,11 @@
 import path from "node:path";
+import process from "node:process";
+
+try {
+  process.loadEnvFile();
+} catch (error) {
+  if (error?.code !== "ENOENT") throw error;
+}
 
 function bool(name, fallback = false) {
   const raw = process.env[name];
@@ -23,6 +30,11 @@ export const env = {
   fetchTimeoutMs: Math.max(3000, int("FATEDROP_FETCH_TIMEOUT_MS", 15000)),
   userAgent: process.env.FATEDROP_FETCH_USER_AGENT || "FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)",
   suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
+  discord: {
+    enabled: bool("FATEDROP_DISCORD_ENABLED", false),
+    botToken: process.env.DISCORD_BOT_TOKEN || "",
+    premiumDropsChannelId: process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "",
+  },
   retailers: {
     pokemonCenterUk: bool("FATEDROP_RETAILER_POKEMON_CENTER_UK", true),
     smythsUk: bool("FATEDROP_RETAILER_SMYTHS_UK", true),
