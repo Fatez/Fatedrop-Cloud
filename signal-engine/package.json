@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.mjs",
     "start": "node src/server.mjs",
     "scan": "node src/scan-once.mjs",
+    "discord:test": "node src/discord-test.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
