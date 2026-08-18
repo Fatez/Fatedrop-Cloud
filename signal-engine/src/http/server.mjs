@@ -2,6 +2,7 @@ import http from "node:http";
 import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
+import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
@@ -41,7 +42,9 @@ export function createHttpServer({ store }) {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
         const body = await readBody(req);
         const selected = body.retailerIds?.length ? retailers.filter((r)=>body.retailerIds.includes(r.id)) : retailers;
-        return json(res, 200, { results: await scanAll({ retailers: selected, store }) });
+        const results = await scanAll({ retailers: selected, store });
+        const website = await publishWebsiteSnapshot({ store });
+        return json(res, 200, { results, website });
       }
       if (req.method === "POST" && url.pathname === "/internal/ingest") {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
@@ -50,7 +53,8 @@ export function createHttpServer({ store }) {
         if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
         if (!Array.isArray(body.products) || body.products.length === 0) return json(res, 400, { error: "products must be a non-empty array" });
         const result = await ingestRetailerProducts({ retailer, store, products: body.products });
-        return json(res, 200, { result });
+        const website = await publishWebsiteSnapshot({ store });
+        return json(res, 200, { result, website });
       }
       return json(res, 404, { error: "Not found" });
     } catch (error) { return json(res, 500, { error: "Signal engine error", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }); }
