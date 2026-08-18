@@ -1,13 +1,24 @@
 const DEFAULT_SOURCE = "FateDrop Signal Engine";
+const LIFECYCLE_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
 
 function configured() {
   return Boolean(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL && process.env.FATEDROP_METRICS_INGEST_SECRET);
 }
 
+function signalIntensity(signal) {
+  if (signal.state === "security" || signal.state === "queue") return "major";
+  if (signal.state === "drop_pulse") return Number(signal.confidence || 0) >= 0.75 ? "major" : "standard";
+  if (signal.state === "manifested" || signal.state === "echo") return "standard";
+  return "subtle";
+}
+
 function snapshotSignal(signal) {
   return {
     id: signal.id,
-    state: signal.state,
+    state: LIFECYCLE_STATES.has(signal.state) ? signal.state : "whisper",
+    kind: signal.state,
+    intensity: signalIntensity(signal),
+    confidence: signal.confidence ?? null,
     title: signal.title,
     retailer: signal.retailerName || signal.retailerId || null,
     detail: signal.reason || null,
@@ -94,7 +105,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
     .filter((signal) => ["whisper", "manifested", "vanished", "echo", "price_change", "launch_date_change", "queue", "security", "drop_pulse"].includes(signal.state))
     .sort((a, b) => b.detectedAt - a.detectedAt)
     .slice(0, 100);
-  const recentSignals = relevantSignals.filter((signal) => ["whisper", "manifested", "vanished", "echo"].includes(signal.state)).map(snapshotSignal);
+  const recentSignals = relevantSignals.map(snapshotSignal);
   const opportunities = (await Promise.all(relevantSignals.map((signal) => networkOpportunity(store, signal).catch(() => null)))).filter(Boolean);
   const rrpReferenceProducts = products.map(rrpReferenceProduct).filter(Boolean).slice(0, 2000);
 
