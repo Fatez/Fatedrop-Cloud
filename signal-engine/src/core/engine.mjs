@@ -1,5 +1,6 @@
 import { scanRetailerCatalogue } from "../adapters/catalogue-adapter.mjs";
 import { env } from "../config/env.mjs";
+import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
@@ -85,7 +86,12 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 
   const completedAt = Math.floor(Date.now() / 1000);
   await store.saveScan({ retailer, products, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals };
+
+  // Persist the signal first, then fan fresh Manifested/Echo events out to Discord.
+  // Discord failures are isolated so retailer scans and signal persistence still succeed.
+  const discord = signals.length ? await dispatchDiscordSignals(signals) : { sent: 0, skipped: 0, failed: 0, errors: [] };
+
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
