@@ -18,6 +18,7 @@ function normalizeExternalProduct(raw) {
     url,
     imageUrl: raw.imageUrl || null,
     pricePence: Number.isFinite(raw.pricePence) ? Math.round(raw.pricePence) : null,
+    officialRrpPence: Number.isFinite(raw.officialRrpPence) ? Math.round(raw.officialRrpPence) : null,
     productType,
     canonicalKey: raw.canonicalKey || canonicalKey(title, productType),
     stockStatus: raw.stockStatus || "unknown",
@@ -39,7 +40,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
     const productId = stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey);
     const previousProduct = await store.getProduct(productId);
-    const officialRrpPence = retailer.officialRrpSource && raw.pricePence != null ? raw.pricePence : previousProduct?.officialRrpPence ?? null;
+    const observedOfficialRrp = raw.officialRrpPence ?? raw.pricePence;
+    const officialRrpPence = retailer.officialRrpSource && observedOfficialRrp != null ? observedOfficialRrp : previousProduct?.officialRrpPence ?? null;
+    const hasFreshOfficialRrp = retailer.officialRrpSource && observedOfficialRrp != null;
     const product = {
       id: productId,
       canonicalKey: raw.canonicalKey,
@@ -47,8 +50,8 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       productType: raw.productType,
       tcg: retailer.tcg || "pokemon",
       officialRrpPence,
-      rrpSource: retailer.officialRrpSource && raw.pricePence != null ? retailer.id : previousProduct?.rrpSource ?? null,
-      rrpObservedAt: retailer.officialRrpSource && raw.pricePence != null ? now : previousProduct?.rrpObservedAt ?? null,
+      rrpSource: hasFreshOfficialRrp ? retailer.id : previousProduct?.rrpSource ?? null,
+      rrpObservedAt: hasFreshOfficialRrp ? now : previousProduct?.rrpObservedAt ?? null,
       firstSeenAt: previousProduct?.firstSeenAt ?? now,
       updatedAt: now,
     };
