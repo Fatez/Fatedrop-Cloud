@@ -23,6 +23,13 @@ export class FileStore {
   }
   async getOffer(offerId) { return (await this.read()).offers[offerId] || null; }
   async getProduct(productId) { return (await this.read()).products[productId] || null; }
+  async listProducts({ rrpSource = null, limit = 2000 } = {}) {
+    const state = await this.read();
+    return Object.values(state.products || {})
+      .filter((product) => !rrpSource || product.rrpSource === rrpSource)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, Math.min(5000, Math.max(1, limit)));
+  }
   async isBaselineComplete(retailerId) { return Boolean((await this.read()).metadata?.baselineCompleted?.[retailerId]); }
   async saveScan({ retailer, products, offers, observations, signals, completedAt, health }) {
     return this.mutate((state) => {
@@ -31,7 +38,6 @@ export class FileStore {
       for (const offer of offers) state.offers[offer.offerId] = offer;
       state.observations.push(...observations);
       state.signals.push(...signals);
-      // local store is for development; cap append-only arrays to avoid an unbounded JSON file.
       if (state.observations.length > 100000) state.observations = state.observations.slice(-100000);
       if (state.signals.length > 20000) state.signals = state.signals.slice(-20000);
       state.retailers[retailer.id] = { id: retailer.id, name: retailer.name, ...health, lastScanAt: completedAt };
