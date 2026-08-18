@@ -1,7 +1,30 @@
 import { env } from "../config/env.mjs";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const DISCORD_SIGNAL_STATES = new Set(["manifested", "echo"]);
+const DISCORD_SIGNAL_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
+
+const STATE_STYLE = Object.freeze({
+  whisper: {
+    label: "WHISPER",
+    colour: 0xf59e0b,
+    fallback: "Early catalogue change detected before verified availability.",
+  },
+  manifested: {
+    label: "MANIFESTED",
+    colour: 0x7c3aed,
+    fallback: "Verified purchasable stock detected.",
+  },
+  vanished: {
+    label: "VANISHED",
+    colour: 0xef4444,
+    fallback: "Previously purchasable stock is no longer verified available.",
+  },
+  echo: {
+    label: "ECHO",
+    colour: 0x22d3ee,
+    fallback: "Previously available stock has returned.",
+  },
+});
 
 function money(pence) {
   if (!Number.isFinite(pence)) return "Unknown";
@@ -33,9 +56,7 @@ export function isDiscordSignal(signal) {
 }
 
 export function buildDiscordSignalMessage(signal) {
-  const isEcho = signal.state === "echo";
-  const titlePrefix = isEcho ? "ECHO" : "MANIFESTED";
-  const colour = isEcho ? 0x22d3ee : 0x7c3aed;
+  const style = STATE_STYLE[signal.state] || STATE_STYLE.manifested;
   const productUrl = safeHttpUrl(signal.url);
   const thumbnailUrl = safeHttpUrl(signal.imageUrl);
   const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
@@ -51,9 +72,9 @@ export function buildDiscordSignalMessage(signal) {
   ];
 
   const embed = {
-    title: short(`${titlePrefix} · ${signal.title || "FateDrop signal"}`, 256),
-    description: short(signal.reason || (isEcho ? "Previously available stock has returned." : "Verified purchasable stock detected."), 4096),
-    color: colour,
+    title: short(`${style.label} · ${signal.title || "FateDrop signal"}`, 256),
+    description: short(signal.reason || style.fallback, 4096),
+    color: style.colour,
     fields,
     footer: { text: short(`FateDrop Signal · ${signal.id || "test"}`, 2048) },
     timestamp: new Date((signal.detectedAt || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
