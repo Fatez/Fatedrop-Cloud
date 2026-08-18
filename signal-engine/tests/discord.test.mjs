@@ -18,11 +18,12 @@ const signal = {
   reason: "Availability became verified",
 };
 
-test("Discord only delivers Manifested and Echo signals", () => {
+test("Discord delivers all FateDrop lifecycle signals", () => {
   assert.equal(isDiscordSignal(signal), true);
   assert.equal(isDiscordSignal({ ...signal, state: "echo" }), true);
-  assert.equal(isDiscordSignal({ ...signal, state: "whisper" }), false);
-  assert.equal(isDiscordSignal({ ...signal, state: "vanished" }), false);
+  assert.equal(isDiscordSignal({ ...signal, state: "whisper" }), true);
+  assert.equal(isDiscordSignal({ ...signal, state: "vanished" }), true);
+  assert.equal(isDiscordSignal({ ...signal, state: "unknown" }), false);
 });
 
 test("Discord message includes retailer, price and retailer link", () => {
@@ -33,6 +34,13 @@ test("Discord message includes retailer, price and retailer link", () => {
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Price")?.value, "£49.99");
   assert.equal(message.components[0].components[0].url, "https://example.com/product");
   assert.deepEqual(message.allowed_mentions, { parse: [] });
+});
+
+test("Discord uses distinct labels for all lifecycle states", () => {
+  assert.match(buildDiscordSignalMessage({ ...signal, state: "whisper" }).embeds[0].title, /WHISPER/);
+  assert.match(buildDiscordSignalMessage({ ...signal, state: "manifested" }).embeds[0].title, /MANIFESTED/);
+  assert.match(buildDiscordSignalMessage({ ...signal, state: "vanished" }).embeds[0].title, /VANISHED/);
+  assert.match(buildDiscordSignalMessage({ ...signal, state: "echo" }).embeds[0].title, /ECHO/);
 });
 
 test("Discord delivery posts to configured channel", async () => {
