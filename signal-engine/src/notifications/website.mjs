@@ -16,6 +16,20 @@ function snapshotSignal(signal) {
   };
 }
 
+function rrpReferenceProduct(product) {
+  if (!product?.id || !product?.canonicalKey || !product?.title || product.officialRrpPence == null || !product.rrpSource) return null;
+  return {
+    id: product.id,
+    canonicalKey: product.canonicalKey,
+    title: product.title,
+    productType: product.productType ?? null,
+    tcg: product.tcg || "pokemon",
+    officialRrpPence: product.officialRrpPence,
+    rrpSource: product.rrpSource,
+    rrpObservedAt: product.rrpObservedAt ?? null,
+  };
+}
+
 async function networkOpportunity(store, signal) {
   const [product, offer] = await Promise.all([
     signal.productId ? store.getProduct(signal.productId) : null,
@@ -69,10 +83,11 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
   if (!store) return { published: false, reason: "store_missing" };
 
   const measuredAt = Math.floor(Date.now() / 1000);
-  const [stats, signals, retailers] = await Promise.all([
+  const [stats, signals, retailers, products] = await Promise.all([
     store.stats(),
     store.listSignals({ since: measuredAt - 86_400, limit: 100 }),
     store.listRetailers(),
+    typeof store.listProducts === "function" ? store.listProducts({ limit: 2000 }) : [],
   ]);
 
   const relevantSignals = signals
@@ -81,6 +96,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
     .slice(0, 100);
   const recentSignals = relevantSignals.filter((signal) => ["whisper", "manifested", "vanished", "echo"].includes(signal.state)).map(snapshotSignal);
   const opportunities = (await Promise.all(relevantSignals.map((signal) => networkOpportunity(store, signal).catch(() => null)))).filter(Boolean);
+  const rrpReferenceProducts = products.map(rrpReferenceProduct).filter(Boolean).slice(0, 2000);
 
   const healthyMonitors = retailers.filter((retailer) => retailer.healthy).length;
   const sourceEventId = `signal-engine:${measuredAt}:${recentSignals[0]?.id || "no-signals"}`;
@@ -100,6 +116,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       healthyMonitors,
     },
     recentSignals,
+    rrpReferenceProducts,
     opportunities,
     upcomingEvents: [],
   };
@@ -118,7 +135,16 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       throw new Error(`Website snapshot publish failed (${response.status})${body ? `: ${body.slice(0, 300)}` : ""}`);
     }
     const result = await response.json().catch(() => ({}));
-    return { published: true, stored: result.stored ?? null, measuredAt, signals: recentSignals.length, opportunities: opportunities.length, fateMatchesTriggered: result.fateMatchesTriggered ?? 0 };
+    return {
+      published: true,
+      stored: result.stored ?? null,
+      measuredAt,
+      signals: recentSignals.length,
+      rrpReferenceProducts: rrpReferenceProducts.length,
+      rrpReferenceProcessed: result.rrpReferenceProcessed ?? 0,
+      opportunities: opportunities.length,
+      fateMatchesTriggered: result.fateMatchesTriggered ?? 0,
+    };
   } catch (error) {
     console.error("[website] snapshot publish failed", String(error?.message || error));
     return { published: false, reason: "publish_failed", error: String(error?.message || error) };
