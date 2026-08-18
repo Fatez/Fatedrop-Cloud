@@ -1,10 +1,12 @@
 import { env } from "./env.mjs";
 
-// V1 intentionally starts with major UK catalogues. Indies plug into this same adapter contract later.
+// Retailer adapters declare the TCG they currently expose so the Signal Engine
+// can expand beyond Pokémon without forking product or offer models.
 export const retailers = [
   {
     id: "pokemon-center-uk",
     name: "Pokémon Center UK",
+    tcg: "pokemon",
     enabled: env.retailers.pokemonCenterUk,
     baseUrl: "https://www.pokemoncenter.com/en-gb/",
     catalogueUrls: ["https://www.pokemoncenter.com/en-gb/search/tcg-cards"],
@@ -20,6 +22,7 @@ export const retailers = [
   {
     id: "smyths-uk",
     name: "Smyths Toys UK",
+    tcg: "pokemon",
     enabled: env.retailers.smythsUk,
     baseUrl: "https://www.smythstoys.com/uk/en-gb/",
     catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202"],
@@ -35,6 +38,7 @@ export const retailers = [
   {
     id: "chaos-cards",
     name: "Chaos Cards",
+    tcg: "pokemon",
     enabled: env.retailers.chaosCards,
     baseUrl: "https://www.chaoscards.co.uk/",
     catalogueUrls: [
@@ -54,7 +58,6 @@ export const retailers = [
     delayMs: 1800,
     officialRrpSource: false,
     include: /pokemon/i,
-    // Singles/code-card inventory is intentionally excluded from Signal Engine V1 to keep stock signals focused on sealed retail product.
     exclude: /\bsingle\b|code card|online play/i,
   },
 ].filter((retailer) => retailer.enabled);
