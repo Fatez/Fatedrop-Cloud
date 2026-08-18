@@ -15,6 +15,14 @@ export class PostgresStore {
     const { rows } = await pool.query("SELECT * FROM fatedrop_products WHERE id=$1", [productId]);
     return rows[0] ? dbProduct(rows[0]) : null;
   }
+  async listProducts({ rrpSource = null, limit = 2000 } = {}) {
+    const pool = await this.pool();
+    const safe = Math.min(5000, Math.max(1, limit));
+    const { rows } = rrpSource
+      ? await pool.query("SELECT * FROM fatedrop_products WHERE rrp_source=$1 ORDER BY updated_at DESC LIMIT $2", [rrpSource, safe])
+      : await pool.query("SELECT * FROM fatedrop_products ORDER BY updated_at DESC LIMIT $1", [safe]);
+    return rows.map(dbProduct);
+  }
   async isBaselineComplete(retailerId) {
     const pool = await this.pool();
     const { rows } = await pool.query("SELECT baseline_completed FROM fatedrop_retailer_health WHERE retailer_id=$1", [retailerId]);
