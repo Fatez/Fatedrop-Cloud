@@ -1,0 +1,1189 @@
+diff --git a/signal-engine/.env.example b/signal-engine/.env.example
+new file mode 100644
+index 0000000..4ccdfe9
+--- /dev/null
++++ b/signal-engine/.env.example
+@@ -0,0 +1,24 @@
++# Signal Engine HTTP server
++PORT=8787
++FATEDROP_SIGNAL_API_TOKEN=replace-with-a-long-random-read-token
++FATEDROP_SIGNAL_INGEST_SECRET=replace-with-a-long-random-admin-token
++
++# Storage. Use file for Codespaces/dev and postgres in hosted production.
++FATEDROP_SIGNAL_STORE=file
++FATEDROP_SIGNAL_FILE=data/signal-engine.json
++# DATABASE_URL=postgresql://user:password@host/database?sslmode=require
++
++# Scan scheduler. V1 deliberately uses conservative polling.
++FATEDROP_SCAN_INTERVAL_SECONDS=300
++FATEDROP_SCAN_ON_START=false
++FATEDROP_SCAN_CONCURRENCY=2
++FATEDROP_FETCH_TIMEOUT_MS=15000
++FATEDROP_FETCH_USER_AGENT=FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)
++
++# First successful scan is a quiet baseline so existing stock does not create thousands of alerts.
++FATEDROP_SUPPRESS_BASELINE_SIGNALS=true
++
++# Retailers. Disable any source that blocks catalogue monitoring rather than bypassing protections.
++FATEDROP_RETAILER_POKEMON_CENTER_UK=true
++FATEDROP_RETAILER_SMYTHS_UK=true
++FATEDROP_RETAILER_CHAOS_CARDS=true
+diff --git a/signal-engine/.gitignore b/signal-engine/.gitignore
+new file mode 100644
+index 0000000..9081f13
+--- /dev/null
++++ b/signal-engine/.gitignore
+@@ -0,0 +1,8 @@
++node_modules/
++.env
++.env.*
++!.env.example
++data/*.json
++data/*.ndjson
++*.log
++.DS_Store
+diff --git a/signal-engine/README.md b/signal-engine/README.md
+new file mode 100644
+index 0000000..7f57206
+--- /dev/null
++++ b/signal-engine/README.md
+@@ -0,0 +1,19 @@
++# FateDrop Signal Engine V1
++
++Shared UK Pokémon TCG catalogue + lifecycle signal service for FateDrop.
++
++## Start locally
++
++```bash
++cp .env.example .env
++npm install
++npm test
++npm run scan
++npm run dev
++```
++
++The first successful retailer scan is a **quiet baseline**. It records the catalogue without emitting alerts. Later state changes create Whisper / Manifested / Vanished / Echo records.
++
++For production use PostgreSQL and run `database/postgres.sql` first.
++
++See `docs/ARCHITECTURE.md` for lifecycle rules, retailer scope, API contract and data-truth rules.
+diff --git a/signal-engine/database/postgres.sql b/signal-engine/database/postgres.sql
+new file mode 100644
+index 0000000..9d3117e
+--- /dev/null
++++ b/signal-engine/database/postgres.sql
+@@ -0,0 +1,92 @@
++CREATE TABLE IF NOT EXISTS fatedrop_products (
++  id TEXT PRIMARY KEY,
++  canonical_key TEXT NOT NULL UNIQUE,
++  title TEXT NOT NULL,
++  product_type TEXT NOT NULL,
++  tcg TEXT NOT NULL DEFAULT 'pokemon',
++  official_rrp_pence INTEGER,
++  rrp_source TEXT,
++  rrp_observed_at BIGINT,
++  first_seen_at BIGINT NOT NULL,
++  updated_at BIGINT NOT NULL
++);
++
++CREATE TABLE IF NOT EXISTS fatedrop_retail_offers (
++  offer_id TEXT PRIMARY KEY,
++  product_id TEXT NOT NULL REFERENCES fatedrop_products(id),
++  retailer_id TEXT NOT NULL,
++  retailer_name TEXT NOT NULL,
++  retailer_sku TEXT NOT NULL,
++  title TEXT NOT NULL,
++  url TEXT NOT NULL,
++  image_url TEXT,
++  price_pence INTEGER,
++  postage_pence INTEGER,
++  stock_status TEXT NOT NULL,
++  stock_confidence DOUBLE PRECISION NOT NULL,
++  stock_quantity INTEGER,
++  ever_available_at BIGINT,
++  first_seen_at BIGINT NOT NULL,
++  last_seen_at BIGINT NOT NULL,
++  UNIQUE(retailer_id, retailer_sku)
++);
++
++CREATE TABLE IF NOT EXISTS fatedrop_stock_observations (
++  id TEXT PRIMARY KEY,
++  offer_id TEXT NOT NULL REFERENCES fatedrop_retail_offers(offer_id),
++  retailer_id TEXT NOT NULL,
++  observed_at BIGINT NOT NULL,
++  stock_status TEXT NOT NULL,
++  stock_confidence DOUBLE PRECISION NOT NULL,
++  stock_quantity INTEGER,
++  price_pence INTEGER,
++  evidence JSONB NOT NULL DEFAULT '[]'::jsonb
++);
++CREATE INDEX IF NOT EXISTS fatedrop_stock_observations_offer_time_idx ON fatedrop_stock_observations(offer_id, observed_at DESC);
++
++CREATE TABLE IF NOT EXISTS fatedrop_signals (
++  id TEXT PRIMARY KEY,
++  state TEXT NOT NULL,
++  product_id TEXT NOT NULL REFERENCES fatedrop_products(id),
++  offer_id TEXT NOT NULL REFERENCES fatedrop_retail_offers(offer_id),
++  retailer_id TEXT NOT NULL,
++  retailer_name TEXT NOT NULL,
++  title TEXT NOT NULL,
++  product_type TEXT NOT NULL,
++  url TEXT NOT NULL,
++  image_url TEXT,
++  price_pence INTEGER,
++  rrp_pence INTEGER,
++  postage_pence INTEGER,
++  delivered_price_pence INTEGER,
++  markup_percent DOUBLE PRECISION,
++  stock_status TEXT NOT NULL,
++  previous_stock_status TEXT,
++  confidence DOUBLE PRECISION NOT NULL,
++  detected_at BIGINT NOT NULL,
++  reason TEXT NOT NULL,
++  evidence JSONB NOT NULL DEFAULT '[]'::jsonb
++);
++CREATE INDEX IF NOT EXISTS fatedrop_signals_time_idx ON fatedrop_signals(detected_at DESC);
++CREATE INDEX IF NOT EXISTS fatedrop_signals_state_time_idx ON fatedrop_signals(state, detected_at DESC);
++
++CREATE TABLE IF NOT EXISTS fatedrop_retailer_health (
++  retailer_id TEXT PRIMARY KEY,
++  retailer_name TEXT NOT NULL,
++  healthy BOOLEAN NOT NULL DEFAULT FALSE,
++  last_scan_at BIGINT,
++  last_success_at BIGINT,
++  last_error TEXT,
++  last_error_at BIGINT,
++  products_seen INTEGER NOT NULL DEFAULT 0,
++  pages_scanned INTEGER NOT NULL DEFAULT 0,
++  baseline_completed BOOLEAN NOT NULL DEFAULT FALSE
++);
++
++CREATE TABLE IF NOT EXISTS fatedrop_signal_network_snapshots (
++  id TEXT PRIMARY KEY,
++  measured_at BIGINT NOT NULL,
++  metrics JSONB NOT NULL,
++  retailer_health JSONB NOT NULL
++);
++CREATE INDEX IF NOT EXISTS fatedrop_signal_network_snapshots_time_idx ON fatedrop_signal_network_snapshots(measured_at DESC);
+diff --git a/signal-engine/docs/ARCHITECTURE.md b/signal-engine/docs/ARCHITECTURE.md
+new file mode 100644
+index 0000000..8648e96
+--- /dev/null
++++ b/signal-engine/docs/ARCHITECTURE.md
+@@ -0,0 +1,56 @@
++# FateDrop Signal Engine V1
++
++## Purpose
++
++One shared intelligence engine supplies the website, mobile app and Discord. User interfaces do not scrape retailers and do not invent lifecycle states.
++
++`Retailer catalogues -> observations -> canonical products/offers -> lifecycle engine -> signals API -> web/mobile/Discord`
++
++## V1 retailer scope
++
++- Pokémon Center UK — official catalogue and RRP reference where the same canonical product is matched.
++- Smyths Toys UK — Pokémon TCG catalogue.
++- Chaos Cards — Pokémon sealed catalogue; singles/code cards are deliberately excluded in V1 to avoid noisy high-volume signals.
++- Indie stores are intentionally deferred. New sources use the same retailer adapter contract.
++
++The scanners only request public catalogue pages, use conservative delays, honour 429 responses, and stop on 401/403 instead of bypassing access controls or anti-bot challenges.
++
++## Lifecycle rules
++
++The first successful scan is a quiet baseline. Existing products are stored but do not generate thousands of launch alerts.
++
++- **Whisper** — a new catalogue product or pre-release status appears before verified purchasability.
++- **Manifested** — an offer becomes verified purchasable for the first time.
++- **Vanished** — a previously purchasable offer is no longer verified available.
++- **Echo** — a product with prior verified availability returns.
++
++Every signal retains the underlying observation evidence, timestamps, price and status transition.
++
++## Canonical product identity
++
++V1 uses deterministic title normalisation + product type. Retailer SKUs remain separate. Pokémon Center price can become the official RRP reference when the canonical key matches. V2 can add GTIN/EAN matching and fuzzy/manual reconciliation.
++
++## Price truth
++
++`pricePence` is the retailer's observed listed price. `postagePence` remains null until a retailer-specific delivery rule is evidence-backed. FateDrop must not call a price “delivered” if postage is unknown.
++
++## API
++
++- `GET /health`
++- `GET /v1/network`
++- `GET /v1/retailers`
++- `GET /v1/signals?state=manifested,echo&retailer=chaos-cards&since=<unix>&limit=100`
++- `POST /internal/scan` with `X-Fatedrop-Secret`
++
++Read endpoints use `Authorization: Bearer <FATEDROP_SIGNAL_API_TOKEN>` when configured.
++
++## Production storage
++
++Run `database/postgres.sql` and set:
++
++```
++FATEDROP_SIGNAL_STORE=postgres
++DATABASE_URL=...
++```
++
++Local development defaults to an ignored JSON file.
+diff --git a/signal-engine/docs/RETAILER_ADAPTERS.md b/signal-engine/docs/RETAILER_ADAPTERS.md
+new file mode 100644
+index 0000000..d2fb631
+--- /dev/null
++++ b/signal-engine/docs/RETAILER_ADAPTERS.md
+@@ -0,0 +1,49 @@
++# Retailer adapters — V1
++
++## General rule
++
++Adapters observe public catalogue/product pages only. FateDrop uses a normal identifiable user agent, conservative polling, conditional requests where supported, and stops on 401/403/429 rather than attempting to bypass access controls, CAPTCHAs or retailer rate limits.
++
++## Pokémon Center UK
++
++Discovery root: `https://www.pokemoncenter.com/en-gb/search/tcg-cards`
++
++Product URLs: `/en-gb/product/...`
++
++Role in V1:
++- product/SKU discovery
++- official listed price used as an RRP reference when canonical product matching succeeds
++- stock phrase classification such as sold-out vs purchasable state
++
++## Smyths Toys UK
++
++Discovery root: `https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202`
++
++Product IDs come from `/p/<ref>` URLs.
++
++Role in V1:
++- major-retailer catalogue discovery
++- price and online availability evidence where present in server-rendered catalogue/product markup
++
++## Chaos Cards
++
++V1 scans sealed-product subcategories rather than the enormous singles catalogue:
++- booster boxes
++- booster packs
++- collection boxes
++- elite trainer boxes
++- gift tins
++- Japanese products
++- other sealed products
++- theme decks
++
++Product URLs use `/prod/...`.
++
++Role in V1:
++- specialist-retailer catalogue discovery
++- price
++- stock states such as Add to basket / Only N left / Coming soon / Notify me
++
++## Why adapters are configurable
++
++Retailers change markup. Extraction first looks for structured Product JSON-LD and then falls back to card semantics. Retailer selectors/URL patterns are kept in `src/config/retailers.mjs` so a markup change can be repaired without rewriting the lifecycle engine.
+diff --git a/signal-engine/package.json b/signal-engine/package.json
+new file mode 100644
+index 0000000..e953e4b
+--- /dev/null
++++ b/signal-engine/package.json
+@@ -0,0 +1,17 @@
++{
++  "name": "fatedrop-signal-engine",
++  "version": "0.1.0",
++  "private": true,
++  "type": "module",
++  "engines": { "node": ">=22" },
++  "scripts": {
++    "dev": "node --watch src/server.mjs",
++    "start": "node src/server.mjs",
++    "scan": "node src/scan-once.mjs",
++    "test": "node --test tests/*.test.mjs"
++  },
++  "dependencies": {
++    "cheerio": "1.1.2",
++    "pg": "8.16.3"
++  }
++}
+diff --git a/signal-engine/src/adapters/catalogue-adapter.mjs b/signal-engine/src/adapters/catalogue-adapter.mjs
+new file mode 100644
+index 0000000..690b04c
+--- /dev/null
++++ b/signal-engine/src/adapters/catalogue-adapter.mjs
+@@ -0,0 +1,31 @@
++import { extractCatalogueProducts } from "../core/extract.mjs";
++import { fetchCataloguePage, sleep } from "../core/fetch.mjs";
++
++function withPage(url, param, page) {
++  if (page <= 1) return url;
++  const parsed = new URL(url);
++  parsed.searchParams.set(param, String(page));
++  return parsed.toString();
++}
++
++export async function scanRetailerCatalogue(retailer) {
++  const found = new Map();
++  const pages = [];
++  for (const rootUrl of retailer.catalogueUrls) {
++    let lastSize = -1;
++    for (let page = 1; page <= retailer.maxPages; page += 1) {
++      const pageUrl = withPage(rootUrl, retailer.pageParam, page);
++      const response = await fetchCataloguePage(pageUrl);
++      const products = extractCatalogueProducts({ html: response.html, pageUrl, retailer })
++        .filter((item) => !retailer.include || retailer.include.test(`${item.title} ${item.url}`))
++        .filter((item) => !retailer.exclude || !retailer.exclude.test(`${item.title} ${item.url}`));
++      for (const product of products) found.set(product.retailerSku, product);
++      pages.push({ pageUrl, discovered: products.length, status: response.status });
++      if (page > 1 && found.size === lastSize) break;
++      lastSize = found.size;
++      if (products.length === 0 && page > 1) break;
++      if (page < retailer.maxPages) await sleep(retailer.delayMs);
++    }
++  }
++  return { products: [...found.values()], pages };
++}
+diff --git a/signal-engine/src/config/env.mjs b/signal-engine/src/config/env.mjs
+new file mode 100644
+index 0000000..1db3bc5
+--- /dev/null
++++ b/signal-engine/src/config/env.mjs
+@@ -0,0 +1,31 @@
++import path from "node:path";
++
++function bool(name, fallback = false) {
++  const raw = process.env[name];
++  if (raw == null || raw === "") return fallback;
++  return ["1", "true", "yes", "on"].includes(raw.toLowerCase());
++}
++function int(name, fallback) {
++  const value = Number.parseInt(process.env[name] ?? "", 10);
++  return Number.isFinite(value) ? value : fallback;
++}
++
++export const env = {
++  port: int("PORT", 8787),
++  apiToken: process.env.FATEDROP_SIGNAL_API_TOKEN || "",
++  ingestSecret: process.env.FATEDROP_SIGNAL_INGEST_SECRET || "",
++  store: process.env.FATEDROP_SIGNAL_STORE || "file",
++  filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
++  databaseUrl: process.env.DATABASE_URL || "",
++  scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
++  scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
++  scanConcurrency: Math.max(1, Math.min(4, int("FATEDROP_SCAN_CONCURRENCY", 2))),
++  fetchTimeoutMs: Math.max(3000, int("FATEDROP_FETCH_TIMEOUT_MS", 15000)),
++  userAgent: process.env.FATEDROP_FETCH_USER_AGENT || "FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)",
++  suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
++  retailers: {
++    pokemonCenterUk: bool("FATEDROP_RETAILER_POKEMON_CENTER_UK", true),
++    smythsUk: bool("FATEDROP_RETAILER_SMYTHS_UK", true),
++    chaosCards: bool("FATEDROP_RETAILER_CHAOS_CARDS", true),
++  },
++};
+diff --git a/signal-engine/src/config/retailers.mjs b/signal-engine/src/config/retailers.mjs
+new file mode 100644
+index 0000000..db4d26b
+--- /dev/null
++++ b/signal-engine/src/config/retailers.mjs
+@@ -0,0 +1,60 @@
++import { env } from "./env.mjs";
++
++// V1 intentionally starts with major UK catalogues. Indies plug into this same adapter contract later.
++export const retailers = [
++  {
++    id: "pokemon-center-uk",
++    name: "Pokémon Center UK",
++    enabled: env.retailers.pokemonCenterUk,
++    baseUrl: "https://www.pokemoncenter.com/en-gb/",
++    catalogueUrls: ["https://www.pokemoncenter.com/en-gb/search/tcg-cards"],
++    productUrlPattern: /pokemoncenter\.com\/en-gb\/product\//i,
++    skuPattern: /\/product\/([^/?#]+)/i,
++    pageParam: "page",
++    maxPages: 40,
++    delayMs: 1800,
++    officialRrpSource: true,
++    include: /pokemon|tcg|trading card/i,
++    exclude: null,
++  },
++  {
++    id: "smyths-uk",
++    name: "Smyths Toys UK",
++    enabled: env.retailers.smythsUk,
++    baseUrl: "https://www.smythstoys.com/uk/en-gb/",
++    catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202"],
++    productUrlPattern: /smythstoys\.com\/uk\/en-gb\/.*\/p\/\d+/i,
++    skuPattern: /\/p\/(\d+)/i,
++    pageParam: "page",
++    maxPages: 4,
++    delayMs: 2200,
++    officialRrpSource: false,
++    include: /pokemon|trading card|tcg/i,
++    exclude: null,
++  },
++  {
++    id: "chaos-cards",
++    name: "Chaos Cards",
++    enabled: env.retailers.chaosCards,
++    baseUrl: "https://www.chaoscards.co.uk/",
++    catalogueUrls: [
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/booster-boxes-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/booster-packs-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/collection-boxes-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/elite-trainer-boxes-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/gift-tins-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/japanese-products-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/other-sealed-products-pokemon",
++      "https://www.chaoscards.co.uk/shop/card-games/pokemon/theme-decks-pokemon"
++    ],
++    productUrlPattern: /chaoscards\.co\.uk\/prod\//i,
++    skuPattern: /\/prod\/[^/]+\/([^/?#]+)$/i,
++    pageParam: "page",
++    maxPages: 20,
++    delayMs: 1800,
++    officialRrpSource: false,
++    include: /pokemon/i,
++    // Singles/code-card inventory is intentionally excluded from Signal Engine V1 to keep stock signals focused on sealed retail product.
++    exclude: /\bsingle\b|code card|online play/i,
++  },
++].filter((retailer) => retailer.enabled);
+diff --git a/signal-engine/src/core/engine.mjs b/signal-engine/src/core/engine.mjs
+new file mode 100644
+index 0000000..924f673
+--- /dev/null
++++ b/signal-engine/src/core/engine.mjs
+@@ -0,0 +1,82 @@
++import { scanRetailerCatalogue } from "../adapters/catalogue-adapter.mjs";
++import { env } from "../config/env.mjs";
++import { deriveSignal } from "./signals.mjs";
++import { isPurchasable } from "./model.mjs";
++import { stableId } from "./normalize.mjs";
++
++export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000) }) {
++  const startedAt = now;
++  try {
++    const baselineComplete = await store.isBaselineComplete(retailer.id);
++    const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
++    const { products: rawProducts, pages } = await scanRetailerCatalogue(retailer);
++    const products = [];
++    const offers = [];
++    const observations = [];
++    const signals = [];
++
++    for (const raw of rawProducts) {
++      const productId = stableId("prd", raw.canonicalKey);
++      const previousProduct = await store.getProduct(productId);
++      const officialRrpPence = retailer.officialRrpSource && raw.pricePence != null ? raw.pricePence : previousProduct?.officialRrpPence ?? null;
++      const product = {
++        id: productId,
++        canonicalKey: raw.canonicalKey,
++        title: previousProduct?.title || raw.title,
++        productType: raw.productType,
++        tcg: "pokemon",
++        officialRrpPence,
++        rrpSource: retailer.officialRrpSource && raw.pricePence != null ? retailer.id : previousProduct?.rrpSource ?? null,
++        rrpObservedAt: retailer.officialRrpSource && raw.pricePence != null ? now : previousProduct?.rrpObservedAt ?? null,
++        firstSeenAt: previousProduct?.firstSeenAt ?? now,
++        updatedAt: now,
++      };
++      const offerId = stableId("off", retailer.id, raw.retailerSku);
++      const previousOffer = await store.getOffer(offerId);
++      const everAvailableAt = previousOffer?.everAvailableAt ?? (isPurchasable(raw.stockStatus) ? now : null);
++      const offer = {
++        offerId,
++        productId,
++        retailerId: retailer.id,
++        retailerName: retailer.name,
++        retailerSku: raw.retailerSku,
++        title: raw.title,
++        url: raw.url,
++        imageUrl: raw.imageUrl,
++        pricePence: raw.pricePence,
++        rrpPence: officialRrpPence,
++        postagePence: null,
++        stockStatus: raw.stockStatus,
++        stockConfidence: raw.stockConfidence,
++        stockQuantity: raw.stockQuantity,
++        evidence: raw.evidence,
++        everAvailableAt,
++        firstSeenAt: previousOffer?.firstSeenAt ?? now,
++        lastSeenAt: now,
++      };
++      const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
++      const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
++      products.push(product); offers.push(offer); observations.push(observation); if (signal) signals.push(signal);
++    }
++
++    await store.saveScan({ retailer, products, offers, observations, signals, completedAt: Math.floor(Date.now()/1000), health: { healthy: true, productsSeen: offers.length, pagesScanned: pages.length, quietBaseline } });
++    return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned: pages.length, productsSeen: offers.length, signalsCreated: signals.length, signals };
++  } catch (error) {
++    await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
++    return { retailerId: retailer.id, retailerName: retailer.name, error: String(error?.message || error), signalsCreated: 0 };
++  }
++}
++
++export async function scanAll({ retailers, store }) {
++  const results = [];
++  for (let i = 0; i < retailers.length; i += env.scanConcurrency) {
++    const batch = retailers.slice(i, i + env.scanConcurrency);
++    results.push(...await Promise.all(batch.map((retailer) => scanRetailer({ retailer, store }))));
++  }
++  const measuredAt = Math.floor(Date.now() / 1000);
++  if (store.recordNetworkSnapshot) {
++    const [metrics, retailerHealth] = await Promise.all([store.stats(), store.listRetailers()]);
++    await store.recordNetworkSnapshot({ id: stableId("net", String(measuredAt), String(metrics.offersTracked), String(metrics.signals24h)), measuredAt, metrics, retailers: retailerHealth });
++  }
++  return results;
++}
+diff --git a/signal-engine/src/core/extract.mjs b/signal-engine/src/core/extract.mjs
+new file mode 100644
+index 0000000..7fbbcae
+--- /dev/null
++++ b/signal-engine/src/core/extract.mjs
+@@ -0,0 +1,107 @@
++import { load } from "cheerio";
++import { classifyStockStatus } from "./status.mjs";
++import { canonicalKey, normalizeWhitespace, parseMoneyToPence, productTypeFromTitle, stableId } from "./normalize.mjs";
++
++function absoluteUrl(href, baseUrl) {
++  try { return new URL(href, baseUrl).toString(); } catch { return null; }
++}
++
++function jsonLdProducts($) {
++  const products = [];
++  $('script[type="application/ld+json"]').each((_, node) => {
++    const raw = $(node).text();
++    if (!raw) return;
++    try {
++      const parsed = JSON.parse(raw);
++      const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
++      while (queue.length) {
++        const item = queue.shift();
++        if (!item || typeof item !== "object") continue;
++        if (item["@graph"]) queue.push(...(Array.isArray(item["@graph"]) ? item["@graph"] : [item["@graph"]]));
++        if (item.itemListElement) queue.push(...(Array.isArray(item.itemListElement) ? item.itemListElement : [item.itemListElement]));
++        if (item.item && typeof item.item === "object") queue.push(item.item);
++        const types = Array.isArray(item["@type"]) ? item["@type"] : [item["@type"]];
++        if (!types.includes("Product")) continue;
++        const offers = Array.isArray(item.offers) ? item.offers[0] : item.offers;
++        products.push({
++          title: item.name,
++          url: item.url,
++          imageUrl: Array.isArray(item.image) ? item.image[0] : item.image,
++          sku: item.sku || item.mpn || null,
++          pricePence: parseMoneyToPence(offers?.price),
++          availability: offers?.availability || "",
++          rawText: `${item.name || ""} ${offers?.availability || ""}`,
++        });
++      }
++    } catch { /* malformed JSON-LD is ignored */ }
++  });
++  return products;
++}
++
++function cardProducts($, config, pageUrl) {
++  const products = [];
++  const seen = new Set();
++  const selector = config.cardSelector || "article, li, [class*=product], [data-product]";
++  $(selector).each((_, node) => {
++    const card = $(node);
++    const anchor = card.find('a[href]').filter((__, a) => config.productUrlPattern.test($(a).attr('href') || "")).first();
++    if (!anchor.length) return;
++    const url = absoluteUrl(anchor.attr("href"), pageUrl);
++    if (!url || seen.has(url)) return;
++    const text = normalizeWhitespace(card.text());
++    if (!text || text.length > 4000) return;
++    const title = normalizeWhitespace(
++      card.find(config.titleSelector || "h1,h2,h3,h4,[class*=title],[class*=name]").first().text() ||
++      anchor.attr("title") || anchor.text()
++    );
++    if (!title || title.length < 4) return;
++    const priceText = card.find(config.priceSelector || "[class*=price], [data-price]").first().text() || text;
++    const image = card.find("img").first();
++    seen.add(url);
++    products.push({ title, url, imageUrl: absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl), sku: card.attr("data-sku") || null, pricePence: parseMoneyToPence(priceText), rawText: text });
++  });
++  return products;
++}
++
++export function extractCatalogueProducts({ html, pageUrl, retailer }) {
++  const $ = load(html);
++  const fromLd = jsonLdProducts($);
++  const fromCards = cardProducts($, retailer, pageUrl);
++  const merged = new Map();
++  for (const raw of [...fromCards, ...fromLd]) {
++    if (!raw.title) continue;
++    const url = raw.url ? absoluteUrl(raw.url, pageUrl) : null;
++    if (!url || !retailer.productUrlPattern.test(url)) continue;
++    const text = `${raw.rawText || ""} ${raw.availability || ""}`;
++    const stock = classifyStockStatus(text);
++    const productType = productTypeFromTitle(raw.title);
++    const retailerSku = raw.sku || url.match(retailer.skuPattern)?.[1] || stableId("sku", retailer.id, url).slice(-16);
++    const key = `${retailer.id}:${retailerSku}`;
++    const existing = merged.get(key);
++    merged.set(key, {
++      ...(existing || {}),
++      retailerSku,
++      title: normalizeWhitespace(raw.title),
++      url,
++      imageUrl: raw.imageUrl || existing?.imageUrl || null,
++      pricePence: raw.pricePence ?? existing?.pricePence ?? null,
++      productType,
++      canonicalKey: canonicalKey(raw.title, productType),
++      stockStatus: stock.status,
++      stockConfidence: stock.confidence,
++      stockQuantity: stock.quantity ?? null,
++      evidence: [{ kind: "catalogue", value: stock.evidence, pageUrl }],
++    });
++  }
++  return [...merged.values()];
++}
++
++export function discoverProductLinks({ html, pageUrl, retailer }) {
++  const $ = load(html);
++  const links = new Set();
++  $('a[href]').each((_, node) => {
++    const url = absoluteUrl($(node).attr("href"), pageUrl);
++    if (url && retailer.productUrlPattern.test(url)) links.add(url.split("#")[0]);
++  });
++  return [...links];
++}
+diff --git a/signal-engine/src/core/fetch.mjs b/signal-engine/src/core/fetch.mjs
+new file mode 100644
+index 0000000..ab7f2d6
+--- /dev/null
++++ b/signal-engine/src/core/fetch.mjs
+@@ -0,0 +1,32 @@
++import { env } from "../config/env.mjs";
++
++const cache = new Map();
++
++export async function fetchCataloguePage(url) {
++  const previous = cache.get(url) || {};
++  const controller = new AbortController();
++  const timer = setTimeout(() => controller.abort(), env.fetchTimeoutMs);
++  try {
++    const headers = {
++      "user-agent": env.userAgent,
++      "accept": "text/html,application/xhtml+xml",
++      "accept-language": "en-GB,en;q=0.9",
++    };
++    if (previous.etag) headers["if-none-match"] = previous.etag;
++    if (previous.lastModified) headers["if-modified-since"] = previous.lastModified;
++    const response = await fetch(url, { headers, redirect: "follow", signal: controller.signal });
++    if (response.status === 304 && previous.html) return { html: previous.html, status: 304, unchanged: true };
++    if (response.status === 403 || response.status === 401) throw new Error(`Retailer blocked catalogue request (${response.status}); adapter disabled for this scan — FateDrop will not bypass access controls.`);
++    if (response.status === 429) throw new Error("Retailer rate-limited catalogue request (429); back off rather than bypassing the limit.");
++    if (!response.ok) throw new Error(`Catalogue request failed (${response.status})`);
++    const contentType = response.headers.get("content-type") || "";
++    if (!contentType.includes("text/html")) throw new Error(`Unexpected catalogue content type: ${contentType}`);
++    const html = await response.text();
++    cache.set(url, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
++    return { html, status: response.status, unchanged: false };
++  } finally {
++    clearTimeout(timer);
++  }
++}
++
++export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+diff --git a/signal-engine/src/core/model.mjs b/signal-engine/src/core/model.mjs
+new file mode 100644
+index 0000000..aa7240e
+--- /dev/null
++++ b/signal-engine/src/core/model.mjs
+@@ -0,0 +1,19 @@
++export const StockStatus = Object.freeze({
++  IN_STOCK: "in_stock",
++  LOW_STOCK: "low_stock",
++  OUT_OF_STOCK: "out_of_stock",
++  PREORDER: "preorder",
++  COMING_SOON: "coming_soon",
++  UNKNOWN: "unknown",
++});
++
++export const SignalState = Object.freeze({
++  WHISPER: "whisper",
++  MANIFESTED: "manifested",
++  VANISHED: "vanished",
++  ECHO: "echo",
++});
++
++export function isPurchasable(status) {
++  return status === StockStatus.IN_STOCK || status === StockStatus.LOW_STOCK;
++}
+diff --git a/signal-engine/src/core/normalize.mjs b/signal-engine/src/core/normalize.mjs
+new file mode 100644
+index 0000000..2dfd814
+--- /dev/null
++++ b/signal-engine/src/core/normalize.mjs
+@@ -0,0 +1,61 @@
++import crypto from "node:crypto";
++
++const stopWords = new Set(["pokemon", "pokémon", "tcg", "trading", "card", "game", "cards"]);
++
++export function normalizeWhitespace(value = "") {
++  return String(value).replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
++}
++
++export function normalizeTitle(value = "") {
++  const text = normalizeWhitespace(value)
++    .normalize("NFKD")
++    .replace(/\p{M}/gu, "")
++    .replace(/[™®©]/g, "")
++    .toLowerCase()
++    .replace(/&/g, " and ")
++    .replace(/[^a-z0-9]+/g, " ")
++    .trim();
++
++  return text
++    .split(" ")
++    .filter((token) => token && !stopWords.has(token))
++    .join(" ");
++}
++
++export function canonicalKey(title, productType = "other") {
++  const normalized = normalizeTitle(title);
++  return `${productType}:${normalized}`;
++}
++
++export function stableId(prefix, ...parts) {
++  const hash = crypto.createHash("sha256").update(parts.join("\u241f")).digest("hex").slice(0, 24);
++  return `${prefix}_${hash}`;
++}
++
++export function parseMoneyToPence(value) {
++  if (value == null) return null;
++  if (typeof value === "number" && Number.isFinite(value)) return Math.round(value * 100);
++  const raw = normalizeWhitespace(value).replace(/,/g, "");
++  const match = raw.match(/(?:£|GBP\s*)?([0-9]+(?:\.[0-9]{1,2})?)/i);
++  if (!match) return null;
++  const amount = Number.parseFloat(match[1]);
++  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
++}
++
++export function productTypeFromTitle(title = "") {
++  const t = normalizeTitle(title);
++  if (/elite trainer box|\betb\b/.test(t)) return "elite_trainer_box";
++  if (/booster display|booster box/.test(t)) return "booster_box";
++  if (/booster bundle/.test(t)) return "booster_bundle";
++  if (/booster pack|sleeved booster/.test(t)) return "booster_pack";
++  if (/collection|premium collection|box/.test(t)) return "collection_box";
++  if (/\btin\b/.test(t)) return "tin";
++  if (/battle deck|theme deck|league battle deck/.test(t)) return "deck";
++  if (/sleeves|binder|deck box|playmat|portfolio/.test(t)) return "accessory";
++  return "other";
++}
++
++export function markupPercent(pricePence, rrpPence) {
++  if (!Number.isFinite(pricePence) || !Number.isFinite(rrpPence) || rrpPence <= 0) return null;
++  return Math.round((((pricePence - rrpPence) / rrpPence) * 100) * 10) / 10;
++}
+diff --git a/signal-engine/src/core/signals.mjs b/signal-engine/src/core/signals.mjs
+new file mode 100644
+index 0000000..7da4f2f
+--- /dev/null
++++ b/signal-engine/src/core/signals.mjs
+@@ -0,0 +1,67 @@
++import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
++import { markupPercent, stableId } from "./normalize.mjs";
++
++export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
++  if (isBaseline) return null;
++
++  const previousStatus = previousOffer?.stockStatus ?? null;
++  const currentStatus = currentOffer.stockStatus;
++  const wasPurchasable = previousOffer ? isPurchasable(previousStatus) : false;
++  const nowPurchasable = isPurchasable(currentStatus);
++  const everAvailable = Boolean(previousOffer?.everAvailableAt);
++
++  let state = null;
++  let reason = null;
++  if (!previousOffer) {
++    if (nowPurchasable) {
++      state = SignalState.MANIFESTED;
++      reason = "New catalogue product discovered and purchasable";
++    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)) {
++      state = SignalState.WHISPER;
++      reason = "New catalogue product discovered before verified availability";
++    }
++  } else if (!wasPurchasable && nowPurchasable) {
++    state = everAvailable ? SignalState.ECHO : SignalState.MANIFESTED;
++    reason = everAvailable ? "Previously available product returned" : "Availability became verified";
++  } else if (wasPurchasable && !nowPurchasable) {
++    state = SignalState.VANISHED;
++    reason = "Previously purchasable product is no longer verified available";
++  } else if (
++    previousStatus !== currentStatus &&
++    !nowPurchasable &&
++    [StockStatus.PREORDER, StockStatus.COMING_SOON].includes(currentStatus)
++  ) {
++    state = SignalState.WHISPER;
++    reason = "Catalogue status changed before verified availability";
++  }
++
++  if (!state) return null;
++  const id = stableId("sig", currentOffer.offerId, state, String(now), currentStatus);
++  const deliveredPricePence = currentOffer.postagePence == null || currentOffer.pricePence == null
++    ? null
++    : currentOffer.pricePence + currentOffer.postagePence;
++
++  return {
++    id,
++    state,
++    productId: currentOffer.productId,
++    offerId: currentOffer.offerId,
++    retailerId: currentOffer.retailerId,
++    retailerName: currentOffer.retailerName,
++    title: currentOffer.title,
++    productType: currentOffer.productType,
++    url: currentOffer.url,
++    imageUrl: currentOffer.imageUrl ?? null,
++    pricePence: currentOffer.pricePence ?? null,
++    rrpPence: currentOffer.rrpPence ?? null,
++    postagePence: currentOffer.postagePence ?? null,
++    deliveredPricePence,
++    markupPercent: markupPercent(currentOffer.pricePence, currentOffer.rrpPence),
++    stockStatus: currentStatus,
++    previousStockStatus: previousStatus,
++    confidence: currentOffer.stockConfidence ?? 0.5,
++    detectedAt: now,
++    reason,
++    evidence: currentOffer.evidence ?? [],
++  };
++}
+diff --git a/signal-engine/src/core/status.mjs b/signal-engine/src/core/status.mjs
+new file mode 100644
+index 0000000..583ee48
+--- /dev/null
++++ b/signal-engine/src/core/status.mjs
+@@ -0,0 +1,22 @@
++import { StockStatus } from "./model.mjs";
++import { normalizeWhitespace } from "./normalize.mjs";
++
++export function classifyStockStatus(text = "") {
++  const value = normalizeWhitespace(text).toLowerCase();
++  if (!value) return { status: StockStatus.UNKNOWN, confidence: 0.2, evidence: "No stock wording found" };
++
++  const low = value.match(/only\s+(\d+)\s+(?:left|remaining)/i);
++  if (low) return { status: StockStatus.LOW_STOCK, confidence: 0.99, quantity: Number(low[1]), evidence: low[0] };
++
++  const rules = [
++    [StockStatus.OUT_OF_STOCK, 0.99, /sold out|out of stock|currently unavailable|unavailable online|temporarily unavailable/],
++    [StockStatus.PREORDER, 0.96, /pre[- ]?order|preorder/],
++    [StockStatus.COMING_SOON, 0.92, /coming soon|notify me|release date|estimated delayed/],
++    [StockStatus.IN_STOCK, 0.98, /add to basket|add to cart|in stock|available for delivery|buy now/],
++  ];
++  for (const [status, confidence, regex] of rules) {
++    const match = value.match(regex);
++    if (match) return { status, confidence, evidence: match[0] };
++  }
++  return { status: StockStatus.UNKNOWN, confidence: 0.35, evidence: "No definitive stock phrase" };
++}
+diff --git a/signal-engine/src/http/server.mjs b/signal-engine/src/http/server.mjs
+new file mode 100644
+index 0000000..616c66a
+--- /dev/null
++++ b/signal-engine/src/http/server.mjs
+@@ -0,0 +1,49 @@
++import http from "node:http";
++import { env } from "../config/env.mjs";
++import { retailers } from "../config/retailers.mjs";
++import { scanAll } from "../core/engine.mjs";
++
++function json(res, status, body) {
++  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
++  res.end(JSON.stringify(body));
++}
++function unauthorized(res) { json(res, 401, { error: "Unauthorized" }); }
++function tokenFrom(req) { const auth=req.headers.authorization||""; return auth.startsWith("Bearer ") ? auth.slice(7) : ""; }
++function parseCsv(value) { return value ? value.split(",").map((x)=>x.trim()).filter(Boolean) : []; }
++async function readBody(req) { let raw=""; for await (const chunk of req) { raw += chunk; if (raw.length > 1_000_000) throw new Error("Body too large"); } return raw ? JSON.parse(raw) : {}; }
++
++export function createHttpServer({ store }) {
++  return http.createServer(async (req, res) => {
++    try {
++      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
++      if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, service: "fatedrop-signal-engine", version: "0.1.0" });
++      if (req.method === "GET" && url.pathname === "/v1/network") {
++        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
++        return json(res, 200, { generatedAt: Math.floor(Date.now()/1000), stats: await store.stats(), retailers: await store.listRetailers() });
++      }
++      if (req.method === "GET" && url.pathname === "/v1/retailers") {
++        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
++        return json(res, 200, { retailers: await store.listRetailers() });
++      }
++      if (req.method === "GET" && url.pathname === "/v1/network/history") {
++        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
++        const limit = Math.max(1, Math.min(180, Number.parseInt(url.searchParams.get("limit") || "30", 10)));
++        return json(res, 200, { snapshots: await store.listNetworkSnapshots(limit) });
++      }
++      if (req.method === "GET" && url.pathname === "/v1/signals") {
++        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
++        const limit = Math.max(1, Math.min(250, Number.parseInt(url.searchParams.get("limit") || "100", 10)));
++        const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
++        const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit });
++        return json(res, 200, { generatedAt: Math.floor(Date.now()/1000), signals });
++      }
++      if (req.method === "POST" && url.pathname === "/internal/scan") {
++        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
++        const body = await readBody(req);
++        const selected = body.retailerIds?.length ? retailers.filter((r)=>body.retailerIds.includes(r.id)) : retailers;
++        return json(res, 200, { results: await scanAll({ retailers: selected, store }) });
++      }
++      return json(res, 404, { error: "Not found" });
++    } catch (error) { return json(res, 500, { error: "Signal engine error", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }); }
++  });
++}
+diff --git a/signal-engine/src/scan-once.mjs b/signal-engine/src/scan-once.mjs
+new file mode 100644
+index 0000000..645bb95
+--- /dev/null
++++ b/signal-engine/src/scan-once.mjs
+@@ -0,0 +1,10 @@
++import { retailers } from "./config/retailers.mjs";
++import { scanAll } from "./core/engine.mjs";
++import { createStore } from "./stores/index.mjs";
++
++const requested = process.argv.find((x) => x.startsWith("--retailer="))?.split("=")[1];
++const selected = requested ? retailers.filter((r) => r.id === requested) : retailers;
++if (!selected.length) { console.error(`No enabled retailer matched ${requested || "configuration"}.`); process.exit(1); }
++const results = await scanAll({ retailers: selected, store: createStore() });
++console.log(JSON.stringify(results, null, 2));
++process.exit(results.some((r) => r.error) ? 2 : 0);
+diff --git a/signal-engine/src/server.mjs b/signal-engine/src/server.mjs
+new file mode 100644
+index 0000000..f1aa7eb
+--- /dev/null
++++ b/signal-engine/src/server.mjs
+@@ -0,0 +1,18 @@
++import { env } from "./config/env.mjs";
++import { retailers } from "./config/retailers.mjs";
++import { scanAll } from "./core/engine.mjs";
++import { createHttpServer } from "./http/server.mjs";
++import { createStore } from "./stores/index.mjs";
++
++const store = createStore();
++const server = createHttpServer({ store });
++let scanning = false;
++async function scheduledScan() {
++  if (scanning) return;
++  scanning = true;
++  try { const results = await scanAll({ retailers, store }); console.log(`[signal-engine] scan ${new Date().toISOString()}`, results.map((r)=>({retailer:r.retailerId,products:r.productsSeen,signals:r.signalsCreated,error:r.error}))); }
++  finally { scanning = false; }
++}
++server.listen(env.port, () => console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled`));
++if (env.scanOnStart) scheduledScan();
++setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
+diff --git a/signal-engine/src/stores/file-store.mjs b/signal-engine/src/stores/file-store.mjs
+new file mode 100644
+index 0000000..584783e
+--- /dev/null
++++ b/signal-engine/src/stores/file-store.mjs
+@@ -0,0 +1,82 @@
++import fs from "node:fs/promises";
++import path from "node:path";
++
++const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
++
++export class FileStore {
++  constructor(filePath) { this.filePath = filePath; this.writeQueue = Promise.resolve(); }
++  async read() {
++    try { return JSON.parse(await fs.readFile(this.filePath, "utf8")); }
++    catch (error) { if (error.code === "ENOENT") return structuredClone(EMPTY); throw error; }
++  }
++  async mutate(fn) {
++    this.writeQueue = this.writeQueue.then(async () => {
++      const state = await this.read();
++      const result = await fn(state);
++      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
++      const temp = `${this.filePath}.tmp`;
++      await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`);
++      await fs.rename(temp, this.filePath);
++      return result;
++    });
++    return this.writeQueue;
++  }
++  async getOffer(offerId) { return (await this.read()).offers[offerId] || null; }
++  async getProduct(productId) { return (await this.read()).products[productId] || null; }
++  async isBaselineComplete(retailerId) { return Boolean((await this.read()).metadata?.baselineCompleted?.[retailerId]); }
++  async saveScan({ retailer, products, offers, observations, signals, completedAt, health }) {
++    return this.mutate((state) => {
++      state.products ||= {}; state.offers ||= {}; state.observations ||= []; state.signals ||= []; state.retailers ||= {}; state.metadata ||= { baselineCompleted: {} }; state.metadata.baselineCompleted ||= {};
++      for (const product of products) state.products[product.id] = product;
++      for (const offer of offers) state.offers[offer.offerId] = offer;
++      state.observations.push(...observations);
++      state.signals.push(...signals);
++      // local store is for development; cap append-only arrays to avoid an unbounded JSON file.
++      if (state.observations.length > 100000) state.observations = state.observations.slice(-100000);
++      if (state.signals.length > 20000) state.signals = state.signals.slice(-20000);
++      state.retailers[retailer.id] = { id: retailer.id, name: retailer.name, ...health, lastScanAt: completedAt };
++      state.metadata.baselineCompleted[retailer.id] = true;
++    });
++  }
++  async recordFailure(retailer, error, now) {
++    return this.mutate((state) => {
++      state.retailers ||= {};
++      state.retailers[retailer.id] = { ...(state.retailers[retailer.id] || {}), id: retailer.id, name: retailer.name, healthy: false, lastError: String(error?.message || error), lastErrorAt: now };
++    });
++  }
++  async listSignals({ states = [], retailerIds = [], since = 0, limit = 100 } = {}) {
++    const state = await this.read();
++    return (state.signals || []).filter((signal) => signal.detectedAt >= since)
++      .filter((signal) => !states.length || states.includes(signal.state))
++      .filter((signal) => !retailerIds.length || retailerIds.includes(signal.retailerId))
++      .sort((a, b) => b.detectedAt - a.detectedAt).slice(0, limit);
++  }
++  async listRetailers() { return Object.values((await this.read()).retailers || {}); }
++  async recordNetworkSnapshot(snapshot) {
++    return this.mutate((state) => {
++      state.networkSnapshots ||= [];
++      if (!state.networkSnapshots.some((item) => item.id === snapshot.id)) state.networkSnapshots.push(snapshot);
++      state.networkSnapshots = state.networkSnapshots.sort((a, b) => a.measuredAt - b.measuredAt).slice(-2000);
++    });
++  }
++  async listNetworkSnapshots(limit = 30) {
++    const state = await this.read();
++    return [...(state.networkSnapshots || [])].sort((a, b) => b.measuredAt - a.measuredAt).slice(0, Math.min(180, Math.max(1, limit)));
++  }
++  async stats() {
++    const state = await this.read();
++    const offers = Object.values(state.offers || {});
++    const now = Math.floor(Date.now() / 1000);
++    const last24h = (state.signals || []).filter((s) => s.detectedAt >= now - 86400);
++    return {
++      productsTracked: Object.keys(state.products || {}).length,
++      offersTracked: offers.length,
++      currentlyAvailable: offers.filter((offer) => ["in_stock", "low_stock"].includes(offer.stockStatus)).length,
++      signals24h: last24h.length,
++      manifested24h: last24h.filter((s) => s.state === "manifested").length,
++      echo24h: last24h.filter((s) => s.state === "echo").length,
++      vanished24h: last24h.filter((s) => s.state === "vanished").length,
++      whisper24h: last24h.filter((s) => s.state === "whisper").length,
++    };
++  }
++}
+diff --git a/signal-engine/src/stores/index.mjs b/signal-engine/src/stores/index.mjs
+new file mode 100644
+index 0000000..4b5cbfe
+--- /dev/null
++++ b/signal-engine/src/stores/index.mjs
+@@ -0,0 +1,11 @@
++import { env } from "../config/env.mjs";
++import { FileStore } from "./file-store.mjs";
++import { PostgresStore } from "./postgres-store.mjs";
++
++export function createStore() {
++  if (env.store === "postgres") {
++    if (!env.databaseUrl) throw new Error("FATEDROP_SIGNAL_STORE=postgres requires DATABASE_URL");
++    return new PostgresStore(env.databaseUrl);
++  }
++  return new FileStore(env.filePath);
++}
+diff --git a/signal-engine/src/stores/postgres-store.mjs b/signal-engine/src/stores/postgres-store.mjs
+new file mode 100644
+index 0000000..13d24ee
+--- /dev/null
++++ b/signal-engine/src/stores/postgres-store.mjs
+@@ -0,0 +1,56 @@
++export class PostgresStore {
++  constructor(databaseUrl) { this.databaseUrl = databaseUrl; this.poolPromise = null; }
++  async pool() {
++    if (!this.poolPromise) this.poolPromise = import("pg").then(({ Pool }) => new Pool({ connectionString: this.databaseUrl, ssl: this.databaseUrl.includes("localhost") ? undefined : { rejectUnauthorized: false } }));
++    return this.poolPromise;
++  }
++  async getOffer(offerId) {
++    const pool = await this.pool();
++    const { rows } = await pool.query("SELECT * FROM fatedrop_retail_offers WHERE offer_id=$1", [offerId]);
++    if (!rows[0]) return null;
++    return dbOffer(rows[0]);
++  }
++  async getProduct(productId) {
++    const pool = await this.pool();
++    const { rows } = await pool.query("SELECT * FROM fatedrop_products WHERE id=$1", [productId]);
++    return rows[0] ? dbProduct(rows[0]) : null;
++  }
++  async isBaselineComplete(retailerId) {
++    const pool = await this.pool();
++    const { rows } = await pool.query("SELECT baseline_completed FROM fatedrop_retailer_health WHERE retailer_id=$1", [retailerId]);
++    return Boolean(rows[0]?.baseline_completed);
++  }
++  async saveScan({ retailer, products, offers, observations, signals, completedAt, health }) {
++    const pool = await this.pool();
++    const client = await pool.connect();
++    try {
++      await client.query("BEGIN");
++      for (const p of products) await client.query(`INSERT INTO fatedrop_products (id,canonical_key,title,product_type,tcg,official_rrp_pence,rrp_source,rrp_observed_at,first_seen_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, official_rrp_pence=COALESCE(EXCLUDED.official_rrp_pence,fatedrop_products.official_rrp_pence), rrp_source=COALESCE(EXCLUDED.rrp_source,fatedrop_products.rrp_source), rrp_observed_at=COALESCE(EXCLUDED.rrp_observed_at,fatedrop_products.rrp_observed_at), updated_at=EXCLUDED.updated_at`, [p.id,p.canonicalKey,p.title,p.productType,p.tcg,p.officialRrpPence,p.rrpSource,p.rrpObservedAt,p.firstSeenAt,p.updatedAt]);
++      for (const o of offers) await client.query(`INSERT INTO fatedrop_retail_offers (offer_id,product_id,retailer_id,retailer_name,retailer_sku,title,url,image_url,price_pence,postage_pence,stock_status,stock_confidence,stock_quantity,ever_available_at,first_seen_at,last_seen_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) ON CONFLICT (offer_id) DO UPDATE SET product_id=EXCLUDED.product_id,title=EXCLUDED.title,url=EXCLUDED.url,image_url=COALESCE(EXCLUDED.image_url,fatedrop_retail_offers.image_url),price_pence=EXCLUDED.price_pence,postage_pence=EXCLUDED.postage_pence,stock_status=EXCLUDED.stock_status,stock_confidence=EXCLUDED.stock_confidence,stock_quantity=EXCLUDED.stock_quantity,ever_available_at=COALESCE(fatedrop_retail_offers.ever_available_at,EXCLUDED.ever_available_at),last_seen_at=EXCLUDED.last_seen_at`, [o.offerId,o.productId,o.retailerId,o.retailerName,o.retailerSku,o.title,o.url,o.imageUrl,o.pricePence,o.postagePence,o.stockStatus,o.stockConfidence,o.stockQuantity,o.everAvailableAt,o.firstSeenAt,o.lastSeenAt]);
++      for (const x of observations) await client.query(`INSERT INTO fatedrop_stock_observations (id,offer_id,retailer_id,observed_at,stock_status,stock_confidence,stock_quantity,price_pence,evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) ON CONFLICT DO NOTHING`, [x.id,x.offerId,x.retailerId,x.observedAt,x.stockStatus,x.stockConfidence,x.stockQuantity,x.pricePence,JSON.stringify(x.evidence)]);
++      for (const s of signals) await client.query(`INSERT INTO fatedrop_signals (id,state,product_id,offer_id,retailer_id,retailer_name,title,product_type,url,image_url,price_pence,rrp_pence,postage_pence,delivered_price_pence,markup_percent,stock_status,previous_stock_status,confidence,detected_at,reason,evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb) ON CONFLICT DO NOTHING`, [s.id,s.state,s.productId,s.offerId,s.retailerId,s.retailerName,s.title,s.productType,s.url,s.imageUrl,s.pricePence,s.rrpPence,s.postagePence,s.deliveredPricePence,s.markupPercent,s.stockStatus,s.previousStockStatus,s.confidence,s.detectedAt,s.reason,JSON.stringify(s.evidence)]);
++      await client.query(`INSERT INTO fatedrop_retailer_health (retailer_id,retailer_name,healthy,last_scan_at,last_success_at,last_error,last_error_at,products_seen,pages_scanned,baseline_completed) VALUES ($1,$2,true,$3,$3,NULL,NULL,$4,$5,true) ON CONFLICT (retailer_id) DO UPDATE SET retailer_name=EXCLUDED.retailer_name,healthy=true,last_scan_at=EXCLUDED.last_scan_at,last_success_at=EXCLUDED.last_success_at,last_error=NULL,products_seen=EXCLUDED.products_seen,pages_scanned=EXCLUDED.pages_scanned,baseline_completed=true`, [retailer.id,retailer.name,completedAt,health.productsSeen,health.pagesScanned]);
++      await client.query("COMMIT");
++    } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
++  }
++  async recordFailure(retailer, error, now) {
++    const pool = await this.pool();
++    await pool.query(`INSERT INTO fatedrop_retailer_health (retailer_id,retailer_name,healthy,last_scan_at,last_error,last_error_at) VALUES ($1,$2,false,$3,$4,$3) ON CONFLICT (retailer_id) DO UPDATE SET healthy=false,last_scan_at=EXCLUDED.last_scan_at,last_error=EXCLUDED.last_error,last_error_at=EXCLUDED.last_error_at`, [retailer.id,retailer.name,now,String(error?.message || error)]);
++  }
++  async listSignals({ states = [], retailerIds = [], since = 0, limit = 100 } = {}) {
++    const pool = await this.pool();
++    const values = [since, Math.min(250, limit)];
++    const conditions = ["detected_at >= $1"];
++    if (states.length) { values.push(states); conditions.push(`state = ANY($${values.length})`); }
++    if (retailerIds.length) { values.push(retailerIds); conditions.push(`retailer_id = ANY($${values.length})`); }
++    const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
++    return rows.map(dbSignal);
++  }
++  async listRetailers() { const pool=await this.pool(); const {rows}=await pool.query("SELECT * FROM fatedrop_retailer_health ORDER BY retailer_name"); return rows.map((r)=>({ id:r.retailer_id,name:r.retailer_name,healthy:r.healthy,lastScanAt:Number(r.last_scan_at||0)||null,lastSuccessAt:Number(r.last_success_at||0)||null,lastError:r.last_error,productsSeen:r.products_seen,pagesScanned:r.pages_scanned,baselineCompleted:r.baseline_completed })); }
++  async recordNetworkSnapshot(snapshot) { const pool=await this.pool(); await pool.query(`INSERT INTO fatedrop_signal_network_snapshots (id, measured_at, metrics, retailer_health) VALUES ($1,$2,$3::jsonb,$4::jsonb) ON CONFLICT DO NOTHING`, [snapshot.id,snapshot.measuredAt,JSON.stringify(snapshot.metrics),JSON.stringify(snapshot.retailers)]); }
++  async listNetworkSnapshots(limit=30) { const pool=await this.pool(); const safe=Math.min(180,Math.max(1,limit)); const {rows}=await pool.query(`SELECT * FROM fatedrop_signal_network_snapshots ORDER BY measured_at DESC LIMIT $1`,[safe]); return rows.map((r)=>({id:r.id,measuredAt:Number(r.measured_at),metrics:r.metrics,retailers:r.retailer_health})); }
++  async stats() { const pool=await this.pool(); const {rows}=await pool.query(`SELECT (SELECT count(*) FROM fatedrop_products)::int products_tracked,(SELECT count(*) FROM fatedrop_retail_offers)::int offers_tracked,(SELECT count(*) FROM fatedrop_retail_offers WHERE stock_status IN ('in_stock','low_stock'))::int currently_available,(SELECT count(*) FROM fatedrop_signals WHERE detected_at >= extract(epoch from now())::bigint-86400)::int signals_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='manifested' AND detected_at >= extract(epoch from now())::bigint-86400)::int manifested_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='echo' AND detected_at >= extract(epoch from now())::bigint-86400)::int echo_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='vanished' AND detected_at >= extract(epoch from now())::bigint-86400)::int vanished_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='whisper' AND detected_at >= extract(epoch from now())::bigint-86400)::int whisper_24h`); const r=rows[0]; return {productsTracked:r.products_tracked,offersTracked:r.offers_tracked,currentlyAvailable:r.currently_available,signals24h:r.signals_24h,manifested24h:r.manifested_24h,echo24h:r.echo_24h,vanished24h:r.vanished_24h,whisper24h:r.whisper_24h}; }
++}
++function dbOffer(r){return{offerId:r.offer_id,productId:r.product_id,retailerId:r.retailer_id,retailerName:r.retailer_name,retailerSku:r.retailer_sku,title:r.title,url:r.url,imageUrl:r.image_url,pricePence:r.price_pence,postagePence:r.postage_pence,stockStatus:r.stock_status,stockConfidence:Number(r.stock_confidence),stockQuantity:r.stock_quantity,everAvailableAt:r.ever_available_at?Number(r.ever_available_at):null,firstSeenAt:Number(r.first_seen_at),lastSeenAt:Number(r.last_seen_at)}}
++function dbProduct(r){return{id:r.id,canonicalKey:r.canonical_key,title:r.title,productType:r.product_type,tcg:r.tcg,officialRrpPence:r.official_rrp_pence,rrpSource:r.rrp_source,rrpObservedAt:r.rrp_observed_at?Number(r.rrp_observed_at):null,firstSeenAt:Number(r.first_seen_at),updatedAt:Number(r.updated_at)}}
++function dbSignal(r){return{id:r.id,state:r.state,productId:r.product_id,offerId:r.offer_id,retailerId:r.retailer_id,retailerName:r.retailer_name,title:r.title,productType:r.product_type,url:r.url,imageUrl:r.image_url,pricePence:r.price_pence,rrpPence:r.rrp_pence,postagePence:r.postage_pence,deliveredPricePence:r.delivered_price_pence,markupPercent:r.markup_percent==null?null:Number(r.markup_percent),stockStatus:r.stock_status,previousStockStatus:r.previous_stock_status,confidence:Number(r.confidence),detectedAt:Number(r.detected_at),reason:r.reason,evidence:r.evidence||[]}}
+diff --git a/signal-engine/tests/normalize.test.mjs b/signal-engine/tests/normalize.test.mjs
+new file mode 100644
+index 0000000..7958388
+--- /dev/null
++++ b/signal-engine/tests/normalize.test.mjs
+@@ -0,0 +1,9 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { canonicalKey, parseMoneyToPence, productTypeFromTitle } from "../src/core/normalize.mjs";
++
++test("normalises retailer naming into a stable canonical key", () => {
++  assert.equal(canonicalKey("Pokémon TCG: Mega Evolution Elite Trainer Box", "elite_trainer_box"), "elite_trainer_box:mega evolution elite trainer box");
++});
++test("parses GBP prices", () => { assert.equal(parseMoneyToPence("£49.99"), 4999); assert.equal(parseMoneyToPence("RRP £154.44"), 15444); });
++test("classifies common sealed products", () => { assert.equal(productTypeFromTitle("Pokemon Mega Evolution Booster Box (36 Packs)"), "booster_box"); assert.equal(productTypeFromTitle("Pokémon 30th Celebration Elite Trainer Box"), "elite_trainer_box"); });
+diff --git a/signal-engine/tests/signals.test.mjs b/signal-engine/tests/signals.test.mjs
+new file mode 100644
+index 0000000..068e4d3
+--- /dev/null
++++ b/signal-engine/tests/signals.test.mjs
+@@ -0,0 +1,11 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { deriveSignal } from "../src/core/signals.mjs";
++
++const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,...extra });
++
++test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
++test("unavailable to available manifests",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200}).state,"manifested"));
++test("previously available return becomes echo",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock",{everAvailableAt:50}),currentOffer:offer("in_stock",{everAvailableAt:50}),now:200}).state,"echo"));
++test("available to unavailable vanishes",()=>assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200}).state,"vanished"));
++test("new coming-soon listing whispers",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200}).state,"whisper"));
+diff --git a/signal-engine/tests/status.test.mjs b/signal-engine/tests/status.test.mjs
+new file mode 100644
+index 0000000..2a2abc4
+--- /dev/null
++++ b/signal-engine/tests/status.test.mjs
+@@ -0,0 +1,10 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { classifyStockStatus } from "../src/core/status.mjs";
++
++test("stock wording is deterministic", () => {
++  assert.equal(classifyStockStatus("Add to basket").status, "in_stock");
++  assert.equal(classifyStockStatus("SOLD OUT").status, "out_of_stock");
++  assert.equal(classifyStockStatus("Coming soon - Notify me").status, "coming_soon");
++  assert.equal(classifyStockStatus("Only 3 left").status, "low_stock");
++});
