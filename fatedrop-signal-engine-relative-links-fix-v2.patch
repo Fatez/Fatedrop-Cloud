@@ -1,0 +1,19 @@
+diff --git a/signal-engine/src/core/extract.mjs b/signal-engine/src/core/extract.mjs
+--- a/signal-engine/src/core/extract.mjs
++++ b/signal-engine/src/core/extract.mjs
+@@ -45,8 +45,14 @@ function cardProducts($, config, pageUrl) {
+   const seen = new Set();
+   const selector = config.cardSelector || "article, li, [class*=product], [data-product]";
+   $(selector).each((_, node) => {
+     const card = $(node);
+-    const anchor = card.find('a[href]').filter((__, a) => config.productUrlPattern.test($(a).attr('href') || "")).first();
++    // Retailer catalogue cards commonly use relative hrefs. Resolve each link
++    // before applying the retailer URL pattern; otherwise valid links such as
++    // `/uk/en-gb/.../p/12345` are discarded before they become absolute URLs.
++    const anchor = card.find('a[href]').filter((__, a) => {
++      const candidate = absoluteUrl($(a).attr('href'), pageUrl);
++      return Boolean(candidate && config.productUrlPattern.test(candidate));
++    }).first();
+     if (!anchor.length) return;
+     const url = absoluteUrl(anchor.attr("href"), pageUrl);
+     if (!url || seen.has(url)) return;
