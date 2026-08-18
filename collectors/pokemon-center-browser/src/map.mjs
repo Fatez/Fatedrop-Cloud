@@ -56,18 +56,22 @@ export function mapPokemonCenterDoc(raw) {
   const launchDate = text(raw.launch_date) || null;
   const imageUrl = absoluteUrl(raw.primary_image_full_size || raw.primary_image || raw.thumb_image);
   const stockQuantity = numericValue(raw.stock_quantity ?? raw.inventory_quantity ?? raw.inventory ?? raw.ats);
+  const sellingPricePence = priceToPence(raw.sale_price ?? raw.price);
+  const officialRrpPence = priceToPence(raw.list_price ?? raw.regular_price ?? raw.price ?? raw.sale_price);
 
   const evidence = [
     { kind: "pokemon_center_search_api", value: `availability_status:${text(availabilityRaw) || "UNKNOWN"}` },
   ];
   if (launchDate) evidence.push({ kind: "pokemon_center_launch_date", value: launchDate });
+  if (officialRrpPence != null) evidence.push({ kind: "pokemon_center_official_rrp", value: String(officialRrpPence) });
 
   return {
     retailerSku: sku,
     title,
     url,
     imageUrl,
-    pricePence: priceToPence(raw.sale_price ?? raw.price),
+    pricePence: sellingPricePence,
+    officialRrpPence,
     stockStatus: mapAvailability(availabilityRaw),
     stockConfidence: 0.99,
     stockQuantity: Number.isFinite(stockQuantity) ? Math.round(stockQuantity) : null,
