@@ -23,6 +23,12 @@ export class FileStore {
   }
   async getOffer(offerId) { return (await this.read()).offers[offerId] || null; }
   async getProduct(productId) { return (await this.read()).products[productId] || null; }
+  async listOffers({ limit = 5000 } = {}) {
+    const state = await this.read();
+    return Object.values(state.offers || {})
+      .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
+      .slice(0, Math.min(10000, Math.max(1, limit)));
+  }
   async listProducts({ rrpSource = null, limit = 2000 } = {}) {
     const state = await this.read();
     return Object.values(state.products || {})
