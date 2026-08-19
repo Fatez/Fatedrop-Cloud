@@ -7,9 +7,9 @@ function compilePattern(value, field) {
   try { return new RegExp(String(value), "i"); } catch { throw new Error(`${field} is not a valid regular expression`); }
 }
 
-export function retailerToRuntimeConfig(input) {
+export function retailerToAdapterConfig(input, { requireMonitored = true } = {}) {
   const retailer = normalizeRetailerCandidate(input);
-  if (retailer.state !== RETAILER_STATES.MONITORED) throw new Error(`${retailer.id} is not in monitored state`);
+  if (requireMonitored && retailer.state !== RETAILER_STATES.MONITORED) throw new Error(`${retailer.id} is not in monitored state`);
   const activeTcgs = retailer.monitoring.activeTcgs || [];
   if (activeTcgs.length !== 1) throw new Error(`${retailer.id} must have exactly one active TCG in runtime v1`);
   const base = {
@@ -47,6 +47,10 @@ export function retailerToRuntimeConfig(input) {
     };
   }
   throw new Error(`${retailer.id} adapter ${retailer.adapterType} is not enabled for registry runtime`);
+}
+
+export function retailerToRuntimeConfig(input) {
+  return retailerToAdapterConfig(input, { requireMonitored: true });
 }
 
 export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabled = false, databaseUrl = "" } = {}) {
