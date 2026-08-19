@@ -47,10 +47,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: collectors/pokemon-center-browser/package-lock.json
       - name: Install collector dependencies
-        run: npm ci
+        run: npm install --ignore-scripts
       - name: Audit collector production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Run collector tests
