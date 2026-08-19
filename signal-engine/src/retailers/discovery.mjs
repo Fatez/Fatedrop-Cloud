@@ -24,6 +24,8 @@ export function mergeRetailerCandidates(leftInput, rightInput) {
   const secondary = preferred === left ? right : left;
   const evidence = [...new Set([...preferred.discovery.evidence, ...secondary.discovery.evidence])];
   const catalogueUrls = [...new Set([...preferred.catalogue.urls, ...secondary.catalogue.urls])];
+  const preferredRuntime = preferred.catalogue.runtime || {};
+  const secondaryRuntime = secondary.catalogue.runtime || {};
   return normalizeRetailerCandidate({
     ...secondary,
     ...preferred,
@@ -39,14 +41,21 @@ export function mergeRetailerCandidates(leftInput, rightInput) {
     online: preferred.online || secondary.online,
     physicalLocations: Math.max(preferred.physicalLocations, secondary.physicalLocations),
     catalogue: {
-      ...secondary.catalogue,
-      ...preferred.catalogue,
       urls: catalogueUrls,
       feedUrl: preferred.catalogue.feedUrl || secondary.catalogue.feedUrl,
+      feedApproved: preferred.catalogue.feedApproved || secondary.catalogue.feedApproved,
       platformEvidence: [...new Set([...preferred.catalogue.platformEvidence, ...secondary.catalogue.platformEvidence])],
+      runtime: {
+        ...secondaryRuntime,
+        ...Object.fromEntries(Object.entries(preferredRuntime).filter(([, value]) => value != null && value !== "")),
+      },
     },
     delivery: preferred.delivery.known ? preferred.delivery : secondary.delivery,
-    monitoring: preferred.monitoring,
+    monitoring: {
+      ...secondary.monitoring,
+      ...preferred.monitoring,
+      activeTcgs: [...new Set([...(preferred.monitoring?.activeTcgs || []), ...(secondary.monitoring?.activeTcgs || [])])],
+    },
     discovery: {
       source: preferred.discovery.source || secondary.discovery.source,
       discoveredAt: [preferred.discovery.discoveredAt, secondary.discovery.discoveredAt].filter(Boolean).sort()[0] || new Date(0).toISOString(),
@@ -74,7 +83,9 @@ export function candidateCoverage(candidates = []) {
     byClass: Object.fromEntries([...new Set(rows.map((row) => row.retailerClass))].map((value) => [value, rows.filter((row) => row.retailerClass === value).length])),
     byAdapter: Object.fromEntries([...new Set(rows.map((row) => row.adapterType))].map((value) => [value, rows.filter((row) => row.adapterType === value).length])),
     withCatalogueEntrypoint: rows.filter((row) => row.catalogue.urls.length || row.catalogue.feedUrl).length,
+    withApprovedStructuredFeed: rows.filter((row) => row.catalogue.feedApproved).length,
     withKnownDelivery: rows.filter((row) => row.delivery.known).length,
     verified: rows.filter((row) => row.verification === "verified").length,
+    monitored: rows.filter((row) => row.state === "monitored").length,
   };
 }
