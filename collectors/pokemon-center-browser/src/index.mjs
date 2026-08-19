@@ -9,7 +9,6 @@ try {
   if (error?.code !== "ENOENT") throw error;
 }
 
-const API_PATH = "/tpci-ecommweb-api/search";
 const NEXT_BUTTON = 'button[aria-label="Go to next page"]';
 const RETAILER_ID = "pokemon-center-uk";
 
@@ -29,20 +28,75 @@ function requireConfig() {
   if (!ingestSecret) throw new Error("FATEDROP_SIGNAL_INGEST_SECRET is required");
 }
 
-function matchesCatalogueApi(response) {
-  return response.url().includes(API_PATH);
+function extractCataloguePayload(data) {
+  const candidates = [data?.response, data?.data?.response, data?.data, data];
+  for (const api of candidates) {
+    if (api && Array.isArray(api.docs)) return api;
+  }
+  return null;
 }
 
 async function parseBatch(response) {
   const data = await response.json();
-  const api = data?.response;
-  if (!api || !Array.isArray(api.docs)) throw new Error("Pokémon Center catalogue response contained no response.docs array");
+  const api = extractCataloguePayload(data);
+  if (!api) throw new Error("response did not contain a catalogue docs array");
   return {
     start: Number.isFinite(api.start) ? api.start : 0,
     total: Number.isFinite(api.numFound) ? api.numFound : null,
     docs: api.docs,
     responseUrl: response.url(),
   };
+}
+
+function responsePath(response) {
+  try {
+    return new URL(response.url()).pathname;
+  } catch {
+    return response.url();
+  }
+}
+
+async function waitForCatalogueBatch(page, action) {
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      page.off("response", onResponse);
+    };
+
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn(value);
+    };
+
+    const onResponse = async (response) => {
+      if (settled) return;
+      const resourceType = response.request().resourceType();
+      if (resourceType !== "xhr" && resourceType !== "fetch") return;
+
+      try {
+        const batch = await parseBatch(response);
+        if (!batch.docs.length && batch.total !== 0) return;
+        console.log(`🔎 Catalogue feed detected: ${responsePath(response)}`);
+        finish(resolve, batch);
+      } catch {
+        // Most XHR/fetch responses are unrelated JSON or non-JSON. Ignore them.
+      }
+    };
+
+    const timer = setTimeout(() => {
+      finish(reject, new Error(`Timed out after ${responseTimeoutMs}ms waiting for a structured catalogue response`));
+    }, responseTimeoutMs);
+
+    page.on("response", onResponse);
+
+    Promise.resolve()
+      .then(action)
+      .catch((error) => finish(reject, error));
+  });
 }
 
 async function nextButton(page) {
@@ -85,10 +139,10 @@ async function noteBrowserState(page, forcedState = null) {
 
 async function captureFirstPage(page) {
   console.log("↩️  Returning to Pokémon catalogue page 1...");
-  const responsePromise = page.waitForResponse(matchesCatalogueApi, { timeout: responseTimeoutMs });
-  await page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
   try {
-    const batch = await parseBatch(await responsePromise);
+    const batch = await waitForCatalogueBatch(page, () =>
+      page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs })
+    );
     await noteBrowserState(page, BrowserState.NORMAL);
     return batch;
   } catch (error) {
@@ -101,10 +155,8 @@ async function captureFollowingPage(page, pageNumber) {
   const next = await nextButton(page);
   if (!next) return null;
 
-  const responsePromise = page.waitForResponse(matchesCatalogueApi, { timeout: responseTimeoutMs });
   console.log(`➡️  Pokémon catalogue page ${pageNumber}`);
-  await next.click();
-  const batch = await parseBatch(await responsePromise);
+  const batch = await waitForCatalogueBatch(page, () => next.click());
   if (settleMs) await page.waitForTimeout(settleMs);
   return batch;
 }
