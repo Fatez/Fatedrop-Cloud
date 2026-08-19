@@ -45,6 +45,8 @@ function legacyOffer(offer, product) {
     category: categoryOf(offer.title, product?.productType),
     productId: offer.productId,
     rrpGbp: pounds(product?.officialRrpPence),
+    rrpSource: product?.rrpSource || undefined,
+    rrpObservedAt: iso(product?.rrpObservedAt),
     lastSeen: iso(offer.lastSeenAt),
   };
 }
@@ -88,14 +90,24 @@ async function appCatalogue(store, url) {
 
 async function appTruePrice(store, url) {
   const q=(url.searchParams.get("q")||"").trim().toLowerCase();
-  if (q.length<2) return { success:true,count:0,groups:[],disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known." };
+  if (q.length<2) return { success:true,count:0,groups:[],disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known. RRP is only shown when FateDrop has an observed source for that product identity." };
   const [offers, products] = await Promise.all([store.listOffers({ limit:10000 }),store.listProducts({ limit:5000 })]);
   const productsById=new Map(products.map((product)=>[product.id,product])), grouped=new Map();
   for (const offer of offers) {
     if (!["in_stock","low_stock","preorder"].includes(offer.stockStatus)) continue;
     if (!offer.title.toLowerCase().includes(q)) continue;
     const product=productsById.get(offer.productId), key=offer.productId||titleKey(offer.title);
-    const group=grouped.get(key)||{ id:key,title:product?.title||offer.title,category:categoryOf(offer.title,product?.productType),matchingConfidence:offer.productId?1:0.75,retailerCount:0,offers:[] };
+    const group=grouped.get(key)||{
+      id:key,
+      title:product?.title||offer.title,
+      category:categoryOf(offer.title,product?.productType),
+      matchingConfidence:offer.productId?1:0.75,
+      retailerCount:0,
+      rrpGbp:pounds(product?.officialRrpPence),
+      rrpSource:product?.rrpSource||undefined,
+      rrpObservedAt:iso(product?.rrpObservedAt),
+      offers:[]
+    };
     const deliveryKnown=Number.isFinite(offer.postagePence), totalPence=deliveryKnown&&Number.isFinite(offer.pricePence)?offer.pricePence+offer.postagePence:undefined;
     group.offers.push({ id:offer.offerId,retailerId:offer.retailerId,retailerName:offer.retailerName,title:offer.title,priceGbp:pounds(offer.pricePence),shippingGbp:pounds(offer.postagePence),totalDeliveredGbp:pounds(totalPence),deliveryKnown,collectionAvailable:false,productUrl:offer.url,imageUrl:offer.imageUrl,lastCheckedAt:iso(offer.lastSeenAt),stockStatus:legacyAvailability(offer.stockStatus),isLowestKnownDelivered:false });
     grouped.set(key,group);
@@ -107,7 +119,7 @@ async function appTruePrice(store, url) {
     group.offers=group.offers.map((offer)=>({...offer,isLowestKnownDelivered:lowest!==undefined&&offer.totalDeliveredGbp===lowest}));
     return group;
   }).sort((a,b)=>b.retailerCount-a.retailerCount||a.title.localeCompare(b.title));
-  return { success:true,count:groups.length,groups,disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known." };
+  return { success:true,count:groups.length,groups,disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known. RRP is only shown when FateDrop has an observed source for that product identity." };
 }
 
 export function createHttpServer({ store }) {
