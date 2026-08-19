@@ -1,19 +1,24 @@
-name: Verify Signal Engine
+name: Verify FateDrop Cloud Release Candidate
 
 on:
   pull_request:
     paths:
       - "signal-engine/**"
+      - "collectors/pokemon-center-browser/**"
       - ".github/workflows/signal-engine-verify.yml"
   push:
     branches:
       - main
     paths:
       - "signal-engine/**"
+      - "collectors/pokemon-center-browser/**"
       - ".github/workflows/signal-engine-verify.yml"
 
+permissions:
+  contents: read
+
 jobs:
-  test:
+  signal-engine:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,5 +30,28 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
-      - run: npm ci
-      - run: npm test
+      - name: Install Signal Engine dependencies
+        run: npm ci
+      - name: Audit Signal Engine production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run complete Signal Engine tests
+        run: npm test
+
+  pokemon-center-collector:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collectors/pokemon-center-browser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: collectors/pokemon-center-browser/package-lock.json
+      - name: Install collector dependencies
+        run: npm ci
+      - name: Audit collector production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Run collector tests
+        run: npm test
