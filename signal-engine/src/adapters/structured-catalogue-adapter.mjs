@@ -9,13 +9,22 @@ function matchesFilter(pattern, value) {
   return pattern.test(value);
 }
 
+function filterValue(item) {
+  let path = "";
+  try {
+    path = new URL(item.url || "").pathname;
+  } catch {
+    path = "";
+  }
+  return `${item.title || ""} ${path}`;
+}
+
 function filterProducts(products, retailer) {
   return products
-    .filter((item) => matchesFilter(retailer.include, `${item.title || ""} ${item.url || ""}`))
+    .filter((item) => matchesFilter(retailer.include, filterValue(item)))
     .filter((item) => {
       if (!retailer.exclude) return true;
-      retailer.exclude.lastIndex = 0;
-      return !retailer.exclude.test(`${item.title || ""} ${item.url || ""}`);
+      return !matchesFilter(retailer.exclude, filterValue(item));
     });
 }
 
