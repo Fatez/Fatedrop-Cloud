@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ADAPTER_TYPES, RETAILER_CLASSES, normalizeRetailerCandidate, qualifyRetailer } from "../src/retailers/registry.mjs";
 import { inferAdapterFromEvidence, onboardingPlan, shouldPublishCatalogue } from "../src/retailers/onboarding.mjs";
+import { candidateCoverage, deduplicateRetailerCandidates } from "../src/retailers/discovery.mjs";
 import { ukRetailerDiscoverySeeds } from "../src/retailers/uk-discovery-seeds.mjs";
 import { normalizeShopifyProducts } from "../src/adapters/shopify-normalizer.mjs";
 import { normalizeWooStoreProducts } from "../src/adapters/woocommerce-normalizer.mjs";
@@ -31,6 +32,24 @@ test("source-backed UK discovery seeds stay candidates and qualify structurally"
     assert.equal(result.retailer.verification, "unverified", seed.id);
     assert.equal(result.retailer.countryCode, "GB", seed.id);
   }
+});
+
+test("discovery deduplicates the same shop by hostname and merges evidence", () => {
+  const rows = deduplicateRetailerCandidates([
+    { name: "Example Cards", websiteUrl: "https://www.examplecards.co.uk", catalogue: { urls: ["https://www.examplecards.co.uk/pokemon"] }, discovery: { evidence: ["directory"] } },
+    { name: "Example Cards UK", websiteUrl: "https://examplecards.co.uk", tcgs: ["pokemon", "magic"], catalogue: { urls: ["https://examplecards.co.uk/magic"] }, discovery: { evidence: ["search"] } },
+  ]);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0].tcgs.sort(), ["magic", "pokemon"]);
+  assert.equal(rows[0].catalogue.urls.length, 2);
+  assert.equal(rows[0].discovery.evidence.length, 2);
+});
+
+test("candidate coverage reports operational gaps rather than pretending stores are live", () => {
+  const coverage = candidateCoverage(ukRetailerDiscoverySeeds);
+  assert.ok(coverage.total >= 10);
+  assert.equal(coverage.verified, 0);
+  assert.equal(coverage.withKnownDelivery, 0);
 });
 
 test("adapter inference recognises common retailer platforms", () => {
