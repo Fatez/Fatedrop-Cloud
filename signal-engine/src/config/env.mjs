@@ -24,6 +24,7 @@ export const env = {
   store: process.env.FATEDROP_SIGNAL_STORE || "file",
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
   databaseUrl: process.env.DATABASE_URL || "",
+  retailerRegistryEnabled: bool("FATEDROP_RETAILER_REGISTRY_ENABLED", false),
   scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
   scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
   scanConcurrency: Math.max(1, Math.min(4, int("FATEDROP_SCAN_CONCURRENCY", 2))),
