@@ -10,6 +10,7 @@ try {
 }
 
 const NEXT_BUTTON = 'button[aria-label="Go to next page"]';
+const PREVIOUS_BUTTON = 'button[aria-label="Go to previous page"]';
 const RETAILER_ID = "pokemon-center-uk";
 
 const chromeCdpUrl = process.env.FATEDROP_CHROME_CDP_URL || "http://127.0.0.1:9222";
@@ -19,6 +20,7 @@ const ingestSecret = process.env.FATEDROP_SIGNAL_INGEST_SECRET || "";
 const responseTimeoutMs = Math.max(5_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESPONSE_TIMEOUT_MS || "30000", 10));
 const settleMs = Math.max(0, Number.parseInt(process.env.FATEDROP_COLLECTOR_SETTLE_MS || "1500", 10));
 const minimumCycleMs = Math.max(10_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_CYCLE_MS || "60000", 10));
+const firstPagePassiveWaitMs = Math.min(5_000, responseTimeoutMs);
 
 let stopping = false;
 let lastBrowserState = null;
@@ -56,7 +58,7 @@ function responsePath(response) {
   }
 }
 
-async function waitForCatalogueBatch(page, action) {
+async function waitForCatalogueBatch(page, action, timeoutMs = responseTimeoutMs) {
   return await new Promise((resolve, reject) => {
     let settled = false;
 
@@ -88,8 +90,8 @@ async function waitForCatalogueBatch(page, action) {
     };
 
     const timer = setTimeout(() => {
-      finish(reject, new Error(`Timed out after ${responseTimeoutMs}ms waiting for a structured catalogue response`));
-    }, responseTimeoutMs);
+      finish(reject, new Error(`Timed out after ${timeoutMs}ms waiting for a structured catalogue response`));
+    }, timeoutMs);
 
     page.on("response", onResponse);
 
@@ -99,16 +101,24 @@ async function waitForCatalogueBatch(page, action) {
   });
 }
 
-async function nextButton(page) {
-  const next = page.locator(NEXT_BUTTON).first();
+async function paginationButton(page, selector) {
+  const button = page.locator(selector).first();
   try {
-    await next.waitFor({ state: "visible", timeout: 5_000 });
+    await button.waitFor({ state: "visible", timeout: 5_000 });
   } catch {
     return null;
   }
-  const disabled = await next.isDisabled().catch(() => false);
-  const ariaDisabled = await next.getAttribute("aria-disabled");
-  return disabled || ariaDisabled === "true" ? null : next;
+  const disabled = await button.isDisabled().catch(() => false);
+  const ariaDisabled = await button.getAttribute("aria-disabled");
+  return disabled || ariaDisabled === "true" ? null : button;
+}
+
+async function nextButton(page) {
+  return paginationButton(page, NEXT_BUTTON);
+}
+
+async function previousButton(page) {
+  return paginationButton(page, PREVIOUS_BUTTON);
 }
 
 async function inspectBrowserState(page) {
@@ -137,12 +147,50 @@ async function noteBrowserState(page, forcedState = null) {
   return state;
 }
 
+async function primeAndCaptureFirstPage(page) {
+  console.log("⚙️  Page 1 feed idle; auto-priming via page 2...");
+
+  const next = await nextButton(page);
+  if (!next) throw new Error("Could not find an enabled Next button on Pokémon catalogue page 1");
+
+  const primingBatch = await waitForCatalogueBatch(page, () => next.click());
+  console.log(`🧭 Feed primed at catalogue offset ${primingBatch.start}; returning to page 1...`);
+  if (settleMs) await page.waitForTimeout(settleMs);
+
+  const previous = await previousButton(page);
+  let firstBatch;
+  if (previous) {
+    firstBatch = await waitForCatalogueBatch(page, () => previous.click());
+  } else {
+    firstBatch = await waitForCatalogueBatch(page, () => page.goBack({ waitUntil: "domcontentloaded", timeout: responseTimeoutMs }));
+  }
+
+  if (firstBatch.start !== 0) {
+    throw new Error(`Auto-prime returned catalogue offset ${firstBatch.start} instead of page-1 offset 0`);
+  }
+
+  if (settleMs) await page.waitForTimeout(settleMs);
+  console.log("✅ Pokémon catalogue page 1 feed captured after auto-prime");
+  return firstBatch;
+}
+
 async function captureFirstPage(page) {
   console.log("↩️  Returning to Pokémon catalogue page 1...");
   try {
-    const batch = await waitForCatalogueBatch(page, () =>
-      page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs })
-    );
+    try {
+      const batch = await waitForCatalogueBatch(
+        page,
+        () => page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs }),
+        firstPagePassiveWaitMs,
+      );
+      if (batch.start !== 0) throw new Error(`Initial catalogue response started at offset ${batch.start}, expected 0`);
+      await noteBrowserState(page, BrowserState.NORMAL);
+      return batch;
+    } catch (error) {
+      if (!String(error?.message || error).includes("waiting for a structured catalogue response")) throw error;
+    }
+
+    const batch = await primeAndCaptureFirstPage(page);
     await noteBrowserState(page, BrowserState.NORMAL);
     return batch;
   } catch (error) {
