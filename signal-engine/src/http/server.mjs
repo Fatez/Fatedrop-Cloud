@@ -49,6 +49,12 @@ function legacyOffer(offer, product) {
   };
 }
 function titleKey(value="") { return value.normalize("NFKD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim(); }
+function optionalNumber(searchParams, name) {
+  const raw=searchParams.get(name);
+  if (raw===null || raw.trim()==="") return undefined;
+  const value=Number(raw);
+  return Number.isFinite(value) ? value : undefined;
+}
 
 async function appCatalogue(store, url) {
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
@@ -58,8 +64,8 @@ async function appCatalogue(store, url) {
   const excluded=new Set(parseCsv(url.searchParams.get("excludeRetailers")));
   const inStock=url.searchParams.get("inStock")==="true";
   const category=(url.searchParams.get("category")||"").toUpperCase();
-  const minPrice=Number(url.searchParams.get("minPrice"));
-  const maxPrice=Number(url.searchParams.get("maxPrice"));
+  const minPrice=optionalNumber(url.searchParams,"minPrice");
+  const maxPrice=optionalNumber(url.searchParams,"maxPrice");
   const sort=url.searchParams.get("sort")||"";
   const limit=Math.max(1,Math.min(100,Number.parseInt(url.searchParams.get("limit")||"50",10)||50));
   const offset=Math.max(0,Number.parseInt(url.searchParams.get("cursor")||"0",10)||0);
@@ -69,8 +75,8 @@ async function appCatalogue(store, url) {
     if (excluded.has(offer.retailerKey)) return false;
     if (inStock && offer.availability!=="IN_STOCK") return false;
     if (category && offer.category!==category) return false;
-    if (Number.isFinite(minPrice) && minPrice>0 && (offer.price??Infinity)<minPrice) return false;
-    if (Number.isFinite(maxPrice) && maxPrice>=0 && (offer.price??Infinity)>maxPrice) return false;
+    if (minPrice!==undefined && (offer.price??Infinity)<minPrice) return false;
+    if (maxPrice!==undefined && (offer.price??Infinity)>maxPrice) return false;
     return true;
   });
   if (sort==="price") rows.sort((a,b)=>(a.price??Infinity)-(b.price??Infinity));
