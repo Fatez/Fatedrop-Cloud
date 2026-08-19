@@ -1,4 +1,4 @@
-import { RETAILER_STATES, normalizeRetailerCandidate } from "./registry.mjs";
+import { ADAPTER_TYPES, RETAILER_STATES, normalizeRetailerCandidate } from "./registry.mjs";
 
 const allowedTransitions = Object.freeze({
   [RETAILER_STATES.CANDIDATE]: new Set([RETAILER_STATES.QUALIFYING, RETAILER_STATES.REJECTED]),
@@ -9,9 +9,27 @@ const allowedTransitions = Object.freeze({
   [RETAILER_STATES.REJECTED]: new Set([RETAILER_STATES.CANDIDATE]),
 });
 
+function adapterRuntimeFailures(retailer) {
+  const failures = [];
+  if ([ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE].includes(retailer.adapterType)) {
+    if (!retailer.catalogue.feedUrl) failures.push("structured-feed-url-required");
+    if (retailer.catalogue.feedApproved !== true) failures.push("structured-feed-approval-required");
+  }
+  if (retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
+    if (!retailer.catalogue.urls.length) failures.push("html-catalogue-url-required");
+    if (!retailer.catalogue.runtime.productUrlPattern) failures.push("product-url-pattern-required");
+    if (!retailer.catalogue.runtime.skuPattern) failures.push("sku-pattern-required");
+  }
+  if ([ADAPTER_TYPES.BROWSER_COLLECTOR, ADAPTER_TYPES.CSV, ADAPTER_TYPES.MANUAL, ADAPTER_TYPES.STRUCTURED_FEED].includes(retailer.adapterType)) {
+    failures.push("adapter-runtime-not-enabled");
+  }
+  return failures;
+}
+
 function readinessFailures(retailer, evidence = {}) {
   const failures = [];
   if (!retailer.catalogue.urls.length && !retailer.catalogue.feedUrl) failures.push("catalogue-entrypoint-required");
+  failures.push(...adapterRuntimeFailures(retailer));
   if (!evidence.adapterQualified) failures.push("adapter-qualification-required");
   if (!evidence.dryRunComplete) failures.push("successful-dry-run-required");
   if (!evidence.catalogueComplete) failures.push("complete-catalogue-proof-required");
