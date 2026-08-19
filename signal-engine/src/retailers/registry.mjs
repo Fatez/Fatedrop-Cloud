@@ -38,12 +38,21 @@ export const RRP_AUTHORITY = Object.freeze({
   NONE: "none",
 });
 
+function finiteNonNegative(value, fallback = null) {
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function stringArray(value) {
+  return Array.isArray(value) ? [...new Set(value.map((item) => String(item).trim()).filter(Boolean))] : [];
+}
+
 export function normalizeRetailerCandidate(input = {}) {
   const websiteUrl = typeof input.websiteUrl === "string" ? input.websiteUrl.trim() : "";
   let hostname = "";
   try { hostname = websiteUrl ? new URL(websiteUrl).hostname.replace(/^www\./, "") : ""; } catch {}
   const id = String(input.id || hostname || input.name || "")
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const runtime = input.catalogue?.runtime || {};
   return {
     id,
     name: String(input.name || hostname || id || "Unknown retailer").trim(),
@@ -57,22 +66,38 @@ export function normalizeRetailerCandidate(input = {}) {
     rrpAuthority: Object.values(RRP_AUTHORITY).includes(input.rrpAuthority) ? input.rrpAuthority : RRP_AUTHORITY.NONE,
     tcgs: Array.isArray(input.tcgs) ? [...new Set(input.tcgs.map((value) => String(value).toLowerCase().trim()).filter(Boolean))] : ["pokemon"],
     online: input.online !== false,
-    physicalLocations: Number.isFinite(input.physicalLocations) ? Math.max(0, input.physicalLocations) : 0,
+    physicalLocations: finiteNonNegative(input.physicalLocations, 0),
     catalogue: {
       urls: Array.isArray(input.catalogue?.urls) ? [...new Set(input.catalogue.urls.filter(Boolean))] : [],
       feedUrl: input.catalogue?.feedUrl || null,
-      platformEvidence: Array.isArray(input.catalogue?.platformEvidence) ? input.catalogue.platformEvidence : [],
+      feedApproved: input.catalogue?.feedApproved === true,
+      platformEvidence: stringArray(input.catalogue?.platformEvidence),
+      runtime: {
+        productUrlPattern: runtime.productUrlPattern || null,
+        skuPattern: runtime.skuPattern || null,
+        cardSelector: runtime.cardSelector || null,
+        titleSelector: runtime.titleSelector || null,
+        priceSelector: runtime.priceSelector || null,
+        pageParam: runtime.pageParam || "page",
+        maxPages: Number.isFinite(runtime.maxPages) ? Math.max(1, Math.min(500, runtime.maxPages)) : 20,
+        delayMs: Number.isFinite(runtime.delayMs) ? Math.max(250, runtime.delayMs) : 1800,
+        include: runtime.include || null,
+        exclude: runtime.exclude || null,
+      },
     },
     delivery: {
       known: input.delivery?.known === true,
-      standardPence: Number.isFinite(input.delivery?.standardPence) ? input.delivery.standardPence : null,
-      freeAbovePence: Number.isFinite(input.delivery?.freeAbovePence) ? input.delivery.freeAbovePence : null,
+      standardPence: finiteNonNegative(input.delivery?.standardPence),
+      freeAbovePence: finiteNonNegative(input.delivery?.freeAbovePence),
       sourceUrl: input.delivery?.sourceUrl || null,
       observedAt: input.delivery?.observedAt || null,
     },
     monitoring: {
       cadenceSeconds: Number.isFinite(input.monitoring?.cadenceSeconds) ? Math.max(60, input.monitoring.cadenceSeconds) : 300,
       expectedMinimumProducts: Number.isFinite(input.monitoring?.expectedMinimumProducts) ? Math.max(0, input.monitoring.expectedMinimumProducts) : null,
+      activeTcgs: Array.isArray(input.monitoring?.activeTcgs) && input.monitoring.activeTcgs.length
+        ? [...new Set(input.monitoring.activeTcgs.map((value) => String(value).toLowerCase().trim()).filter(Boolean))]
+        : ["pokemon"],
       allowIncompleteReplacement: false,
     },
     discovery: {
