@@ -182,7 +182,8 @@ async function enterCatalogueNaturally(page) {
 }
 
 async function primeAndCaptureFirstPage(page) {
-  console.log("⚙️  Priming catalogue exactly like the working manual flow: TCG → page 2 → page 1...");n
+  console.log("⚙️  Priming catalogue exactly like the working manual flow: TCG → page 2 → page 1...");
+
   let pageTwo = await numberedPageButton(page, 2);
   if (!pageTwo) pageTwo = await nextButton(page);
   if (!pageTwo) throw new Error("Could not find a visible enabled page-2/Next control on the TCG catalogue");
