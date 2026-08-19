@@ -16,6 +16,7 @@ const RETAILER_ID = "pokemon-center-uk";
 const chromeCdpUrl = process.env.FATEDROP_CHROME_CDP_URL || "http://127.0.0.1:9222";
 const catalogueUrl = process.env.FATEDROP_POKEMON_CATALOGUE_URL || "https://www.pokemoncenter.com/en-gb/search/tcg-cards";
 const homeUrl = new URL("/en-gb", catalogueUrl).toString();
+const cataloguePath = new URL(catalogueUrl).pathname.replace(/\/+$/, "");
 const ingestUrl = process.env.FATEDROP_SIGNAL_INGEST_URL || "";
 const ingestSecret = process.env.FATEDROP_SIGNAL_INGEST_SECRET || "";
 const responseTimeoutMs = Math.max(5_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESPONSE_TIMEOUT_MS || "30000", 10));
@@ -28,6 +29,32 @@ let lastBrowserState = null;
 function requireConfig() {
   if (!ingestUrl) throw new Error("FATEDROP_SIGNAL_INGEST_URL is required");
   if (!ingestSecret) throw new Error("FATEDROP_SIGNAL_INGEST_SECRET is required");
+}
+
+async function preflightIngestAuth() {
+  console.log("🔐 Checking Signal Engine ingest authentication before scanning...");
+  const response = await fetch(ingestUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-fatedrop-secret": ingestSecret,
+    },
+    body: JSON.stringify({ retailerId: RETAILER_ID, products: [] }),
+  });
+  const body = await response.text();
+
+  if (response.status === 401) {
+    throw new Error(
+      "Signal Engine rejected FATEDROP_SIGNAL_INGEST_SECRET. The local collector .env and Railway secret do not match."
+    );
+  }
+
+  if (response.status === 400 && body.includes("products must be a non-empty array")) {
+    console.log("✅ Signal Engine ingest authentication verified");
+    return;
+  }
+
+  throw new Error(`Signal Engine ingest preflight failed (${response.status}): ${body.slice(0, 500)}`);
 }
 
 function extractCataloguePayload(data) {
@@ -134,6 +161,29 @@ async function previousButton(page) {
   return paginationButton(page, PREVIOUS_BUTTON);
 }
 
+async function exactCatalogueLink(page) {
+  const links = page.locator("a[href]");
+  const count = await links.count().catch(() => 0);
+
+  for (let index = 0; index < count; index += 1) {
+    const link = links.nth(index);
+    if (!await link.isVisible().catch(() => false)) continue;
+
+    const href = await link.getAttribute("href");
+    if (!href) continue;
+
+    try {
+      const target = new URL(href, homeUrl);
+      const targetPath = target.pathname.replace(/\/+$/, "");
+      if (targetPath === cataloguePath) return link;
+    } catch {
+      // Ignore malformed links.
+    }
+  }
+
+  return null;
+}
+
 async function inspectBrowserState(page) {
   const snapshot = {
     url: page.url(),
@@ -165,28 +215,35 @@ async function enterCatalogueNaturally(page) {
   await page.goto(homeUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
   if (settleMs) await page.waitForTimeout(settleMs);
 
-  const hrefLink = await firstUsable(page.locator('a[href*="/search/tcg-cards"]'));
-  const namedLink = hrefLink || await firstUsable(page.getByRole("link", { name: /trading card game|tcg/i }));
+  const cardsLink = await exactCatalogueLink(page);
 
-  if (namedLink) {
-    console.log("🃏 Entering the TCG Cards catalogue through Pokémon Center navigation...");
-    await namedLink.click();
-    await page.waitForURL(/\/search\/tcg-cards/i, { timeout: responseTimeoutMs }).catch(() => null);
+  if (cardsLink) {
+    console.log("🃏 Entering the exact TCG Cards catalogue...");
+    await cardsLink.click();
+    await page.waitForURL(
+      (url) => url.pathname.replace(/\/+$/, "") === cataloguePath,
+      { timeout: responseTimeoutMs }
+    );
     await page.waitForLoadState("domcontentloaded", { timeout: responseTimeoutMs }).catch(() => null);
   } else {
-    console.log("🃏 TCG navigation link not visible; opening the canonical TCG catalogue...");
+    console.log("🃏 Exact TCG Cards link not visible; opening the canonical TCG Cards catalogue...");
     await page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
+  }
+
+  const currentPath = new URL(page.url()).pathname.replace(/\/+$/, "");
+  if (currentPath !== cataloguePath) {
+    throw new Error(`Collector landed on ${currentPath || "/"} instead of ${cataloguePath}`);
   }
 
   if (settleMs) await page.waitForTimeout(settleMs);
 }
 
 async function primeAndCaptureFirstPage(page) {
-  console.log("⚙️  Priming catalogue exactly like the working manual flow: TCG → page 2 → page 1...");
+  console.log("⚙️  Priming catalogue: TCG Cards → page 2 → page 1...");
 
   let pageTwo = await numberedPageButton(page, 2);
   if (!pageTwo) pageTwo = await nextButton(page);
-  if (!pageTwo) throw new Error("Could not find a visible enabled page-2/Next control on the TCG catalogue");
+  if (!pageTwo) throw new Error("Could not find a visible enabled page-2/Next control on the TCG Cards catalogue");
 
   const primingBatch = await waitForCatalogueBatch(page, () => pageTwo.click());
   if (primingBatch.start === 0) {
@@ -207,7 +264,7 @@ async function primeAndCaptureFirstPage(page) {
   }
 
   if (settleMs) await page.waitForTimeout(settleMs);
-  console.log("✅ Pokémon catalogue page 1 feed captured after natural navigation prime");
+  console.log("✅ Pokémon catalogue page 1 feed captured after prime");
   return firstBatch;
 }
 
@@ -220,7 +277,10 @@ async function captureFirstPage(page) {
     return batch;
   } catch (error) {
     const state = await noteBrowserState(page);
-    throw new Error(`No usable Pokémon Center catalogue API response was observed (${browserStateLabel(state)}). Check the browser tab manually; FateDrop will not bypass access controls. ${error.message}`);
+    throw new Error(
+      `No usable Pokémon Center catalogue API response was observed (${browserStateLabel(state)}). ` +
+      `Check the browser tab manually; FateDrop will not bypass access controls. ${error.message}`
+    );
   }
 }
 
@@ -242,7 +302,9 @@ async function collectCatalogue(page) {
   let pageNumber = 1;
 
   function storeBatch(batch) {
-    if (starts.has(batch.start)) throw new Error(`Repeated Pokémon catalogue offset ${batch.start}; refusing incomplete/repeated scan`);
+    if (starts.has(batch.start)) {
+      throw new Error(`Repeated Pokémon catalogue offset ${batch.start}; refusing incomplete/repeated scan`);
+    }
     starts.add(batch.start);
     if (expectedTotal == null && Number.isFinite(batch.total)) expectedTotal = batch.total;
 
@@ -252,7 +314,10 @@ async function collectCatalogue(page) {
       productsBySku.set(mapped.retailerSku, mapped);
     }
 
-    console.log(`📦 page ${pageNumber}: ${batch.docs.length} docs · ${productsBySku.size}${expectedTotal ? `/${expectedTotal}` : ""} unique products`);
+    console.log(
+      `📦 page ${pageNumber}: ${batch.docs.length} docs · ${productsBySku.size}` +
+      `${expectedTotal ? `/${expectedTotal}` : ""} unique products`
+    );
   }
 
   console.log("📡 Capturing Pokémon Center structured catalogue feed...");
@@ -286,9 +351,15 @@ async function ingest(products) {
     },
     body: JSON.stringify({ retailerId: RETAILER_ID, products }),
   });
+
   const body = await response.text();
   let parsed;
-  try { parsed = body ? JSON.parse(body) : {}; } catch { parsed = { raw: body }; }
+  try {
+    parsed = body ? JSON.parse(body) : {};
+  } catch {
+    parsed = { raw: body };
+  }
+
   if (!response.ok) throw new Error(`Signal Engine ingest failed (${response.status}): ${body.slice(0, 500)}`);
   return parsed;
 }
@@ -308,7 +379,11 @@ async function runCycle(page, cycleNumber) {
     const result = await ingest(products);
     const signalResult = result?.result || {};
     const website = result?.website || {};
-    console.log(`✅ Rotation ${cycleNumber} ingested · signals=${signalResult.signalsCreated ?? "?"} · Discord sent=${signalResult.discord?.sent ?? "?"} · website=${website.published ? "published" : website.reason || "?"}`);
+    console.log(
+      `✅ Rotation ${cycleNumber} ingested · signals=${signalResult.signalsCreated ?? "?"}` +
+      ` · Discord sent=${signalResult.discord?.sent ?? "?"}` +
+      ` · website=${website.published ? "published" : website.reason || "?"}`
+    );
   } catch (error) {
     console.error(`❌ Rotation ${cycleNumber} rejected: ${error?.message || error}`);
     console.error("🛡️  Last verified cloud catalogue remains untouched by this failed rotation.");
@@ -325,9 +400,12 @@ async function runCycle(page, cycleNumber) {
 
 async function run() {
   requireConfig();
+
   console.log("🔥 FateDrop Pokémon Center continuous browser collector");
-  console.log(`🔌 Connecting to Chrome at ${chromeCdpUrl}`);
+  console.log(`🔌 Chrome CDP: ${chromeCdpUrl}`);
   console.log(`⏱️  Minimum rotation interval: ${Math.round(minimumCycleMs / 1000)}s`);
+
+  await preflightIngestAuth();
 
   const browser = await chromium.connectOverCDP(chromeCdpUrl);
   const context = browser.contexts()[0];
@@ -345,12 +423,15 @@ async function run() {
   console.log("👋 FateDrop collector stopped. Chrome session left open.");
 }
 
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    if (!stopping) console.log(`\n🛑 ${signal} received; stopping after the current rotation/wait...`);
-    stopping = true;
-  });
-}
+process.on("SIGINT", () => {
+  console.log("\n🛑 Ctrl+C received; stopping FateDrop collector immediately. Chrome session left open.");
+  process.exit(130);
+});
+
+process.on("SIGTERM", () => {
+  if (!stopping) console.log("\n🛑 SIGTERM received; stopping after the current wait...");
+  stopping = true;
+});
 
 run().catch((error) => {
   console.error(`❌ FateDrop collector failed: ${error?.message || error}`);
