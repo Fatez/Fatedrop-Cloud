@@ -31,6 +31,12 @@ export const env = {
   fetchTimeoutMs: Math.max(3000, int("FATEDROP_FETCH_TIMEOUT_MS", 15000)),
   userAgent: process.env.FATEDROP_FETCH_USER_AGENT || "FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)",
   suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
+  hostedFateFind: {
+    enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", false),
+    maxFindsPerRun: Math.max(1, Math.min(10000, int("FATEDROP_HOSTED_FATEFIND_MAX_PER_RUN", 2000))),
+    outboxBatchSize: Math.max(1, Math.min(500, int("FATEDROP_NOTIFICATION_BATCH_SIZE", 100))),
+    expoAccessToken: process.env.EXPO_ACCESS_TOKEN || "",
+  },
   discord: {
     enabled: bool("FATEDROP_DISCORD_ENABLED", false),
     botToken: process.env.DISCORD_BOT_TOKEN || "",
