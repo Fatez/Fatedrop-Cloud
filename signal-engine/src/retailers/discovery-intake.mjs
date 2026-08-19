@@ -1,5 +1,5 @@
 import { deduplicateRetailerCandidates } from "./discovery.mjs";
-import { DISCOVERY_SOURCE_TYPES, discoverySourceEvidence } from "./discovery-sources.mjs";
+import { DISCOVERY_SOURCE_TYPES, discoverySourceEvidence, discoverySourcePolicy } from "./discovery-sources.mjs";
 import { ADAPTER_TYPES, RETAILER_CLASSES, normalizeRetailerCandidate } from "./registry.mjs";
 
 function validHttpUrl(value) {
@@ -26,6 +26,7 @@ export function candidateFromDiscoveryRecord(record = {}, source = {}) {
   const sourceType = Object.values(DISCOVERY_SOURCE_TYPES).includes(source.type)
     ? source.type
     : DISCOVERY_SOURCE_TYPES.MANUAL_RESEARCH;
+  const policy = discoverySourcePolicy[sourceType];
   const evidence = discoverySourceEvidence({
     type: sourceType,
     sourceName: source.name || "Unknown discovery source",
@@ -33,21 +34,28 @@ export function candidateFromDiscoveryRecord(record = {}, source = {}) {
     observedAt: source.observedAt,
     note: source.note || record.discoveryNote || null,
   });
-  const catalogueUrl = validHttpUrl(record.catalogueUrl);
+  const mayAssertCatalogue = policy?.mayAssertCatalogue === true;
+  const catalogueUrl = mayAssertCatalogue ? validHttpUrl(record.catalogueUrl) : null;
+  const feedUrl = mayAssertCatalogue ? validHttpUrl(record.feedUrl) : null;
+  const platformEvidence = mayAssertCatalogue && Array.isArray(record.platformEvidence) ? record.platformEvidence : [];
+  const adapterType = mayAssertCatalogue && Object.values(ADAPTER_TYPES).includes(record.adapterType)
+    ? record.adapterType
+    : ADAPTER_TYPES.GENERIC_HTML;
   const tcgs = Array.isArray(record.tcgs) && record.tcgs.length ? record.tcgs : ["pokemon"];
   return normalizeRetailerCandidate({
     id: record.id,
     name: record.name,
     websiteUrl,
     retailerClass: inferClass(record),
-    adapterType: Object.values(ADAPTER_TYPES).includes(record.adapterType) ? record.adapterType : ADAPTER_TYPES.GENERIC_HTML,
+    adapterType,
     tcgs,
     online: record.online !== false,
     physicalLocations: Number.isFinite(record.physicalLocations) ? record.physicalLocations : 0,
     catalogue: {
       urls: catalogueUrl ? [catalogueUrl] : [],
-      feedUrl: validHttpUrl(record.feedUrl),
-      platformEvidence: Array.isArray(record.platformEvidence) ? record.platformEvidence : [],
+      feedUrl,
+      feedApproved: false,
+      platformEvidence,
     },
     discovery: {
       source: sourceType,
