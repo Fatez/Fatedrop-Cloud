@@ -11,6 +11,8 @@
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
     "retailers:seed": "node src/retailers/seed-candidates.mjs",
+    "retailers:queue": "node src/retailers/queue-report.mjs",
+    "retailers:inspect": "node src/retailers/inspect-candidate.mjs",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
