@@ -109,7 +109,7 @@ test("offers sort by known delivered price before unknown delivery", () => {
     { id: "known-b", pricePence: 5200, intelligence: calculateOfferIntelligence({ pricePence: 5200, postagePence: 0 }) },
     { id: "known-a", pricePence: 4900, intelligence: calculateOfferIntelligence({ pricePence: 4900, postagePence: 299 }) },
   ];
-  assert.deepEqual(sortOffersByTruePrice(offers).map((item) => item.id), ["known-b", "known-a", "unknown"]);
+  assert.deepEqual(sortOffersByTruePrice(offers).map((item) => item.id), ["known-a", "known-b", "unknown"]);
 });
 
 test("market summary counts above-RRP offers without retailer ranking", () => {
