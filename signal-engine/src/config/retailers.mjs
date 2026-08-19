@@ -1,12 +1,18 @@
 import { env } from "./env.mjs";
+import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } from "../retailers/registry.mjs";
 
-// Retailer adapters declare the TCG they currently expose so the Signal Engine
-// can expand beyond Pokémon without forking product or offer models.
+// Runtime scanner configuration remains backwards-compatible while carrying the
+// same classification vocabulary used by the scalable UK retailer registry.
 export const retailers = [
   {
     id: "pokemon-center-uk",
     name: "Pokémon Center UK",
     tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.NATIONAL,
+    adapterType: ADAPTER_TYPES.BROWSER_COLLECTOR,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.OFFICIAL,
     enabled: env.retailers.pokemonCenterUk,
     baseUrl: "https://www.pokemoncenter.com/en-gb/",
     catalogueUrls: ["https://www.pokemoncenter.com/en-gb/search/tcg-cards"],
@@ -23,6 +29,11 @@ export const retailers = [
     id: "smyths-uk",
     name: "Smyths Toys UK",
     tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.NATIONAL,
+    adapterType: ADAPTER_TYPES.GENERIC_HTML,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
     enabled: env.retailers.smythsUk,
     baseUrl: "https://www.smythstoys.com/uk/en-gb/",
     catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202"],
@@ -39,6 +50,11 @@ export const retailers = [
     id: "chaos-cards",
     name: "Chaos Cards",
     tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.SPECIALIST,
+    adapterType: ADAPTER_TYPES.GENERIC_HTML,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
     enabled: env.retailers.chaosCards,
     baseUrl: "https://www.chaoscards.co.uk/",
     catalogueUrls: [
