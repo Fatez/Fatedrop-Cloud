@@ -24,6 +24,64 @@ function purchasable(status) {
   return status === "in_stock" || status === "low_stock" || status === "preorder";
 }
 
+function parseMinuteOfDay(value) {
+  if (typeof value !== "string" || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) return null;
+  const [hour, minute] = value.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function localMinuteOfDay(now, timeZone) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timeZone || "Europe/London",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(now * 1000));
+    const hour = Number(parts.find((part) => part.type === "hour")?.value);
+    const minute = Number(parts.find((part) => part.type === "minute")?.value);
+    return Number.isFinite(hour) && Number.isFinite(minute) ? hour * 60 + minute : null;
+  } catch {
+    return null;
+  }
+}
+
+function quietHoursDelaySeconds(prefs, now) {
+  if (prefs.quiet_hours_enabled !== true) return 0;
+  const start = parseMinuteOfDay(prefs.quiet_hours_start);
+  const end = parseMinuteOfDay(prefs.quiet_hours_end);
+  const current = localMinuteOfDay(now, prefs.timezone || "Europe/London");
+  if (start === null || end === null || current === null || start === end) return 0;
+
+  if (start < end) {
+    if (current < start || current >= end) return 0;
+    return (end - current) * 60;
+  }
+
+  if (current >= start) return ((24 * 60 - current) + end) * 60;
+  if (current < end) return (end - current) * 60;
+  return 0;
+}
+
+export function notificationDeliveryPlan(prefs = {}, findNotifications = {}, now = Math.floor(Date.now() / 1000)) {
+  const fateMatchEnabled = prefs.fate_match_enabled !== false;
+  const enabled = {
+    web: fateMatchEnabled && prefs.web_enabled !== false && findNotifications.website !== false,
+    push: fateMatchEnabled && prefs.push_enabled !== false && findNotifications.app === true,
+    discord: fateMatchEnabled && prefs.discord_enabled === true && findNotifications.discord === true,
+  };
+  const quietDelay = quietHoursDelaySeconds(prefs, now);
+  return {
+    enabled,
+    nextAttemptAt: {
+      web: now,
+      push: enabled.push && quietDelay > 0 ? now + quietDelay : now,
+      discord: enabled.discord && quietDelay > 0 ? now + quietDelay : now,
+    },
+    quietUntil: quietDelay > 0 ? now + quietDelay : null,
+  };
+}
+
 export function evaluateFateFind(find, offer, product) {
   const reasons = [];
   const title = product?.title || offer.title || "";
@@ -127,16 +185,13 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
 async function enqueueFateMatchNotifications(pool, { id, find, offer, product, result, now }) {
   const prefsResult = await pool.query("SELECT * FROM fatedrop_notification_preferences WHERE user_id=$1", [find.userId]).catch(() => ({ rows: [] }));
   const prefs = prefsResult.rows[0] || {};
-  const enabled = {
-    web: prefs.web_enabled !== false && find.notifications.website !== false,
-    push: prefs.push_enabled !== false && find.notifications.app === true,
-    discord: prefs.discord_enabled === true && find.notifications.discord === true,
-  };
+  const plan = notificationDeliveryPlan(prefs, find.notifications, now);
   const delivered = Number.isFinite(result.deliveredPricePence) ? `£${(result.deliveredPricePence / 100).toFixed(2)} delivered` : Number.isFinite(offer.pricePence) ? `£${(offer.pricePence / 100).toFixed(2)} + delivery unknown` : "price unavailable";
   const title = `FateMatch · ${product?.title || offer.title}`;
   const body = `${offer.retailerName} matched your FateFind at ${delivered}.`;
   for (const channel of ["web", "push", "discord"]) {
-    const state = enabled[channel] ? "pending" : "suppressed";
-    await pool.query(`INSERT INTO fatedrop_notification_outbox (id,dedupe_key,user_id,event_type,event_id,channel,title,body,url,payload_json,state,attempts,next_attempt_at,created_at,updated_at) VALUES ($1,$2,$3,'fate_match',$4,$5,$6,$7,$8,$9::jsonb,$10,0,$11,$11,$11) ON CONFLICT (dedupe_key) DO NOTHING`, [stableId("out",`${id}:${channel}`),`${id}:${channel}`,find.userId,id,channel,title,body,offer.url,JSON.stringify({ fateMatchId:id,fateFindId:find.id,offerId:offer.offerId,productId:offer.productId,retailerId:offer.retailerId,deliveredPricePence:result.deliveredPricePence }),state,now]);
+    const state = plan.enabled[channel] ? "pending" : "suppressed";
+    const nextAttemptAt = plan.nextAttemptAt[channel];
+    await pool.query(`INSERT INTO fatedrop_notification_outbox (id,dedupe_key,user_id,event_type,event_id,channel,title,body,url,payload_json,state,attempts,next_attempt_at,created_at,updated_at) VALUES ($1,$2,$3,'fate_match',$4,$5,$6,$7,$8,$9::jsonb,$10,0,$11,$12,$12) ON CONFLICT (dedupe_key) DO NOTHING`, [stableId("out",`${id}:${channel}`),`${id}:${channel}`,find.userId,id,channel,title,body,offer.url,JSON.stringify({ fateMatchId:id,fateFindId:find.id,offerId:offer.offerId,productId:offer.productId,retailerId:offer.retailerId,deliveredPricePence:result.deliveredPricePence,quietUntil:plan.quietUntil }),state,nextAttemptAt,now]);
   }
 }
