@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ADAPTER_TYPES, RETAILER_CLASSES, normalizeRetailerCandidate, qualifyRetailer } from "../src/retailers/registry.mjs";
 import { inferAdapterFromEvidence, onboardingPlan, shouldPublishCatalogue } from "../src/retailers/onboarding.mjs";
+import { ukRetailerDiscoverySeeds } from "../src/retailers/uk-discovery-seeds.mjs";
 import { calculateOfferIntelligence, sortOffersByTruePrice, summariseMarketOffers } from "../src/core/price-intelligence.mjs";
 
 test("normalises a UK indie retailer without manufacturing verification", () => {
@@ -18,6 +19,16 @@ test("qualification requires a usable catalogue entrypoint", () => {
   assert.ok(failed.reasons.includes("no-catalogue-entrypoint"));
   const passed = qualifyRetailer({ name: "Store", websiteUrl: "https://store.example", catalogue: { urls: ["https://store.example/pokemon"] } });
   assert.equal(passed.eligible, true);
+});
+
+test("source-backed UK discovery seeds stay candidates and qualify structurally", () => {
+  assert.ok(ukRetailerDiscoverySeeds.length >= 10);
+  for (const seed of ukRetailerDiscoverySeeds) {
+    const result = qualifyRetailer(seed);
+    assert.equal(result.eligible, true, seed.id);
+    assert.equal(result.retailer.verification, "unverified", seed.id);
+    assert.equal(result.retailer.countryCode, "GB", seed.id);
+  }
 });
 
 test("adapter inference recognises common retailer platforms", () => {
