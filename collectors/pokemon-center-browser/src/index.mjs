@@ -1,6 +1,7 @@
 import process from "node:process";
 import { chromium } from "playwright-core";
 import { mapPokemonCenterDoc } from "./map.mjs";
+import { BrowserState, browserStateLabel, classifyBrowserState, remainingCycleDelay } from "./runtime.mjs";
 
 try {
   process.loadEnvFile();
@@ -18,6 +19,10 @@ const ingestUrl = process.env.FATEDROP_SIGNAL_INGEST_URL || "";
 const ingestSecret = process.env.FATEDROP_SIGNAL_INGEST_SECRET || "";
 const responseTimeoutMs = Math.max(5_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESPONSE_TIMEOUT_MS || "30000", 10));
 const settleMs = Math.max(0, Number.parseInt(process.env.FATEDROP_COLLECTOR_SETTLE_MS || "1500", 10));
+const minimumCycleMs = Math.max(10_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_CYCLE_MS || "60000", 10));
+
+let stopping = false;
+let lastBrowserState = null;
 
 function requireConfig() {
   if (!ingestUrl) throw new Error("FATEDROP_SIGNAL_INGEST_URL is required");
@@ -52,13 +57,43 @@ async function nextButton(page) {
   return disabled || ariaDisabled === "true" ? null : next;
 }
 
+async function inspectBrowserState(page) {
+  const snapshot = {
+    url: page.url(),
+    title: await page.title().catch(() => ""),
+    text: await page.locator("body").innerText({ timeout: 2_000 }).catch(() => ""),
+  };
+  return classifyBrowserState(snapshot);
+}
+
+async function noteBrowserState(page, forcedState = null) {
+  const state = forcedState || await inspectBrowserState(page);
+  if (state !== lastBrowserState) {
+    const previous = lastBrowserState;
+    lastBrowserState = state;
+    if (previous == null) {
+      console.log(`🛰️  Browser state: ${browserStateLabel(state)}`);
+    } else {
+      console.log(`🚨 Browser state changed: ${browserStateLabel(previous)} → ${browserStateLabel(state)}`);
+      if (state !== BrowserState.NORMAL) {
+        console.log("⚠️  One-time local network-state change detected. FateDrop will not attempt to defeat or bypass the retailer control.");
+      }
+    }
+  }
+  return state;
+}
+
 async function captureFirstPage(page) {
+  console.log("↩️  Returning to Pokémon catalogue page 1...");
   const responsePromise = page.waitForResponse(matchesCatalogueApi, { timeout: responseTimeoutMs });
   await page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
   try {
-    return await parseBatch(await responsePromise);
+    const batch = await parseBatch(await responsePromise);
+    await noteBrowserState(page, BrowserState.NORMAL);
+    return batch;
   } catch (error) {
-    throw new Error(`No usable Pokémon Center catalogue API response was observed. Check the browser tab manually; FateDrop will not bypass access controls. ${error.message}`);
+    const state = await noteBrowserState(page);
+    throw new Error(`No usable Pokémon Center catalogue API response was observed (${browserStateLabel(state)}). Check the browser tab manually; FateDrop will not bypass access controls. ${error.message}`);
   }
 }
 
@@ -132,30 +167,63 @@ async function ingest(products) {
   return parsed;
 }
 
-async function run() {
-  requireConfig();
-  console.log("🔥 FateDrop Pokémon Center browser collector");
-  console.log(`🔌 Connecting to Chrome at ${chromeCdpUrl}`);
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  const browser = await chromium.connectOverCDP(chromeCdpUrl);
+async function runCycle(page, cycleNumber) {
+  const startedAtMs = Date.now();
+  console.log(`\n🔄 FateDrop Pokémon Center rotation ${cycleNumber} started ${new Date(startedAtMs).toISOString()}`);
+
   try {
-    const context = browser.contexts()[0];
-    if (!context) throw new Error("No Chrome context found. Start Chrome with remote debugging enabled first.");
-
-    let page = context.pages().find((candidate) => candidate.url().includes("pokemoncenter.com"));
-    if (!page) page = await context.newPage();
     await page.bringToFront();
-
     const products = await collectCatalogue(page);
-    console.log(`☁️  Sending ${products.length} products to FateDrop Signal Engine...`);
+    console.log(`☁️  Sending ${products.length} verified products to FateDrop Signal Engine...`);
     const result = await ingest(products);
-
     const signalResult = result?.result || {};
     const website = result?.website || {};
-    console.log(`✅ Ingest complete · signals=${signalResult.signalsCreated ?? "?"} · Discord sent=${signalResult.discord?.sent ?? "?"} · website=${website.published ? "published" : website.reason || "?"}`);
-  } finally {
-    await browser.close().catch(() => undefined);
+    console.log(`✅ Rotation ${cycleNumber} ingested · signals=${signalResult.signalsCreated ?? "?"} · Discord sent=${signalResult.discord?.sent ?? "?"} · website=${website.published ? "published" : website.reason || "?"}`);
+  } catch (error) {
+    console.error(`❌ Rotation ${cycleNumber} rejected: ${error?.message || error}`);
+    console.error("🛡️  Last verified cloud catalogue remains untouched by this failed rotation.");
   }
+
+  const waitMs = remainingCycleDelay({ startedAtMs, minimumCycleMs });
+  if (waitMs > 0 && !stopping) {
+    console.log(`⏱️  Next page-1 rotation in ${Math.ceil(waitMs / 1000)}s`);
+    await sleep(waitMs);
+  } else if (!stopping) {
+    console.log("⚡ Full walk exceeded the minimum cycle time; restarting at page 1 immediately.");
+  }
+}
+
+async function run() {
+  requireConfig();
+  console.log("🔥 FateDrop Pokémon Center continuous browser collector");
+  console.log(`🔌 Connecting to Chrome at ${chromeCdpUrl}`);
+  console.log(`⏱️  Minimum rotation interval: ${Math.round(minimumCycleMs / 1000)}s`);
+
+  const browser = await chromium.connectOverCDP(chromeCdpUrl);
+  const context = browser.contexts()[0];
+  if (!context) throw new Error("No Chrome context found. Start Chrome with remote debugging enabled first.");
+
+  let page = context.pages().find((candidate) => candidate.url().includes("pokemoncenter.com"));
+  if (!page) page = await context.newPage();
+
+  let cycleNumber = 0;
+  while (!stopping) {
+    cycleNumber += 1;
+    await runCycle(page, cycleNumber);
+  }
+
+  console.log("👋 FateDrop collector stopped. Chrome session left open.");
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (!stopping) console.log(`\n🛑 ${signal} received; stopping after the current rotation/wait...`);
+    stopping = true;
+  });
 }
 
 run().catch((error) => {
