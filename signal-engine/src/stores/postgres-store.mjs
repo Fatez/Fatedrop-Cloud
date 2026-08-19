@@ -15,6 +15,12 @@ export class PostgresStore {
     const { rows } = await pool.query("SELECT * FROM fatedrop_products WHERE id=$1", [productId]);
     return rows[0] ? dbProduct(rows[0]) : null;
   }
+  async listOffers({ limit = 5000 } = {}) {
+    const pool = await this.pool();
+    const safe = Math.min(10000, Math.max(1, limit));
+    const { rows } = await pool.query("SELECT * FROM fatedrop_retail_offers ORDER BY last_seen_at DESC LIMIT $1", [safe]);
+    return rows.map(dbOffer);
+  }
   async listProducts({ rrpSource = null, limit = 2000 } = {}) {
     const pool = await this.pool();
     const safe = Math.min(5000, Math.max(1, limit));
