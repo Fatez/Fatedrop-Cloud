@@ -15,12 +15,12 @@ const RETAILER_ID = "pokemon-center-uk";
 
 const chromeCdpUrl = process.env.FATEDROP_CHROME_CDP_URL || "http://127.0.0.1:9222";
 const catalogueUrl = process.env.FATEDROP_POKEMON_CATALOGUE_URL || "https://www.pokemoncenter.com/en-gb/search/tcg-cards";
+const homeUrl = new URL("/en-gb", catalogueUrl).toString();
 const ingestUrl = process.env.FATEDROP_SIGNAL_INGEST_URL || "";
 const ingestSecret = process.env.FATEDROP_SIGNAL_INGEST_SECRET || "";
 const responseTimeoutMs = Math.max(5_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESPONSE_TIMEOUT_MS || "30000", 10));
 const settleMs = Math.max(0, Number.parseInt(process.env.FATEDROP_COLLECTOR_SETTLE_MS || "1500", 10));
 const minimumCycleMs = Math.max(10_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_CYCLE_MS || "60000", 10));
-const firstPagePassiveWaitMs = Math.min(5_000, responseTimeoutMs);
 
 let stopping = false;
 let lastBrowserState = null;
@@ -85,7 +85,7 @@ async function waitForCatalogueBatch(page, action, timeoutMs = responseTimeoutMs
         console.log(`🔎 Catalogue feed detected: ${responsePath(response)}`);
         finish(resolve, batch);
       } catch {
-        // Most XHR/fetch responses are unrelated JSON or non-JSON. Ignore them.
+        // Ignore unrelated XHR/fetch responses.
       }
     };
 
@@ -94,23 +94,36 @@ async function waitForCatalogueBatch(page, action, timeoutMs = responseTimeoutMs
     }, timeoutMs);
 
     page.on("response", onResponse);
-
-    Promise.resolve()
-      .then(action)
-      .catch((error) => finish(reject, error));
+    Promise.resolve().then(action).catch((error) => finish(reject, error));
   });
 }
 
+async function firstUsable(locator) {
+  const count = await locator.count().catch(() => 0);
+  for (let index = 0; index < count; index += 1) {
+    const candidate = locator.nth(index);
+    if (!await candidate.isVisible().catch(() => false)) continue;
+    const disabled = await candidate.isDisabled().catch(() => false);
+    const ariaDisabled = await candidate.getAttribute("aria-disabled");
+    if (!disabled && ariaDisabled !== "true") return candidate;
+  }
+  return null;
+}
+
 async function paginationButton(page, selector) {
-  const button = page.locator(selector).first();
   try {
-    await button.waitFor({ state: "visible", timeout: 5_000 });
+    await page.locator(selector).first().waitFor({ state: "attached", timeout: 5_000 });
   } catch {
     return null;
   }
-  const disabled = await button.isDisabled().catch(() => false);
-  const ariaDisabled = await button.getAttribute("aria-disabled");
-  return disabled || ariaDisabled === "true" ? null : button;
+  return firstUsable(page.locator(selector));
+}
+
+async function numberedPageButton(page, number) {
+  const exactButton = page.getByRole("button", { name: String(number), exact: true });
+  const button = await firstUsable(exactButton);
+  if (button) return button;
+  return firstUsable(page.locator("button").filter({ hasText: new RegExp(`^\\s*${number}\\s*$`) }));
 }
 
 async function nextButton(page) {
@@ -147,49 +160,60 @@ async function noteBrowserState(page, forcedState = null) {
   return state;
 }
 
-async function primeAndCaptureFirstPage(page) {
-  console.log("⚙️  Page 1 feed idle; auto-priming via page 2...");
-
-  const next = await nextButton(page);
-  if (!next) throw new Error("Could not find an enabled Next button on Pokémon catalogue page 1");
-
-  const primingBatch = await waitForCatalogueBatch(page, () => next.click());
-  console.log(`🧭 Feed primed at catalogue offset ${primingBatch.start}; returning to page 1...`);
+async function enterCatalogueNaturally(page) {
+  console.log("🏠 Opening Pokémon Center...");
+  await page.goto(homeUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
   if (settleMs) await page.waitForTimeout(settleMs);
 
-  const previous = await previousButton(page);
-  let firstBatch;
-  if (previous) {
-    firstBatch = await waitForCatalogueBatch(page, () => previous.click());
+  const hrefLink = await firstUsable(page.locator('a[href*="/search/tcg-cards"]'));
+  const namedLink = hrefLink || await firstUsable(page.getByRole("link", { name: /trading card game|tcg/i }));
+
+  if (namedLink) {
+    console.log("🃏 Entering the TCG Cards catalogue through Pokémon Center navigation...");
+    await namedLink.click();
+    await page.waitForURL(/\/search\/tcg-cards/i, { timeout: responseTimeoutMs }).catch(() => null);
+    await page.waitForLoadState("domcontentloaded", { timeout: responseTimeoutMs }).catch(() => null);
   } else {
-    firstBatch = await waitForCatalogueBatch(page, () => page.goBack({ waitUntil: "domcontentloaded", timeout: responseTimeoutMs }));
-  }
-
-  if (firstBatch.start !== 0) {
-    throw new Error(`Auto-prime returned catalogue offset ${firstBatch.start} instead of page-1 offset 0`);
+    console.log("🃏 TCG navigation link not visible; opening the canonical TCG catalogue...");
+    await page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs });
   }
 
   if (settleMs) await page.waitForTimeout(settleMs);
-  console.log("✅ Pokémon catalogue page 1 feed captured after auto-prime");
+}
+
+async function primeAndCaptureFirstPage(page) {
+  console.log("⚙️  Priming catalogue exactly like the working manual flow: TCG → page 2 → page 1...");n
+  let pageTwo = await numberedPageButton(page, 2);
+  if (!pageTwo) pageTwo = await nextButton(page);
+  if (!pageTwo) throw new Error("Could not find a visible enabled page-2/Next control on the TCG catalogue");
+
+  const primingBatch = await waitForCatalogueBatch(page, () => pageTwo.click());
+  if (primingBatch.start === 0) {
+    console.log("ℹ️  Page-2 click emitted page-1 data; accepting verified offset 0");
+    return primingBatch;
+  }
+
+  console.log(`🧭 Feed awake at catalogue offset ${primingBatch.start}; capturing page 1...`);
+  if (settleMs) await page.waitForTimeout(settleMs);
+
+  let pageOne = await numberedPageButton(page, 1);
+  if (!pageOne) pageOne = await previousButton(page);
+  if (!pageOne) throw new Error("Could not find a visible enabled page-1/Previous control after priming page 2");
+
+  const firstBatch = await waitForCatalogueBatch(page, () => pageOne.click());
+  if (firstBatch.start !== 0) {
+    throw new Error(`Page-1 capture returned catalogue offset ${firstBatch.start} instead of 0`);
+  }
+
+  if (settleMs) await page.waitForTimeout(settleMs);
+  console.log("✅ Pokémon catalogue page 1 feed captured after natural navigation prime");
   return firstBatch;
 }
 
 async function captureFirstPage(page) {
-  console.log("↩️  Returning to Pokémon catalogue page 1...");
+  console.log("↩️  Starting a fresh Pokémon catalogue rotation...");
   try {
-    try {
-      const batch = await waitForCatalogueBatch(
-        page,
-        () => page.goto(catalogueUrl, { waitUntil: "domcontentloaded", timeout: responseTimeoutMs }),
-        firstPagePassiveWaitMs,
-      );
-      if (batch.start !== 0) throw new Error(`Initial catalogue response started at offset ${batch.start}, expected 0`);
-      await noteBrowserState(page, BrowserState.NORMAL);
-      return batch;
-    } catch (error) {
-      if (!String(error?.message || error).includes("waiting for a structured catalogue response")) throw error;
-    }
-
+    await enterCatalogueNaturally(page);
     const batch = await primeAndCaptureFirstPage(page);
     await noteBrowserState(page, BrowserState.NORMAL);
     return batch;
@@ -200,7 +224,8 @@ async function captureFirstPage(page) {
 }
 
 async function captureFollowingPage(page, pageNumber) {
-  const next = await nextButton(page);
+  let next = await numberedPageButton(page, pageNumber);
+  if (!next) next = await nextButton(page);
   if (!next) return null;
 
   console.log(`➡️  Pokémon catalogue page ${pageNumber}`);
@@ -290,10 +315,10 @@ async function runCycle(page, cycleNumber) {
 
   const waitMs = remainingCycleDelay({ startedAtMs, minimumCycleMs });
   if (waitMs > 0 && !stopping) {
-    console.log(`⏱️  Next page-1 rotation in ${Math.ceil(waitMs / 1000)}s`);
+    console.log(`⏱️  Next rotation in ${Math.ceil(waitMs / 1000)}s`);
     await sleep(waitMs);
   } else if (!stopping) {
-    console.log("⚡ Full walk exceeded the minimum cycle time; restarting at page 1 immediately.");
+    console.log("⚡ Full walk exceeded the minimum cycle time; restarting immediately.");
   }
 }
 
