@@ -4,8 +4,8 @@ export function inferAdapterFromEvidence({ platform = "", feedUrls = [], html = 
   const evidence = `${platform} ${feedUrls.join(" ")} ${html}`.toLowerCase();
   if (/shopify|cdn\.shopify|myshopify/.test(evidence)) return ADAPTER_TYPES.SHOPIFY;
   if (/woocommerce|wp-content|wc-ajax/.test(evidence)) return ADAPTER_TYPES.WOOCOMMERCE;
-  if (/\.csv(?:\?|$)|text\/csv|csv feed/.test(evidence)) return ADAPTER_TYPES.CSV;
-  if (/\.json(?:\?|$)|application\/json|xml feed|\.xml(?:\?|$)/.test(evidence)) return ADAPTER_TYPES.STRUCTURED_FEED;
+  if (/\.csv(?:\?|\s|$)|text\/csv|csv feed/.test(evidence)) return ADAPTER_TYPES.CSV;
+  if (/\.json(?:\?|\s|$)|application\/json|xml feed|\.xml(?:\?|\s|$)/.test(evidence)) return ADAPTER_TYPES.STRUCTURED_FEED;
   return ADAPTER_TYPES.GENERIC_HTML;
 }
 
