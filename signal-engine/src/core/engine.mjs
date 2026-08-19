@@ -1,4 +1,4 @@
-import { scanRetailerCatalogue } from "../adapters/catalogue-adapter.mjs";
+import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { deriveSignal } from "./signals.mjs";
@@ -109,7 +109,7 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
 
 export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000) }) {
   try {
-    const { products: rawProducts, pages } = await scanRetailerCatalogue(retailer);
+    const { products: rawProducts, pages } = await scanRetailerSource(retailer);
     return await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned: pages.length, source: "catalogue" });
   } catch (error) {
     await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
