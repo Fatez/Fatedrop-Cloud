@@ -18,6 +18,7 @@ function normalizeExternalProduct(raw) {
     url,
     imageUrl: raw.imageUrl || null,
     pricePence: Number.isFinite(raw.pricePence) ? Math.round(raw.pricePence) : null,
+    postagePence: Number.isFinite(raw.postagePence) && raw.postagePence >= 0 ? Math.round(raw.postagePence) : null,
     officialRrpPence: Number.isFinite(raw.officialRrpPence) ? Math.round(raw.officialRrpPence) : null,
     productType,
     canonicalKey: raw.canonicalKey || canonicalKey(title, productType),
@@ -26,6 +27,12 @@ function normalizeExternalProduct(raw) {
     stockQuantity: Number.isFinite(raw.stockQuantity) ? raw.stockQuantity : null,
     evidence: Array.isArray(raw.evidence) ? raw.evidence : [{ kind: "external_ingest", value: raw.evidence || "External collector observation" }],
   };
+}
+
+function evidenceBackedPostage(raw, retailer) {
+  if (Number.isFinite(raw.postagePence) && raw.postagePence >= 0) return Math.round(raw.postagePence);
+  if (retailer?.delivery?.known === true && Number.isFinite(retailer.delivery.standardPence) && retailer.delivery.standardPence >= 0) return Math.round(retailer.delivery.standardPence);
+  return null;
 }
 
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue" }) {
@@ -70,7 +77,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       imageUrl: raw.imageUrl,
       pricePence: raw.pricePence,
       rrpPence: officialRrpPence,
-      postagePence: null,
+      postagePence: evidenceBackedPostage(raw, retailer),
       stockStatus: raw.stockStatus,
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
