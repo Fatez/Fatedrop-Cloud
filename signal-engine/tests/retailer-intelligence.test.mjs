@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { ADAPTER_TYPES, RETAILER_CLASSES, normalizeRetailerCandidate, qualifyRetailer } from "../src/retailers/registry.mjs";
 import { inferAdapterFromEvidence, onboardingPlan, shouldPublishCatalogue } from "../src/retailers/onboarding.mjs";
 import { ukRetailerDiscoverySeeds } from "../src/retailers/uk-discovery-seeds.mjs";
+import { normalizeShopifyProducts } from "../src/adapters/shopify-normalizer.mjs";
+import { normalizeWooStoreProducts } from "../src/adapters/woocommerce-normalizer.mjs";
 import { calculateOfferIntelligence, sortOffersByTruePrice, summariseMarketOffers } from "../src/core/price-intelligence.mjs";
 
 test("normalises a UK indie retailer without manufacturing verification", () => {
@@ -35,6 +37,23 @@ test("adapter inference recognises common retailer platforms", () => {
   assert.equal(inferAdapterFromEvidence({ html: "cdn.shopify.com theme" }), ADAPTER_TYPES.SHOPIFY);
   assert.equal(inferAdapterFromEvidence({ html: "wp-content/plugins/woocommerce" }), ADAPTER_TYPES.WOOCOMMERCE);
   assert.equal(inferAdapterFromEvidence({ feedUrls: ["https://x.example/catalogue.csv"] }), ADAPTER_TYPES.CSV);
+});
+
+test("Shopify structured products normalize to canonical external observations", () => {
+  const rows = normalizeShopifyProducts({ products: [{ id: 1, title: "Journey Together Elite Trainer Box", handle: "journey-etb", images: [{ src: "https://img.example/etb.jpg" }], variants: [{ id: 11, sku: "JT-ETB", title: "Default Title", price: "59.99", available: true }] }] }, { baseUrl: "https://shop.example/" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].retailerSku, "JT-ETB");
+  assert.equal(rows[0].pricePence, 5999);
+  assert.equal(rows[0].stockStatus, "in_stock");
+  assert.equal(rows[0].postagePence, null);
+});
+
+test("WooCommerce Store API products normalize without inventing delivery", () => {
+  const rows = normalizeWooStoreProducts([{ id: 7, name: "Destined Rivals Booster Box", sku: "DR-BB", permalink: "https://woo.example/dr-bb", is_in_stock: false, prices: { price: "16999", currency_minor_unit: 2 }, images: [{ src: "https://img.example/dr.jpg" }] }], { baseUrl: "https://woo.example/" });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].pricePence, 16999);
+  assert.equal(rows[0].stockStatus, "out_of_stock");
+  assert.equal(rows[0].postagePence, null);
 });
 
 test("onboarding plan keeps commercial trust separate from monitoring readiness", () => {
