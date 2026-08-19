@@ -77,3 +77,37 @@ test("Shopify catalogue scanner paginates collection feeds", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test("structured filters do not reject products because the retailer hostname matches an exclude term", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    products: [{
+      id: 1,
+      handle: "pokemon-tcg-booster-box",
+      title: "Pokemon TCG Booster Box",
+      variants: [{ id: 10, sku: "DS-001", title: "Default Title", price: "99.99", available: true }],
+      images: [],
+    }],
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const result = await scanStructuredCatalogue({
+      id: "double-sleeved-test",
+      name: "Double Sleeved",
+      baseUrl: "https://www.doublesleeved.co.uk/",
+      adapterType: ADAPTER_TYPES.SHOPIFY,
+      catalogue: {
+        feedUrl: "https://www.doublesleeved.co.uk/collections/pokemon-tcg/products.json?limit=250",
+        feedApproved: true,
+        runtime: { maxPages: 1, delayMs: 250 },
+      },
+      include: /booster|box/i,
+      exclude: /sleeve|binder|playmat/i,
+    });
+
+    assert.equal(result.products.length, 1);
+    assert.equal(result.products[0].retailerSku, "DS-001");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
