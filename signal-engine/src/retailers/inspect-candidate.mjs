@@ -1,6 +1,6 @@
 import process from "node:process";
 import { inspectRetailerWebsite } from "./qualification-inspector.mjs";
-import { ukRetailerDiscoverySeeds } from "./uk-discovery-seeds.mjs";
+import { ukRetailerDiscoverySeeds } from "./uk-discovery-network.mjs";
 
 function arg(name) {
   const prefix = `--${name}=`;
