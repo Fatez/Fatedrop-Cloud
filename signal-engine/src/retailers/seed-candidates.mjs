@@ -1,7 +1,7 @@
 import { env } from "../config/env.mjs";
 import { deduplicateRetailerCandidates } from "./discovery.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
-import { ukRetailerDiscoverySeeds } from "./uk-discovery-seeds.mjs";
+import { ukRetailerDiscoverySeeds } from "./uk-discovery-network.mjs";
 
 if (!env.databaseUrl) throw new Error("DATABASE_URL is required to seed retailer candidates");
 
