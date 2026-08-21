@@ -10,6 +10,7 @@ function fromRow(row) {
     id: row.retailer_id,
     name: row.retailer_name,
     websiteUrl: row.website_url,
+    countryCode: row.country_code,
     retailerClass: row.retailer_class,
     adapterType: row.adapter_type,
     state: row.lifecycle_state,
@@ -43,11 +44,12 @@ export class PostgresRetailerRegistry {
         adapter_type, lifecycle_state, verification_state, rrp_authority, tcgs, online,
         physical_locations, catalogue_config, delivery_policy, monitoring_policy, discovery,
         created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,'GB',$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13::jsonb,$14::jsonb,$15::jsonb,$16::jsonb,$17,$18)
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13,$14::jsonb,$15::jsonb,$16::jsonb,$17::jsonb,$18,$19)
       ON CONFLICT (retailer_id) DO UPDATE SET
         retailer_name=EXCLUDED.retailer_name,
         website_url=EXCLUDED.website_url,
         hostname=EXCLUDED.hostname,
+        country_code=EXCLUDED.country_code,
         retailer_class=EXCLUDED.retailer_class,
         adapter_type=EXCLUDED.adapter_type,
         lifecycle_state=EXCLUDED.lifecycle_state,
@@ -63,7 +65,7 @@ export class PostgresRetailerRegistry {
         updated_at=EXCLUDED.updated_at
       RETURNING *
     `, [
-      retailer.id, retailer.name, retailer.websiteUrl, retailer.hostname, retailer.retailerClass,
+      retailer.id, retailer.name, retailer.websiteUrl, retailer.hostname, retailer.countryCode, retailer.retailerClass,
       retailer.adapterType, retailer.state, retailer.verification, retailer.rrpAuthority,
       JSON.stringify(retailer.tcgs), retailer.online, retailer.physicalLocations,
       JSON.stringify(retailer.catalogue), JSON.stringify(retailer.delivery), JSON.stringify(retailer.monitoring),
