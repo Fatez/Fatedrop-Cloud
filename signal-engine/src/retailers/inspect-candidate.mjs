@@ -1,6 +1,6 @@
 import process from "node:process";
 import { inspectRetailerWebsite } from "./qualification-inspector.mjs";
-import { ukRetailerDiscoverySeeds } from "./uk-discovery-network.mjs";
+import { retailerDiscoverySeeds } from "./retailer-discovery-network.mjs";
 
 function arg(name) {
   const prefix = `--${name}=`;
@@ -10,7 +10,7 @@ function arg(name) {
 const retailerId = arg("retailer");
 const url = arg("url");
 const name = arg("name");
-let candidate = retailerId ? ukRetailerDiscoverySeeds.find((row) => row.id === retailerId) : null;
+let candidate = retailerId ? retailerDiscoverySeeds.find((row) => row.id === retailerId) : null;
 if (!candidate && url) candidate = { name: name || new URL(url).hostname, websiteUrl: url };
 if (!candidate) {
   console.error("Usage: npm run retailers:inspect -- --retailer=<seed-id> OR --url=https://shop.example [--name=Shop]");
