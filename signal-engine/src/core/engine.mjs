@@ -183,17 +183,35 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
   }
 }
 
-export async function scanAll({ retailers, store }) {
-  const results = [];
-  for (let i = 0; i < retailers.length; i += env.scanConcurrency) {
-    const batch = retailers.slice(i, i + env.scanConcurrency);
-    results.push(...await Promise.all(batch.map((retailer) => scanRetailer({ retailer, store, dispatchNotifications: false }))));
+export async function scanAll({ retailers, store, scanRetailerFn = scanRetailer }) {
+  const results = new Array(retailers.length);
+  const deliveryTasks = [];
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= retailers.length) return;
+
+      const retailer = retailers[index];
+      const result = await scanRetailerFn({ retailer, store, dispatchNotifications: false });
+      results[index] = result;
+
+      if (Array.isArray(result?.signals) && result.signals.length > 0) {
+        const deliveryTask = deliverSignals(store, result.signals)
+          .then((discord) => { result.discord = discord; })
+          .catch((error) => {
+            result.discord = { sent: 0, skipped: 0, failed: result.signals.length, errors: [{ error: String(error?.message || error) }] };
+          });
+        deliveryTasks.push(deliveryTask);
+      }
+    }
   }
 
-  const deliverable = results.filter((result) => Array.isArray(result.signals) && result.signals.length > 0);
-  await Promise.all(deliverable.map(async (result) => {
-    result.discord = await deliverSignals(store, result.signals);
-  }));
+  const workerCount = Math.min(Math.max(1, env.scanConcurrency), Math.max(1, retailers.length));
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  await Promise.all(deliveryTasks);
 
   const measuredAt = Math.floor(Date.now() / 1000);
   if (store.recordNetworkSnapshot) {
