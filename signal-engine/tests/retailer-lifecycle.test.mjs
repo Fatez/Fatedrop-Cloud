@@ -80,7 +80,7 @@ test("overseas monitored retailer is blocked until UK shipping is confirmed", ()
   assert.throws(() => retailerToRuntimeConfig(monitored), /UK shipping is confirmed/i);
 });
 
-test("non-GBP monitored retailer is blocked until FX and landed-cost conversion exists", () => {
+test("international monitored retailer is blocked until landed-cost conversion exists", () => {
   const monitored = normalizeRetailerCandidate({
     ...genericCandidate,
     id: "eu-cards",
@@ -96,7 +96,7 @@ test("non-GBP monitored retailer is blocked until FX and landed-cost conversion 
       },
     },
   });
-  assert.throws(() => retailerToRuntimeConfig(monitored), /FX and landed-cost conversion/i);
+  assert.throws(() => retailerToRuntimeConfig(monitored), /international FX.*landed-cost conversion/i);
 });
 
 test("third-party discovery directories are disabled for automation until reviewed", () => {
