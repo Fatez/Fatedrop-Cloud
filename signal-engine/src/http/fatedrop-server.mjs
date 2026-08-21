@@ -1,5 +1,6 @@
 import { env } from "../config/env.mjs";
-import { buildLocalRadar, normalizeEncounterBatch } from "../encounters/local-radar.mjs";
+import { buildLocalRadar, distanceMiles, normalizeEncounterBatch } from "../encounters/local-radar.mjs";
+import { lookupUkPostcode, lookupUkPostcodes } from "../encounters/postcode.mjs";
 import {
   listEncounterInventoryFromStore,
   listEncounterVendorsFromStore,
@@ -25,8 +26,80 @@ async function readBody(req) { let raw=""; for await(const chunk of req){raw+=ch
 function eventFilters(url) { const from=url.searchParams.get("from")||new Date().toISOString(); const to=url.searchParams.get("to")||null; const tcgs=parseCsv(url.searchParams.get("tcg")).map((value)=>value.toLowerCase()); const limit=Math.max(1,Math.min(2000,Number.parseInt(url.searchParams.get("limit")||"1000",10)||1000)); return{from,to,tcgs,limit}; }
 function authorized(req){return Boolean(env.ingestSecret)&&req.headers["x-fatedrop-secret"]===env.ingestSecret;}
 function vendorEventId(pathname){const match=pathname.match(/^\/api\/encounters\/([^/]+)\/vendors$/);return match?decodeURIComponent(match[1]):null;}
+function postcodeKey(value){return String(value||"").replace(/\s+/g,"").toUpperCase();}
+function point(latitude,longitude){return Number.isFinite(latitude)&&Number.isFinite(longitude)?{latitude,longitude}:null;}
 
-async function handleFateEncounters(req, res, { store, retailers, placesSearch }) {
+async function resolveRadarLocation(url, postcodeLookup) {
+  const latitude=optionalNumber(url.searchParams,"lat");
+  const longitude=optionalNumber(url.searchParams,"lng");
+  const postcode=(url.searchParams.get("postcode")||"").trim()||null;
+  const hasLat=url.searchParams.has("lat");
+  const hasLng=url.searchParams.has("lng");
+  if(hasLat!==hasLng){
+    return {requested:true,origin:null,resolution:{status:"invalid",source:"device_coordinates",postcode:null,latitude:null,longitude:null,reason:"Both lat and lng are required"}};
+  }
+  if(latitude!=null&&longitude!=null){
+    return {requested:true,origin:{latitude,longitude},resolution:{status:"ok",source:"device_coordinates",postcode:null,latitude,longitude}};
+  }
+  if(postcode){
+    const resolution=await postcodeLookup({postcode});
+    const origin=resolution?.status==="ok"?point(resolution.latitude,resolution.longitude):null;
+    return {requested:true,origin,resolution};
+  }
+  return {requested:false,origin:null,resolution:{status:"not_requested",source:null,postcode:null,latitude:null,longitude:null}};
+}
+
+async function distanceSafeEvents(events,{origin,radiusMiles,postcodeBatchLookup}){
+  if(!origin)return events;
+  const needsPostcode=events.filter((event)=>!point(event.latitude,event.longitude)&&event.postcode).map((event)=>event.postcode);
+  const postcodeMap=needsPostcode.length?await postcodeBatchLookup({postcodes:needsPostcode}):new Map();
+  const safeRadius=Math.max(1,Math.min(100,Number(radiusMiles)||25));
+  const enriched=[];
+  for(const event of events){
+    let eventPoint=point(event.latitude,event.longitude);
+    let distanceSource=eventPoint?"event_coordinates":null;
+    if(!eventPoint&&event.postcode){
+      const resolved=postcodeMap.get(postcodeKey(event.postcode));
+      if(resolved?.status==="ok"){
+        eventPoint=point(resolved.latitude,resolved.longitude);
+        distanceSource="postcode_centroid";
+      }
+    }
+    if(!eventPoint)continue;
+    const distance=distanceMiles(origin,eventPoint);
+    if(!Number.isFinite(distance)||distance>safeRadius)continue;
+    enriched.push({
+      ...event,
+      latitude:event.latitude??eventPoint.latitude,
+      longitude:event.longitude??eventPoint.longitude,
+      distanceMiles:distance,
+      distanceSource,
+    });
+  }
+  return enriched;
+}
+
+function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
+  return {
+    success:true,
+    generatedAt:new Date().toISOString(),
+    query:{latitude:null,longitude:null,postcode:location?.postcode||null,radiusMiles,tcg:tcg||null,types,from,to:to||null},
+    locationResolution:location,
+    providers:{
+      shops:{provider:"google_places",status:"location_unresolved"},
+      events:{provider:"fatedrop_encounters",status:"location_unresolved"},
+    },
+    shops:[],events:[],counts:{shops:0,events:0},
+    disclaimers:[
+      "The supplied location could not be resolved, so FateDrop did not label any shop or event as nearby.",
+      "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
+      "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
+      "Event details can change; check the organiser or ticket source before travelling.",
+    ],
+  };
+}
+
+async function handleFateEncounters(req, res, { store, retailers, placesSearch, postcodeLookup, postcodeBatchLookup }) {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
   if (req.method === "GET" && ["/api/encounters", "/api/calendar-events"].includes(url.pathname)) {
@@ -52,14 +125,33 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch }
 
   if (req.method === "GET" && url.pathname === "/api/local-radar") {
     const types = parseCsv(url.searchParams.get("types"));
+    const requestedTypes=types.length?types:["shops","events"];
+    const radiusMiles=optionalNumber(url.searchParams,"radiusMiles")||25;
+    const tcg=url.searchParams.get("tcg")||null;
+    const from=url.searchParams.get("from")||new Date().toISOString();
+    const to=url.searchParams.get("to")||null;
+    const location=await resolveRadarLocation(url,postcodeLookup);
+    if(location.requested&&!location.origin){
+      return json(res,200,emptyRadarResult({types:requestedTypes,tcg,radiusMiles,from,to,location:location.resolution}));
+    }
     const radarStore = { listOffers:(options)=>store.listOffers(options), listEncounters:(options)=>listEncountersFromStore(store,options) };
     const result = await buildLocalRadar({
       store:radarStore,retailers,placesApiKey:env.encounters.googlePlacesApiKey,placesSearch,
-      latitude:optionalNumber(url.searchParams,"lat"),longitude:optionalNumber(url.searchParams,"lng"),postcode:url.searchParams.get("postcode")||null,
-      radiusMiles:optionalNumber(url.searchParams,"radiusMiles")||25,tcg:url.searchParams.get("tcg")||null,types:types.length?types:["shops","events"],
-      from:url.searchParams.get("from")||new Date().toISOString(),to:url.searchParams.get("to")||null,
+      latitude:location.origin?.latitude??null,longitude:location.origin?.longitude??null,postcode:location.resolution?.postcode||url.searchParams.get("postcode")||null,
+      radiusMiles,tcg,types:requestedTypes,from,to,
     });
-    return json(res,200,result);
+    const events=await distanceSafeEvents(result.events,{origin:location.origin,radiusMiles,postcodeBatchLookup});
+    const response={
+      ...result,
+      events,
+      counts:{shops:result.shops.length,events:events.length},
+      locationResolution:location.resolution,
+      disclaimers:[
+        ...(result.disclaimers||[]),
+        ...(location.origin?["Nearby event distances use venue coordinates where supplied, otherwise the event postcode centroid."]:[]),
+      ],
+    };
+    return json(res,200,response);
   }
 
   if(req.method==="POST"&&url.pathname==="/internal/encounters"){
@@ -89,12 +181,12 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch }
   return false;
 }
 
-export function createFateDropHttpServer({ store, retailers = [], placesSearch } = {}) {
+export function createFateDropHttpServer({ store, retailers = [], placesSearch, postcodeLookup=lookupUkPostcode, postcodeBatchLookup=lookupUkPostcodes } = {}) {
   const server=createLegacyHttpServer({store});const legacyHandler=server.listeners("request")[0];server.removeAllListeners("request");
   server.on("request",async(req,res)=>{try{
     const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`);
     const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
-    if(isEncounterRoute){await handleFateEncounters(req,res,{store,retailers,placesSearch});return;}
+    if(isEncounterRoute){await handleFateEncounters(req,res,{store,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);
   }catch(error){return json(res,500,{error:"Fate Encounters error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
   return server;
