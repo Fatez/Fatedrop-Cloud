@@ -1,6 +1,7 @@
 import http from "node:http";
 import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
+import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 
@@ -108,8 +109,10 @@ async function appTruePrice(store, url) {
       rrpObservedAt:iso(product?.rrpObservedAt),
       offers:[]
     };
-    const deliveryKnown=Number.isFinite(offer.postagePence), totalPence=deliveryKnown&&Number.isFinite(offer.pricePence)?offer.pricePence+offer.postagePence:undefined;
-    group.offers.push({ id:offer.offerId,retailerId:offer.retailerId,retailerName:offer.retailerName,title:offer.title,priceGbp:pounds(offer.pricePence),shippingGbp:pounds(offer.postagePence),totalDeliveredGbp:pounds(totalPence),deliveryKnown,collectionAvailable:false,productUrl:offer.url,imageUrl:offer.imageUrl,lastCheckedAt:iso(offer.lastSeenAt),stockStatus:legacyAvailability(offer.stockStatus),isLowestKnownDelivered:false });
+    const resolvedDelivery=resolveRetailerDelivery({ retailerId:offer.retailerId, subtotalPence:offer.pricePence });
+    const effectivePostagePence=Number.isFinite(offer.postagePence)?offer.postagePence:resolvedDelivery.postagePence;
+    const deliveryKnown=Number.isFinite(effectivePostagePence), totalPence=deliveryKnown&&Number.isFinite(offer.pricePence)?offer.pricePence+effectivePostagePence:undefined;
+    group.offers.push({ id:offer.offerId,retailerId:offer.retailerId,retailerName:offer.retailerName,title:offer.title,priceGbp:pounds(offer.pricePence),shippingGbp:pounds(effectivePostagePence),totalDeliveredGbp:pounds(totalPence),deliveryKnown,freeShippingThresholdGbp:pounds(resolvedDelivery.freeShippingThresholdPence),collectionAvailable:resolvedDelivery.collectionAvailable===true,productUrl:offer.url,imageUrl:offer.imageUrl,lastCheckedAt:iso(offer.lastSeenAt),stockStatus:legacyAvailability(offer.stockStatus),isLowestKnownDelivered:false });
     grouped.set(key,group);
   }
   const groups=[...grouped.values()].map((group)=>{
