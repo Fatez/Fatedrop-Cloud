@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
+const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, encounters: {}, encounterVendors: {}, encounterInventory: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
 
 export class FileStore {
   constructor(filePath) { this.filePath = filePath; this.writeQueue = Promise.resolve(); }
@@ -60,6 +60,57 @@ export class FileStore {
     return (state.signals || []).filter((signal) => signal.detectedAt >= since).filter((signal) => !states.length || states.includes(signal.state)).filter((signal) => !retailerIds.length || retailerIds.includes(signal.retailerId)).sort((a, b) => b.detectedAt - a.detectedAt).slice(0, limit);
   }
   async listRetailers() { return Object.values((await this.read()).retailers || {}); }
+  async upsertEncounters(events = []) {
+    return this.mutate((state) => {
+      state.encounters ||= {};
+      for (const event of events) state.encounters[event.id] = event;
+      return { saved: events.length };
+    });
+  }
+  async listEncounters({ from = null, to = null, tcgs = [], limit = 1000 } = {}) {
+    const state = await this.read();
+    const fromTime = from ? Date.parse(from) : 0;
+    const toTime = to ? Date.parse(to) : Number.POSITIVE_INFINITY;
+    const wanted = tcgs.map((value) => String(value).toLowerCase());
+    return Object.values(state.encounters || {})
+      .filter((event) => {
+        const start = Date.parse(event.startDateTime);
+        if (!Number.isFinite(start) || start < fromTime || start > toTime) return false;
+        if (!wanted.length) return true;
+        const supported = (event.supportedTcgs || []).map((value) => String(value).toLowerCase());
+        return supported.some((value) => wanted.includes(value) || value === "all" || value === "all tcg");
+      })
+      .sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime))
+      .slice(0, Math.min(2000, Math.max(1, limit)));
+  }
+  async upsertEncounterVendors(vendors = []) {
+    return this.mutate((state) => {
+      state.encounterVendors ||= {};
+      for (const vendor of vendors) state.encounterVendors[vendor.id] = vendor;
+      return { saved: vendors.length };
+    });
+  }
+  async listEncounterVendors(eventId) {
+    const state = await this.read();
+    return Object.values(state.encounterVendors || {})
+      .filter((vendor) => vendor.eventId === eventId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async upsertEncounterInventory(items = []) {
+    return this.mutate((state) => {
+      state.encounterInventory ||= {};
+      for (const item of items) state.encounterInventory[item.id] = item;
+      return { saved: items.length };
+    });
+  }
+  async listEncounterInventory(eventId) {
+    const state = await this.read();
+    const now = Date.now();
+    return Object.values(state.encounterInventory || {})
+      .filter((item) => item.eventId === eventId)
+      .filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > now)
+      .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt));
+  }
   async recordNetworkSnapshot(snapshot) { return this.mutate((state) => { state.networkSnapshots ||= []; if (!state.networkSnapshots.some((item) => item.id === snapshot.id)) state.networkSnapshots.push(snapshot); state.networkSnapshots = state.networkSnapshots.sort((a, b) => a.measuredAt - b.measuredAt).slice(-2000); }); }
   async listNetworkSnapshots(limit = 30) { const state = await this.read(); return [...(state.networkSnapshots || [])].sort((a, b) => b.measuredAt - a.measuredAt).slice(0, Math.min(180, Math.max(1, limit))); }
   async stats() {
