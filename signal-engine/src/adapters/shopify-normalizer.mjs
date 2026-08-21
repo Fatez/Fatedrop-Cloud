@@ -6,6 +6,11 @@ function moneyStringToPence(value) {
   return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) : null;
 }
 
+function normalizeGtin(value) {
+  const gtin = String(value ?? "").replace(/\s+/g, "").trim();
+  return gtin || null;
+}
+
 export function normalizeShopifyProducts(payload, retailer) {
   const products = Array.isArray(payload?.products) ? payload.products : [];
   const output = [];
@@ -17,6 +22,7 @@ export function normalizeShopifyProducts(payload, retailer) {
       if (!title || !retailerSku || !product?.handle) continue;
       const variantTitle = variant?.title && variant.title !== "Default Title" ? `${title} — ${variant.title}` : title;
       const productType = productTypeFromTitle(variantTitle);
+      const gtin = normalizeGtin(variant?.barcode);
       output.push({
         retailerSku,
         title: variantTitle,
@@ -24,12 +30,16 @@ export function normalizeShopifyProducts(payload, retailer) {
         imageUrl: product?.images?.[0]?.src || product?.image?.src || null,
         pricePence: moneyStringToPence(variant?.price),
         postagePence: null,
+        gtin,
         productType,
         canonicalKey: canonicalKey(variantTitle, productType),
         stockStatus: variant?.available === true ? "in_stock" : variant?.available === false ? "out_of_stock" : "unknown",
         stockConfidence: variant?.available === true || variant?.available === false ? 0.98 : 0.5,
         stockQuantity: null,
-        evidence: [{ kind: "shopify_structured_catalogue", value: `variant:${variant?.id || retailerSku}` }],
+        evidence: [
+          { kind: "shopify_structured_catalogue", value: `variant:${variant?.id || retailerSku}` },
+          ...(gtin ? [{ kind: "gtin", value: gtin }] : []),
+        ],
       });
     }
   }

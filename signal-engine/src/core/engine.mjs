@@ -14,6 +14,7 @@ function normalizeExternalProduct(raw) {
   const url = normalizeWhitespace(raw.url);
   if (!title || !retailerSku || !url) throw new Error("Ingested products require title, retailerSku and url");
   const productType = raw.productType || productTypeFromTitle(title);
+  const gtin = normalizeWhitespace(raw.gtin || raw.barcode) || null;
   return {
     retailerSku,
     title,
@@ -22,6 +23,7 @@ function normalizeExternalProduct(raw) {
     pricePence: Number.isFinite(raw.pricePence) ? Math.round(raw.pricePence) : null,
     postagePence: Number.isFinite(raw.postagePence) && raw.postagePence >= 0 ? Math.round(raw.postagePence) : null,
     officialRrpPence: Number.isFinite(raw.officialRrpPence) ? Math.round(raw.officialRrpPence) : null,
+    gtin,
     productType,
     canonicalKey: raw.canonicalKey || canonicalKey(title, productType),
     stockStatus: raw.stockStatus || "unknown",
@@ -49,9 +51,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
     const productId = stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey);
     const previousProduct = await store.getProduct(productId);
-    const observedOfficialRrp = raw.officialRrpPence ?? raw.pricePence;
-    const officialRrpPence = retailer.officialRrpSource && observedOfficialRrp != null ? observedOfficialRrp : previousProduct?.officialRrpPence ?? null;
-    const hasFreshOfficialRrp = retailer.officialRrpSource && observedOfficialRrp != null;
+    const explicitOfficialRrp = raw.officialRrpPence ?? null;
+    const hasFreshOfficialRrp = retailer.officialRrpSource && explicitOfficialRrp != null;
+    const officialRrpPence = hasFreshOfficialRrp ? explicitOfficialRrp : previousProduct?.officialRrpPence ?? null;
     const product = {
       id: productId,
       canonicalKey: raw.canonicalKey,
@@ -80,6 +82,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       pricePence: raw.pricePence,
       rrpPence: officialRrpPence,
       postagePence: evidenceBackedPostage(raw, retailer),
+      gtin: raw.gtin ?? null,
       stockStatus: raw.stockStatus,
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
