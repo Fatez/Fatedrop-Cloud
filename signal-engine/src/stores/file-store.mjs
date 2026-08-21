@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, encounters: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
+const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, encounters: {}, encounterVendors: {}, encounterInventory: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
 
 export class FileStore {
   constructor(filePath) { this.filePath = filePath; this.writeQueue = Promise.resolve(); }
@@ -86,6 +86,34 @@ export class FileStore {
       })
       .sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime))
       .slice(0, Math.min(2000, Math.max(1, limit)));
+  }
+  async upsertEncounterVendors(vendors = []) {
+    return this.mutate((state) => {
+      state.encounterVendors ||= {};
+      for (const vendor of vendors) state.encounterVendors[vendor.id] = vendor;
+      return { saved: vendors.length };
+    });
+  }
+  async listEncounterVendors(eventId) {
+    const state = await this.read();
+    return Object.values(state.encounterVendors || {})
+      .filter((vendor) => vendor.eventId === eventId)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  async upsertEncounterInventory(items = []) {
+    return this.mutate((state) => {
+      state.encounterInventory ||= {};
+      for (const item of items) state.encounterInventory[item.id] = item;
+      return { saved: items.length };
+    });
+  }
+  async listEncounterInventory(eventId) {
+    const state = await this.read();
+    const now = Date.now();
+    return Object.values(state.encounterInventory || {})
+      .filter((item) => item.eventId === eventId)
+      .filter((item) => !item.expiresAt || Date.parse(item.expiresAt) > now)
+      .sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt));
   }
   async recordNetworkSnapshot(snapshot) {
     return this.mutate((state) => {
