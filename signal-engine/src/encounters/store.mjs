@@ -30,6 +30,8 @@ function dbEncounter(row) {
     lastVerifiedAt: row.last_verified_at ? (row.last_verified_at.toISOString?.() || new Date(row.last_verified_at).toISOString()) : null,
   };
 }
+function dbVendor(row){return{id:row.id,eventId:row.event_id,retailerId:row.retailer_id,name:row.name,websiteUrl:row.website_url,stallLabel:row.stall_label,zoneLabel:row.zone_label,supportedTcgs:row.supported_tcgs||[],verificationStatus:row.verification_status,sourceType:row.source_type,sourceUrl:row.source_url,lastVerifiedAt:row.last_verified_at?(row.last_verified_at.toISOString?.()||new Date(row.last_verified_at).toISOString()):null};}
+function dbInventory(row){return{id:row.id,eventId:row.event_id,vendorId:row.vendor_id,productId:row.product_id,title:row.title,pricePence:row.price_pence,quantity:row.quantity,availability:row.availability,evidenceScope:row.evidence_scope,observedAt:row.observed_at?.toISOString?.()||new Date(row.observed_at).toISOString(),expiresAt:row.expires_at?(row.expires_at.toISOString?.()||new Date(row.expires_at).toISOString()):null};}
 
 export async function listEncountersFromStore(store, { from = null, to = null, tcgs = [], limit = 1000 } = {}) {
   if (typeof store?.listEncounters === "function") return store.listEncounters({ from, to, tcgs, limit });
@@ -91,10 +93,26 @@ export async function upsertEncountersIntoStore(store, events = []) {
     }
     await client.query("COMMIT");
     return { saved: events.length };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
+}
+
+export async function listEncounterVendorsFromStore(store,eventId){
+  if(typeof store?.listEncounterVendors==='function')return store.listEncounterVendors(eventId);
+  if(typeof store?.pool!=='function')return[];
+  const pool=await store.pool();const{rows}=await pool.query('SELECT * FROM fatedrop_encounter_vendors WHERE event_id=$1 ORDER BY name',[eventId]);return rows.map(dbVendor);
+}
+export async function upsertEncounterVendorsIntoStore(store,vendors=[]){
+  if(typeof store?.upsertEncounterVendors==='function')return store.upsertEncounterVendors(vendors);
+  if(typeof store?.pool!=='function')throw new Error('Encounter vendor persistence is unavailable');
+  const pool=await store.pool();const client=await pool.connect();try{await client.query('BEGIN');for(const vendor of vendors){await client.query(`INSERT INTO fatedrop_encounter_vendors (id,event_id,retailer_id,name,website_url,stall_label,zone_label,supported_tcgs,verification_status,source_type,source_url,last_verified_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW()) ON CONFLICT (event_id,name) DO UPDATE SET retailer_id=COALESCE(EXCLUDED.retailer_id,fatedrop_encounter_vendors.retailer_id),website_url=COALESCE(EXCLUDED.website_url,fatedrop_encounter_vendors.website_url),stall_label=COALESCE(EXCLUDED.stall_label,fatedrop_encounter_vendors.stall_label),zone_label=COALESCE(EXCLUDED.zone_label,fatedrop_encounter_vendors.zone_label),supported_tcgs=(SELECT ARRAY(SELECT DISTINCT unnest(fatedrop_encounter_vendors.supported_tcgs || EXCLUDED.supported_tcgs))),verification_status=EXCLUDED.verification_status,source_type=EXCLUDED.source_type,source_url=COALESCE(EXCLUDED.source_url,fatedrop_encounter_vendors.source_url),last_verified_at=COALESCE(EXCLUDED.last_verified_at,fatedrop_encounter_vendors.last_verified_at),updated_at=NOW()`,[vendor.id,vendor.eventId,vendor.retailerId,vendor.name,vendor.websiteUrl,vendor.stallLabel,vendor.zoneLabel,vendor.supportedTcgs,vendor.verificationStatus,vendor.sourceType,vendor.sourceUrl,vendor.lastVerifiedAt]);}await client.query('COMMIT');return{saved:vendors.length};}catch(error){await client.query('ROLLBACK');throw error}finally{client.release();}
+}
+export async function listEncounterInventoryFromStore(store,eventId){
+  if(typeof store?.listEncounterInventory==='function')return store.listEncounterInventory(eventId);
+  if(typeof store?.pool!=='function')return[];
+  const pool=await store.pool();const{rows}=await pool.query(`SELECT * FROM fatedrop_encounter_vendor_inventory WHERE event_id=$1 AND (expires_at IS NULL OR expires_at>NOW()) ORDER BY observed_at DESC`,[eventId]);return rows.map(dbInventory);
+}
+export async function upsertEncounterInventoryIntoStore(store,items=[]){
+  if(typeof store?.upsertEncounterInventory==='function')return store.upsertEncounterInventory(items);
+  if(typeof store?.pool!=='function')throw new Error('Encounter inventory persistence is unavailable');
+  const pool=await store.pool();const client=await pool.connect();try{await client.query('BEGIN');for(const item of items){await client.query(`INSERT INTO fatedrop_encounter_vendor_inventory (id,event_id,vendor_id,product_id,title,price_pence,quantity,availability,evidence_scope,observed_at,expires_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW()) ON CONFLICT (id) DO UPDATE SET product_id=COALESCE(EXCLUDED.product_id,fatedrop_encounter_vendor_inventory.product_id),title=EXCLUDED.title,price_pence=EXCLUDED.price_pence,quantity=EXCLUDED.quantity,availability=EXCLUDED.availability,evidence_scope=EXCLUDED.evidence_scope,observed_at=EXCLUDED.observed_at,expires_at=EXCLUDED.expires_at,updated_at=NOW()`,[item.id,item.eventId,item.vendorId,item.productId,item.title,item.pricePence,item.quantity,item.availability,item.evidenceScope,item.observedAt,item.expiresAt]);}await client.query('COMMIT');return{saved:items.length};}catch(error){await client.query('ROLLBACK');throw error}finally{client.release();}
 }
