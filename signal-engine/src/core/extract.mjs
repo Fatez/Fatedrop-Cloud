@@ -6,6 +6,12 @@ function absoluteUrl(href, baseUrl) {
   try { return new URL(href, baseUrl).toString(); } catch { return null; }
 }
 
+function matches(pattern, value) {
+  if (!pattern) return false;
+  pattern.lastIndex = 0;
+  return pattern.test(value);
+}
+
 function jsonLdProducts($) {
   const products = [];
   $('script[type="application/ld+json"]').each((_, node) => {
@@ -73,12 +79,22 @@ export function extractCatalogueProducts({ html, pageUrl, retailer }) {
   const $ = load(html);
   const fromLd = jsonLdProducts($);
   const fromCards = cardProducts($, retailer, pageUrl);
+  const cardContextByUrl = new Map();
+  for (const raw of fromCards) {
+    const url = raw.url ? absoluteUrl(raw.url, pageUrl) : null;
+    if (url) cardContextByUrl.set(url, raw.rawText || "");
+  }
+
   const merged = new Map();
   for (const raw of [...fromCards, ...fromLd]) {
     if (!raw.title) continue;
     const url = raw.url ? absoluteUrl(raw.url, pageUrl) : null;
     if (!url || !retailer.productUrlPattern.test(url)) continue;
-    const text = `${raw.rawText || ""} ${raw.availability || ""}`;
+    const text = normalizeWhitespace(`${raw.rawText || ""} ${raw.availability || ""} ${cardContextByUrl.get(url) || ""}`);
+    const filterText = normalizeWhitespace(`${raw.title} ${url} ${text}`);
+    if (retailer.include && !matches(retailer.include, filterText)) continue;
+    if (retailer.exclude && matches(retailer.exclude, filterText)) continue;
+
     const stock = classifyStockStatus(text);
     const productType = productTypeFromTitle(raw.title);
     const retailerSku = raw.sku || url.match(retailer.skuPattern)?.[1] || stableId("sku", retailer.id, url).slice(-16);
