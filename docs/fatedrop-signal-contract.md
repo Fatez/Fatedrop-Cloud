@@ -36,5 +36,17 @@ RRP/markup context may accompany any product-linked signal only when FateDrop ha
 ## Companion intent
 Whisper = notice/scan. Echo = anticipation/readiness. Manifested = strongest action/victory state. Vanished = missed/subdued state. Preserve alert-specific animation mappings where already assigned.
 
+## Distribution and subscription model
+The live alert network is a premium product.
+
+- **Website:** True Price remains free and acts as the open utility/acquisition surface. The website dashboard may expose Companion interaction and previews that demonstrate the FateDrop experience, but the live alert feed itself stays hidden from free web users.
+- **Mobile app:** subscription unlocks the full live alert experience, including Whisper, Echo, Manifested and Vanished notifications, Companion alert reactions and premium alert controls.
+- **Discord:** full real-time alert delivery is part of the same premium subscription entitlement rather than a separate free alert surface.
+- **Companions:** website Companion interaction can remain available as a showcase/engagement feature, while the strongest value comes from the Companion reacting to premium live alerts inside the subscribed app experience.
+
+The commercial principle is simple: **give collectors permanent free price truth, charge for time advantage.** Do not hide True Price merely to manufacture a paywall; the subscription earns its value through speed, intelligence, live alerts, delivery and the premium Companion experience.
+
 ## Business-plan summary
 FateDrop's differentiating alert network is a four-stage intelligence ladder: it notices product movement early (Whisper), detects retailer infrastructure signs that a drop may be imminent (Echo), confirms when stock is genuinely purchasable (Manifested), and records when that availability disappears (Vanished). The same product identity links the collector from intelligence to action and then to alternatives, while evidence-backed RRP pricing explains whether an offer is actually good value.
+
+The go-to-market model pairs a **free True Price utility** with a **premium time-advantage subscription**. Website visitors can compare real prices and interact with the brand/Companion experience, while subscribers receive the live four-stage alert network through the app and premium Discord. This creates a useful free funnel without giving away FateDrop's most valuable advantage: knowing what is happening early enough to act.
