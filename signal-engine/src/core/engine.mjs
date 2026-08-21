@@ -3,6 +3,7 @@ import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
+import { resolveRetailerDelivery } from "./delivery-policies.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
@@ -35,6 +36,8 @@ function normalizeExternalProduct(raw) {
 
 function evidenceBackedPostage(raw, retailer) {
   if (Number.isFinite(raw.postagePence) && raw.postagePence >= 0) return Math.round(raw.postagePence);
+  const resolved = resolveRetailerDelivery({ retailerId: retailer?.id, subtotalPence: raw.pricePence });
+  if (resolved.known) return resolved.postagePence;
   if (retailer?.delivery?.known === true && Number.isFinite(retailer.delivery.standardPence) && retailer.delivery.standardPence >= 0) return Math.round(retailer.delivery.standardPence);
   return null;
 }
