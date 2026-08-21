@@ -18,6 +18,7 @@ const LANGUAGE_PATTERNS = [
   ["korean", /\bkorean\b/],
   ["simplified_chinese", /\bsimplified chinese\b/],
   ["traditional_chinese", /\btraditional chinese\b/],
+  ["chinese_unspecified", /\bchinese\b/],
   ["french", /\bfrench\b/],
   ["german", /\bgerman\b/],
   ["italian", /\bitalian\b/],
@@ -39,6 +40,7 @@ function packCountFrom(text) {
   const patterns = [
     /\b(\d{1,3})\s*x\s*(?:booster\s*)?packs?\b/,
     /\b(\d{1,3})\s*(?:booster\s*)?packs?\b/,
+    /\b(\d{1,3})\s*boosters?\b/,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -51,6 +53,7 @@ function caseQuantityFrom(text) {
   const patterns = [
     /\bcase\s+of\s+(\d{1,2})\b/,
     /\b(\d{1,2})\s*x\s*(?:booster box|elite trainer box|etb|booster bundle|collection box|tin)s?\b/,
+    /\b(\d{1,2})\s+(?:booster boxes|elite trainer boxes|etbs|booster bundles|collection boxes|tins)\b/,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
@@ -75,20 +78,40 @@ function unitKindFrom(text) {
   return "unit";
 }
 
+function formatVariantFrom(text) {
+  if (/\bhalf booster box\b/.test(text)) return "half";
+  if (/\benhanced booster box\b/.test(text)) return "enhanced";
+  if (/\bdeluxe booster box\b/.test(text)) return "deluxe";
+  if (/\bslim booster box\b/.test(text)) return "slim";
+  if (/\bjumbo booster box\b/.test(text)) return "jumbo";
+  if (/\bbooster box bundle\b/.test(text)) return "box_bundle";
+  return "standard";
+}
+
+function presentationFrom(text) {
+  if (/\bopened live(?: on stream)?\b/.test(text)) return "opened_live";
+  return "standard";
+}
+
 function removeIdentityNoise(text) {
   return ` ${text} `
     .replace(/\bpokemon center\b/g, " ")
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
-    .replace(/\b(?:japanese|jpn|english|korean|simplified chinese|traditional chinese|french|german|italian|spanish)\b/g, " ")
+    .replace(/\b(?:japanese|jpn|english|korean|simplified chinese|traditional chinese|chinese|french|german|italian|spanish)\b/g, " ")
     .replace(/\b(?:uk|united kingdom|us|usa|united states|jp|japan|eu|european)\b/g, " ")
     .replace(/\b(?:1st|first) edition\b/g, " ")
     .replace(/\bunlimited edition\b/g, " ")
+    .replace(/\bopened live(?: on stream)?\b/g, " ")
+    .replace(/\b(?:half|enhanced|deluxe|slim|jumbo) booster box\b/g, " booster box ")
+    .replace(/\bbooster box bundle\b/g, " booster box ")
     .replace(/\bcase\s+of\s+\d{1,2}\b/g, " ")
     .replace(/\b\d{1,2}\s*x\s*(?:booster box|elite trainer box|etb|booster bundle|collection box|tin)s?\b/g, " ")
+    .replace(/\b\d{1,2}\s+(?:booster boxes|elite trainer boxes|etbs|booster bundles|collection boxes|tins)\b/g, " ")
     .replace(/\b\d{1,3}\s*x\s*(?:booster\s*)?packs?\b/g, " ")
     .replace(/\b\d{1,3}\s*(?:booster\s*)?packs?\b/g, " ")
+    .replace(/\b\d{1,3}\s*boosters?\b/g, " ")
     .replace(/\b(?:elite trainer box|etb|booster display|booster box|booster bundle|sleeved booster|booster pack|premium collection|collection box|collection|tin|league battle deck|battle deck|theme deck|deck box|playmat|portfolio)\b/g, " ")
-    .replace(/\b(?:sealed case|case|carton|exclusive)\b/g, " ")
+    .replace(/\b(?:sealed case|sealed|case|carton|exclusive)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -125,6 +148,8 @@ export function describeProductIdentity(input) {
     region: source.region || firstMatch(text, REGION_PATTERNS),
     edition: source.edition || editionFrom(text),
     unitKind: source.unitKind || unitKindFrom(text),
+    formatVariant: source.formatVariant || formatVariantFrom(text),
+    presentation: source.presentation || presentationFrom(text),
     packCount: Number.isFinite(source.packCount) ? source.packCount : packCountFrom(text),
     caseQuantity: Number.isFinite(source.caseQuantity) ? source.caseQuantity : caseQuantityFrom(text),
     identifiers: normalizeIdentifiers(source.identifiers),
@@ -174,19 +199,17 @@ export function compareProductIdentity(leftInput, rightInput) {
     return { decision: "reject", confidence: 1, reasons, left, right };
   }
 
-  if (left.productType !== right.productType) {
-    reasons.push(`product_type_conflict:${left.productType}:${right.productType}`);
-    return { decision: "reject", confidence: 1, reasons, left, right };
-  }
-
-  if (left.exclusive !== right.exclusive) {
-    reasons.push(`exclusive_conflict:${left.exclusive || "standard"}:${right.exclusive || "standard"}`);
-    return { decision: "reject", confidence: 1, reasons, left, right };
-  }
-
-  if (left.unitKind !== right.unitKind) {
-    reasons.push(`unit_kind_conflict:${left.unitKind}:${right.unitKind}`);
-    return { decision: "reject", confidence: 1, reasons, left, right };
+  for (const [name, a, b] of [
+    ["product_type", left.productType, right.productType],
+    ["exclusive", left.exclusive || "standard", right.exclusive || "standard"],
+    ["unit_kind", left.unitKind, right.unitKind],
+    ["format_variant", left.formatVariant, right.formatVariant],
+    ["presentation", left.presentation, right.presentation],
+  ]) {
+    if (a !== b) {
+      reasons.push(`${name}_conflict:${a}:${b}`);
+      return { decision: "reject", confidence: 1, reasons, left, right };
+    }
   }
 
   let ambiguous = false;
