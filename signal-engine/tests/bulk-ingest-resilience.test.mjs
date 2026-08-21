@@ -15,3 +15,5 @@ test('retailer scan lock remains present in consolidated store', () => {
   assert.match(storeSource, /withRetailerScanLock/);
   assert.match(storeSource, /pg_try_advisory_lock/);
 });
+
+// Release guard: this file intentionally proves both reliability layers are present together.
