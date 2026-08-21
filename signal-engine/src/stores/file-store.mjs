@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
+const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, encounters: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
 
 export class FileStore {
   constructor(filePath) { this.filePath = filePath; this.writeQueue = Promise.resolve(); }
@@ -64,6 +64,29 @@ export class FileStore {
       .sort((a, b) => b.detectedAt - a.detectedAt).slice(0, limit);
   }
   async listRetailers() { return Object.values((await this.read()).retailers || {}); }
+  async upsertEncounters(events = []) {
+    return this.mutate((state) => {
+      state.encounters ||= {};
+      for (const event of events) state.encounters[event.id] = event;
+      return { saved: events.length };
+    });
+  }
+  async listEncounters({ from = null, to = null, tcgs = [], limit = 1000 } = {}) {
+    const state = await this.read();
+    const fromTime = from ? Date.parse(from) : 0;
+    const toTime = to ? Date.parse(to) : Number.POSITIVE_INFINITY;
+    const wanted = tcgs.map((value) => String(value).toLowerCase());
+    return Object.values(state.encounters || {})
+      .filter((event) => {
+        const start = Date.parse(event.startDateTime);
+        if (!Number.isFinite(start) || start < fromTime || start > toTime) return false;
+        if (!wanted.length) return true;
+        const supported = (event.supportedTcgs || []).map((value) => String(value).toLowerCase());
+        return supported.some((value) => wanted.includes(value) || value === "all" || value === "all tcg");
+      })
+      .sort((a, b) => Date.parse(a.startDateTime) - Date.parse(b.startDateTime))
+      .slice(0, Math.min(2000, Math.max(1, limit)));
+  }
   async recordNetworkSnapshot(snapshot) {
     return this.mutate((state) => {
       state.networkSnapshots ||= [];
