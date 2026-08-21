@@ -19,19 +19,23 @@ jobs:
           set -euo pipefail
           BASE="https://fatedrop-cloud-production.up.railway.app"
           curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
-            "$BASE/api/encounters?from=2026-08-21T00%3A00%3A00Z&limit=50" > /tmp/encounters.json
+            "$BASE/api/encounters?from=2026-08-21T00%3A00%3A00Z&limit=100" > /tmp/encounters.json
           curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
             "$BASE/api/local-radar?postcode=WD18%200ER&radiusMiles=10&types=shops,events&from=2026-08-21T00%3A00%3A00Z" > /tmp/radar.json
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            "$BASE/api/encounters/enc_card_con_iv_2026/vendors" > /tmp/vendors.json
           python - <<'PY'
           import json
           with open('/tmp/encounters.json') as f:
               encounters=json.load(f)
           with open('/tmp/radar.json') as f:
               radar=json.load(f)
+          with open('/tmp/vendors.json') as f:
+              vendors=json.load(f)
           print('ENCOUNTERS_SMOKE', json.dumps({
               'success': encounters.get('success'),
               'count': encounters.get('count'),
-              'sampleEvents': [e.get('name') for e in encounters.get('events', [])[:5]],
+              'sampleEvents': [e.get('name') for e in encounters.get('events', [])[:8]],
           }, sort_keys=True))
           print('LOCAL_RADAR_SMOKE', json.dumps({
               'success': radar.get('success'),
@@ -51,8 +55,22 @@ jobs:
                   'distanceSource': e.get('distanceSource'),
               } for e in radar.get('events', [])[:5]],
           }, sort_keys=True))
+          print('VENDORS_SMOKE', json.dumps({
+              'success': vendors.get('success'),
+              'count': vendors.get('count'),
+              'sampleVendors': [{
+                  'name': v.get('name'),
+                  'stallLabel': v.get('stallLabel'),
+                  'zoneLabel': v.get('zoneLabel'),
+                  'verificationStatus': v.get('verificationStatus'),
+                  'inventoryCount': v.get('inventoryCount'),
+              } for v in vendors.get('vendors', [])[:8]],
+              'inventoryRows': sum(len(v.get('inventory') or []) for v in vendors.get('vendors', [])),
+          }, sort_keys=True))
           if encounters.get('success') is not True:
               raise SystemExit('encounters endpoint did not report success')
           if radar.get('success') is not True:
               raise SystemExit('local radar endpoint did not report success')
+          if vendors.get('success') is not True:
+              raise SystemExit('vendor endpoint did not report success')
           PY
