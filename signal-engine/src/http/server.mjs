@@ -73,6 +73,36 @@ function authoritativeRrpProductFor(offer, linkedProduct, authoritativeProducts)
   }).decision==="match");
   return matches.length===1?matches[0]:null;
 }
+function publicSignal(signal) {
+  if (!signal || !["echo","manifested","vanished"].includes(signal.state)) return null;
+  return {
+    id:signal.id,
+    state:signal.state,
+    productId:signal.productId||null,
+    offerId:signal.offerId||null,
+    retailerId:signal.retailerId||null,
+    retailerName:signal.retailerName||null,
+    title:signal.title||"Product activity",
+    productType:signal.productType||null,
+    productUrl:signal.url||signal.target?.productUrl||null,
+    imageUrl:signal.imageUrl||null,
+    priceGbp:pounds(signal.pricePence),
+    rrpGbp:pounds(signal.rrpPence),
+    markupPercent:Number.isFinite(signal.markupPercent)?signal.markupPercent:undefined,
+    stockStatus:signal.stockStatus||"unknown",
+    confidence:Number.isFinite(signal.confidence)?signal.confidence:undefined,
+    detectedAt:iso(signal.detectedAt),
+    reason:signal.reason||null,
+    target:signal.target||{
+      type:"product",
+      productId:signal.productId||null,
+      offerId:signal.offerId||null,
+      retailerId:signal.retailerId||null,
+      productUrl:signal.url||null,
+      query:signal.title||"",
+    },
+  };
+}
 
 async function appCatalogue(store, url) {
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
@@ -157,6 +187,15 @@ export function createHttpServer({ store }) {
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res,200,await appCatalogue(store,url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res,200,await appTruePrice(store,url));
+      if (req.method === "GET" && url.pathname === "/api/signals") {
+        const limit=Math.max(1,Math.min(100,Number.parseInt(url.searchParams.get("limit")||"50",10)||50));
+        const since=Math.max(0,Number.parseInt(url.searchParams.get("since")||"0",10));
+        const requested=parseCsv(url.searchParams.get("state")).map((value)=>value.toLowerCase()).filter((value)=>["echo","manifested","vanished"].includes(value));
+        const states=requested.length?requested:["echo","manifested","vanished"];
+        const raw=await store.listSignals({ states, retailerIds:[], since, limit:Math.min(250,limit*3) });
+        const signals=raw.map(publicSignal).filter(Boolean).slice(0,limit);
+        return json(res,200,{success:true,count:signals.length,generatedAt:new Date().toISOString(),signals});
+      }
       if (req.method === "GET" && url.pathname === "/v1/network") {
         if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
         return json(res, 200, { generatedAt: Math.floor(Date.now()/1000), stats: await store.stats(), retailers: await store.listRetailers() });
