@@ -29,11 +29,24 @@ Start Chrome with a dedicated FateDrop profile and remote debugging enabled, the
 chrome.exe --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\FateDropChrome"
 ```
 
-Then run:
+For a manual/debug session, run the collector directly:
 
 ```bash
 npm start
 ```
+
+For the long-running host, prefer the supervised launcher:
+
+```bash
+npm run start:supervised
+```
+
+The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally. Keep the supervisor itself under the host's normal process/session supervision if 24/7 operation is required.
+
+Optional supervisor settings:
+
+- `FATEDROP_COLLECTOR_SUPERVISOR_INTERVAL_MS` — CDP probe interval, minimum 5 seconds, default 10 seconds.
+- `FATEDROP_COLLECTOR_SUPERVISOR_TIMEOUT_MS` — individual CDP probe timeout, bounded to 1–10 seconds, default 3 seconds.
 
 The collector verifies the captured unique product count against Pokémon Center's own `numFound` value before anything is sent to FateDrop Cloud. An incomplete scan is rejected.
 
