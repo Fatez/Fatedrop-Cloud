@@ -14,6 +14,12 @@ const RAW_SOURCES = [
   { id: 'striking-events', name: 'Striking Events', url: 'https://strikingshows.co.uk/2026-events/', category: 'official_organiser', regions: ['England'], reviewEveryDays: 2 },
   { id: 'card-market-events', name: 'Card Market Events', url: 'https://cardmarketevents.com/events/', category: 'official_organiser', regions: ['England', 'Wales'], reviewEveryDays: 2 },
   { id: 'collectors-showcase', name: 'Collectors Showcase', url: 'https://collectors-showcase.com/', category: 'official_organiser', regions: ['Greater London'], reviewEveryDays: 7 },
+  { id: 'cardco-events', name: 'CardCo Events', url: 'https://www.cardco.net/upcoming-events', category: 'official_organiser', regions: ['England', 'Scotland'], reviewEveryDays: 2 },
+  { id: 'orbit-card-show', name: 'Orbit Card Show', url: 'https://orbitcardshow.co.uk/', category: 'official_organiser', regions: ['England', 'Wales'], reviewEveryDays: 2 },
+  { id: 'reading-card-show', name: 'Reading Card Show', url: 'https://whatsonreading.com/venues/reading-card-show', category: 'official_organiser', regions: ['South East England'], reviewEveryDays: 3 },
+  { id: 'ayrshire-card-show', name: 'Ayrshire Card Show', url: 'https://www.eventbrite.co.uk/o/121093667328', category: 'official_ticketing', regions: ['Scotland'], reviewEveryDays: 3 },
+  { id: 'ryan-murray-ni', name: 'Ryan Murray / Belfast Collects', url: 'https://www.eventbrite.co.uk/o/114745931051', category: 'official_ticketing', regions: ['Northern Ireland'], reviewEveryDays: 3 },
+  { id: 'maiden-city-card-show', name: 'Maiden City Card Show', url: 'https://www.eventbrite.com/o/maiden-city-card-show-120654330347', category: 'official_ticketing', regions: ['Northern Ireland'], reviewEveryDays: 3 },
 ];
 
 const ALLOWED_CATEGORIES = new Set(['official_organiser', 'official_ticketing', 'official_tcg', 'official_venue', 'authorised_feed']);
