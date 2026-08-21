@@ -1,6 +1,7 @@
 import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
+import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
@@ -97,7 +98,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const completedAt = Math.floor(Date.now() / 1000);
   await store.saveScan({ retailer, products, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
-  const discord = signals.length ? await dispatchDiscordSignals(signals) : { sent: 0, skipped: 0, failed: 0, errors: [] };
+  const discord = signals.length ? await dispatchDiscordSignals(signals, {
+    onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
+  }) : { sent: 0, skipped: 0, failed: 0, errors: [] };
   return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
 }
 
