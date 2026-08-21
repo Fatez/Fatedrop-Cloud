@@ -2,7 +2,7 @@ import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { scanAll } from "./core/engine.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
-import { createHttpServer } from "./http/server.mjs";
+import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { createStore } from "./stores/index.mjs";
@@ -13,7 +13,7 @@ const retailers = await loadRuntimeRetailers({
   registryEnabled: env.retailerRegistryEnabled,
   databaseUrl: env.databaseUrl,
 });
-const server = createHttpServer({ store });
+const server = createFateDropHttpServer({ store, retailers });
 let scanning = false;
 async function scheduledScan() {
   if (scanning) return;
