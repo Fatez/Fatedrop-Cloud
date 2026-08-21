@@ -1,30 +1,28 @@
 import { env } from "../config/env.mjs";
 
 const DISCORD_API = "https://discord.com/api/v10";
-const DISCORD_SIGNAL_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
+const DISCORD_SIGNAL_STATES = new Set(["whisper", "echo", "manifested", "vanished"]);
 
 const STATE_STYLE = Object.freeze({
-  // Legacy/internal Whisper is retained for backwards compatibility but is
-  // never exposed as a separate public lifecycle name.
   whisper: {
-    publicStage: "Echo",
-    label: "ECHO",
-    colour: 0xa855f7,
-    fallback: "Early product activity detected. FateDrop is watching for confirmed availability.",
+    publicStage: "Whisper",
+    label: "WHISPER",
+    colour: 0x67e8f9,
+    fallback: "Product or catalogue movement detected. Something may be coming.",
     actionLabel: "Inspect product",
   },
   echo: {
     publicStage: "Echo",
     label: "ECHO",
     colour: 0xa855f7,
-    fallback: "Early product activity detected. FateDrop is watching for confirmed availability.",
-    actionLabel: "Inspect product",
+    fallback: "Traffic, queue or security behaviour changed. Get ready for possible stock activity.",
+    actionLabel: "Get ready / inspect",
   },
   manifested: {
     publicStage: "Manifested",
     label: "MANIFESTED",
     colour: 0x49e6b1,
-    fallback: "Confirmed purchasable stock detected.",
+    fallback: "Confirmed purchasable stock detected. Go now.",
     actionLabel: "Buy / view product",
   },
   vanished: {
@@ -84,7 +82,7 @@ export function isDiscordSignal(signal) {
 
 export function buildDiscordSignalMessage(signal) {
   const style = STATE_STYLE[signal.state] || STATE_STYLE.manifested;
-  const productUrl = safeHttpUrl(signal.url);
+  const productUrl = safeHttpUrl(signal.url || signal.target?.productUrl);
   const thumbnailUrl = safeHttpUrl(signal.imageUrl);
   const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
 
@@ -94,15 +92,9 @@ export function buildDiscordSignalMessage(signal) {
     { name: "Stock", value: short(signal.stockStatus || "Unknown", 1024), inline: true },
   ];
 
-  if (Number.isFinite(signal.rrpPence)) {
-    fields.push({ name: "Official RRP", value: money(signal.rrpPence), inline: true });
-  }
-  if (Number.isFinite(signal.markupPercent)) {
-    fields.push({ name: "Vs RRP", value: percent(signal.markupPercent), inline: true });
-  }
-  if (Number.isFinite(signal.deliveredPricePence)) {
-    fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
-  }
+  if (Number.isFinite(signal.rrpPence)) fields.push({ name: "Official RRP", value: money(signal.rrpPence), inline: true });
+  if (Number.isFinite(signal.markupPercent)) fields.push({ name: "Vs RRP", value: percent(signal.markupPercent), inline: true });
+  if (Number.isFinite(signal.deliveredPricePence)) fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
   fields.push({ name: "Signal confidence", value: confidence, inline: true });
 
   const embed = {
@@ -117,23 +109,10 @@ export function buildDiscordSignalMessage(signal) {
   if (productUrl) embed.url = productUrl;
   if (thumbnailUrl) embed.thumbnail = { url: thumbnailUrl };
 
-  const message = {
-    embeds: [embed],
-    allowed_mentions: { parse: [] },
-  };
-
+  const message = { embeds: [embed], allowed_mentions: { parse: [] } };
   if (productUrl) {
-    message.components = [{
-      type: 1,
-      components: [{
-        type: 2,
-        style: 5,
-        label: style.actionLabel,
-        url: productUrl,
-      }],
-    }];
+    message.components = [{ type: 1, components: [{ type: 2, style: 5, label: style.actionLabel, url: productUrl }] }];
   }
-
   return message;
 }
 
@@ -149,10 +128,7 @@ export async function sendDiscordSignal(signal, {
 
   const response = await fetchImpl(`${DISCORD_API}/channels/${channelId}/messages`, {
     method: "POST",
-    headers: {
-      Authorization: `Bot ${botToken}`,
-      "Content-Type": "application/json",
-    },
+    headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(buildDiscordSignalMessage(signal)),
   });
 
@@ -169,47 +145,22 @@ export async function dispatchDiscordSignals(signals, options = {}) {
   const summary = { sent: 0, skipped: 0, failed: 0, errors: [] };
   const onDeliveryAttempt = options.onDeliveryAttempt;
   for (const signal of signals || []) {
-    if (!isDiscordSignal(signal)) {
-      summary.skipped += 1;
-      continue;
-    }
-
+    if (!isDiscordSignal(signal)) { summary.skipped += 1; continue; }
     const attemptedAt = Math.floor(Date.now() / 1000);
     try {
       const result = await sendDiscordSignal(signal, options);
       if (result.sent) {
         summary.sent += 1;
-        await reportDeliveryAttempt(onDeliveryAttempt, {
-          signalId: signal.id,
-          channel: "discord",
-          attemptedAt,
-          result: "sent",
-          providerMessageId: result.messageId ?? null,
-          detail: null,
-        });
+        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "sent", providerMessageId: result.messageId ?? null, detail: null });
       } else {
         summary.skipped += 1;
-        await reportDeliveryAttempt(onDeliveryAttempt, {
-          signalId: signal.id,
-          channel: "discord",
-          attemptedAt,
-          result: "skipped",
-          providerMessageId: null,
-          detail: result.reason || "not_sent",
-        });
+        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "skipped", providerMessageId: null, detail: result.reason || "not_sent" });
       }
     } catch (error) {
       const detail = String(error?.message || error);
       summary.failed += 1;
       summary.errors.push({ signalId: signal.id, error: detail });
-      await reportDeliveryAttempt(onDeliveryAttempt, {
-        signalId: signal.id,
-        channel: "discord",
-        attemptedAt,
-        result: "failed",
-        providerMessageId: null,
-        detail,
-      });
+      await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "failed", providerMessageId: null, detail });
       console.error("[discord] signal delivery failed", { signalId: signal.id, error: detail });
     }
   }

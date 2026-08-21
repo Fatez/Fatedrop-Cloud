@@ -12,13 +12,18 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   let state = null;
   let reason = null;
 
+  // FINAL FATEDROP LIFECYCLE CONTRACT:
+  // WHISPER = product/catalogue movement before a confirmed live event.
+  // ECHO = retailer traffic/security/queue readiness intelligence (emitted by infrastructure probes, not catalogue stock transitions).
+  // MANIFESTED = confirmed purchasable availability/restock.
+  // VANISHED = previously purchasable availability lost.
   if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
       reason = "New catalogue product discovered and verified purchasable";
     } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)) {
-      state = SignalState.ECHO;
-      reason = "Early product activity observed before verified availability";
+      state = SignalState.WHISPER;
+      reason = "Product/catalogue activity observed before verified availability";
     }
   } else if (!wasPurchasable && nowPurchasable) {
     state = SignalState.MANIFESTED;
@@ -28,13 +33,9 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   } else if (wasPurchasable && !nowPurchasable) {
     state = SignalState.VANISHED;
     reason = "Previously purchasable product is no longer verified available";
-  } else if (
-    previousStatus !== currentStatus &&
-    !nowPurchasable &&
-    [StockStatus.PREORDER, StockStatus.COMING_SOON].includes(currentStatus)
-  ) {
-    state = SignalState.ECHO;
-    reason = "Early catalogue activity changed before verified availability";
+  } else if (previousStatus !== currentStatus && !nowPurchasable) {
+    state = SignalState.WHISPER;
+    reason = "Product/catalogue state changed before verified availability";
   }
 
   if (!state) return null;
