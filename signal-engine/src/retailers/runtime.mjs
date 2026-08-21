@@ -13,6 +13,9 @@ export function retailerToAdapterConfig(input, { requireMonitored = true } = {})
   if (retailer.countryCode !== "GB" && retailer.delivery.shipsToUk !== true) {
     throw new Error(`${retailer.id} cannot enter runtime until UK shipping is confirmed`);
   }
+  if (retailer.countryCode !== "GB") {
+    throw new Error(`${retailer.id} cannot enter runtime until international FX, VAT, duties and landed-cost conversion is enabled`);
+  }
   if (retailer.delivery.currency && retailer.delivery.currency !== "GBP") {
     throw new Error(`${retailer.id} cannot enter runtime until non-GBP FX and landed-cost conversion is enabled`);
   }
