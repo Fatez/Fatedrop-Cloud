@@ -58,6 +58,21 @@ test("Discord omits unavailable RRP intelligence instead of showing fake values"
   assert.equal(message.embeds[0].fields.some((field) => field.name === "Vs RRP"), false);
 });
 
+test("Discord delivery reports a missing bot token before the generic enable flag", async () => {
+  const result = await sendDiscordSignal(signal, { enabled: false, botToken: "", channelId: "123456789" });
+  assert.deepEqual(result, { sent: false, reason: "missing_bot_token" });
+});
+
+test("Discord delivery reports a missing channel before the generic enable flag", async () => {
+  const result = await sendDiscordSignal(signal, { enabled: false, botToken: "test-token", channelId: "" });
+  assert.deepEqual(result, { sent: false, reason: "missing_channel_id" });
+});
+
+test("Discord delivery reports explicit disable when credentials are otherwise complete", async () => {
+  const result = await sendDiscordSignal(signal, { enabled: false, botToken: "test-token", channelId: "123456789" });
+  assert.deepEqual(result, { sent: false, reason: "disabled" });
+});
+
 test("Discord delivery posts to configured channel", async () => {
   let request = null;
   const fetchImpl = async (url, options) => { request = { url, options }; return new Response(JSON.stringify({ id: "message-123" }), { status: 200, headers: { "content-type": "application/json" } }); };
