@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { processRetailerProducts } from "../src/core/engine.mjs";
 import { preloadPreviousState } from "../src/core/previous-state.mjs";
 import { recordRetailerRunFinish, recordRetailerRunStart } from "../src/telemetry/retailer-runs.mjs";
 
@@ -44,4 +45,49 @@ test("retailer run telemetry records start and finish without schema changes", a
   assert.match(queries[1].sql, /UPDATE fatedrop_retailer_monitor_runs/);
   assert.equal(queries[1].values[2], "success");
   assert.equal(queries[1].values[4], 402);
+});
+
+test("multiple retailer offers for one canonical product persist one product row and every offer", async () => {
+  let saved = null;
+  const store = {
+    async pool() {
+      return { async query() { return { rows: [] }; } };
+    },
+    async isBaselineComplete() { return true; },
+    async saveScan(payload) { saved = payload; },
+  };
+  const retailer = { id: "retailer-1", name: "Retailer One", tcg: "pokemon", officialRrpSource: false };
+  const base = {
+    title: "Pokémon Test Booster Box",
+    imageUrl: null,
+    pricePence: 9999,
+    postagePence: null,
+    officialRrpPence: null,
+    gtin: null,
+    productType: "booster_box",
+    canonicalKey: "pokemon-test-booster-box",
+    stockStatus: "in_stock",
+    stockConfidence: 1,
+    stockQuantity: null,
+    evidence: [{ kind: "test", value: "catalogue" }],
+  };
+
+  await processRetailerProducts({
+    retailer,
+    store,
+    now: 1_700_000_000,
+    dispatchNotifications: false,
+    rawProducts: [
+      { ...base, retailerSku: "sku-a", url: "https://example.test/a" },
+      { ...base, retailerSku: "sku-b", url: "https://example.test/b" },
+    ],
+  });
+
+  assert.ok(saved);
+  assert.equal(saved.products.length, 1);
+  assert.equal(saved.offers.length, 2);
+  assert.equal(saved.observations.length, 2);
+  assert.equal(new Set(saved.offers.map((offer) => offer.offerId)).size, 2);
+  assert.equal(saved.offers[0].productId, saved.offers[1].productId);
+  assert.equal(saved.products[0].id, saved.offers[0].productId);
 });
