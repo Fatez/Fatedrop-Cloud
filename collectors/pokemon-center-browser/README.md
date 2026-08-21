@@ -29,19 +29,19 @@ Start Chrome with a dedicated FateDrop profile and remote debugging enabled, the
 chrome.exe --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\FateDropChrome"
 ```
 
-For a manual/debug session, run the collector directly:
+Then run the normal long-running collector command:
 
 ```bash
 npm start
 ```
 
-For the long-running host, prefer the supervised launcher:
+`npm start` uses the supervisor. The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally. Keep the supervisor itself under the host's normal process/session supervision if 24/7 operation is required.
+
+For a one-off direct/debug run without the supervisor:
 
 ```bash
-npm run start:supervised
+npm run start:direct
 ```
-
-The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally. Keep the supervisor itself under the host's normal process/session supervision if 24/7 operation is required.
 
 Optional supervisor settings:
 
