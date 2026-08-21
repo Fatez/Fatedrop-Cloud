@@ -4,35 +4,35 @@ const DISCORD_API = "https://discord.com/api/v10";
 const DISCORD_SIGNAL_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
 
 const STATE_STYLE = Object.freeze({
+  // Legacy/internal Whisper is retained for backwards compatibility but is
+  // never exposed as a separate public lifecycle name.
   whisper: {
     publicStage: "Echo",
     label: "ECHO",
-    colour: 0x22d3ee,
+    colour: 0xa855f7,
+    fallback: "Early product activity detected. FateDrop is watching for confirmed availability.",
+    actionLabel: "Inspect product",
+  },
+  echo: {
+    publicStage: "Echo",
+    label: "ECHO",
+    colour: 0xa855f7,
     fallback: "Early product activity detected. FateDrop is watching for confirmed availability.",
     actionLabel: "Inspect product",
   },
   manifested: {
     publicStage: "Manifested",
     label: "MANIFESTED",
-    colour: 0x7c3aed,
+    colour: 0x49e6b1,
     fallback: "Confirmed purchasable stock detected.",
     actionLabel: "Buy / view product",
   },
   vanished: {
     publicStage: "Vanished",
     label: "VANISHED",
-    colour: 0xef4444,
+    colour: 0xff647c,
     fallback: "Previously purchasable stock is no longer confirmed available.",
-    actionLabel: "View last product page",
-  },
-  // Internal `echo` means a previously available offer returned. Public FateDrop
-  // vocabulary treats that as a confirmed Manifested event, not an early Echo.
-  echo: {
-    publicStage: "Manifested",
-    label: "MANIFESTED",
-    colour: 0x7c3aed,
-    fallback: "Previously available stock has returned and is confirmed purchasable.",
-    actionLabel: "Buy / view product",
+    actionLabel: "View product / alternatives",
   },
 });
 
