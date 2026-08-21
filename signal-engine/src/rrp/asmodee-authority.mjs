@@ -23,10 +23,13 @@ export function parseAsmodeeProductPage(html, url = "") {
   const title = $("h1").first().text().replace(/\s+/g, " ").trim() || $("title").text().split("–")[0].trim();
   const sku = bodyText.match(/Product Code \(SKU\):\s*([^|]+?)(?=\s*\|\s*Barcode:|\s*\|\s*RRP:|\s+Barcode:|\s+RRP:|\s+Description|$)/i)?.[1]?.trim() || null;
   const barcode = normalizeBarcode(bodyText.match(/Barcode:\s*([0-9\s-]{8,20})/i)?.[1] || "") || null;
-  const rrpText = bodyText.match(/RRP:\s*(£\s*[0-9]+(?:\.[0-9]{1,2})?)/i)?.[1] || "";
+  const unitRrpMatch = bodyText.match(/RRP:\s*(\d+)\s+units?\s+at\s+(£\s*[0-9]+(?:\.[0-9]{1,2})?)/i);
+  const directRrpMatch = bodyText.match(/RRP:\s*(£\s*[0-9]+(?:\.[0-9]{1,2})?)/i);
+  const rrpText = unitRrpMatch?.[2] || directRrpMatch?.[1] || "";
   const officialRrpPence = parseMoneyToPence(rrpText);
+  const rrpUnitCount = unitRrpMatch ? Number.parseInt(unitRrpMatch[1], 10) : null;
   const publisher = bodyText.match(/Publisher:\s*([^|]+?)(?=\s+Subcategory:|\s+Family:|\s+Age Range:|\s+Publisher Release Date:|$)/i)?.[1]?.trim() || null;
-  return { title, sku, barcode, officialRrpPence, publisher, sourceUrl: url };
+  return { title, sku, barcode, officialRrpPence, rrpUnitCount, publisher, sourceUrl: url };
 }
 
 export function parseAsmodeeCollectionProductUrls(html, baseUrl = COLLECTION_URL) {
@@ -79,6 +82,32 @@ export async function collectAsmodeeRrpRecords({ fetchImpl = fetch, maxPages = 8
   return { discovered: urls.length, records: records.filter((x) => !x.error), errors: records.filter((x) => x.error) };
 }
 
+function normalizeAsmodeeIdentityTitle(record = {}) {
+  let title = String(record.title || "").replace(/\s*\(1\)\s*$/, "").trim();
+  const unitCount = Number.isInteger(record.rrpUnitCount) && record.rrpUnitCount > 1
+    ? record.rrpUnitCount
+    : null;
+
+  if (unitCount && /\bCDU\s*\(\d+\)\s*$/i.test(title)) {
+    const distributorQuantity = Number.parseInt(title.match(/\((\d+)\)\s*$/)?.[1] || "", 10);
+    if (distributorQuantity === unitCount) title = title.replace(/\s*\(\d+\)\s*$/, "").trim();
+  }
+
+  // Asmodee's Pokémon "Booster CDU" / "Booster Display CDU" pages publish
+  // a per-unit RRP (for example, "36 units at £4.29"). That unit is one
+  // booster pack, not a consumer booster display. Only apply this rewrite
+  // when the page explicitly supplied a multi-unit RRP line.
+  if (unitCount && /\bbooster(?:\s+display)?\s+cdu\s*$/i.test(title)) {
+    return title.replace(/\bbooster(?:\s+display)?\s+cdu\s*$/i, "Booster Pack").trim();
+  }
+
+  // Other CDU pages also publish the RRP per consumer unit. Removing only
+  // the distributor-only CDU suffix preserves the actual product identity
+  // (for example, Booster Bundle remains Booster Bundle).
+  if (unitCount && /\bcdu\s*$/i.test(title)) title = title.replace(/\s+cdu\s*$/i, "").trim();
+  return title;
+}
+
 export function chooseCanonicalMatch(record, products, offersByGtin) {
   if (record.barcode) {
     const ids = new Set((offersByGtin.get(record.barcode) || []).map((offer) => offer.product_id).filter(Boolean));
@@ -89,11 +118,10 @@ export function chooseCanonicalMatch(record, products, offersByGtin) {
     }
   }
 
-  // Asmodee sometimes appends "(1)" to indicate a single distributor unit.
-  // It is not a consumer-facing product variant, so remove only that exact suffix.
-  // Do not force a generic "sealed" product type: compareProductIdentity can infer
-  // the precise type (ETB, booster pack, booster bundle, etc.) from the title.
-  const sourceTitle = String(record.title || "").replace(/\s*\(1\)\s*$/, "").trim();
+  // Asmodee sometimes appends distributor-only unit metadata to titles.
+  // Normalize only evidence-backed distributor suffixes; compareProductIdentity
+  // still enforces precise product type, pack count, case/unit and variant safety.
+  const sourceTitle = normalizeAsmodeeIdentityTitle(record);
   const source = { title: sourceTitle, tcg: "pokemon" };
   const matches = products.filter((candidate) => compareProductIdentity(source, {
     title: candidate.title,
