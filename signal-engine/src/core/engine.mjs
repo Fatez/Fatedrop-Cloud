@@ -63,6 +63,28 @@ async function safeRunFinish(store, payload) {
   catch (error) { console.error("[monitor] run-finish telemetry failed", { runId: payload.runId, error: String(error?.message || error) }); }
 }
 
+function dedupeCanonicalProducts(products) {
+  const byId = new Map();
+  for (const product of products) {
+    const existing = byId.get(product.id);
+    if (!existing) {
+      byId.set(product.id, product);
+      continue;
+    }
+    byId.set(product.id, {
+      ...existing,
+      title: existing.title || product.title,
+      productType: existing.productType || product.productType,
+      officialRrpPence: existing.officialRrpPence ?? product.officialRrpPence,
+      rrpSource: existing.rrpSource ?? product.rrpSource,
+      rrpObservedAt: existing.rrpObservedAt ?? product.rrpObservedAt,
+      firstSeenAt: Math.min(existing.firstSeenAt ?? product.firstSeenAt, product.firstSeenAt ?? existing.firstSeenAt),
+      updatedAt: Math.max(existing.updatedAt ?? 0, product.updatedAt ?? 0),
+    });
+  }
+  return [...byId.values()];
+}
+
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
@@ -137,7 +159,8 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   }
 
   const completedAt = Math.floor(Date.now() / 1000);
-  await store.saveScan({ retailer, products, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  const uniqueProducts = dedupeCanonicalProducts(products);
+  await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
   const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
   return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
