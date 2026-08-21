@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDiscordSignalMessage, isDiscordSignal, publicDiscordStage, sendDiscordSignal } from "../src/notifications/discord.mjs";
+import { buildDiscordSignalMessage, dispatchDiscordSignals, isDiscordSignal, publicDiscordStage, sendDiscordSignal } from "../src/notifications/discord.mjs";
 
 const signal = {
   id: "sig-test",
@@ -87,4 +87,58 @@ test("Discord delivery posts to configured channel", async () => {
   assert.equal(result.messageId, "message-123");
   assert.equal(request.url, "https://discord.com/api/v10/channels/123456789/messages");
   assert.equal(request.options.headers.Authorization, "Bot test-token");
+});
+
+test("Discord dispatch records successful provider delivery evidence", async () => {
+  const attempts = [];
+  const summary = await dispatchDiscordSignals([signal], {
+    fetchImpl: async () => new Response(JSON.stringify({ id: "message-456" }), { status: 200, headers: { "content-type": "application/json" } }),
+    enabled: true,
+    botToken: "test-token",
+    channelId: "123456789",
+    onDeliveryAttempt: async (attempt) => attempts.push(attempt),
+  });
+
+  assert.equal(summary.sent, 1);
+  assert.equal(summary.failed, 0);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].signalId, "sig-test");
+  assert.equal(attempts[0].result, "sent");
+  assert.equal(attempts[0].providerMessageId, "message-456");
+});
+
+test("Discord dispatch records provider failure evidence", async () => {
+  const attempts = [];
+  const summary = await dispatchDiscordSignals([signal], {
+    fetchImpl: async () => new Response("provider unavailable", { status: 503 }),
+    enabled: true,
+    botToken: "test-token",
+    channelId: "123456789",
+    onDeliveryAttempt: async (attempt) => attempts.push(attempt),
+  });
+
+  assert.equal(summary.sent, 0);
+  assert.equal(summary.failed, 1);
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].result, "failed");
+  assert.match(attempts[0].detail, /503/);
+});
+
+test("telemetry failure never converts a successful Discord send into a delivery failure", async () => {
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const summary = await dispatchDiscordSignals([signal], {
+      fetchImpl: async () => new Response(JSON.stringify({ id: "message-789" }), { status: 200, headers: { "content-type": "application/json" } }),
+      enabled: true,
+      botToken: "test-token",
+      channelId: "123456789",
+      onDeliveryAttempt: async () => { throw new Error("telemetry unavailable"); },
+    });
+
+    assert.equal(summary.sent, 1);
+    assert.equal(summary.failed, 0);
+  } finally {
+    console.error = originalError;
+  }
 });
