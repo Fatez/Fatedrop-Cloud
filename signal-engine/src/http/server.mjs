@@ -3,6 +3,7 @@ import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
 import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
+import { compareProductIdentity } from "../core/product-identity.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 
 function json(res, status, body) {
@@ -58,6 +59,20 @@ function optionalNumber(searchParams, name) {
   const value=Number(raw);
   return Number.isFinite(value) ? value : undefined;
 }
+function authoritativeRrpProductFor(offer, linkedProduct, authoritativeProducts) {
+  if (Number.isFinite(linkedProduct?.officialRrpPence) && linkedProduct.officialRrpPence > 0) return linkedProduct;
+  const source={
+    title: linkedProduct?.title || offer.title,
+    productType: linkedProduct?.productType || offer.productType,
+    tcg: linkedProduct?.tcg || "pokemon",
+  };
+  const matches=authoritativeProducts.filter((candidate)=>compareProductIdentity(source,{
+    title:candidate.title,
+    productType:candidate.productType,
+    tcg:candidate.tcg || "pokemon",
+  }).decision==="match");
+  return matches.length===1?matches[0]:null;
+}
 
 async function appCatalogue(store, url) {
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
@@ -91,22 +106,27 @@ async function appCatalogue(store, url) {
 
 async function appTruePrice(store, url) {
   const q=(url.searchParams.get("q")||"").trim().toLowerCase();
-  if (q.length<2) return { success:true,count:0,groups:[],disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known. RRP is only shown when FateDrop has an observed source for that product identity." };
+  if (q.length<2) return { success:true,count:0,groups:[],disclaimer:"Prices and stock can change on the retailer site. Item-price RRP comparisons are only shown when FateDrop has one authoritative product-identity match. Delivery totals are only compared when delivery is known." };
   const [offers, products] = await Promise.all([store.listOffers({ limit:10000 }),store.listProducts({ limit:5000 })]);
-  const productsById=new Map(products.map((product)=>[product.id,product])), grouped=new Map();
+  const productsById=new Map(products.map((product)=>[product.id,product]));
+  const authoritativeProducts=products.filter((product)=>Number.isFinite(product.officialRrpPence)&&product.officialRrpPence>0&&product.rrpSource);
+  const grouped=new Map();
   for (const offer of offers) {
     if (!["in_stock","low_stock","preorder"].includes(offer.stockStatus)) continue;
     if (!offer.title.toLowerCase().includes(q)) continue;
-    const product=productsById.get(offer.productId), key=offer.productId||titleKey(offer.title);
+    const linkedProduct=productsById.get(offer.productId);
+    const rrpProduct=authoritativeRrpProductFor(offer,linkedProduct,authoritativeProducts);
+    const canonicalProduct=rrpProduct||linkedProduct;
+    const key=canonicalProduct?.id||offer.productId||titleKey(offer.title);
     const group=grouped.get(key)||{
       id:key,
-      title:product?.title||offer.title,
-      category:categoryOf(offer.title,product?.productType),
-      matchingConfidence:offer.productId?1:0.75,
+      title:canonicalProduct?.title||offer.title,
+      category:categoryOf(offer.title,canonicalProduct?.productType||linkedProduct?.productType),
+      matchingConfidence:rrpProduct?1:(offer.productId?1:0.75),
       retailerCount:0,
-      rrpGbp:pounds(product?.officialRrpPence),
-      rrpSource:product?.rrpSource||undefined,
-      rrpObservedAt:iso(product?.rrpObservedAt),
+      rrpGbp:pounds(rrpProduct?.officialRrpPence||linkedProduct?.officialRrpPence),
+      rrpSource:rrpProduct?.rrpSource||linkedProduct?.rrpSource||undefined,
+      rrpObservedAt:iso(rrpProduct?.rrpObservedAt||linkedProduct?.rrpObservedAt),
       offers:[]
     };
     const resolvedDelivery=resolveRetailerDelivery({ retailerId:offer.retailerId, subtotalPence:offer.pricePence });
@@ -122,7 +142,7 @@ async function appTruePrice(store, url) {
     group.offers=group.offers.map((offer)=>({...offer,isLowestKnownDelivered:lowest!==undefined&&offer.totalDeliveredGbp===lowest}));
     return group;
   }).sort((a,b)=>b.retailerCount-a.retailerCount||a.title.localeCompare(b.title));
-  return { success:true,count:groups.length,groups,disclaimer:"Prices and stock can change on the retailer site. Delivery totals are only compared when delivery is known. RRP is only shown when FateDrop has an observed source for that product identity." };
+  return { success:true,count:groups.length,groups,disclaimer:"Prices and stock can change on the retailer site. Item-price RRP comparisons are only shown when FateDrop has one authoritative product-identity match. Delivery totals are only compared when delivery is known." };
 }
 
 export function createHttpServer({ store }) {
