@@ -40,7 +40,7 @@ function packCountFrom(text) {
   const patterns = [
     /\b(\d{1,3})\s*x\s*(?:booster\s*)?packs?\b/,
     /\b(\d{1,3})\s*(?:booster\s*)?packs?\b/,
-    /\b(\d{1,3})\s*boosters?\b/,
+    /\b(\d{1,3})\s*boosters?\b(?!\s+boxes?\b)/,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
