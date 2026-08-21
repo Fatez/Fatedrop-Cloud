@@ -31,6 +31,9 @@ export const env = {
   fetchTimeoutMs: Math.max(3000, int("FATEDROP_FETCH_TIMEOUT_MS", 15000)),
   userAgent: process.env.FATEDROP_FETCH_USER_AGENT || "FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)",
   suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
+  encounters: {
+    googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY || "",
+  },
   hostedFateFind: {
     enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", false),
     maxFindsPerRun: Math.max(1, Math.min(10000, int("FATEDROP_HOSTED_FATEFIND_MAX_PER_RUN", 2000))),
