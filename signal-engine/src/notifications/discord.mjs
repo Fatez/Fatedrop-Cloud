@@ -123,8 +123,9 @@ export async function sendDiscordSignal(signal, {
   channelId = env.discord.premiumDropsChannelId,
 } = {}) {
   if (!isDiscordSignal(signal)) return { sent: false, reason: "state_not_enabled" };
+  if (!botToken) return { sent: false, reason: "missing_bot_token" };
+  if (!channelId) return { sent: false, reason: "missing_channel_id" };
   if (!enabled) return { sent: false, reason: "disabled" };
-  if (!botToken || !channelId) return { sent: false, reason: "not_configured" };
 
   const response = await fetchImpl(`${DISCORD_API}/channels/${channelId}/messages`, {
     method: "POST",
