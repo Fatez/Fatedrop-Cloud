@@ -46,6 +46,17 @@ function stringArray(value) {
   return Array.isArray(value) ? [...new Set(value.map((item) => String(item).trim()).filter(Boolean))] : [];
 }
 
+function countryCode(value) {
+  const normalized = String(value || "GB").trim().toUpperCase();
+  return /^[A-Z]{2}$/.test(normalized) ? normalized : "GB";
+}
+
+function currencyCode(value, retailerCountryCode) {
+  const normalized = String(value || "").trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(normalized)) return normalized;
+  return retailerCountryCode === "GB" ? "GBP" : null;
+}
+
 export function normalizeRetailerCandidate(input = {}) {
   const websiteUrl = typeof input.websiteUrl === "string" ? input.websiteUrl.trim() : "";
   let hostname = "";
@@ -53,12 +64,20 @@ export function normalizeRetailerCandidate(input = {}) {
   const id = String(input.id || hostname || input.name || "")
     .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const runtime = input.catalogue?.runtime || {};
+  const retailerCountryCode = countryCode(input.countryCode);
+  const shipsToUk = retailerCountryCode === "GB"
+    ? true
+    : input.delivery?.shipsToUk === true
+      ? true
+      : input.delivery?.shipsToUk === false
+        ? false
+        : null;
   return {
     id,
     name: String(input.name || hostname || id || "Unknown retailer").trim(),
     websiteUrl,
     hostname,
-    countryCode: "GB",
+    countryCode: retailerCountryCode,
     retailerClass: Object.values(RETAILER_CLASSES).includes(input.retailerClass) ? input.retailerClass : RETAILER_CLASSES.INDEPENDENT,
     adapterType: Object.values(ADAPTER_TYPES).includes(input.adapterType) ? input.adapterType : ADAPTER_TYPES.GENERIC_HTML,
     state: Object.values(RETAILER_STATES).includes(input.state) ? input.state : RETAILER_STATES.CANDIDATE,
@@ -91,6 +110,11 @@ export function normalizeRetailerCandidate(input = {}) {
       freeAbovePence: finiteNonNegative(input.delivery?.freeAbovePence),
       sourceUrl: input.delivery?.sourceUrl || null,
       observedAt: input.delivery?.observedAt || null,
+      shipsToUk,
+      currency: currencyCode(input.delivery?.currency, retailerCountryCode),
+      dutiesIncluded: input.delivery?.dutiesIncluded === true ? true : input.delivery?.dutiesIncluded === false ? false : null,
+      importFeesKnown: input.delivery?.importFeesKnown === true,
+      importFeesPence: finiteNonNegative(input.delivery?.importFeesPence),
     },
     monitoring: {
       cadenceSeconds: Number.isFinite(input.monitoring?.cadenceSeconds) ? Math.max(60, input.monitoring.cadenceSeconds) : 300,
@@ -113,6 +137,7 @@ export function qualifyRetailer(candidate) {
   const reasons = [];
   if (!retailer.websiteUrl || !retailer.hostname) reasons.push("missing-valid-website");
   if (!retailer.tcgs.length) reasons.push("no-supported-tcg-evidence");
+  if (retailer.countryCode !== "GB" && retailer.delivery.shipsToUk !== true) reasons.push("uk-shipping-not-confirmed");
   if (![ADAPTER_TYPES.CSV, ADAPTER_TYPES.MANUAL].includes(retailer.adapterType) && !retailer.catalogue.urls.length && !retailer.catalogue.feedUrl) reasons.push("no-catalogue-entrypoint");
   return {
     retailer,
@@ -128,11 +153,14 @@ export function publicRetailerProfile(candidate) {
     id: retailer.id,
     name: retailer.name,
     websiteUrl: retailer.websiteUrl,
+    countryCode: retailer.countryCode,
     retailerClass: retailer.retailerClass,
     verification: retailer.verification,
     tcgs: retailer.tcgs,
     online: retailer.online,
     physicalLocations: retailer.physicalLocations,
     deliveryKnown: retailer.delivery.known,
+    shipsToUk: retailer.delivery.shipsToUk,
+    currency: retailer.delivery.currency,
   };
 }
