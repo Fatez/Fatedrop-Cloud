@@ -2,7 +2,7 @@
 
 This collector observes Pokémon Center UK's structured catalogue responses from a normal Chrome session and forwards verified product observations to the FateDrop Signal Engine.
 
-It does not scrape rendered HTML and it does not bypass retailer access controls. If Pokémon Center presents a security/interstitial page or the catalogue API is not observed, the collector stops and asks for manual review.
+It does not scrape rendered HTML and it does not bypass retailer access controls. If Pokémon Center presents a queue, security/interstitial page or access block, the collector records that readiness state for FateDrop and does not attempt to defeat or bypass the retailer control.
 
 ## Requirements
 
@@ -11,6 +11,8 @@ It does not scrape rendered HTML and it does not bypass retailer access controls
 - A working Pokémon Center UK browser session
 - `FATEDROP_SIGNAL_INGEST_URL`
 - `FATEDROP_SIGNAL_INGEST_SECRET`
+
+`FATEDROP_NETWORK_STATE_URL` may be set explicitly. When it is omitted, the collector derives `/internal/network-state` from `FATEDROP_SIGNAL_INGEST_URL`.
 
 ## Setup
 
@@ -35,4 +37,11 @@ npm start
 
 The collector verifies the captured unique product count against Pokémon Center's own `numFound` value before anything is sent to FateDrop Cloud. An incomplete scan is rejected.
 
-The external ingest path then uses the normal FateDrop lifecycle engine, so stock transitions can produce Whisper, Manifested, Vanished and Echo signals and fan out to Discord and the website snapshot publisher.
+The external ingest path uses the normal FateDrop lifecycle engine:
+
+- **Whisper** — product/catalogue movement before confirmed purchasable availability.
+- **Echo** — queue, traffic-control, security or access-readiness change. Echo is produced by the browser readiness path, not by an ordinary stock transition.
+- **Manifested** — confirmed purchasable availability, including a verified restock.
+- **Vanished** — previously purchasable availability is no longer verified.
+
+Signals can then fan out through the normal FateDrop delivery paths such as Discord and website/app activity. A readiness observation never claims stock is imminent and never causes the collector to bypass retailer controls.
