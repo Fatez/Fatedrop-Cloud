@@ -239,6 +239,14 @@ export const retailers = [
     enabled: env.retailers.magicMadhouse,
     baseUrl: "https://magicmadhouse.co.uk/",
     catalogueUrls: ["https://magicmadhouse.co.uk/pokemon/pokemon-sealed-product"],
+    catalogue: {
+      sitemapUrl: "https://magicmadhouse.co.uk/xmlsitemap.php",
+      runtime: {
+        maxProductPages: 800,
+        productConcurrency: 4,
+        productBatchDelayMs: 500,
+      },
+    },
     productUrlPattern: /magicmadhouse\.co\.uk\/pokemon-[a-z0-9][a-z0-9-]+\/?(?:\?.*)?$/i,
     skuPattern: /\/pokemon-([^/?#]+)/i,
     pageParam: "page",
