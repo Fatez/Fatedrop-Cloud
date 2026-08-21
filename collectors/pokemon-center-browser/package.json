@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node src/index.mjs",
-    "start:supervised": "node src/supervisor.mjs",
+    "start": "node src/supervisor.mjs",
+    "start:direct": "node src/index.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
