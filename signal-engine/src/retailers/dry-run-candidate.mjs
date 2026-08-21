@@ -1,7 +1,7 @@
 import process from "node:process";
 import { dryRunRetailer } from "./dry-run.mjs";
 import { prepareCandidateDryRun } from "./dry-run-probe.mjs";
-import { ukRetailerDiscoverySeeds } from "./uk-discovery-network.mjs";
+import { retailerDiscoverySeeds } from "./retailer-discovery-network.mjs";
 
 function arg(name) {
   const prefix = `--${name}=`;
@@ -15,7 +15,7 @@ if (!retailerId) {
   process.exit(1);
 }
 
-const candidate = ukRetailerDiscoverySeeds.find((row) => row.id === retailerId);
+const candidate = retailerDiscoverySeeds.find((row) => row.id === retailerId);
 if (!candidate) {
   console.error(`Unknown retailer discovery seed: ${retailerId}`);
   process.exit(1);
@@ -29,6 +29,8 @@ try {
     persisted: false,
     feedApprovalPersisted: false,
     retailerId,
+    countryCode: candidate.countryCode,
+    shipsToUk: candidate.delivery.shipsToUk,
     diagnostics: result.diagnostics,
     note: result.note,
   }, null, 2));
