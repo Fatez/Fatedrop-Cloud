@@ -21,7 +21,7 @@ export function parseAsmodeeProductPage(html, url = "") {
   const $ = load(html);
   const bodyText = $("body").text().replace(/\s+/g, " ").trim();
   const title = $("h1").first().text().replace(/\s+/g, " ").trim() || $("title").text().split("–")[0].trim();
-  const sku = bodyText.match(/Product Code \(SKU\):\s*([^|]+?)(?=\s+Barcode:|\s+RRP:|\s+Description|$)/i)?.[1]?.trim() || null;
+  const sku = bodyText.match(/Product Code \(SKU\):\s*([^|]+?)(?=\s*\|\s*Barcode:|\s*\|\s*RRP:|\s+Barcode:|\s+RRP:|\s+Description|$)/i)?.[1]?.trim() || null;
   const barcode = normalizeBarcode(bodyText.match(/Barcode:\s*([0-9\s-]{8,20})/i)?.[1] || "") || null;
   const rrpText = bodyText.match(/RRP:\s*(£\s*[0-9]+(?:\.[0-9]{1,2})?)/i)?.[1] || "";
   const officialRrpPence = parseMoneyToPence(rrpText);
