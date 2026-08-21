@@ -6,9 +6,9 @@ function stop(message) {
   process.exit(1);
 }
 
-if (!env.discord.enabled) stop("set FATEDROP_DISCORD_ENABLED=true");
 if (!env.discord.botToken) stop("DISCORD_BOT_TOKEN is missing");
 if (!env.discord.premiumDropsChannelId) stop("DISCORD_PREMIUM_DROPS_CHANNEL_ID is missing");
+if (!env.discord.enabled) stop("Discord is explicitly disabled by FATEDROP_DISCORD_ENABLED");
 
 const now = Math.floor(Date.now() / 1000);
 const signal = {
