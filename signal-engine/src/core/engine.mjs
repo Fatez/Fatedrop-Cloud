@@ -2,6 +2,7 @@ import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
+import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
@@ -110,10 +111,33 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
   return processRetailerProducts({ retailer, store, rawProducts: products, now, pagesScanned: 0, source: "external" });
 }
 
-export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000) }) {
+export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource }) {
+  if (retailer.adapterType === ADAPTER_TYPES.BROWSER_COLLECTOR) {
+    return {
+      retailerId: retailer.id,
+      retailerName: retailer.name,
+      skipped: true,
+      skipReason: "external_collector",
+      signalsCreated: 0,
+    };
+  }
+
   try {
-    const { products: rawProducts, pages } = await scanRetailerSource(retailer);
-    return await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned: pages.length, source: "catalogue" });
+    const { products: rawProducts, pages = [] } = await scanSource(retailer);
+    const pagesScanned = Array.isArray(pages) ? pages.length : 0;
+    if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
+      const error = new Error("Catalogue scan returned zero qualifying products; preserving last valid catalogue and marking retailer unhealthy.");
+      await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
+      return {
+        retailerId: retailer.id,
+        retailerName: retailer.name,
+        error: error.message,
+        pagesScanned,
+        productsSeen: 0,
+        signalsCreated: 0,
+      };
+    }
+    return await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue" });
   } catch (error) {
     await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
     return { retailerId: retailer.id, retailerName: retailer.name, error: String(error?.message || error), signalsCreated: 0 };
