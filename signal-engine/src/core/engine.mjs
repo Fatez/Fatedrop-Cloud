@@ -2,11 +2,13 @@ import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
+import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { resolveRetailerDelivery } from "./delivery-policies.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
+import { preloadPreviousState } from "./previous-state.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -51,6 +53,16 @@ async function deliverSignals(store, signals) {
   });
 }
 
+async function safeRunStart(store, payload) {
+  try { await recordRetailerRunStart(store, payload); }
+  catch (error) { console.error("[monitor] run-start telemetry failed", { retailerId: payload.retailerId, error: String(error?.message || error) }); }
+}
+
+async function safeRunFinish(store, payload) {
+  try { await recordRetailerRunFinish(store, payload); }
+  catch (error) { console.error("[monitor] run-finish telemetry failed", { runId: payload.runId, error: String(error?.message || error) }); }
+}
+
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
@@ -59,10 +71,22 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const observations = [];
   const signals = [];
 
-  for (const rawInput of rawProducts) {
+  const prepared = rawProducts.map((rawInput) => {
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
-    const productId = stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey);
-    const previousProduct = await store.getProduct(productId);
+    return {
+      raw,
+      productId: stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey),
+      offerId: stableId("off", retailer.id, raw.retailerSku),
+    };
+  });
+
+  const previousState = await preloadPreviousState(store, prepared);
+
+  for (const item of prepared) {
+    const { raw, productId, offerId } = item;
+    const previousProduct = previousState
+      ? previousState.products.get(productId) ?? null
+      : await store.getProduct(productId);
     const explicitOfficialRrp = raw.officialRrpPence ?? null;
     const hasFreshOfficialRrp = retailer.officialRrpSource && explicitOfficialRrp != null;
     const officialRrpPence = hasFreshOfficialRrp ? explicitOfficialRrp : previousProduct?.officialRrpPence ?? null;
@@ -78,8 +102,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       firstSeenAt: previousProduct?.firstSeenAt ?? now,
       updatedAt: now,
     };
-    const offerId = stableId("off", retailer.id, raw.retailerSku);
-    const previousOffer = await store.getOffer(offerId);
+    const previousOffer = previousState
+      ? previousState.offers.get(offerId) ?? null
+      : await store.getOffer(offerId);
     const everAvailableAt = previousOffer?.everAvailableAt ?? (isPurchasable(raw.stockStatus) ? now : null);
     const offer = {
       offerId,
@@ -135,6 +160,10 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
     };
   }
 
+  const runId = createRetailerRunId(retailer.id);
+  const startedAt = Math.floor(Date.now() / 1000);
+  await safeRunStart(store, { runId, retailerId: retailer.id, startedAt });
+
   const runScan = async () => {
     const scan = await scanSource(retailer);
     const rawProducts = scan?.products;
@@ -163,23 +192,48 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
   };
 
   try {
+    let result;
     if (typeof store.withRetailerScanLock === "function") {
       const locked = await store.withRetailerScanLock(retailer.id, runScan);
       if (!locked.acquired) {
-        return {
+        result = {
           retailerId: retailer.id,
           retailerName: retailer.name,
           skipped: true,
           skipReason: "scan_in_progress",
           signalsCreated: 0,
         };
+      } else {
+        result = locked.value;
       }
-      return locked.value;
+    } else {
+      result = await runScan();
     }
-    return await runScan();
+
+    const status = result?.skipped ? "skipped" : result?.error ? (result.partialCatalogue ? "partial" : "failed") : "success";
+    await safeRunFinish(store, {
+      runId,
+      completedAt: Math.floor(Date.now() / 1000),
+      status,
+      pagesScanned: result?.pagesScanned ?? 0,
+      productsObserved: result?.productsSeen ?? 0,
+      catalogueComplete: status === "success",
+      failureCode: result?.skipReason || (result?.error ? "scan_failed" : null),
+      failureDetail: result?.error || null,
+      diagnostics: { signalsCreated: result?.signalsCreated ?? 0 },
+    });
+    return result;
   } catch (error) {
     await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
-    return { retailerId: retailer.id, retailerName: retailer.name, error: String(error?.message || error), signalsCreated: 0 };
+    const detail = String(error?.message || error);
+    await safeRunFinish(store, {
+      runId,
+      completedAt: Math.floor(Date.now() / 1000),
+      status: "failed",
+      failureCode: error?.code || "scan_exception",
+      failureDetail: detail,
+    });
+    return { retailerId: retailer.id, retailerName: retailer.name, error: detail, signalsCreated: 0 };
   }
 }
 
@@ -216,7 +270,12 @@ export async function scanAll({ retailers, store, scanRetailerFn = scanRetailer 
   const measuredAt = Math.floor(Date.now() / 1000);
   if (store.recordNetworkSnapshot) {
     const [metrics, retailerHealth] = await Promise.all([store.stats(), store.listRetailers()]);
-    await store.recordNetworkSnapshot({ id: stableId("net", String(measuredAt), String(metrics.offersTracked), String(metrics.signals24h)), measuredAt, metrics, retailers: retailerHealth });
+    const observedMetrics = {
+      ...metrics,
+      scheduledRetailerCount: retailers.length,
+      scheduledRetailerIds: retailers.map((retailer) => retailer.id),
+    };
+    await store.recordNetworkSnapshot({ id: stableId("net", String(measuredAt), String(metrics.offersTracked), String(metrics.signals24h)), measuredAt, metrics: observedMetrics, retailers: retailerHealth });
   }
   return results;
 }
