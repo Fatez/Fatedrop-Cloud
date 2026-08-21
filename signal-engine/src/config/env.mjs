@@ -17,6 +17,10 @@ function int(name, fallback) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
+const discordPremiumDropsChannelId = process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "";
+const discordConfigured = Boolean(discordBotToken && discordPremiumDropsChannelId);
+
 export const env = {
   port: int("PORT", 8787),
   apiToken: process.env.FATEDROP_SIGNAL_API_TOKEN || "",
@@ -41,9 +45,9 @@ export const env = {
     expoAccessToken: process.env.EXPO_ACCESS_TOKEN || "",
   },
   discord: {
-    enabled: bool("FATEDROP_DISCORD_ENABLED", false),
-    botToken: process.env.DISCORD_BOT_TOKEN || "",
-    premiumDropsChannelId: process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "",
+    enabled: bool("FATEDROP_DISCORD_ENABLED", discordConfigured),
+    botToken: discordBotToken,
+    premiumDropsChannelId: discordPremiumDropsChannelId,
   },
   retailers: {
     pokemonCenterUk: bool("FATEDROP_RETAILER_POKEMON_CENTER_UK", true),
