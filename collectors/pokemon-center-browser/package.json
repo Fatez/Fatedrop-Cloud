@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node src/index.mjs",
+    "start:supervised": "node src/supervisor.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
