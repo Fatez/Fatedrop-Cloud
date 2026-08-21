@@ -6,6 +6,8 @@ const COLLECTION_URL = "https://www.asmodee.co.uk/collections/all-pokemon-games?
 const SOURCE = "asmodee-uk";
 const RETRYABLE_TRANSACTION_CODES = new Set(["40P01", "40001"]);
 const RRP_TRANSACTION_ATTEMPTS = 4;
+const RETRYABLE_HTTP_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
+const ASMODEE_FETCH_ATTEMPTS = 4;
 
 function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 function retryDelayMs(attempt) { return Math.min(1500, (75 * (2 ** attempt)) + Math.floor(Math.random() * 125)); }
@@ -48,17 +50,67 @@ export function parseAsmodeeCollectionProductUrls(html, baseUrl = COLLECTION_URL
   return [...urls];
 }
 
-async function fetchText(url, fetchImpl = fetch) {
-  const response = await fetchImpl(url, { headers: { "user-agent": "FateDrop-RRP/1.0 (+https://fatedrop.co.uk)" } });
-  if (!response.ok) throw new Error(`Asmodee request failed ${response.status} for ${url}`);
-  return response.text();
+function retryAfterMs(response) {
+  const raw = response?.headers?.get?.("retry-after");
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(10000, Math.round(seconds * 1000));
+  const date = Date.parse(raw);
+  if (!Number.isFinite(date)) return null;
+  return Math.min(10000, Math.max(0, date - Date.now()));
 }
 
-export async function collectAsmodeeRrpRecords({ fetchImpl = fetch, maxPages = 8, concurrency = 4 } = {}) {
+function fetchRetryDelayMs(attempt, response = null) {
+  const serverDelay = retryAfterMs(response);
+  if (serverDelay != null) return serverDelay;
+  return Math.min(4000, (300 * (2 ** attempt)) + Math.floor(Math.random() * 200));
+}
+
+export async function fetchAsmodeeText(url, {
+  fetchImpl = fetch,
+  attempts = ASMODEE_FETCH_ATTEMPTS,
+  sleepImpl = sleep,
+} = {}) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    let response;
+    try {
+      response = await fetchImpl(url, { headers: { "user-agent": "FateDrop-RRP/1.0 (+https://fatedrop.co.uk)" } });
+    } catch (error) {
+      lastError = new Error(`Asmodee request network error for ${url}: ${String(error?.message || error)}`);
+      if (attempt === attempts - 1) throw lastError;
+      await sleepImpl(fetchRetryDelayMs(attempt));
+      continue;
+    }
+
+    if (response.ok) return response.text();
+
+    lastError = new Error(`Asmodee request failed ${response.status} for ${url}`);
+    if (!RETRYABLE_HTTP_STATUS.has(response.status) || attempt === attempts - 1) throw lastError;
+    await sleepImpl(fetchRetryDelayMs(attempt, response));
+  }
+  throw lastError;
+}
+
+function fetchErrorCategory(error) {
+  const text = String(error?.error || error?.message || error || "");
+  const status = text.match(/request failed\s+(\d{3})/i)?.[1];
+  if (status) return status;
+  if (/network error/i.test(text)) return "network";
+  return "other";
+}
+
+export async function collectAsmodeeRrpRecords({
+  fetchImpl = fetch,
+  maxPages = 8,
+  concurrency = 2,
+  fetchAttempts = ASMODEE_FETCH_ATTEMPTS,
+  sleepImpl = sleep,
+} = {}) {
   const productUrls = new Set();
   for (let page = 1; page <= maxPages; page += 1) {
     const url = `${COLLECTION_URL}&page=${page}`;
-    const html = await fetchText(url, fetchImpl);
+    const html = await fetchAsmodeeText(url, { fetchImpl, attempts: fetchAttempts, sleepImpl });
     const pageUrls = parseAsmodeeCollectionProductUrls(html, url);
     for (const productUrl of pageUrls) productUrls.add(productUrl);
     if (page > 1 && pageUrls.length === 0) break;
@@ -72,7 +124,7 @@ export async function collectAsmodeeRrpRecords({ fetchImpl = fetch, maxPages = 8
       const index = cursor++;
       const url = urls[index];
       try {
-        const html = await fetchText(url, fetchImpl);
+        const html = await fetchAsmodeeText(url, { fetchImpl, attempts: fetchAttempts, sleepImpl });
         const record = parseAsmodeeProductPage(html, url);
         if (!/^Pok[eé]mon TCG:/i.test(record.title)) continue;
         if (!/Pok[eé]mon Company/i.test(record.publisher || "")) continue;
@@ -83,8 +135,14 @@ export async function collectAsmodeeRrpRecords({ fetchImpl = fetch, maxPages = 8
       }
     }
   }
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(8, concurrency)) }, () => worker()));
-  return { discovered: urls.length, records: records.filter((x) => !x.error), errors: records.filter((x) => x.error) };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(4, concurrency)) }, () => worker()));
+  const errors = records.filter((x) => x.error);
+  const errorCounts = {};
+  for (const error of errors) {
+    const category = fetchErrorCategory(error);
+    errorCounts[category] = (errorCounts[category] || 0) + 1;
+  }
+  return { discovered: urls.length, records: records.filter((x) => !x.error), errors, errorCounts };
 }
 
 function normalizeAsmodeeIdentityTitle(record = {}) {
@@ -214,6 +272,7 @@ export async function syncAsmodeeRrp({ databaseUrl, fetchImpl = fetch, now = Mat
       matchedByIdentity: updates.filter((x) => x.method === "identity").length,
       skipped: skipped.length,
       fetchErrors: collected.errors.length,
+      fetchErrorCounts: collected.errorCounts,
     };
   } finally {
     await pool.end();
