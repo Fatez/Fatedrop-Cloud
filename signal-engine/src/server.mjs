@@ -5,6 +5,7 @@ import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
+import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
 
 const store = createStore();
@@ -30,6 +31,19 @@ async function scheduledScan() {
     });
   } finally { scanning = false; }
 }
-server.listen(env.port, () => console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`));
+
+async function bootstrapAuthoritativeRrp() {
+  try {
+    const outcome = await bootstrapAsmodeeRrp({ store, databaseUrl: env.databaseUrl });
+    console.log("[signal-engine] Asmodee RRP bootstrap", outcome);
+  } catch (error) {
+    console.error("[signal-engine] Asmodee RRP bootstrap failed", { error: String(error?.message || error) });
+  }
+}
+
+server.listen(env.port, () => {
+  console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
+  void bootstrapAuthoritativeRrp();
+});
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
