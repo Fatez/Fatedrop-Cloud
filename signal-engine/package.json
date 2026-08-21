@@ -8,6 +8,7 @@
     "dev": "node --watch src/server.mjs",
     "start": "node src/server.mjs",
     "scan": "node src/scan-once.mjs",
+    "rrp:asmodee": "node src/rrp-sync-asmodee.mjs",
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
     "retailers:seed": "node src/retailers/seed-candidates.mjs",
