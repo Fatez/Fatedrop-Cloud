@@ -42,10 +42,17 @@ function qualifiesProductUrl(url, retailer) {
   return true;
 }
 
+function assertWithinSafetyCap(discoveredUrls, maxProductPages) {
+  if (discoveredUrls.size > maxProductPages) {
+    throw new Error(`BigCommerce product sitemap returned ${discoveredUrls.size} qualifying URLs, above safety cap ${maxProductPages}; preserving last valid catalogue.`);
+  }
+}
+
 export async function scanBigCommerceSitemapCatalogue(retailer) {
   const sitemapUrl = retailer.catalogue?.sitemapUrl;
   if (!sitemapUrl) throw new Error("BigCommerce sitemap adapter requires catalogue.sitemapUrl");
 
+  const maxProductPages = retailer.catalogue?.runtime?.maxProductPages ?? 800;
   const pages = [];
   const root = await fetchText(sitemapUrl, "application/xml,text/xml;q=0.9,*/*;q=0.8");
   pages.push({ pageUrl: sitemapUrl, discovered: 0, status: root.status });
@@ -54,6 +61,7 @@ export async function scanBigCommerceSitemapCatalogue(retailer) {
   const productSitemaps = rootLocations.filter(isProductSitemap);
   const directProductUrls = rootLocations.filter((url) => qualifiesProductUrl(url, retailer));
   const discoveredUrls = new Set(directProductUrls);
+  assertWithinSafetyCap(discoveredUrls, maxProductPages);
 
   for (const productSitemapUrl of productSitemaps) {
     const response = await fetchText(productSitemapUrl, "application/xml,text/xml;q=0.9,*/*;q=0.8");
@@ -61,12 +69,11 @@ export async function scanBigCommerceSitemapCatalogue(retailer) {
     const matching = locations.filter((url) => qualifiesProductUrl(url, retailer));
     matching.forEach((url) => discoveredUrls.add(url));
     pages.push({ pageUrl: productSitemapUrl, discovered: matching.length, status: response.status });
+    assertWithinSafetyCap(discoveredUrls, maxProductPages);
   }
 
   const urls = [...discoveredUrls];
-  const maxProductPages = retailer.catalogue?.runtime?.maxProductPages ?? 800;
   if (urls.length === 0) throw new Error("BigCommerce product sitemap returned zero qualifying product URLs; preserving last valid catalogue.");
-  if (urls.length > maxProductPages) throw new Error(`BigCommerce product sitemap returned ${urls.length} qualifying URLs, above safety cap ${maxProductPages}; preserving last valid catalogue.`);
 
   const found = new Map();
   const concurrency = Math.max(1, Math.min(6, retailer.catalogue?.runtime?.productConcurrency ?? 4));
