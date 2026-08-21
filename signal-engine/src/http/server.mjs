@@ -6,6 +6,8 @@ import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { compareProductIdentity } from "../core/product-identity.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 
+const PUBLIC_SIGNAL_STATES = ["whisper", "echo", "manifested", "vanished"];
+
 function json(res, status, body) {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "access-control-allow-origin": "*" });
   res.end(JSON.stringify(body));
@@ -61,46 +63,20 @@ function optionalNumber(searchParams, name) {
 }
 function authoritativeRrpProductFor(offer, linkedProduct, authoritativeProducts) {
   if (Number.isFinite(linkedProduct?.officialRrpPence) && linkedProduct.officialRrpPence > 0) return linkedProduct;
-  const source={
-    title: linkedProduct?.title || offer.title,
-    productType: linkedProduct?.productType || offer.productType,
-    tcg: linkedProduct?.tcg || "pokemon",
-  };
-  const matches=authoritativeProducts.filter((candidate)=>compareProductIdentity(source,{
-    title:candidate.title,
-    productType:candidate.productType,
-    tcg:candidate.tcg || "pokemon",
-  }).decision==="match");
+  const source={ title: linkedProduct?.title || offer.title, productType: linkedProduct?.productType || offer.productType, tcg: linkedProduct?.tcg || "pokemon" };
+  const matches=authoritativeProducts.filter((candidate)=>compareProductIdentity(source,{ title:candidate.title, productType:candidate.productType, tcg:candidate.tcg || "pokemon" }).decision==="match");
   return matches.length===1?matches[0]:null;
 }
 function publicSignal(signal) {
-  if (!signal || !["echo","manifested","vanished"].includes(signal.state)) return null;
+  if (!signal || !PUBLIC_SIGNAL_STATES.includes(signal.state)) return null;
   return {
-    id:signal.id,
-    state:signal.state,
-    productId:signal.productId||null,
-    offerId:signal.offerId||null,
-    retailerId:signal.retailerId||null,
-    retailerName:signal.retailerName||null,
-    title:signal.title||"Product activity",
-    productType:signal.productType||null,
-    productUrl:signal.url||signal.target?.productUrl||null,
-    imageUrl:signal.imageUrl||null,
-    priceGbp:pounds(signal.pricePence),
-    rrpGbp:pounds(signal.rrpPence),
-    markupPercent:Number.isFinite(signal.markupPercent)?signal.markupPercent:undefined,
-    stockStatus:signal.stockStatus||"unknown",
-    confidence:Number.isFinite(signal.confidence)?signal.confidence:undefined,
-    detectedAt:iso(signal.detectedAt),
-    reason:signal.reason||null,
-    target:signal.target||{
-      type:"product",
-      productId:signal.productId||null,
-      offerId:signal.offerId||null,
-      retailerId:signal.retailerId||null,
-      productUrl:signal.url||null,
-      query:signal.title||"",
-    },
+    id:signal.id,state:signal.state,productId:signal.productId||null,offerId:signal.offerId||null,
+    retailerId:signal.retailerId||null,retailerName:signal.retailerName||null,title:signal.title||"Product activity",
+    productType:signal.productType||null,productUrl:signal.url||signal.target?.productUrl||null,imageUrl:signal.imageUrl||null,
+    priceGbp:pounds(signal.pricePence),rrpGbp:pounds(signal.rrpPence),markupPercent:Number.isFinite(signal.markupPercent)?signal.markupPercent:undefined,
+    stockStatus:signal.stockStatus||"unknown",confidence:Number.isFinite(signal.confidence)?signal.confidence:undefined,
+    detectedAt:iso(signal.detectedAt),reason:signal.reason||null,
+    target:signal.target||{type:"product",productId:signal.productId||null,offerId:signal.offerId||null,retailerId:signal.retailerId||null,productUrl:signal.url||null,query:signal.title||""},
   };
 }
 
@@ -148,17 +124,7 @@ async function appTruePrice(store, url) {
     const rrpProduct=authoritativeRrpProductFor(offer,linkedProduct,authoritativeProducts);
     const canonicalProduct=rrpProduct||linkedProduct;
     const key=canonicalProduct?.id||offer.productId||titleKey(offer.title);
-    const group=grouped.get(key)||{
-      id:key,
-      title:canonicalProduct?.title||offer.title,
-      category:categoryOf(offer.title,canonicalProduct?.productType||linkedProduct?.productType),
-      matchingConfidence:rrpProduct?1:(offer.productId?1:0.75),
-      retailerCount:0,
-      rrpGbp:pounds(rrpProduct?.officialRrpPence||linkedProduct?.officialRrpPence),
-      rrpSource:rrpProduct?.rrpSource||linkedProduct?.rrpSource||undefined,
-      rrpObservedAt:iso(rrpProduct?.rrpObservedAt||linkedProduct?.rrpObservedAt),
-      offers:[]
-    };
+    const group=grouped.get(key)||{id:key,title:canonicalProduct?.title||offer.title,category:categoryOf(offer.title,canonicalProduct?.productType||linkedProduct?.productType),matchingConfidence:rrpProduct?1:(offer.productId?1:0.75),retailerCount:0,rrpGbp:pounds(rrpProduct?.officialRrpPence||linkedProduct?.officialRrpPence),rrpSource:rrpProduct?.rrpSource||linkedProduct?.rrpSource||undefined,rrpObservedAt:iso(rrpProduct?.rrpObservedAt||linkedProduct?.rrpObservedAt),offers:[]};
     const resolvedDelivery=resolveRetailerDelivery({ retailerId:offer.retailerId, subtotalPence:offer.pricePence });
     const effectivePostagePence=Number.isFinite(offer.postagePence)?offer.postagePence:resolvedDelivery.postagePence;
     const deliveryKnown=Number.isFinite(effectivePostagePence), totalPence=deliveryKnown&&Number.isFinite(offer.pricePence)?offer.pricePence+effectivePostagePence:undefined;
@@ -190,8 +156,8 @@ export function createHttpServer({ store }) {
       if (req.method === "GET" && url.pathname === "/api/signals") {
         const limit=Math.max(1,Math.min(100,Number.parseInt(url.searchParams.get("limit")||"50",10)||50));
         const since=Math.max(0,Number.parseInt(url.searchParams.get("since")||"0",10));
-        const requested=parseCsv(url.searchParams.get("state")).map((value)=>value.toLowerCase()).filter((value)=>["echo","manifested","vanished"].includes(value));
-        const states=requested.length?requested:["echo","manifested","vanished"];
+        const requested=parseCsv(url.searchParams.get("state")).map((value)=>value.toLowerCase()).filter((value)=>PUBLIC_SIGNAL_STATES.includes(value));
+        const states=requested.length?requested:PUBLIC_SIGNAL_STATES;
         const raw=await store.listSignals({ states, retailerIds:[], since, limit:Math.min(250,limit*3) });
         const signals=raw.map(publicSignal).filter(Boolean).slice(0,limit);
         return json(res,200,{success:true,count:signals.length,generatedAt:new Date().toISOString(),signals});
