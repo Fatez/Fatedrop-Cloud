@@ -19,7 +19,7 @@ const signal = {
   reason: "Availability became verified",
 };
 
-test("Discord delivers all internal FateDrop lifecycle signals", () => {
+test("Discord delivers supported FateDrop lifecycle signals", () => {
   assert.equal(isDiscordSignal(signal), true);
   assert.equal(isDiscordSignal({ ...signal, state: "echo" }), true);
   assert.equal(isDiscordSignal({ ...signal, state: "whisper" }), true);
@@ -29,8 +29,8 @@ test("Discord delivers all internal FateDrop lifecycle signals", () => {
 
 test("Discord exposes canonical public lifecycle vocabulary", () => {
   assert.equal(publicDiscordStage("whisper"), "Echo");
+  assert.equal(publicDiscordStage("echo"), "Echo");
   assert.equal(publicDiscordStage("manifested"), "Manifested");
-  assert.equal(publicDiscordStage("echo"), "Manifested");
   assert.equal(publicDiscordStage("vanished"), "Vanished");
   assert.equal(publicDiscordStage("unknown"), null);
 });
@@ -47,22 +47,22 @@ test("Discord manifested message includes retailer, price, RRP and retailer link
   assert.deepEqual(message.allowed_mentions, { parse: [] });
 });
 
-test("internal whisper is public Echo and never gets buy wording", () => {
+test("legacy whisper remains public Echo and never gets buy wording", () => {
   const message = buildDiscordSignalMessage({ ...signal, state: "whisper", stockStatus: "coming_soon" });
   assert.match(message.embeds[0].title, /ECHO/);
   assert.equal(message.components[0].components[0].label, "Inspect product");
 });
 
-test("internal restock echo is public Manifested", () => {
-  const message = buildDiscordSignalMessage({ ...signal, state: "echo" });
-  assert.match(message.embeds[0].title, /MANIFESTED/);
-  assert.equal(message.components[0].components[0].label, "Buy / view product");
+test("Echo is early activity in Discord", () => {
+  const message = buildDiscordSignalMessage({ ...signal, state: "echo", stockStatus: "coming_soon", reason: "Early product activity observed" });
+  assert.match(message.embeds[0].title, /ECHO/);
+  assert.equal(message.components[0].components[0].label, "Inspect product");
 });
 
-test("vanished uses non-purchase wording", () => {
+test("vanished uses alternatives wording", () => {
   const message = buildDiscordSignalMessage({ ...signal, state: "vanished", stockStatus: "out_of_stock" });
   assert.match(message.embeds[0].title, /VANISHED/);
-  assert.equal(message.components[0].components[0].label, "View last product page");
+  assert.equal(message.components[0].components[0].label, "View product / alternatives");
 });
 
 test("Discord omits unavailable RRP intelligence instead of showing fake values", () => {
