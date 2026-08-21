@@ -61,6 +61,18 @@ function short(value, max) {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
+async function reportDeliveryAttempt(callback, attempt) {
+  if (typeof callback !== "function") return;
+  try {
+    await callback(attempt);
+  } catch (error) {
+    console.error("[discord] delivery telemetry failed", {
+      signalId: attempt.signalId,
+      error: String(error?.message || error),
+    });
+  }
+}
+
 export function publicDiscordStage(signalOrState) {
   const state = typeof signalOrState === "string" ? signalOrState : signalOrState?.state;
   return STATE_STYLE[state]?.publicStage || null;
@@ -155,19 +167,50 @@ export async function sendDiscordSignal(signal, {
 
 export async function dispatchDiscordSignals(signals, options = {}) {
   const summary = { sent: 0, skipped: 0, failed: 0, errors: [] };
+  const onDeliveryAttempt = options.onDeliveryAttempt;
   for (const signal of signals || []) {
     if (!isDiscordSignal(signal)) {
       summary.skipped += 1;
       continue;
     }
+
+    const attemptedAt = Math.floor(Date.now() / 1000);
     try {
       const result = await sendDiscordSignal(signal, options);
-      if (result.sent) summary.sent += 1;
-      else summary.skipped += 1;
+      if (result.sent) {
+        summary.sent += 1;
+        await reportDeliveryAttempt(onDeliveryAttempt, {
+          signalId: signal.id,
+          channel: "discord",
+          attemptedAt,
+          result: "sent",
+          providerMessageId: result.messageId ?? null,
+          detail: null,
+        });
+      } else {
+        summary.skipped += 1;
+        await reportDeliveryAttempt(onDeliveryAttempt, {
+          signalId: signal.id,
+          channel: "discord",
+          attemptedAt,
+          result: "skipped",
+          providerMessageId: null,
+          detail: result.reason || "not_sent",
+        });
+      }
     } catch (error) {
+      const detail = String(error?.message || error);
       summary.failed += 1;
-      summary.errors.push({ signalId: signal.id, error: String(error?.message || error) });
-      console.error("[discord] signal delivery failed", { signalId: signal.id, error: String(error?.message || error) });
+      summary.errors.push({ signalId: signal.id, error: detail });
+      await reportDeliveryAttempt(onDeliveryAttempt, {
+        signalId: signal.id,
+        channel: "discord",
+        attemptedAt,
+        result: "failed",
+        providerMessageId: null,
+        detail,
+      });
+      console.error("[discord] signal delivery failed", { signalId: signal.id, error: detail });
     }
   }
   return summary;
