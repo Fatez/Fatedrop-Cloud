@@ -1,5 +1,6 @@
 import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
+import { publicAlertType } from "./public-alert.mjs";
 
 export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
   if (isBaseline) return null;
@@ -40,10 +41,13 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   const deliveredPricePence = currentOffer.postagePence == null || currentOffer.pricePence == null
     ? null
     : currentOffer.pricePence + currentOffer.postagePence;
+  const alertType = publicAlertType(state);
+  const targetKind = alertType === "manifested" ? "offer" : "product";
 
   return {
     id,
     state,
+    alertType,
     productId: currentOffer.productId,
     offerId: currentOffer.offerId,
     retailerId: currentOffer.retailerId,
@@ -62,6 +66,14 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     confidence: currentOffer.stockConfidence ?? 0.5,
     detectedAt: now,
     reason,
+    target: {
+      kind: targetKind,
+      productId: currentOffer.productId,
+      offerId: targetKind === "offer" ? currentOffer.offerId : null,
+      retailerId: targetKind === "offer" ? currentOffer.retailerId : null,
+      retailerUrl: targetKind === "offer" ? currentOffer.url : null,
+      query: currentOffer.title,
+    },
     evidence: currentOffer.evidence ?? [],
   };
 }
