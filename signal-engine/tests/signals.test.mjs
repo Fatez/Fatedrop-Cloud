@@ -6,6 +6,11 @@ const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retaile
 
 test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
 test("unavailable to available manifests",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200}).state,"manifested"));
-test("previously available return becomes echo",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock",{everAvailableAt:50}),currentOffer:offer("in_stock",{everAvailableAt:50}),now:200}).state,"echo"));
+test("previously available return manifests again",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock",{everAvailableAt:50}),currentOffer:offer("in_stock",{everAvailableAt:50}),now:200}).state,"manifested"));
 test("available to unavailable vanishes",()=>assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200}).state,"vanished"));
-test("new coming-soon listing whispers",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200}).state,"whisper"));
+test("new coming-soon listing becomes echo",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200}).state,"echo"));
+test("preorder activity becomes echo",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("preorder"),now:200}).state,"echo"));
+test("signals carry a canonical product navigation target",()=>{
+  const signal=deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200});
+  assert.deepEqual(signal.target,{type:"product",productId:"prd_1",offerId:"off_1",retailerId:"chaos-cards",productUrl:"https://example.test/p",query:"Example ETB"});
+});
