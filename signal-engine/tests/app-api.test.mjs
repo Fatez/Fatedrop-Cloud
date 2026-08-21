@@ -16,7 +16,11 @@ const store={
   ];},
   async stats(){return{productsTracked:3,offersTracked:4,currentlyAvailable:4};},
   async listRetailers(){return[{id:"retailer-a",name:"Retailer A",healthy:true,baselineCompleted:true}];},
-  async listSignals(){return[];},
+  async listSignals(){return[
+    {id:"sig-1",state:"echo",productId:"product-1",offerId:"retailer-a:sku-1",retailerId:"retailer-a",retailerName:"Retailer A",title:"Destined Rivals Elite Trainer Box",productType:"sealed",url:"https://example.com/a",pricePence:5499,rrpPence:4999,markupPercent:10,stockStatus:"preorder",confidence:.8,detectedAt:1776768000,reason:"Early activity"},
+    {id:"sig-2",state:"manifested",productId:"product-1",offerId:"retailer-b:sku-2",retailerId:"retailer-b",retailerName:"Retailer B",title:"Destined Rivals Elite Trainer Box",productType:"sealed",url:"https://example.com/b",pricePence:5799,rrpPence:4999,markupPercent:16,stockStatus:"in_stock",confidence:1,detectedAt:1776768100,reason:"Available",target:{type:"product",productId:"product-1",offerId:"retailer-b:sku-2",retailerId:"retailer-b",productUrl:"https://example.com/b",query:"Destined Rivals Elite Trainer Box"}},
+    {id:"sig-legacy",state:"whisper",productId:"product-2",title:"Legacy internal signal",detectedAt:1776767900},
+  ];},
   async listNetworkSnapshots(){return[];},
 };
 
@@ -27,5 +31,7 @@ test("app catalogue exposes mobile-compatible offers with RRP provenance",async(
 test("true price compares known delivered totals and carries product RRP evidence",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=destined`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.groups.length,1);assert.equal(data.groups[0].retailerCount,3);assert.equal(data.groups[0].rrpGbp,49.99);assert.equal(data.groups[0].rrpSource,"pokemon-center-uk");assert.ok(data.groups[0].rrpObservedAt);const inherited=data.groups[0].offers.find((offer)=>offer.id==="retailer-c:sku-4");assert.equal(inherited.priceGbp,44.99);const lowest=data.groups[0].offers.find((offer)=>offer.isLowestKnownDelivered);assert.equal(lowest.id,"retailer-b:sku-2");assert.equal(lowest.totalDeliveredGbp,57.99);}));
 
 test("true price resolves verified delivery for an existing offer with no stored postage",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=journey`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.groups.length,1);const offer=data.groups[0].offers[0];assert.equal(offer.retailerId,"pokemon-center-uk");assert.equal(offer.shippingGbp,5);assert.equal(offer.totalDeliveredGbp,23.99);assert.equal(offer.deliveryKnown,true);assert.equal(offer.freeShippingThresholdGbp,20);assert.equal(offer.isLowestKnownDelivered,true);}));
+
+test("public signal feed exposes only product-linked lifecycle states",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/signals?limit=10`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.success,true);assert.equal(data.count,2);assert.deepEqual(data.signals.map((signal)=>signal.state),["echo","manifested"]);assert.equal(data.signals[0].rrpGbp,49.99);assert.equal(data.signals[0].target.type,"product");assert.equal(data.signals[0].target.productId,"product-1");assert.equal(data.signals[1].target.offerId,"retailer-b:sku-2");}));
 
 test("status summarizes hosted store",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/status`);const data=await response.json();assert.equal(data.monitor.baselineComplete,true);assert.equal(data.monitor.productsTracked,3);assert.equal(data.monitor.currentlyAvailable,4);}));
