@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildDiscordSignalMessage, isDiscordSignal, sendDiscordSignal } from "../src/notifications/discord.mjs";
+import { buildDiscordSignalMessage, isDiscordSignal, publicDiscordStage, sendDiscordSignal } from "../src/notifications/discord.mjs";
 
 const signal = {
   id: "sig-test",
@@ -15,10 +15,11 @@ const signal = {
   markupPercent: 11.1135,
   confidence: 0.98,
   detectedAt: 1_700_000_000,
+  stockStatus: "in_stock",
   reason: "Availability became verified",
 };
 
-test("Discord delivers all FateDrop lifecycle signals", () => {
+test("Discord delivers all internal FateDrop lifecycle signals", () => {
   assert.equal(isDiscordSignal(signal), true);
   assert.equal(isDiscordSignal({ ...signal, state: "echo" }), true);
   assert.equal(isDiscordSignal({ ...signal, state: "whisper" }), true);
@@ -26,21 +27,48 @@ test("Discord delivers all FateDrop lifecycle signals", () => {
   assert.equal(isDiscordSignal({ ...signal, state: "unknown" }), false);
 });
 
-test("Discord message includes retailer, price and retailer link", () => {
+test("Discord exposes canonical public lifecycle vocabulary", () => {
+  assert.equal(publicDiscordStage("whisper"), "Echo");
+  assert.equal(publicDiscordStage("manifested"), "Manifested");
+  assert.equal(publicDiscordStage("echo"), "Manifested");
+  assert.equal(publicDiscordStage("vanished"), "Vanished");
+  assert.equal(publicDiscordStage("unknown"), null);
+});
+
+test("Discord manifested message includes retailer, price, RRP and retailer link", () => {
   const message = buildDiscordSignalMessage(signal);
   assert.equal(message.embeds.length, 1);
   assert.match(message.embeds[0].title, /MANIFESTED/);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Retailer")?.value, "Test Retailer");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Price")?.value, "£49.99");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Official RRP")?.value, "£44.99");
+  assert.equal(message.components[0].components[0].label, "Buy / view product");
   assert.equal(message.components[0].components[0].url, "https://example.com/product");
   assert.deepEqual(message.allowed_mentions, { parse: [] });
 });
 
-test("Discord uses distinct labels for all lifecycle states", () => {
-  assert.match(buildDiscordSignalMessage({ ...signal, state: "whisper" }).embeds[0].title, /WHISPER/);
-  assert.match(buildDiscordSignalMessage({ ...signal, state: "manifested" }).embeds[0].title, /MANIFESTED/);
-  assert.match(buildDiscordSignalMessage({ ...signal, state: "vanished" }).embeds[0].title, /VANISHED/);
-  assert.match(buildDiscordSignalMessage({ ...signal, state: "echo" }).embeds[0].title, /ECHO/);
+test("internal whisper is public Echo and never gets buy wording", () => {
+  const message = buildDiscordSignalMessage({ ...signal, state: "whisper", stockStatus: "coming_soon" });
+  assert.match(message.embeds[0].title, /ECHO/);
+  assert.equal(message.components[0].components[0].label, "Inspect product");
+});
+
+test("internal restock echo is public Manifested", () => {
+  const message = buildDiscordSignalMessage({ ...signal, state: "echo" });
+  assert.match(message.embeds[0].title, /MANIFESTED/);
+  assert.equal(message.components[0].components[0].label, "Buy / view product");
+});
+
+test("vanished uses non-purchase wording", () => {
+  const message = buildDiscordSignalMessage({ ...signal, state: "vanished", stockStatus: "out_of_stock" });
+  assert.match(message.embeds[0].title, /VANISHED/);
+  assert.equal(message.components[0].components[0].label, "View last product page");
+});
+
+test("Discord omits unavailable RRP intelligence instead of showing fake values", () => {
+  const message = buildDiscordSignalMessage({ ...signal, rrpPence: null, markupPercent: null });
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Vs RRP"), false);
 });
 
 test("Discord delivery posts to configured channel", async () => {
