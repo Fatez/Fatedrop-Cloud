@@ -42,7 +42,16 @@ function evidenceBackedPostage(raw, retailer) {
   return null;
 }
 
-export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue" }) {
+function emptyDiscordResult(extra = {}) { return { sent: 0, skipped: 0, failed: 0, errors: [], ...extra }; }
+
+async function deliverSignals(store, signals) {
+  if (!signals.length) return emptyDiscordResult();
+  return dispatchDiscordSignals(signals, {
+    onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
+  });
+}
+
+export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
   const products = [];
@@ -105,9 +114,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const completedAt = Math.floor(Date.now() / 1000);
   await store.saveScan({ retailer, products, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
-  const discord = signals.length ? await dispatchDiscordSignals(signals, {
-    onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
-  }) : { sent: 0, skipped: 0, failed: 0, errors: [] };
+  const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
   return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
 }
 
@@ -117,7 +124,7 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
   return processRetailerProducts({ retailer, store, rawProducts: products, now, pagesScanned: 0, source: "external" });
 }
 
-export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource }) {
+export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource, dispatchNotifications = true }) {
   if (retailer.adapterType === ADAPTER_TYPES.BROWSER_COLLECTOR) {
     return {
       retailerId: retailer.id,
@@ -128,7 +135,7 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
     };
   }
 
-  try {
+  const runScan = async () => {
     const scan = await scanSource(retailer);
     const rawProducts = scan?.products;
     const pages = Array.isArray(scan?.pages) ? scan.pages : [];
@@ -146,13 +153,30 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
       };
     }
 
-    const result = await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue" });
+    const result = await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue", dispatchNotifications });
     if (scan?.partialCatalogue === true) {
       const error = new Error("Catalogue discovery returned zero qualifying catalogue products; verified product probes were processed, but retailer remains unhealthy until full catalogue discovery is restored.");
       await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
       return { ...result, partialCatalogue: true, error: error.message };
     }
     return result;
+  };
+
+  try {
+    if (typeof store.withRetailerScanLock === "function") {
+      const locked = await store.withRetailerScanLock(retailer.id, runScan);
+      if (!locked.acquired) {
+        return {
+          retailerId: retailer.id,
+          retailerName: retailer.name,
+          skipped: true,
+          skipReason: "scan_in_progress",
+          signalsCreated: 0,
+        };
+      }
+      return locked.value;
+    }
+    return await runScan();
   } catch (error) {
     await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
     return { retailerId: retailer.id, retailerName: retailer.name, error: String(error?.message || error), signalsCreated: 0 };
@@ -163,8 +187,14 @@ export async function scanAll({ retailers, store }) {
   const results = [];
   for (let i = 0; i < retailers.length; i += env.scanConcurrency) {
     const batch = retailers.slice(i, i + env.scanConcurrency);
-    results.push(...await Promise.all(batch.map((retailer) => scanRetailer({ retailer, store }))));
+    results.push(...await Promise.all(batch.map((retailer) => scanRetailer({ retailer, store, dispatchNotifications: false }))));
   }
+
+  const deliverable = results.filter((result) => Array.isArray(result.signals) && result.signals.length > 0);
+  await Promise.all(deliverable.map(async (result) => {
+    result.discord = await deliverSignals(store, result.signals);
+  }));
+
   const measuredAt = Math.floor(Date.now() / 1000);
   if (store.recordNetworkSnapshot) {
     const [metrics, retailerHealth] = await Promise.all([store.stats(), store.listRetailers()]);
