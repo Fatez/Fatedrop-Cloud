@@ -1,0 +1,58 @@
+name: Fate Encounters Production Smoke
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe public Fate Encounters endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://fatedrop-cloud-production.up.railway.app"
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 \
+            "$BASE/api/encounters?from=2026-08-21T00%3A00%3A00Z&limit=50" > /tmp/encounters.json
+          curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 30 \
+            "$BASE/api/local-radar?postcode=WD18%200ER&radiusMiles=10&types=shops,events&from=2026-08-21T00%3A00%3A00Z" > /tmp/radar.json
+          python - <<'PY'
+          import json
+          with open('/tmp/encounters.json') as f:
+              encounters=json.load(f)
+          with open('/tmp/radar.json') as f:
+              radar=json.load(f)
+          print('ENCOUNTERS_SMOKE', json.dumps({
+              'success': encounters.get('success'),
+              'count': encounters.get('count'),
+              'sampleEvents': [e.get('name') for e in encounters.get('events', [])[:5]],
+          }, sort_keys=True))
+          print('LOCAL_RADAR_SMOKE', json.dumps({
+              'success': radar.get('success'),
+              'locationResolution': radar.get('locationResolution'),
+              'providers': radar.get('providers'),
+              'counts': radar.get('counts'),
+              'sampleShops': [{
+                  'name': s.get('name'),
+                  'networkStatus': s.get('networkStatus'),
+                  'stockEvidence': s.get('stockEvidence'),
+                  'localStockStatus': s.get('localStockStatus'),
+                  'onlineCatalogueScope': (s.get('onlineCatalogue') or {}).get('scope'),
+              } for s in radar.get('shops', [])[:5]],
+              'sampleEvents': [{
+                  'name': e.get('name'),
+                  'distanceMiles': e.get('distanceMiles'),
+                  'distanceSource': e.get('distanceSource'),
+              } for e in radar.get('events', [])[:5]],
+          }, sort_keys=True))
+          if encounters.get('success') is not True:
+              raise SystemExit('encounters endpoint did not report success')
+          if radar.get('success') is not True:
+              raise SystemExit('local radar endpoint did not report success')
+          PY
