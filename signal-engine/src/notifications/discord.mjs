@@ -5,24 +5,34 @@ const DISCORD_SIGNAL_STATES = new Set(["whisper", "manifested", "vanished", "ech
 
 const STATE_STYLE = Object.freeze({
   whisper: {
-    label: "WHISPER",
-    colour: 0xf59e0b,
-    fallback: "Early catalogue change detected before verified availability.",
-  },
-  manifested: {
-    label: "MANIFESTED",
-    colour: 0x7c3aed,
-    fallback: "Verified purchasable stock detected.",
-  },
-  vanished: {
-    label: "VANISHED",
-    colour: 0xef4444,
-    fallback: "Previously purchasable stock is no longer verified available.",
-  },
-  echo: {
+    publicStage: "Echo",
     label: "ECHO",
     colour: 0x22d3ee,
-    fallback: "Previously available stock has returned.",
+    fallback: "Early product activity detected. FateDrop is watching for confirmed availability.",
+    actionLabel: "Inspect product",
+  },
+  manifested: {
+    publicStage: "Manifested",
+    label: "MANIFESTED",
+    colour: 0x7c3aed,
+    fallback: "Confirmed purchasable stock detected.",
+    actionLabel: "Buy / view product",
+  },
+  vanished: {
+    publicStage: "Vanished",
+    label: "VANISHED",
+    colour: 0xef4444,
+    fallback: "Previously purchasable stock is no longer confirmed available.",
+    actionLabel: "View last product page",
+  },
+  // Internal `echo` means a previously available offer returned. Public FateDrop
+  // vocabulary treats that as a confirmed Manifested event, not an early Echo.
+  echo: {
+    publicStage: "Manifested",
+    label: "MANIFESTED",
+    colour: 0x7c3aed,
+    fallback: "Previously available stock has returned and is confirmed purchasable.",
+    actionLabel: "Buy / view product",
   },
 });
 
@@ -51,6 +61,11 @@ function short(value, max) {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`;
 }
 
+export function publicDiscordStage(signalOrState) {
+  const state = typeof signalOrState === "string" ? signalOrState : signalOrState?.state;
+  return STATE_STYLE[state]?.publicStage || null;
+}
+
 export function isDiscordSignal(signal) {
   return Boolean(signal && DISCORD_SIGNAL_STATES.has(signal.state));
 }
@@ -60,16 +75,23 @@ export function buildDiscordSignalMessage(signal) {
   const productUrl = safeHttpUrl(signal.url);
   const thumbnailUrl = safeHttpUrl(signal.imageUrl);
   const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
-  const delivered = Number.isFinite(signal.deliveredPricePence) ? money(signal.deliveredPricePence) : "Not confirmed";
 
   const fields = [
     { name: "Retailer", value: short(signal.retailerName || signal.retailerId || "Unknown", 1024), inline: true },
     { name: "Price", value: money(signal.pricePence), inline: true },
-    { name: "RRP", value: money(signal.rrpPence), inline: true },
-    { name: "Markup vs RRP", value: percent(signal.markupPercent), inline: true },
-    { name: "Delivered price", value: delivered, inline: true },
-    { name: "Signal confidence", value: confidence, inline: true },
+    { name: "Stock", value: short(signal.stockStatus || "Unknown", 1024), inline: true },
   ];
+
+  if (Number.isFinite(signal.rrpPence)) {
+    fields.push({ name: "Official RRP", value: money(signal.rrpPence), inline: true });
+  }
+  if (Number.isFinite(signal.markupPercent)) {
+    fields.push({ name: "Vs RRP", value: percent(signal.markupPercent), inline: true });
+  }
+  if (Number.isFinite(signal.deliveredPricePence)) {
+    fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
+  }
+  fields.push({ name: "Signal confidence", value: confidence, inline: true });
 
   const embed = {
     title: short(`${style.label} · ${signal.title || "FateDrop signal"}`, 256),
@@ -94,7 +116,7 @@ export function buildDiscordSignalMessage(signal) {
       components: [{
         type: 2,
         style: 5,
-        label: "View retailer",
+        label: style.actionLabel,
         url: productUrl,
       }],
     }];
