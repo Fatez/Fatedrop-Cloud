@@ -23,6 +23,11 @@ async function runTransactionWithRetry(client, work, attempts = SAVE_TRANSACTION
 }
 
 function sortedBy(items, key) { return [...items].sort((a, b) => String(a?.[key] || "").localeCompare(String(b?.[key] || ""))); }
+function uniqueBy(items, key) {
+  const unique = new Map();
+  for (const item of items || []) unique.set(String(item?.[key] || ""), item);
+  return [...unique.values()];
+}
 
 async function bulkJson(client, sql, rows) {
   if (!rows?.length) return;
@@ -85,10 +90,10 @@ export class PostgresStore {
   async saveScan({ retailer, products, offers, observations, signals, completedAt, health }) {
     const pool = await this.pool();
     const client = await pool.connect();
-    const orderedProducts = sortedBy(products, "id");
-    const orderedOffers = sortedBy(offers, "offerId");
-    const orderedObservations = sortedBy(observations, "id");
-    const orderedSignals = sortedBy(signals, "id");
+    const orderedProducts = sortedBy(uniqueBy(products, "id"), "id");
+    const orderedOffers = sortedBy(uniqueBy(offers, "offerId"), "offerId");
+    const orderedObservations = sortedBy(uniqueBy(observations, "id"), "id");
+    const orderedSignals = sortedBy(uniqueBy(signals, "id"), "id");
     try {
       await runTransactionWithRetry(client, async () => {
         await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`fatedrop:save:${retailer.id}`]);
