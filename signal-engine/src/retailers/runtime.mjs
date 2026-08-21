@@ -10,6 +10,12 @@ function compilePattern(value, field) {
 export function retailerToAdapterConfig(input, { requireMonitored = true } = {}) {
   const retailer = normalizeRetailerCandidate(input);
   if (requireMonitored && retailer.state !== RETAILER_STATES.MONITORED) throw new Error(`${retailer.id} is not in monitored state`);
+  if (retailer.countryCode !== "GB" && retailer.delivery.shipsToUk !== true) {
+    throw new Error(`${retailer.id} cannot enter runtime until UK shipping is confirmed`);
+  }
+  if (retailer.delivery.currency && retailer.delivery.currency !== "GBP") {
+    throw new Error(`${retailer.id} cannot enter runtime until non-GBP FX and landed-cost conversion is enabled`);
+  }
   const activeTcgs = retailer.monitoring.activeTcgs || [];
   if (activeTcgs.length !== 1) throw new Error(`${retailer.id} must have exactly one active TCG in runtime v1`);
   const base = {
