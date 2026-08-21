@@ -4,6 +4,11 @@ import { compareProductIdentity } from "../core/product-identity.mjs";
 
 const COLLECTION_URL = "https://www.asmodee.co.uk/collections/all-pokemon-games?display=list";
 const SOURCE = "asmodee-uk";
+const RETRYABLE_TRANSACTION_CODES = new Set(["40P01", "40001"]);
+const RRP_TRANSACTION_ATTEMPTS = 4;
+
+function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function retryDelayMs(attempt) { return Math.min(1500, (75 * (2 ** attempt)) + Math.floor(Math.random() * 125)); }
 
 function normalizeBarcode(value = "") {
   return String(value).replace(/\D+/g, "");
@@ -131,6 +136,42 @@ export function chooseCanonicalMatch(record, products, offersByGtin) {
   return matches.length === 1 ? { product: matches[0], method: "identity" } : null;
 }
 
+export async function writeAsmodeeRrpUpdates(client, updates, now, {
+  attempts = RRP_TRANSACTION_ATTEMPTS,
+  sleepImpl = sleep,
+} = {}) {
+  const orderedUpdates = [...(updates || [])].sort((a, b) => String(a?.product?.id || "").localeCompare(String(b?.product?.id || "")));
+  let lastError;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await client.query("BEGIN");
+      for (const item of orderedUpdates) {
+        const { record, product } = item;
+        await client.query(
+          `UPDATE fatedrop_products SET official_rrp_pence=$1, rrp_source=$2, rrp_observed_at=$3, updated_at=GREATEST(updated_at,$3) WHERE id=$4`,
+          [record.officialRrpPence, SOURCE, now, product.id],
+        );
+        await client.query(
+          `INSERT INTO fatedrop_product_identities (id,tcg,canonical_key,title,product_type,official_rrp_pence,rrp_source,rrp_verified_at,updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+           ON CONFLICT (tcg,canonical_key) DO UPDATE SET official_rrp_pence=EXCLUDED.official_rrp_pence, rrp_source=EXCLUDED.rrp_source, rrp_verified_at=EXCLUDED.rrp_verified_at, updated_at=GREATEST(fatedrop_product_identities.updated_at,EXCLUDED.updated_at)`,
+          [product.id, product.tcg || "pokemon", product.canonical_key, product.title, product.product_type, record.officialRrpPence, SOURCE, now],
+        );
+      }
+      await client.query("COMMIT");
+      return;
+    } catch (error) {
+      lastError = error;
+      try { await client.query("ROLLBACK"); } catch {}
+      if (!RETRYABLE_TRANSACTION_CODES.has(error?.code) || attempt === attempts - 1) throw error;
+      await sleepImpl(retryDelayMs(attempt));
+    }
+  }
+
+  throw lastError;
+}
+
 export async function syncAsmodeeRrp({ databaseUrl, fetchImpl = fetch, now = Math.floor(Date.now() / 1000) } = {}) {
   if (!databaseUrl) throw new Error("DATABASE_URL is required");
   const collected = await collectAsmodeeRrpRecords({ fetchImpl });
@@ -159,24 +200,7 @@ export async function syncAsmodeeRrp({ databaseUrl, fetchImpl = fetch, now = Mat
 
     const client = await pool.connect();
     try {
-      await client.query("BEGIN");
-      for (const item of updates) {
-        const { record, product } = item;
-        await client.query(
-          `UPDATE fatedrop_products SET official_rrp_pence=$1, rrp_source=$2, rrp_observed_at=$3, updated_at=GREATEST(updated_at,$3) WHERE id=$4`,
-          [record.officialRrpPence, SOURCE, now, product.id],
-        );
-        await client.query(
-          `INSERT INTO fatedrop_product_identities (id,tcg,canonical_key,title,product_type,official_rrp_pence,rrp_source,rrp_verified_at,updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
-           ON CONFLICT (tcg,canonical_key) DO UPDATE SET official_rrp_pence=EXCLUDED.official_rrp_pence, rrp_source=EXCLUDED.rrp_source, rrp_verified_at=EXCLUDED.rrp_verified_at, updated_at=GREATEST(fatedrop_product_identities.updated_at,EXCLUDED.updated_at)`,
-          [product.id, product.tcg || "pokemon", product.canonical_key, product.title, product.product_type, record.officialRrpPence, SOURCE, now],
-        );
-      }
-      await client.query("COMMIT");
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
+      await writeAsmodeeRrpUpdates(client, updates, now);
     } finally {
       client.release();
     }
