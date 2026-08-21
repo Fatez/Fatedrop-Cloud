@@ -79,7 +79,7 @@ export async function collectAsmodeeRrpRecords({ fetchImpl = fetch, maxPages = 8
   return { discovered: urls.length, records: records.filter((x) => !x.error), errors: records.filter((x) => x.error) };
 }
 
-function chooseCanonicalMatch(record, products, offersByGtin) {
+export function chooseCanonicalMatch(record, products, offersByGtin) {
   if (record.barcode) {
     const ids = new Set((offersByGtin.get(record.barcode) || []).map((offer) => offer.product_id).filter(Boolean));
     if (ids.size === 1) {
@@ -88,7 +88,13 @@ function chooseCanonicalMatch(record, products, offersByGtin) {
       if (product) return { product, method: "gtin" };
     }
   }
-  const source = { title: record.title, productType: "sealed", tcg: "pokemon" };
+
+  // Asmodee sometimes appends "(1)" to indicate a single distributor unit.
+  // It is not a consumer-facing product variant, so remove only that exact suffix.
+  // Do not force a generic "sealed" product type: compareProductIdentity can infer
+  // the precise type (ETB, booster pack, booster bundle, etc.) from the title.
+  const sourceTitle = String(record.title || "").replace(/\s*\(1\)\s*$/, "").trim();
+  const source = { title: sourceTitle, tcg: "pokemon" };
   const matches = products.filter((candidate) => compareProductIdentity(source, {
     title: candidate.title,
     productType: candidate.product_type,
