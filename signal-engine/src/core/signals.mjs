@@ -8,21 +8,23 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   const currentStatus = currentOffer.stockStatus;
   const wasPurchasable = previousOffer ? isPurchasable(previousStatus) : false;
   const nowPurchasable = isPurchasable(currentStatus);
-  const everAvailable = Boolean(previousOffer?.everAvailableAt);
 
   let state = null;
   let reason = null;
+
   if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
-      reason = "New catalogue product discovered and purchasable";
+      reason = "New catalogue product discovered and verified purchasable";
     } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)) {
-      state = SignalState.WHISPER;
-      reason = "New catalogue product discovered before verified availability";
+      state = SignalState.ECHO;
+      reason = "Early product activity observed before verified availability";
     }
   } else if (!wasPurchasable && nowPurchasable) {
-    state = everAvailable ? SignalState.ECHO : SignalState.MANIFESTED;
-    reason = everAvailable ? "Previously available product returned" : "Availability became verified";
+    state = SignalState.MANIFESTED;
+    reason = previousOffer?.everAvailableAt
+      ? "Previously available product returned to verified availability"
+      : "Availability became verified";
   } else if (wasPurchasable && !nowPurchasable) {
     state = SignalState.VANISHED;
     reason = "Previously purchasable product is no longer verified available";
@@ -31,8 +33,8 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     !nowPurchasable &&
     [StockStatus.PREORDER, StockStatus.COMING_SOON].includes(currentStatus)
   ) {
-    state = SignalState.WHISPER;
-    reason = "Catalogue status changed before verified availability";
+    state = SignalState.ECHO;
+    reason = "Early catalogue activity changed before verified availability";
   }
 
   if (!state) return null;
@@ -62,6 +64,14 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     confidence: currentOffer.stockConfidence ?? 0.5,
     detectedAt: now,
     reason,
+    target: {
+      type: "product",
+      productId: currentOffer.productId,
+      offerId: currentOffer.offerId,
+      retailerId: currentOffer.retailerId,
+      productUrl: currentOffer.url,
+      query: currentOffer.title,
+    },
     evidence: currentOffer.evidence ?? [],
   };
 }
