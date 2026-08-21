@@ -1,15 +1,17 @@
 import { buildQualificationQueue } from "./qualification-queue.mjs";
-import { ukRetailerDiscoverySeeds, ukRetailerDiscoveryStats } from "./uk-discovery-network.mjs";
+import { retailerDiscoverySeeds, retailerDiscoveryStats } from "./retailer-discovery-network.mjs";
 
-const report = buildQualificationQueue(ukRetailerDiscoverySeeds);
+const report = buildQualificationQueue(retailerDiscoverySeeds);
 console.log(JSON.stringify({
-  seedBatches: ukRetailerDiscoveryStats,
+  seedBatches: retailerDiscoveryStats,
   coverage: report.coverage,
   actionable: report.actionable,
   blocked: report.blocked,
   queue: report.queue.map((row) => ({
     retailerId: row.retailerId,
     name: row.name,
+    countryCode: row.candidate.countryCode,
+    shipsToUk: row.candidate.delivery.shipsToUk,
     retailerClass: row.retailerClass,
     adapterType: row.adapterType,
     state: row.state,
