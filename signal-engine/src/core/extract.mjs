@@ -44,9 +44,6 @@ function cardProducts($, config, pageUrl) {
   const selector = config.cardSelector || "article, li, [class*=product], [data-product]";
   $(selector).each((_, node) => {
     const card = $(node);
-    // Retailer catalogue cards commonly use relative hrefs. Resolve each link
-    // before applying the retailer URL pattern; otherwise valid links such as
-    // `/uk/en-gb/.../p/12345` are discarded before they become absolute URLs.
     const anchor = card.find('a[href]').filter((__, a) => {
       const candidate = absoluteUrl($(a).attr('href'), pageUrl);
       return Boolean(candidate && config.productUrlPattern.test(candidate));
@@ -69,37 +66,79 @@ function cardProducts($, config, pageUrl) {
   return products;
 }
 
+function normalizeExtractedProduct(raw, retailer, pageUrl, evidenceKind = "catalogue") {
+  if (!raw?.title) return null;
+  const url = raw.url ? absoluteUrl(raw.url, pageUrl) : null;
+  if (!url || !retailer.productUrlPattern.test(url)) return null;
+  const text = `${raw.rawText || ""} ${raw.availability || ""}`;
+  const stock = classifyStockStatus(text);
+  const productType = productTypeFromTitle(raw.title);
+  const retailerSku = raw.sku || url.match(retailer.skuPattern)?.[1] || stableId("sku", retailer.id, url).slice(-16);
+  return {
+    retailerSku,
+    title: normalizeWhitespace(raw.title),
+    url,
+    imageUrl: raw.imageUrl || null,
+    pricePence: raw.pricePence ?? null,
+    productType,
+    canonicalKey: canonicalKey(raw.title, productType),
+    stockStatus: stock.status,
+    stockConfidence: stock.confidence,
+    stockQuantity: stock.quantity ?? null,
+    evidence: [{ kind: evidenceKind, value: stock.evidence, pageUrl }],
+  };
+}
+
 export function extractCatalogueProducts({ html, pageUrl, retailer }) {
   const $ = load(html);
   const fromLd = jsonLdProducts($);
   const fromCards = cardProducts($, retailer, pageUrl);
   const merged = new Map();
   for (const raw of [...fromCards, ...fromLd]) {
-    if (!raw.title) continue;
-    const url = raw.url ? absoluteUrl(raw.url, pageUrl) : null;
-    if (!url || !retailer.productUrlPattern.test(url)) continue;
-    const text = `${raw.rawText || ""} ${raw.availability || ""}`;
-    const stock = classifyStockStatus(text);
-    const productType = productTypeFromTitle(raw.title);
-    const retailerSku = raw.sku || url.match(retailer.skuPattern)?.[1] || stableId("sku", retailer.id, url).slice(-16);
-    const key = `${retailer.id}:${retailerSku}`;
+    const product = normalizeExtractedProduct(raw, retailer, pageUrl);
+    if (!product) continue;
+    const key = `${retailer.id}:${product.retailerSku}`;
     const existing = merged.get(key);
     merged.set(key, {
       ...(existing || {}),
-      retailerSku,
-      title: normalizeWhitespace(raw.title),
-      url,
-      imageUrl: raw.imageUrl || existing?.imageUrl || null,
-      pricePence: raw.pricePence ?? existing?.pricePence ?? null,
-      productType,
-      canonicalKey: canonicalKey(raw.title, productType),
-      stockStatus: stock.status,
-      stockConfidence: stock.confidence,
-      stockQuantity: stock.quantity ?? null,
-      evidence: [{ kind: "catalogue", value: stock.evidence, pageUrl }],
+      ...product,
+      imageUrl: product.imageUrl || existing?.imageUrl || null,
+      pricePence: product.pricePence ?? existing?.pricePence ?? null,
     });
   }
   return [...merged.values()];
+}
+
+export function extractDirectProductPage({ html, pageUrl, retailer }) {
+  if (!retailer.productUrlPattern.test(pageUrl)) return null;
+  const $ = load(html);
+  const scope = $(".productView").first().length ? $(".productView").first() : $("main").first().length ? $("main").first() : $("body");
+  const text = normalizeWhitespace(scope.text());
+  const title = normalizeWhitespace(
+    scope.find("h1,.productView-title").first().text() ||
+    $('meta[property="og:title"]').attr("content") ||
+    $("title").first().text()
+  );
+  if (!title || title.length < 4) return null;
+
+  const priceCandidate = normalizeWhitespace(
+    scope.find(".price--withoutTax,.price--main,[data-product-price-without-tax],[class*=price]").first().text()
+  );
+  const nowPrice = text.match(/\bNow\s*(£\s*[0-9][0-9,.]*)/i)?.[1] || null;
+  const pricePence = parseMoneyToPence(priceCandidate || nowPrice);
+  const sku = normalizeWhitespace(
+    scope.find("[data-product-sku],.productView-info-value").filter((_, node) => /[A-Z0-9-]{4,}/i.test($(node).text())).first().text()
+  ) || text.match(/\bCode:\s*([A-Z0-9-]{4,})/i)?.[1] || null;
+  const image = scope.find("img").filter((_, node) => /product|booster|trainer|collection|tin|pack/i.test(`${$(node).attr("alt") || ""} ${$(node).attr("class") || ""}`)).first();
+
+  return normalizeExtractedProduct({
+    title,
+    url: pageUrl,
+    imageUrl: absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl),
+    sku,
+    pricePence,
+    rawText: text,
+  }, retailer, pageUrl, "product_page_probe");
 }
 
 export function discoverProductLinks({ html, pageUrl, retailer }) {

@@ -126,8 +126,10 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
   }
 
   try {
-    const { products: rawProducts, pages = [] } = await scanSource(retailer);
-    const pagesScanned = Array.isArray(pages) ? pages.length : 0;
+    const scan = await scanSource(retailer);
+    const rawProducts = scan?.products;
+    const pages = Array.isArray(scan?.pages) ? scan.pages : [];
+    const pagesScanned = pages.length;
     if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
       const error = new Error("Catalogue scan returned zero qualifying products; preserving last valid catalogue and marking retailer unhealthy.");
       await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
@@ -140,7 +142,14 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
         signalsCreated: 0,
       };
     }
-    return await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue" });
+
+    const result = await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue" });
+    if (scan?.partialCatalogue === true) {
+      const error = new Error("Catalogue discovery returned zero qualifying catalogue products; verified product probes were processed, but retailer remains unhealthy until full catalogue discovery is restored.");
+      await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
+      return { ...result, partialCatalogue: true, error: error.message };
+    }
+    return result;
   } catch (error) {
     await store.recordFailure(retailer, error, Math.floor(Date.now()/1000));
     return { retailerId: retailer.id, retailerName: retailer.name, error: String(error?.message || error), signalsCreated: 0 };
