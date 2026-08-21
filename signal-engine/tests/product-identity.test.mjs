@@ -112,3 +112,56 @@ test("descriptor preserves explicit identifier and variant dimensions", () => {
   assert.equal(descriptor.region, "uk");
   assert.equal(descriptor.identifiers.upc, "0123456789");
 });
+
+test("rejects half booster box against full booster box from real retailer naming", () => {
+  const result = compareProductIdentity(
+    "Pokemon TCG: Scarlet & Violet 9 – Journey Together Half Booster Box",
+    "Pokemon - Scarlet & Violet - Journey Together - Booster Box (36 Boosters)",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons[0], /^format_variant_conflict:/);
+});
+
+test("rejects enhanced booster box against standard booster box", () => {
+  const result = compareProductIdentity(
+    "Pokemon - Scarlet & Violet - Journey Together - ENHANCED Booster Box (36 Boosters)",
+    "Pokemon - Scarlet & Violet - Journey Together - Booster Box (36 Boosters)",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons[0], /^format_variant_conflict:/);
+});
+
+test("rejects opened-live product against sealed presentation", () => {
+  const result = compareProductIdentity(
+    "MEGA Dream EX - Japanese Booster Box — Opened Live On Stream",
+    "MEGA Dream EX - Japanese Booster Box — Sealed",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons[0], /^presentation_conflict:/);
+});
+
+test("rejects slim booster box against jumbo booster box", () => {
+  const result = compareProductIdentity(
+    "Collect 151 Hope - Simplified Chinese Slim Booster Box — Sealed",
+    "Collect 151 Hope - Simplified Chinese Jumbo Booster Box — Sealed",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons[0], /^format_variant_conflict:/);
+});
+
+test("extracts case quantity from real case-title style", () => {
+  const descriptor = describeProductIdentity(
+    "Pokemon - Scarlet & Violet - Temporal Forces - Booster Box Case (6 Booster Boxes)",
+  );
+  assert.equal(descriptor.unitKind, "case");
+  assert.equal(descriptor.caseQuantity, 6);
+});
+
+test("distinguishes case sizes for the same product", () => {
+  const result = compareProductIdentity(
+    "Pokemon Example Set Booster Box Case (6 Booster Boxes)",
+    "Pokemon Example Set Booster Box Case (10 Booster Boxes)",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons[0], /^case_quantity_conflict:/);
+});
