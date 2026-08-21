@@ -61,6 +61,44 @@ test("monitored generic retailer compiles into runtime scanner config", () => {
   assert.ok(runtime.productUrlPattern.test("https://examplecards.co.uk/products/example-etb"));
 });
 
+test("overseas monitored retailer is blocked until UK shipping is confirmed", () => {
+  const monitored = normalizeRetailerCandidate({
+    ...genericCandidate,
+    id: "us-cards",
+    websiteUrl: "https://uscards.example/",
+    countryCode: "US",
+    state: RETAILER_STATES.MONITORED,
+    delivery: { currency: "GBP" },
+    catalogue: {
+      urls: ["https://uscards.example/pokemon"],
+      runtime: {
+        productUrlPattern: "uscards\\.example/products/",
+        skuPattern: "/products/([^/?#]+)",
+      },
+    },
+  });
+  assert.throws(() => retailerToRuntimeConfig(monitored), /UK shipping is confirmed/i);
+});
+
+test("non-GBP monitored retailer is blocked until FX and landed-cost conversion exists", () => {
+  const monitored = normalizeRetailerCandidate({
+    ...genericCandidate,
+    id: "eu-cards",
+    websiteUrl: "https://eucards.example/",
+    countryCode: "NL",
+    state: RETAILER_STATES.MONITORED,
+    delivery: { shipsToUk: true, currency: "EUR" },
+    catalogue: {
+      urls: ["https://eucards.example/pokemon"],
+      runtime: {
+        productUrlPattern: "eucards\\.example/products/",
+        skuPattern: "/products/([^/?#]+)",
+      },
+    },
+  });
+  assert.throws(() => retailerToRuntimeConfig(monitored), /FX and landed-cost conversion/i);
+});
+
 test("third-party discovery directories are disabled for automation until reviewed", () => {
   assert.equal(enabledDiscoverySources().length, 0);
 });
