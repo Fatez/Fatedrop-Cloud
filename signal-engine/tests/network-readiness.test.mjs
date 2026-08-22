@@ -8,6 +8,8 @@ function whisper(overrides = {}) {
   return {
     id: "sig-whisper-1",
     state: "whisper",
+    kind: "catalogue_new",
+    alertClass: "primary_drop",
     productId: "prd-1",
     offerId: "off-1",
     retailerId: retailer.id,
@@ -26,7 +28,7 @@ function whisper(overrides = {}) {
     confidence: 0.7,
     detectedAt: 1000,
     reason: "Catalogue movement",
-    evidence: [],
+    evidence: [{ kind: "signal_kind", value: "catalogue_new", lifecycle: "whisper", observedAt: 1000 }],
     ...overrides,
   };
 }
@@ -42,7 +44,7 @@ function storeWith(signals) {
   };
 }
 
-test("queue readiness emits Echo only onto recent Whisper product context", async () => {
+test("queue readiness emits Echo only onto recent Whisper product context for primary retailer", async () => {
   const store = storeWith([whisper({ detectedAt: 1900 })]);
   const result = await recordRetailerReadiness({ retailer, store, state: "queue", previousState: "normal", observedAt: 2000 });
   assert.equal(result.accepted, true);
@@ -50,10 +52,23 @@ test("queue readiness emits Echo only onto recent Whisper product context", asyn
   assert.equal(result.productContexts, 1);
   assert.equal(store.appended.length, 1);
   assert.equal(store.appended[0].state, "echo");
+  assert.equal(store.appended[0].kind, "queue");
+  assert.equal(store.appended[0].alertClass, "primary_drop");
   assert.equal(store.appended[0].productId, "prd-1");
   assert.equal(store.appended[0].offerId, "off-1");
   assert.match(store.appended[0].reason, /queue \/ traffic-control/);
   assert.equal(store.appended[0].target.type, "product");
+  assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "signal_kind")?.value, "queue");
+});
+
+test("market retailer readiness never emits public Echo noise", async () => {
+  const marketRetailer = { id: "titan-cards", name: "Titan Cards" };
+  const store = storeWith([whisper({ retailerId: marketRetailer.id, retailerName: marketRetailer.name, detectedAt: 1900 })]);
+  const result = await recordRetailerReadiness({ retailer: marketRetailer, store, state: "security", previousState: "normal", observedAt: 2000 });
+  assert.equal(result.accepted, true);
+  assert.equal(result.reason, "market_retailer_readiness_suppressed");
+  assert.equal(result.productContexts, 0);
+  assert.deepEqual(store.appended, []);
 });
 
 test("security readiness does not invent a public Echo without recent Whisper context", async () => {
