@@ -17,7 +17,7 @@ test("generic catalogue can recover from card-markup changes through bounded dir
       return response(`<html><body><div><a href="${productUrl}">View item</a></div></body></html>`);
     }
     if (String(url) === productUrl) {
-      return response(`<html><body><main><h1>Pokemon TCG Test Booster Box</h1><div>£99.99 In stock</div><div>Code: TEST-12345</div></main></body></html>`);
+      return response(`<html><body><main><h1>Pokemon TCG Test Booster Box</h1><div class="price">£99.99</div><div>In stock</div><div>Code: TEST-12345</div></main></body></html>`);
     }
     throw new Error(`unexpected URL ${url}`);
   };
