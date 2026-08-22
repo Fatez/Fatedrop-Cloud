@@ -2,11 +2,12 @@ import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 
-function signalEvidence(evidence, { kind, state, alertClass, observedAt }) {
+function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt }) {
   return [
     ...(Array.isArray(evidence) ? evidence : []),
     { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
     { kind: "signal_alert_class", value: alertClass, observedAt },
+    ...(retailerSku ? [{ kind: "retailer_sku", value: retailerSku, observedAt }] : []),
   ];
 }
 
@@ -74,6 +75,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     offerId: currentOffer.offerId,
     retailerId: currentOffer.retailerId,
     retailerName: currentOffer.retailerName,
+    retailerSku: currentOffer.retailerSku ?? null,
     title: currentOffer.title,
     productType: currentOffer.productType,
     url: currentOffer.url,
@@ -96,6 +98,6 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: signalEvidence(currentOffer.evidence, { kind, state, alertClass: policy.alertClass, observedAt: now }),
+    evidence: signalEvidence(currentOffer.evidence, { kind, state, alertClass: policy.alertClass, retailerSku: currentOffer.retailerSku, observedAt: now }),
   };
 }
