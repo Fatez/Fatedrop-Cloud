@@ -13,14 +13,32 @@ test("website publisher skips safely when not configured", async () => {
   assert.equal(result.reason, "not_configured");
 });
 
-test("website publisher sends current metrics and lifecycle signals", async () => {
+test("website publisher sends canonical lifecycle plus exact cause and alert family", async () => {
   process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
   process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
 
+  const now = Math.floor(Date.now() / 1000);
   const store = {
     stats: async () => ({ productsTracked: 937, currentlyAvailable: 200, signals24h: 4, whisper24h: 1, manifested24h: 1, vanished24h: 1, echo24h: 1 }),
-    listSignals: async () => [{ id: "sig-1", state: "echo", title: "Test ETB", retailerName: "Test Retailer", reason: "Stock returned", deliveredPricePence: 4999, detectedAt: Math.floor(Date.now() / 1000) }],
+    listSignals: async () => [
+      {
+        id: "sig-1",
+        state: "manifested",
+        retailerId: "smyths-uk",
+        retailerName: "Smyths Toys UK",
+        title: "Test ETB",
+        reason: "Retailer SKU availability became verified",
+        deliveredPricePence: 4999,
+        detectedAt: now,
+        evidence: [
+          { kind: "signal_kind", value: "availability_live", lifecycle: "manifested", observedAt: now },
+          { kind: "signal_alert_class", value: "primary_drop", observedAt: now },
+        ],
+      },
+      { id: "legacy-noise", state: "drop_pulse", retailerId: "smyths-uk", title: "Context only", detectedAt: now },
+    ],
     listRetailers: async () => [{ id: "test", healthy: true }],
+    listProducts: async () => [],
   };
 
   let request;
@@ -36,8 +54,31 @@ test("website publisher sends current metrics and lifecycle signals", async () =
   const body = JSON.parse(request.options.body);
   assert.equal(body.metrics.productsTracked, 937);
   assert.equal(body.metrics.echo, 1);
-  assert.equal(body.recentSignals[0].state, "echo");
+  assert.equal(body.recentSignals.length, 1);
+  assert.equal(body.recentSignals[0].state, "manifested");
+  assert.equal(body.recentSignals[0].kind, "availability_live");
+  assert.equal(body.recentSignals[0].alertClass, "primary_drop");
   assert.equal(body.recentSignals[0].title, "Test ETB");
+});
+
+test("website publisher can infer market alert family for older lifecycle rows", async () => {
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const store = {
+    stats: async () => ({}),
+    listSignals: async () => [{ id: "sig-market", state: "vanished", retailerId: "titan-cards", retailerName: "Titan Cards", title: "Example", detectedAt: Math.floor(Date.now() / 1000), evidence: [] }],
+    listRetailers: async () => [],
+    listProducts: async () => [],
+  };
+  let body;
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ stored: true }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  await publishWebsiteSnapshot({ store, fetchImpl });
+  assert.equal(body.recentSignals[0].state, "vanished");
+  assert.equal(body.recentSignals[0].kind, "lifecycle_unspecified");
+  assert.equal(body.recentSignals[0].alertClass, "market_stock");
 });
 
 test.after(() => {
