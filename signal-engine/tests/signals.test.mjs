@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveSignal } from "../src/core/signals.mjs";
 
-const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,...extra });
+const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",retailerSku:"SKU-123",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,...extra });
 
 function kind(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "signal_kind")?.value ?? null;
@@ -10,6 +10,10 @@ function kind(signal) {
 
 function alertClass(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "signal_alert_class")?.value ?? null;
+}
+
+function retailerSku(signal) {
+  return signal?.evidence?.find((entry) => entry?.kind === "retailer_sku")?.value ?? null;
 }
 
 test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
@@ -53,6 +57,11 @@ test("primary RRP retailers carry primary_drop alert class",()=>{
   assert.equal(signal.alertClass,"primary_drop");
   assert.equal(signal.signalCapabilities.dropSentinel,true);
   assert.equal(alertClass(signal),"primary_drop");
+});
+test("signals expose and persist retailer SKU identity",()=>{
+  const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200});
+  assert.equal(signal.retailerSku,"SKU-123");
+  assert.equal(retailerSku(signal),"SKU-123");
 });
 test("signals carry a canonical product navigation target",()=>{
   const signal=deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200});
