@@ -1,6 +1,7 @@
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { stableId } from "./normalize.mjs";
+import { isPrimaryDropRetailer, signalCapabilities } from "./signal-policy.mjs";
 
 const ECHO_STATES = new Set(["queue", "security", "access_blocked"]);
 const LOOKBACK_SECONDS = 6 * 60 * 60;
@@ -35,11 +36,12 @@ async function appendSignals(store, signals) {
 
 export async function recordRetailerReadiness({ retailer, store, state, previousState = null, observedAt = Math.floor(Date.now() / 1000), evidence = [] }) {
   if (!ECHO_STATES.has(state)) return { accepted: false, reason: "not_echo_state", signals: [], discord: { sent: 0, skipped: 0, failed: 0, errors: [] } };
+  if (!isPrimaryDropRetailer(retailer?.id)) {
+    return { accepted: true, reason: "market_retailer_readiness_suppressed", readinessState: state, previousState, productContexts: 0, signals: [], discord: { sent: 0, skipped: 0, failed: 0, errors: [] } };
+  }
 
-  // Echo must not invent a product relationship. It attaches only to products
-  // that already produced a recent Whisper at this retailer. If there is no
-  // product context, the infrastructure observation is accepted but no public
-  // product-linked Echo is emitted.
+  // Echo is readiness intelligence, not stock. It is emitted only for a Primary/RRP
+  // drop sentinel and only when a recent Whisper provides real product context.
   const recentWhispers = await store.listSignals({ states: ["whisper"], retailerIds: [retailer.id], since: Math.max(0, observedAt - LOOKBACK_SECONDS), limit: 50 });
   const byProduct = new Map();
   for (const whisper of recentWhispers) {
@@ -47,18 +49,24 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     byProduct.set(whisper.productId, whisper);
   }
 
+  const policy = signalCapabilities(retailer.id);
   const signals = [...byProduct.values()].slice(0, 10).map((whisper) => ({
     ...whisper,
     id: stableId("sig", whisper.offerId, "echo", state, String(observedAt)),
     state: "echo",
+    kind: state,
+    alertClass: policy.alertClass,
+    signalCapabilities: policy,
     confidence: confidenceFor(state),
     detectedAt: observedAt,
     previousStockStatus: whisper.stockStatus ?? null,
     reason: reasonFor(state),
     evidence: [
-      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
+      { kind: "signal_kind", value: state, lifecycle: "echo", observedAt },
+      { kind: "signal_alert_class", value: policy.alertClass, observedAt },
       { kind: "retailer_readiness", state, previousState, observedAt },
       ...(Array.isArray(evidence) ? evidence : []),
+      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
     ],
     target: {
       type: "product",
