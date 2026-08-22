@@ -10,6 +10,13 @@ export function remainingCycleDelay({ startedAtMs, nowMs = Date.now(), minimumCy
   return Math.max(0, minimumCycleMs - Math.max(0, nowMs - startedAtMs));
 }
 
+export function nextCollectorFailureState({ consecutiveFailures = 0, browserState, maxFailures = 3 } = {}) {
+  const safeMaxFailures = Math.max(1, Math.min(10, Number.isFinite(maxFailures) ? Math.trunc(maxFailures) : 3));
+  if (browserState !== BrowserState.NORMAL) return { consecutiveFailures: 0, recycle: false };
+  const nextFailures = Math.max(0, Math.trunc(consecutiveFailures || 0)) + 1;
+  return { consecutiveFailures: nextFailures, recycle: nextFailures >= safeMaxFailures };
+}
+
 export function classifyBrowserState({ url = "", title = "", text = "" } = {}) {
   const sample = `${url}\n${title}\n${text}`.toLowerCase();
 
