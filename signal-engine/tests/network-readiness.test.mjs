@@ -8,6 +8,7 @@ function whisper(overrides = {}) {
   return {
     id: "sig-whisper-1",
     state: "whisper",
+    kind: "catalogue_new",
     productId: "prd-1",
     offerId: "off-1",
     retailerId: retailer.id,
@@ -26,7 +27,7 @@ function whisper(overrides = {}) {
     confidence: 0.7,
     detectedAt: 1000,
     reason: "Catalogue movement",
-    evidence: [],
+    evidence: [{ kind: "signal_kind", value: "catalogue_new", lifecycle: "whisper", observedAt: 1000 }],
     ...overrides,
   };
 }
@@ -50,10 +51,20 @@ test("queue readiness emits Echo only onto recent Whisper product context", asyn
   assert.equal(result.productContexts, 1);
   assert.equal(store.appended.length, 1);
   assert.equal(store.appended[0].state, "echo");
+  assert.equal(store.appended[0].kind, "queue");
   assert.equal(store.appended[0].productId, "prd-1");
   assert.equal(store.appended[0].offerId, "off-1");
   assert.match(store.appended[0].reason, /queue \/ traffic-control/);
   assert.equal(store.appended[0].target.type, "product");
+  assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "signal_kind")?.value, "queue");
+});
+
+test("security readiness records security as the exact Echo cause", async () => {
+  const store = storeWith([whisper({ detectedAt: 1900 })]);
+  await recordRetailerReadiness({ retailer, store, state: "security", previousState: "normal", observedAt: 2000 });
+  assert.equal(store.appended[0].state, "echo");
+  assert.equal(store.appended[0].kind, "security");
+  assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "retailer_readiness")?.state, "security");
 });
 
 test("security readiness does not invent a public Echo without recent Whisper context", async () => {
