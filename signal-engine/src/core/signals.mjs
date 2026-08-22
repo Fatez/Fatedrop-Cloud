@@ -1,5 +1,14 @@
 import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
+import { signalCapabilities } from "./signal-policy.mjs";
+
+function signalEvidence(evidence, { kind, state, alertClass, observedAt }) {
+  return [
+    ...(Array.isArray(evidence) ? evidence : []),
+    { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
+    { kind: "signal_alert_class", value: alertClass, observedAt },
+  ];
+}
 
 export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
   if (isBaseline) return null;
@@ -8,38 +17,49 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   const currentStatus = currentOffer.stockStatus;
   const wasPurchasable = previousOffer ? isPurchasable(previousStatus) : false;
   const nowPurchasable = isPurchasable(currentStatus);
+  const policy = signalCapabilities(currentOffer.retailerId);
 
   let state = null;
+  let kind = null;
   let reason = null;
 
   // FINAL FATEDROP LIFECYCLE CONTRACT:
-  // WHISPER = product/catalogue movement before a confirmed live event.
-  // ECHO = retailer traffic/security/queue readiness intelligence (emitted by infrastructure probes, not catalogue stock transitions).
-  // MANIFESTED = confirmed purchasable availability/restock.
+  // WHISPER = new SKU/catalogue movement or meaningful pre-live state change.
+  // ECHO = retailer readiness evidence such as queue/security/access changes.
+  // MANIFESTED = verified purchasable availability/restock.
   // VANISHED = previously purchasable availability lost.
+  // The lifecycle stays universal; alertClass controls Primary/RRP vs Market/Indie presentation downstream.
   if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
-      reason = "New catalogue product discovered and verified purchasable";
+      kind = "new_listing_live";
+      reason = "New retailer SKU discovered and verified purchasable";
     } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)) {
       state = SignalState.WHISPER;
-      reason = "Product/catalogue activity observed before verified availability";
+      kind = "catalogue_new";
+      reason = "New retailer SKU/catalogue activity observed before verified availability";
     }
   } else if (!wasPurchasable && nowPurchasable) {
     state = SignalState.MANIFESTED;
-    reason = previousOffer?.everAvailableAt
-      ? "Previously available product returned to verified availability"
-      : "Availability became verified";
+    if (previousOffer?.everAvailableAt) {
+      kind = "restock";
+      reason = "Previously available retailer SKU returned to verified availability";
+    } else {
+      kind = "availability_live";
+      reason = "Retailer SKU availability became verified";
+    }
   } else if (wasPurchasable && !nowPurchasable) {
     state = SignalState.VANISHED;
-    reason = "Previously purchasable product is no longer verified available";
+    kind = "sold_out";
+    reason = "Previously purchasable retailer SKU is no longer verified available";
   } else if (previousStatus !== currentStatus && !nowPurchasable) {
     state = SignalState.WHISPER;
-    reason = "Product/catalogue state changed before verified availability";
+    kind = "catalogue_state_change";
+    reason = "Retailer SKU/catalogue state changed before verified availability";
   }
 
-  if (!state) return null;
-  const id = stableId("sig", currentOffer.offerId, state, String(now), currentStatus);
+  if (!state || !kind) return null;
+  const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
   const deliveredPricePence = currentOffer.postagePence == null || currentOffer.pricePence == null
     ? null
     : currentOffer.pricePence + currentOffer.postagePence;
@@ -47,6 +67,9 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   return {
     id,
     state,
+    kind,
+    alertClass: policy.alertClass,
+    signalCapabilities: policy,
     productId: currentOffer.productId,
     offerId: currentOffer.offerId,
     retailerId: currentOffer.retailerId,
@@ -73,6 +96,6 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: currentOffer.evidence ?? [],
+    evidence: signalEvidence(currentOffer.evidence, { kind, state, alertClass: policy.alertClass, observedAt: now }),
   };
 }
