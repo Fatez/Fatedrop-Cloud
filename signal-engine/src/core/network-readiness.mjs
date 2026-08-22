@@ -51,14 +51,16 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     ...whisper,
     id: stableId("sig", whisper.offerId, "echo", state, String(observedAt)),
     state: "echo",
+    kind: state,
     confidence: confidenceFor(state),
     detectedAt: observedAt,
     previousStockStatus: whisper.stockStatus ?? null,
     reason: reasonFor(state),
     evidence: [
-      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
+      { kind: "signal_kind", value: state, lifecycle: "echo", observedAt },
       { kind: "retailer_readiness", state, previousState, observedAt },
       ...(Array.isArray(evidence) ? evidence : []),
+      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
     ],
     target: {
       type: "product",

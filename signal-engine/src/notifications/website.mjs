@@ -1,23 +1,85 @@
 const DEFAULT_SOURCE = "FateDrop Signal Engine";
 const LIFECYCLE_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
+const LEGACY_STATE_TO_LIFECYCLE = new Map([
+  ["queue", "echo"],
+  ["security", "echo"],
+  ["access_blocked", "echo"],
+  ["price_change", "whisper"],
+  ["launch_date_change", "whisper"],
+]);
+const PRECISE_KINDS = new Set([
+  "catalogue_new",
+  "catalogue_state_change",
+  "price_change",
+  "launch_date_change",
+  "queue",
+  "security",
+  "access_blocked",
+  "new_listing_live",
+  "availability_live",
+  "restock",
+  "sold_out",
+  "lifecycle_unspecified",
+]);
 
 function configured() {
   return Boolean(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL && process.env.FATEDROP_METRICS_INGEST_SECRET);
 }
 
-function signalIntensity(signal) {
-  if (signal.state === "security" || signal.state === "queue") return "major";
-  if (signal.state === "drop_pulse") return Number(signal.confidence || 0) >= 0.75 ? "major" : "standard";
-  if (signal.state === "manifested" || signal.state === "echo") return "standard";
+function lifecycleFor(signal) {
+  if (LIFECYCLE_STATES.has(signal?.state)) return signal.state;
+  return LEGACY_STATE_TO_LIFECYCLE.get(signal?.state) || null;
+}
+
+function evidenceSignalKind(signal, lifecycle) {
+  if (!Array.isArray(signal?.evidence)) return null;
+  const explicitKinds = signal.evidence.filter((entry) => entry && entry.kind === "signal_kind" && typeof entry.value === "string" && PRECISE_KINDS.has(entry.value));
+  const lifecycleMatch = explicitKinds.find((entry) => entry.lifecycle === lifecycle);
+  if (lifecycleMatch) return lifecycleMatch.value;
+  if (lifecycle === "echo") {
+    const readiness = signal.evidence.find((entry) => entry && entry.kind === "retailer_readiness" && ["queue", "security", "access_blocked"].includes(entry.state));
+    if (readiness) return readiness.state;
+  }
+  const unscoped = explicitKinds.find((entry) => !entry.lifecycle);
+  return unscoped?.value || null;
+}
+
+function signalKind(signal, lifecycle) {
+  if (typeof signal?.kind === "string" && PRECISE_KINDS.has(signal.kind)) return signal.kind;
+  const fromEvidence = evidenceSignalKind(signal, lifecycle);
+  if (fromEvidence) return fromEvidence;
+  if (["queue", "security", "access_blocked", "price_change", "launch_date_change"].includes(signal?.state)) return signal.state;
+
+  const reason = String(signal?.reason || "").toLowerCase();
+  if (lifecycle === "whisper") {
+    if (reason.includes("state changed")) return "catalogue_state_change";
+    if (reason.includes("activity observed") || reason.includes("catalogue product discovered")) return "catalogue_new";
+  }
+  if (lifecycle === "manifested") {
+    if (reason.includes("returned to verified availability")) return "restock";
+    if (reason.includes("new catalogue product")) return "new_listing_live";
+    if (reason.includes("availability became verified")) return "availability_live";
+  }
+  if (lifecycle === "vanished" && reason.includes("no longer verified available")) return "sold_out";
+  return "lifecycle_unspecified";
+}
+
+function signalIntensity({ lifecycle, kind, confidence }) {
+  if (lifecycle === "echo" && ["queue", "security"].includes(kind)) return "major";
+  if (lifecycle === "manifested" || lifecycle === "echo") return "standard";
+  if (Number(confidence || 0) >= 0.9) return "standard";
   return "subtle";
 }
 
 function snapshotSignal(signal) {
+  const lifecycle = lifecycleFor(signal);
+  if (!lifecycle) return null;
+  const kind = signalKind(signal, lifecycle);
   return {
     id: signal.id,
-    state: LIFECYCLE_STATES.has(signal.state) ? signal.state : "whisper",
-    kind: signal.state,
-    intensity: signalIntensity(signal),
+    state: lifecycle,
+    kind,
+    intensity: signalIntensity({ lifecycle, kind, confidence: signal.confidence }),
     confidence: signal.confidence ?? null,
     title: signal.title,
     retailer: signal.retailerName || signal.retailerId || null,
@@ -47,6 +109,7 @@ async function networkOpportunity(store, signal) {
     signal.offerId ? store.getOffer(signal.offerId) : null,
   ]);
   if (!product || !offer) return null;
+  const lifecycle = lifecycleFor(signal);
   return {
     retailer: {
       id: offer.retailerId,
@@ -80,7 +143,8 @@ async function networkOpportunity(store, signal) {
     },
     signal: {
       id: signal.id,
-      state: signal.state,
+      state: lifecycle || signal.state,
+      kind: lifecycle ? signalKind(signal, lifecycle) : null,
       detectedAt: signal.detectedAt,
       reason: signal.reason ?? null,
       confidence: signal.confidence ?? null,
@@ -102,11 +166,12 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
   ]);
 
   const relevantSignals = signals
-    .filter((signal) => ["whisper", "manifested", "vanished", "echo", "price_change", "launch_date_change", "queue", "security", "drop_pulse"].includes(signal.state))
-    .sort((a, b) => b.detectedAt - a.detectedAt)
+    .map((signal) => ({ source: signal, snapshot: snapshotSignal(signal) }))
+    .filter((entry) => entry.snapshot)
+    .sort((a, b) => b.snapshot.occurredAt - a.snapshot.occurredAt)
     .slice(0, 100);
-  const recentSignals = relevantSignals.map(snapshotSignal);
-  const opportunities = (await Promise.all(relevantSignals.map((signal) => networkOpportunity(store, signal).catch(() => null)))).filter(Boolean);
+  const recentSignals = relevantSignals.map((entry) => entry.snapshot);
+  const opportunities = (await Promise.all(relevantSignals.map((entry) => networkOpportunity(store, entry.source).catch(() => null)))).filter(Boolean);
   const rrpReferenceProducts = products.map(rrpReferenceProduct).filter(Boolean).slice(0, 2000);
 
   const healthyMonitors = retailers.filter((retailer) => retailer.healthy).length;

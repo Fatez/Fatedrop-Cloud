@@ -13,13 +13,26 @@ test("website publisher skips safely when not configured", async () => {
   assert.equal(result.reason, "not_configured");
 });
 
-test("website publisher sends current metrics and lifecycle signals", async () => {
+test("website publisher sends current metrics and precise lifecycle signal causes", async () => {
   process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
   process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
 
+  const now = Math.floor(Date.now() / 1000);
   const store = {
     stats: async () => ({ productsTracked: 937, currentlyAvailable: 200, signals24h: 4, whisper24h: 1, manifested24h: 1, vanished24h: 1, echo24h: 1 }),
-    listSignals: async () => [{ id: "sig-1", state: "echo", title: "Test ETB", retailerName: "Test Retailer", reason: "Stock returned", deliveredPricePence: 4999, detectedAt: Math.floor(Date.now() / 1000) }],
+    listSignals: async () => [{
+      id: "sig-1",
+      state: "echo",
+      title: "Test ETB",
+      retailerName: "Test Retailer",
+      reason: "Retailer queue / traffic-control state changed.",
+      deliveredPricePence: 4999,
+      detectedAt: now,
+      evidence: [
+        { kind: "signal_kind", value: "queue", lifecycle: "echo", observedAt: now },
+        { kind: "retailer_readiness", state: "queue", previousState: "normal", observedAt: now },
+      ],
+    }],
     listRetailers: async () => [{ id: "test", healthy: true }],
   };
 
@@ -37,7 +50,48 @@ test("website publisher sends current metrics and lifecycle signals", async () =
   assert.equal(body.metrics.productsTracked, 937);
   assert.equal(body.metrics.echo, 1);
   assert.equal(body.recentSignals[0].state, "echo");
+  assert.equal(body.recentSignals[0].kind, "queue");
+  assert.equal(body.recentSignals[0].intensity, "major");
   assert.equal(body.recentSignals[0].title, "Test ETB");
+});
+
+test("legacy queue and security states map to Echo without being mislabeled Whisper", async () => {
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const now = Math.floor(Date.now() / 1000);
+  const store = {
+    stats: async () => ({ whisper24h: 0, manifested24h: 0, vanished24h: 0, echo24h: 2 }),
+    listSignals: async () => [
+      { id: "queue-1", state: "queue", title: "Queue", retailerName: "A", reason: "Queue", detectedAt: now },
+      { id: "security-1", state: "security", title: "Security", retailerName: "A", reason: "Security", detectedAt: now - 1 },
+    ],
+    listRetailers: async () => [],
+  };
+  let body;
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ stored: true }), { status: 201 });
+  };
+  await publishWebsiteSnapshot({ store, fetchImpl });
+  assert.deepEqual(body.recentSignals.map((signal) => [signal.state, signal.kind]), [["echo", "queue"], ["echo", "security"]]);
+});
+
+test("supporting Drop Pulse context is not forced into the four-stage dashboard lifecycle", async () => {
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const now = Math.floor(Date.now() / 1000);
+  const store = {
+    stats: async () => ({}),
+    listSignals: async () => [{ id: "pulse-1", state: "drop_pulse", title: "Pulse", detectedAt: now, confidence: 0.9 }],
+    listRetailers: async () => [],
+  };
+  let body;
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ stored: true }), { status: 201 });
+  };
+  await publishWebsiteSnapshot({ store, fetchImpl });
+  assert.deepEqual(body.recentSignals, []);
 });
 
 test.after(() => {
