@@ -31,17 +31,22 @@ function lifecycleFor(signal) {
   return LEGACY_STATE_TO_LIFECYCLE.get(signal?.state) || null;
 }
 
-function evidenceSignalKind(signal) {
+function evidenceSignalKind(signal, lifecycle) {
   if (!Array.isArray(signal?.evidence)) return null;
-  const explicit = signal.evidence.find((entry) => entry && entry.kind === "signal_kind" && typeof entry.value === "string");
-  if (explicit && PRECISE_KINDS.has(explicit.value)) return explicit.value;
-  const readiness = signal.evidence.find((entry) => entry && entry.kind === "retailer_readiness" && ["queue", "security", "access_blocked"].includes(entry.state));
-  return readiness?.state || null;
+  const explicitKinds = signal.evidence.filter((entry) => entry && entry.kind === "signal_kind" && typeof entry.value === "string" && PRECISE_KINDS.has(entry.value));
+  const lifecycleMatch = explicitKinds.find((entry) => entry.lifecycle === lifecycle);
+  if (lifecycleMatch) return lifecycleMatch.value;
+  if (lifecycle === "echo") {
+    const readiness = signal.evidence.find((entry) => entry && entry.kind === "retailer_readiness" && ["queue", "security", "access_blocked"].includes(entry.state));
+    if (readiness) return readiness.state;
+  }
+  const unscoped = explicitKinds.find((entry) => !entry.lifecycle);
+  return unscoped?.value || null;
 }
 
 function signalKind(signal, lifecycle) {
   if (typeof signal?.kind === "string" && PRECISE_KINDS.has(signal.kind)) return signal.kind;
-  const fromEvidence = evidenceSignalKind(signal);
+  const fromEvidence = evidenceSignalKind(signal, lifecycle);
   if (fromEvidence) return fromEvidence;
   if (["queue", "security", "access_blocked", "price_change", "launch_date_change"].includes(signal?.state)) return signal.state;
 
