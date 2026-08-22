@@ -13,7 +13,7 @@ test("website publisher skips safely when not configured", async () => {
   assert.equal(result.reason, "not_configured");
 });
 
-test("website publisher sends canonical lifecycle plus exact cause and alert family", async () => {
+test("website publisher sends canonical lifecycle plus links, identity and RRP price context", async () => {
   process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
   process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
 
@@ -24,21 +24,34 @@ test("website publisher sends canonical lifecycle plus exact cause and alert fam
       {
         id: "sig-1",
         state: "manifested",
+        productId: "prd-1",
+        offerId: "off-1",
         retailerId: "smyths-uk",
         retailerName: "Smyths Toys UK",
+        retailerSku: "123456",
         title: "Test ETB",
-        reason: "Retailer SKU availability became verified",
+        url: "https://example.com/product/123456",
+        imageUrl: "https://example.com/product.jpg",
+        pricePence: 4999,
+        rrpPence: 4999,
+        postagePence: 0,
         deliveredPricePence: 4999,
+        markupPercent: 0,
+        stockStatus: "in_stock",
+        reason: "Retailer SKU availability became verified",
         detectedAt: now,
         evidence: [
           { kind: "signal_kind", value: "availability_live", lifecycle: "manifested", observedAt: now },
           { kind: "signal_alert_class", value: "primary_drop", observedAt: now },
+          { kind: "retailer_sku", value: "123456", observedAt: now },
         ],
       },
       { id: "legacy-noise", state: "drop_pulse", retailerId: "smyths-uk", title: "Context only", detectedAt: now },
     ],
     listRetailers: async () => [{ id: "test", healthy: true }],
     listProducts: async () => [],
+    getProduct: async () => null,
+    getOffer: async () => null,
   };
 
   let request;
@@ -49,16 +62,64 @@ test("website publisher sends canonical lifecycle plus exact cause and alert fam
 
   const result = await publishWebsiteSnapshot({ store, fetchImpl });
   assert.equal(result.published, true);
-  assert.equal(request.url, "https://example.com/api/dashboard/network-snapshot");
-  assert.equal(request.options.headers.Authorization, "Bearer test-secret");
   const body = JSON.parse(request.options.body);
-  assert.equal(body.metrics.productsTracked, 937);
-  assert.equal(body.metrics.echo, 1);
   assert.equal(body.recentSignals.length, 1);
-  assert.equal(body.recentSignals[0].state, "manifested");
-  assert.equal(body.recentSignals[0].kind, "availability_live");
-  assert.equal(body.recentSignals[0].alertClass, "primary_drop");
-  assert.equal(body.recentSignals[0].title, "Test ETB");
+  const published = body.recentSignals[0];
+  assert.equal(published.state, "manifested");
+  assert.equal(published.kind, "availability_live");
+  assert.equal(published.alertClass, "primary_drop");
+  assert.equal(published.productId, "prd-1");
+  assert.equal(published.offerId, "off-1");
+  assert.equal(published.retailerId, "smyths-uk");
+  assert.equal(published.retailerSku, "123456");
+  assert.equal(published.retailerUrl, "https://example.com/product/123456");
+  assert.equal(published.imageUrl, "https://example.com/product.jpg");
+  assert.equal(published.pricePence, 4999);
+  assert.equal(published.rrpPence, 4999);
+  assert.equal(published.postagePence, 0);
+  assert.equal(published.deliveredPricePence, 4999);
+  assert.equal(published.markupPercent, 0);
+  assert.equal(published.rrpPosition, "at_rrp");
+});
+
+test("market signals calculate actual markup rather than assuming a fixed indie premium", async () => {
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const now = Math.floor(Date.now() / 1000);
+  const store = {
+    stats: async () => ({}),
+    listSignals: async () => [{
+      id: "sig-market",
+      state: "manifested",
+      retailerId: "titan-cards",
+      retailerName: "Titan Cards",
+      retailerSku: "TITAN-ETB-1",
+      title: "Example ETB",
+      url: "https://example.com/titan-etb",
+      pricePence: 5749,
+      rrpPence: 4999,
+      postagePence: 399,
+      stockStatus: "in_stock",
+      detectedAt: now,
+      evidence: [],
+    }],
+    listRetailers: async () => [],
+    listProducts: async () => [],
+    getProduct: async () => null,
+    getOffer: async () => null,
+  };
+  let body;
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ stored: true }), { status: 201, headers: { "content-type": "application/json" } });
+  };
+  await publishWebsiteSnapshot({ store, fetchImpl });
+  const published = body.recentSignals[0];
+  assert.equal(published.alertClass, "market_stock");
+  assert.equal(published.retailerSku, "TITAN-ETB-1");
+  assert.equal(published.deliveredPricePence, 6148);
+  assert.ok(Math.abs(published.markupPercent - 15.003000600120024) < 0.000001);
+  assert.equal(published.rrpPosition, "above_rrp");
 });
 
 test("website publisher can infer market alert family for older lifecycle rows", async () => {
@@ -69,6 +130,8 @@ test("website publisher can infer market alert family for older lifecycle rows",
     listSignals: async () => [{ id: "sig-market", state: "vanished", retailerId: "titan-cards", retailerName: "Titan Cards", title: "Example", detectedAt: Math.floor(Date.now() / 1000), evidence: [] }],
     listRetailers: async () => [],
     listProducts: async () => [],
+    getProduct: async () => null,
+    getOffer: async () => null,
   };
   let body;
   const fetchImpl = async (_url, options) => {

@@ -46,8 +46,34 @@ function signalIntensity(signal) {
   return Number(signal.confidence || 0) >= 0.9 ? "standard" : "subtle";
 }
 
+function finiteOrNull(value) {
+  return Number.isFinite(value) ? Number(value) : null;
+}
+
+function pricingContext(signal) {
+  const pricePence = finiteOrNull(signal?.pricePence);
+  const rrpPence = finiteOrNull(signal?.rrpPence);
+  const postagePence = finiteOrNull(signal?.postagePence);
+  const deliveredPricePence = finiteOrNull(signal?.deliveredPricePence)
+    ?? (pricePence !== null && postagePence !== null ? pricePence + postagePence : null);
+  const markupPercent = finiteOrNull(signal?.markupPercent)
+    ?? (pricePence !== null && rrpPence !== null && rrpPence > 0 ? ((pricePence - rrpPence) / rrpPence) * 100 : null);
+
+  let rrpPosition = "unknown";
+  if (markupPercent !== null) {
+    if (Math.abs(markupPercent) <= 1) rrpPosition = "at_rrp";
+    else if (markupPercent < 0) rrpPosition = "below_rrp";
+    else rrpPosition = "above_rrp";
+  }
+
+  return { pricePence, rrpPence, postagePence, deliveredPricePence, markupPercent, rrpPosition };
+}
+
 function snapshotSignal(signal) {
   if (!LIFECYCLE_STATES.has(signal?.state)) return null;
+  const pricing = pricingContext(signal);
+  const retailerSku = signal?.retailerSku || evidenceValue(signal, "retailer_sku") || null;
+  const retailerUrl = signal?.url || signal?.target?.productUrl || null;
   return {
     id: signal.id,
     state: signal.state,
@@ -55,10 +81,22 @@ function snapshotSignal(signal) {
     alertClass: alertClass(signal),
     intensity: signalIntensity(signal),
     confidence: signal.confidence ?? null,
+    productId: signal.productId ?? signal.target?.productId ?? null,
+    offerId: signal.offerId ?? signal.target?.offerId ?? null,
+    retailerId: signal.retailerId ?? signal.target?.retailerId ?? null,
+    retailerSku,
     title: signal.title,
     retailer: signal.retailerName || signal.retailerId || null,
     detail: signal.reason || null,
-    deliveredPricePence: signal.deliveredPricePence ?? signal.pricePence ?? null,
+    retailerUrl,
+    imageUrl: signal.imageUrl ?? null,
+    stockStatus: signal.stockStatus ?? null,
+    pricePence: pricing.pricePence,
+    rrpPence: pricing.rrpPence,
+    postagePence: pricing.postagePence,
+    deliveredPricePence: pricing.deliveredPricePence,
+    markupPercent: pricing.markupPercent,
+    rrpPosition: pricing.rrpPosition,
     occurredAt: signal.detectedAt,
   };
 }
@@ -83,6 +121,12 @@ async function networkOpportunity(store, signal) {
     signal.offerId ? store.getOffer(signal.offerId) : null,
   ]);
   if (!product || !offer || !LIFECYCLE_STATES.has(signal?.state)) return null;
+  const context = pricingContext({
+    ...signal,
+    pricePence: signal.pricePence ?? offer.pricePence,
+    rrpPence: signal.rrpPence ?? product.officialRrpPence,
+    postagePence: signal.postagePence ?? offer.postagePence,
+  });
   return {
     retailer: {
       id: offer.retailerId,
@@ -109,6 +153,10 @@ async function networkOpportunity(store, signal) {
       imageUrl: offer.imageUrl,
       pricePence: offer.pricePence,
       postagePence: offer.postagePence,
+      deliveredPricePence: context.deliveredPricePence,
+      officialRrpPence: context.rrpPence,
+      markupPercent: context.markupPercent,
+      rrpPosition: context.rrpPosition,
       stockStatus: offer.stockStatus,
       stockQuantity: offer.stockQuantity,
       firstSeenAt: offer.firstSeenAt,
@@ -122,6 +170,8 @@ async function networkOpportunity(store, signal) {
       detectedAt: signal.detectedAt,
       reason: signal.reason ?? null,
       confidence: signal.confidence ?? null,
+      retailerSku: signal.retailerSku || evidenceValue(signal, "retailer_sku") || offer.retailerSku || null,
+      retailerUrl: signal.url || offer.url || null,
       evidence: signal.evidence ?? [],
     },
   };
