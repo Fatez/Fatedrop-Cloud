@@ -85,6 +85,13 @@ function dedupeCanonicalProducts(products) {
   return [...byId.values()];
 }
 
+function shouldPersistObservation(previousOffer, currentOffer) {
+  if (!previousOffer) return true;
+  return previousOffer.stockStatus !== currentOffer.stockStatus
+    || previousOffer.pricePence !== currentOffer.pricePence
+    || previousOffer.stockQuantity !== currentOffer.stockQuantity;
+}
+
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
@@ -154,7 +161,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
     products.push(product);
     offers.push(offer);
-    observations.push(observation);
+    if (shouldPersistObservation(previousOffer, offer)) observations.push(observation);
     if (signal) signals.push(signal);
   }
 
