@@ -57,10 +57,10 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     previousStockStatus: whisper.stockStatus ?? null,
     reason: reasonFor(state),
     evidence: [
-      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
       { kind: "signal_kind", value: state, lifecycle: "echo", observedAt },
       { kind: "retailer_readiness", state, previousState, observedAt },
       ...(Array.isArray(evidence) ? evidence : []),
+      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
     ],
     target: {
       type: "product",
