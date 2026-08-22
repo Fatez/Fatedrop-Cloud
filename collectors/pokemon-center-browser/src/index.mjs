@@ -1,7 +1,7 @@
 import process from "node:process";
 import { chromium } from "playwright-core";
 import { mapPokemonCenterDoc } from "./map.mjs";
-import { BrowserState, browserStateLabel, classifyBrowserState, remainingCycleDelay } from "./runtime.mjs";
+import { BrowserState, browserStateLabel, classifyBrowserState, nextCollectorFailureState, remainingCycleDelay } from "./runtime.mjs";
 
 try {
   process.loadEnvFile();
@@ -25,6 +25,7 @@ const networkStateUrl = process.env.FATEDROP_NETWORK_STATE_URL || (() => {
 const responseTimeoutMs = Math.max(5_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESPONSE_TIMEOUT_MS || "30000", 10));
 const settleMs = Math.max(0, Number.parseInt(process.env.FATEDROP_COLLECTOR_SETTLE_MS || "1500", 10));
 const minimumCycleMs = Math.max(10_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_CYCLE_MS || "60000", 10));
+const recycleAfterFailures = Math.max(2, Math.min(10, Number.parseInt(process.env.FATEDROP_COLLECTOR_RECYCLE_AFTER_FAILURES || "3", 10) || 3));
 
 let stopping = false;
 let lastBrowserState = null;
@@ -71,7 +72,6 @@ async function reportNetworkState({ state, previousState, page }) {
     const result = parsed?.result || {};
     console.log(`📣 Echo readiness forwarded · state=${state} · product contexts=${result.productContexts ?? 0} · Discord sent=${result.discord?.sent ?? 0}`);
   } catch (error) {
-    // Readiness delivery must never make the collector bypass controls or corrupt the catalogue cycle.
     console.error(`⚠️  Could not forward readiness evidence to FateDrop Cloud: ${error?.message || error}`);
   }
 }
@@ -281,6 +281,7 @@ function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 async function runCycle(page, cycleNumber) {
   const startedAtMs = Date.now();
+  let outcome = { ok: true, browserState: BrowserState.NORMAL };
   console.log(`\n🔄 FateDrop Pokémon Center rotation ${cycleNumber} started ${new Date(startedAtMs).toISOString()}`);
   try {
     await page.bringToFront();
@@ -290,13 +291,15 @@ async function runCycle(page, cycleNumber) {
     const signalResult = result?.result || {}, website = result?.website || {};
     console.log(`✅ Rotation ${cycleNumber} ingested · signals=${signalResult.signalsCreated ?? "?"} · Discord sent=${signalResult.discord?.sent ?? "?"} · website=${website.published ? "published" : website.reason || "?"}`);
   } catch (error) {
-    await noteBrowserState(page).catch(() => null);
+    const browserState = await noteBrowserState(page).catch(() => BrowserState.UNEXPECTED);
+    outcome = { ok: false, browserState };
     console.error(`❌ Rotation ${cycleNumber} rejected: ${error?.message || error}`);
     console.error("🛡️  Last verified cloud catalogue remains untouched by this failed rotation.");
   }
   const waitMs = remainingCycleDelay({ startedAtMs, minimumCycleMs });
   if (waitMs > 0 && !stopping) { console.log(`⏱️  Next rotation in ${Math.ceil(waitMs / 1000)}s`); await sleep(waitMs); }
   else if (!stopping) console.log("⚡ Full walk exceeded the minimum cycle time; restarting immediately.");
+  return outcome;
 }
 
 async function run() {
@@ -304,6 +307,7 @@ async function run() {
   console.log("🔥 FateDrop Pokémon Center continuous browser collector");
   console.log(`🔌 Chrome CDP: ${chromeCdpUrl}`);
   console.log(`⏱️  Minimum rotation interval: ${Math.round(minimumCycleMs / 1000)}s`);
+  console.log(`♻️  Collector recycle threshold: ${recycleAfterFailures} consecutive normal-state failures`);
   console.log(`📣 Echo readiness endpoint: ${networkStateUrl}`);
   await preflightIngestAuth();
   const browser = await chromium.connectOverCDP(chromeCdpUrl);
@@ -312,7 +316,20 @@ async function run() {
   let page = context.pages().find((candidate) => candidate.url().includes("pokemoncenter.com"));
   if (!page) page = await context.newPage();
   let cycleNumber = 0;
-  while (!stopping) { cycleNumber += 1; await runCycle(page, cycleNumber); }
+  let consecutiveFailures = 0;
+  while (!stopping) {
+    cycleNumber += 1;
+    const outcome = await runCycle(page, cycleNumber);
+    if (outcome.ok) {
+      consecutiveFailures = 0;
+      continue;
+    }
+    const failureState = nextCollectorFailureState({ consecutiveFailures, browserState: outcome.browserState, maxFailures: recycleAfterFailures });
+    consecutiveFailures = failureState.consecutiveFailures;
+    if (failureState.recycle) {
+      throw new Error(`Collector rejected ${consecutiveFailures} consecutive rotations during normal browser access; recycling the child process so the supervisor can reconnect cleanly.`);
+    }
+  }
   console.log("👋 FateDrop collector stopped. Chrome session left open.");
 }
 
