@@ -17,11 +17,11 @@ let cachedHealth = {
 };
 
 async function safeJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
+  try { return await response.json(); } catch { return {}; }
+}
+
+function normalizedIdentity(value = "") {
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function failure(state, reason, extra = {}) {
@@ -44,8 +44,8 @@ export async function probeDiscordRoute(state, {
 } = {}) {
   if (!STATES.includes(state)) return failure(state, "unsupported_state");
 
-  // Route health deliberately requires the dedicated lifecycle identity even though
-  // ordinary delivery retains the legacy generic-token fallback during migration.
+  // Health deliberately requires the dedicated lifecycle identity even though
+  // ordinary delivery still retains the generic-token fallback during migration.
   const botToken = botTokens?.[state] || "";
   if (!botToken) return failure(state, "missing_dedicated_bot_token");
 
@@ -60,13 +60,19 @@ export async function probeDiscordRoute(state, {
     const meResponse = await fetchImpl(`${DISCORD_API}/users/@me`, { headers });
     if (!meResponse.ok) return failure(state, "bot_auth_failed", { configured: true, checkedAt, httpStatus: meResponse.status });
     const bot = await safeJson(meResponse);
+    const botUsername = String(bot.username || bot.global_name || "").trim() || null;
+    const expected = normalizedIdentity(companionForSignal(state));
+    const actual = normalizedIdentity(botUsername || "");
+    if (!actual || !actual.includes(expected)) {
+      return failure(state, "bot_identity_mismatch", { configured: true, checkedAt, botUsername });
+    }
 
     const channelResponse = await fetchImpl(`${DISCORD_API}/channels/${channelId}`, { headers });
-    if (!channelResponse.ok) return failure(state, "channel_unreachable", { configured: true, checkedAt, httpStatus: channelResponse.status, botUsername: bot.username || null });
+    if (!channelResponse.ok) return failure(state, "channel_unreachable", { configured: true, checkedAt, httpStatus: channelResponse.status, botUsername });
     const channel = await safeJson(channelResponse);
 
-    // Discord's typing endpoint requires the bot to be able to interact with the
-    // target channel but leaves no persistent message or fake FateDrop signal.
+    // Discord's typing endpoint proves the bot can interact with the target
+    // channel but leaves no persistent message and creates no FateDrop signal.
     const typingResponse = await fetchImpl(`${DISCORD_API}/channels/${channelId}/typing`, {
       method: "POST",
       headers,
@@ -76,7 +82,7 @@ export async function probeDiscordRoute(state, {
         configured: true,
         checkedAt,
         httpStatus: typingResponse.status,
-        botUsername: bot.username || null,
+        botUsername,
         channelName: channel.name || null,
       });
     }
@@ -88,7 +94,7 @@ export async function probeDiscordRoute(state, {
       healthy: true,
       reason: null,
       checkedAt,
-      botUsername: bot.username || null,
+      botUsername,
       channelName: channel.name || null,
     };
   } catch {
@@ -107,8 +113,5 @@ export async function refreshDiscordRouteHealth(options = {}) {
   return cachedHealth;
 }
 
-export function getDiscordRouteHealth() {
-  return cachedHealth;
-}
-
+export function getDiscordRouteHealth() { return cachedHealth; }
 export { STATES as DISCORD_ROUTE_HEALTH_STATES };
