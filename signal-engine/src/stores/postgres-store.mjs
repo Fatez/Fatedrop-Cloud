@@ -79,7 +79,7 @@ export class PostgresStore {
     const safe = Math.min(5000, Math.max(1, limit));
     const { rows } = rrpSource
       ? await pool.query("SELECT * FROM fatedrop_products WHERE rrp_source=$1 ORDER BY updated_at DESC LIMIT $2", [rrpSource, safe])
-      : await pool.query("SELECT * FROM fatedrop_products ORDER BY updated_at DESC LIMIT $1", [safe]);
+      : await pool.query("SELECT * FROM fatedrop_products ORDER BY (official_rrp_pence IS NOT NULL AND rrp_source IS NOT NULL) DESC, updated_at DESC LIMIT $1", [safe]);
     return rows.map(dbProduct);
   }
   async isBaselineComplete(retailerId) {
