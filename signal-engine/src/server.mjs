@@ -9,6 +9,7 @@ import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
 import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness } from "./telemetry/beta-runtime-readiness.mjs";
 import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
+import { buildFateFindEvaluatorPreflight } from "./telemetry/fatefind-evaluator-preflight.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -41,6 +42,16 @@ server.on("request", async (req, res) => {
         "access-control-allow-origin": "*",
       });
       res.end(JSON.stringify(getBetaRuntimeReadiness()));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/fatefind-evaluator-preflight") {
+      const summary = await buildFateFindEvaluatorPreflight(store);
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(summary));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/signal-health") {
