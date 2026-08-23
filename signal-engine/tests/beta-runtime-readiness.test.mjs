@@ -34,7 +34,7 @@ function mockStore({ readinessRow = {}, notificationRow = {}, snapshots = [] } =
   };
 }
 
-test("beta readiness treats the web inbox as the guaranteed FateMatch baseline", async () => {
+test("web inbox can be infrastructure-ready while an eligible hosted hunt remains inactive behind the feature flag", async () => {
   const store = mockStore({
     readinessRow: {
       enabled_finds: 1,
@@ -47,7 +47,8 @@ test("beta readiness treats the web inbox as the guaranteed FateMatch baseline",
     notificationRow: { total: 0, sent: 0, suppressed: 0, pending: 0, failed: 0, sending: 0, overdue: 0, stuck_sending: 0 },
   });
   const result = await refreshBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, now: 1_787_525_000 });
-  assert.equal(result.ready, true);
+  assert.equal(result.infrastructureReady, true);
+  assert.equal(result.ready, false);
   assert.equal(result.hostedFateFind.enabled, false);
   assert.equal(result.hostedFateFind.configured, true);
   assert.equal(result.hostedFateFind.eligibleFinds, 1);
@@ -57,10 +58,19 @@ test("beta readiness treats the web inbox as the guaranteed FateMatch baseline",
   assert.equal(result.hostedFateFind.notificationReadiness.ready, true);
 });
 
+test("beta readiness becomes green when hosted evaluation is active and the guaranteed web path is ready", () => {
+  const result = summarizeBetaRuntimeReadiness({
+    discord: healthyDiscord,
+    hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
+  });
+  assert.equal(result.infrastructureReady, true);
+  assert.equal(result.ready, true);
+});
+
 test("beta readiness fails when an eligible hunt has no web inbox delivery path", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
-    hostedFateFind: { configured: true, eligibleFinds: 2, webReadyFinds: 1, notificationReadiness: { ready: true } },
+    hostedFateFind: { enabled: true, configured: true, eligibleFinds: 2, webReadyFinds: 1, notificationReadiness: { ready: true } },
     checkedAt: "2026-08-23T23:00:00.000Z",
   });
   assert.equal(result.ready, false);
@@ -69,7 +79,7 @@ test("beta readiness fails when an eligible hunt has no web inbox delivery path"
 test("beta readiness fails on overdue or stuck FateMatch notification delivery", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
-    hostedFateFind: { configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: false, overdue: 1 } },
+    hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: false, overdue: 1 } },
   });
   assert.equal(result.ready, false);
 });
