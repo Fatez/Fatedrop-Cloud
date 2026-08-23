@@ -34,9 +34,13 @@ function isProductSitemap(url) {
   return /xmlsitemap\.php\?.*\btype=products\b/i.test(url) || /(?:^|[-_/])products?(?:[-_.]|$)/i.test(new URL(url).pathname);
 }
 
-function qualifiesProductUrl(url, retailer) {
+export function qualifiesProductUrl(url, retailer) {
   if (!retailer.productUrlPattern.test(url)) return false;
   const haystack = url.replaceAll("-", " ");
+  const urlInclude = retailer.catalogue?.urlInclude;
+  const urlExclude = retailer.catalogue?.urlExclude;
+  if (urlInclude && !urlInclude.test(haystack)) return false;
+  if (urlExclude && urlExclude.test(haystack)) return false;
   if (retailer.include && !retailer.include.test(haystack)) return false;
   if (retailer.exclude && retailer.exclude.test(haystack)) return false;
   return true;
@@ -52,13 +56,7 @@ export async function scanBigCommerceSitemapCatalogue(retailer) {
   const sitemapUrl = retailer.catalogue?.sitemapUrl;
   if (!sitemapUrl) throw new Error("BigCommerce sitemap adapter requires catalogue.sitemapUrl");
 
-  const configuredMaxProductPages = retailer.catalogue?.runtime?.maxProductPages ?? 800;
-  // Magic Madhouse's legitimate sealed-Pokémon sitemap has grown beyond the
-  // original 800-page launch guard. Keep a bounded hard limit rather than
-  // disabling the guard or silently truncating the catalogue.
-  const maxProductPages = retailer.id === "magic-madhouse" && configuredMaxProductPages === 800
-    ? 1200
-    : configuredMaxProductPages;
+  const maxProductPages = retailer.catalogue?.runtime?.maxProductPages ?? 800;
   const pages = [];
   const root = await fetchText(sitemapUrl, "application/xml,text/xml;q=0.9,*/*;q=0.8");
   pages.push({ pageUrl: sitemapUrl, discovered: 0, status: root.status });

@@ -23,7 +23,7 @@ async function parseDirectFallback({ retailer, urls, pages, found }) {
   for (let offset = 0; offset < urls.length; offset += concurrency) {
     const batch = urls.slice(offset, offset + concurrency);
     const results = await Promise.all(batch.map(async (pageUrl) => {
-      const response = await fetchCataloguePage(pageUrl);
+      const response = await fetchCataloguePage(pageUrl, retailer.fetchTimeoutMs);
       const product = extractDirectProductPage({ html: response.html, pageUrl, retailer });
       const accepted = product && (!retailer.include || retailer.include.test(`${product.title} ${product.url}`)) && (!retailer.exclude || !retailer.exclude.test(`${product.title} ${product.url}`));
       return { pageUrl, status: response.status, product: accepted ? product : null };
@@ -52,7 +52,7 @@ export async function scanRetailerCatalogue(retailer) {
     let lastFallbackSize = -1;
     for (let page = 1; page <= retailer.maxPages; page += 1) {
       const pageUrl = withPage(rootUrl, retailer.pageParam, page);
-      const response = await fetchCataloguePage(pageUrl);
+      const response = await fetchCataloguePage(pageUrl, retailer.fetchTimeoutMs);
       const products = extractCatalogueProducts({ html: response.html, pageUrl, retailer })
         .filter((item) => !retailer.include || retailer.include.test(`${item.title} ${item.url}`))
         .filter((item) => !retailer.exclude || !retailer.exclude.test(`${item.title} ${item.url}`));
@@ -79,7 +79,7 @@ export async function scanRetailerCatalogue(retailer) {
 
   let probeProductsSeen = 0;
   for (const pageUrl of productProbeUrlsForRetailer(retailer)) {
-    const response = await fetchCataloguePage(pageUrl);
+    const response = await fetchCataloguePage(pageUrl, retailer.fetchTimeoutMs);
     const product = extractDirectProductPage({ html: response.html, pageUrl, retailer });
     const accepted = product && (!retailer.include || retailer.include.test(`${product.title} ${product.url}`)) && (!retailer.exclude || !retailer.exclude.test(`${product.title} ${product.url}`));
     if (accepted) {

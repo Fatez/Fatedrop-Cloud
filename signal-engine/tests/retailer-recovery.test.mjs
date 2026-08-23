@@ -51,9 +51,9 @@ test("generic catalogue can recover from card-markup changes through bounded dir
   }
 });
 
-test("Magic Madhouse keeps a bounded safety guard while allowing the observed catalogue growth", async () => {
+test("BigCommerce recovery keeps a bounded retailer-configured safety guard", async () => {
   const source = await readFile(new URL("../src/adapters/bigcommerce-sitemap-adapter.mjs", import.meta.url), "utf8");
-  assert.match(source, /configuredMaxProductPages === 800/);
-  assert.match(source, /\? 1200/);
+  assert.match(source, /retailer\.catalogue\?\.runtime\?\.maxProductPages \?\? 800/);
   assert.match(source, /assertWithinSafetyCap/);
+  assert.doesNotMatch(source, /configuredMaxProductPages === 800/);
 });

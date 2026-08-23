@@ -61,7 +61,7 @@ export const retailers = [
     rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
     enabled: env.retailers.smythsUk,
     baseUrl: "https://www.smythstoys.com/uk/en-gb/",
-    catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon/pokemon-trading-card-game/c/SM0601011202"],
+    catalogueUrls: ["https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon-toys/pokemon-trading-card-game-tcg/c/SM0601011202"],
     productUrlPattern: /smythstoys\.com\/uk\/en-gb\/.*\/p\/\d+/i,
     skuPattern: /\/p\/(\d+)/i,
     pageParam: "page",
@@ -202,6 +202,7 @@ export const retailers = [
     pageParam: "dcp",
     maxPages: 8,
     delayMs: 2200,
+    fetchTimeoutMs: 30_000,
     officialRrpSource: false,
     include: /pokemon/i,
     exclude: /playmat|deck box|sleeve|binder|accessor/i,
@@ -241,8 +242,9 @@ export const retailers = [
     catalogueUrls: ["https://magicmadhouse.co.uk/pokemon/pokemon-sealed-product"],
     catalogue: {
       sitemapUrl: "https://magicmadhouse.co.uk/xmlsitemap.php",
+      urlInclude: SEALED_PRODUCT,
       runtime: {
-        maxProductPages: 800,
+        maxProductPages: 1200,
         productConcurrency: 4,
         productBatchDelayMs: 500,
       },
