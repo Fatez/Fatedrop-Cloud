@@ -13,10 +13,11 @@ const store = {
     return [
       { id:"bundle-10", title:"Destined Rivals - 10 Pack Bundle — Sealed", productType:"other", tcg:"pokemon", officialRrpPence:null, rrpSource:null, rrpObservedAt:null },
       { id:"bundle-4", title:"Destined Rivals - 4 Pack Bundle — Sealed", productType:"other", tcg:"pokemon", officialRrpPence:null, rrpSource:null, rrpObservedAt:null },
-      { id:"official-pack", title:"Pokémon TCG: Scarlet & Violet-Destined Rivals Sleeved Booster Pack (10 Cards)", productType:"booster_pack", tcg:"pokemon", officialRrpPence:499, rrpSource:"pokemon-center-uk", rrpObservedAt:1_780_000_000 },
+      { id:"official-loose-pack", title:"Pokémon TCG: Scarlet & Violet 10 - Destined Rivals Booster Pack", productType:"booster_pack", tcg:"pokemon", officialRrpPence:429, rrpSource:"asmodee-uk", rrpObservedAt:1_780_000_000 },
+      { id:"official-sleeved-pack", title:"Pokémon TCG: Scarlet & Violet 10 - Destined Rivals Sleeved Booster Pack (10 Cards)", productType:"booster_pack", tcg:"pokemon", officialRrpPence:499, rrpSource:"pokemon-center-uk", rrpObservedAt:1_780_000_050 },
     ];
   },
-  async stats() { return { productsTracked:3, offersTracked:2, currentlyAvailable:2 }; },
+  async stats() { return { productsTracked:4, offersTracked:2, currentlyAvailable:2 }; },
   async listRetailers() { return []; },
   async listSignals() { return []; },
   async listNetworkSnapshots() { return []; },
@@ -33,28 +34,32 @@ async function withServer(fn) {
   }
 }
 
-test("catalogue exposes safe component RRP references and unit counts for retailer multipacks", async () => withServer(async (base) => {
+test("catalogue exposes safe loose-pack component RRP references and unit counts for retailer multipacks", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/catalogue?q=destined&inStock=true`);
   const data = await response.json();
   assert.equal(data.success, true);
   const ten = data.products.find((offer) => offer.id === "card-collective:10");
   const four = data.products.find((offer) => offer.id === "card-collective:4");
-  assert.equal(ten.rrpGbp, 49.9);
+  assert.equal(ten.rrpGbp, 42.9);
   assert.equal(ten.rrpKind, "component_reference");
   assert.equal(ten.unitCount, 10);
-  assert.equal(ten.unitRrpGbp, 4.99);
-  assert.equal(four.rrpGbp, 19.96);
+  assert.equal(ten.unitRrpGbp, 4.29);
+  assert.match(ten.rrpSource, /asmodee-uk/);
+  assert.equal(four.rrpGbp, 17.16);
   assert.equal(four.unitCount, 4);
+  assert.equal(four.unitRrpGbp, 4.29);
 }));
 
-test("True Price keeps 4-pack and 10-pack as separate products while normalising both to verified pack value", async () => withServer(async (base) => {
+test("True Price keeps 4-pack and 10-pack separate while normalising both to verified loose-pack value", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/true-price?q=destined`);
   const data = await response.json();
   assert.equal(data.groups.length, 2);
   const ten = data.groups.find((group) => group.id === "bundle-10");
   const four = data.groups.find((group) => group.id === "bundle-4");
-  assert.equal(ten.rrpGbp, 49.9);
+  assert.equal(ten.rrpGbp, 42.9);
+  assert.equal(ten.unitRrpGbp, 4.29);
   assert.equal(ten.rrpReferenceBasis, "10 × verified booster-pack RRP");
-  assert.equal(four.rrpGbp, 19.96);
+  assert.equal(four.rrpGbp, 17.16);
+  assert.equal(four.unitRrpGbp, 4.29);
   assert.equal(four.rrpReferenceBasis, "4 × verified booster-pack RRP");
 }));
