@@ -7,7 +7,7 @@ It does not scrape rendered HTML and it does not bypass retailer access controls
 ## Requirements
 
 - Node.js 20+
-- Chrome started with remote debugging enabled on port 9222
+- Google Chrome
 - A working Pokémon Center UK browser session
 - `FATEDROP_SIGNAL_INGEST_URL`
 - `FATEDROP_SIGNAL_INGEST_SECRET`
@@ -23,7 +23,43 @@ cp .env.example .env
 
 Fill in the Signal Engine ingest URL and secret in `.env`.
 
-Start Chrome with a dedicated FateDrop profile and remote debugging enabled, then leave a Pokémon Center tab available. Example on Windows:
+### Recommended Windows host setup
+
+From `collectors/pokemon-center-browser`, start the dedicated FateDrop Chrome profile and collector supervisor with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-windows.ps1
+```
+
+The launcher checks the local Chrome CDP endpoint first. If the dedicated FateDrop Chrome session is not already running, it starts normal Google Chrome on port `9222` with a dedicated profile under `%LOCALAPPDATA%\FateDrop\PokemonCenterChrome`, opens the Pokémon Center UK TCG catalogue, waits for the real browser endpoint, and then starts the existing collector supervisor.
+
+On the first run, complete any normal Pokémon Center session/cookie prompts in that dedicated Chrome window. FateDrop does not automate or bypass queue, security, access-control or retailer challenge pages.
+
+Once the dedicated profile works normally, install the signed-in-user startup task with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-windows-startup.ps1 -StartNow
+```
+
+The scheduled task:
+
+- starts at Windows user logon;
+- runs with normal user privileges, not elevated administrator privileges;
+- restarts the launcher if it exits unexpectedly;
+- prevents duplicate launcher instances;
+- keeps ingest credentials in the local `.env` rather than embedding them in Task Scheduler.
+
+The browser collector still requires a real interactive Windows session. If the host PC is powered off or the user is fully logged out, Pokémon Center monitoring is unavailable until that host session returns. FateDrop reports the source stale rather than pretending the browser collector is live.
+
+To remove the automatic startup task later:
+
+```powershell
+Unregister-ScheduledTask -TaskName "FateDrop Pokemon Center Collector" -Confirm:$false
+```
+
+### Manual Chrome setup
+
+If you prefer to manage Chrome yourself, start Chrome with a dedicated FateDrop profile and remote debugging enabled, then leave a Pokémon Center tab available. Example on Windows:
 
 ```text
 chrome.exe --remote-debugging-port=9222 --user-data-dir="%LOCALAPPDATA%\FateDropChrome"
@@ -35,7 +71,7 @@ Then run the normal long-running collector command:
 npm start
 ```
 
-`npm start` uses the supervisor. The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally. Keep the supervisor itself under the host's normal process/session supervision if 24/7 operation is required.
+`npm start` uses the supervisor. The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally.
 
 For a one-off direct/debug run without the supervisor:
 
