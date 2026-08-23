@@ -1,7 +1,7 @@
 import process from "node:process";
 import { chromium } from "playwright-core";
 import { mapPokemonCenterDoc } from "./map.mjs";
-import { BrowserState, browserStateLabel, classifyBrowserState, nextCollectorFailureState, remainingCycleDelay } from "./runtime.mjs";
+import { BrowserState, browserStateLabel, classifyBrowserState, nextCollectorFailureState, readinessReportTransition, remainingCycleDelay } from "./runtime.mjs";
 
 try {
   process.loadEnvFile();
@@ -168,14 +168,16 @@ async function noteBrowserState(page, forcedState = null) {
   if (state !== lastBrowserState) {
     const previous = lastBrowserState;
     lastBrowserState = state;
+    const readinessTransition = readinessReportTransition({ previousState: previous, state });
     if (previous == null) {
       console.log(`🛰️  Browser state: ${browserStateLabel(state)}`);
     } else {
       console.log(`🚨 Browser state changed: ${browserStateLabel(previous)} → ${browserStateLabel(state)}`);
-      if (state !== BrowserState.NORMAL) {
-        console.log("⚠️  One-time retailer readiness change detected. FateDrop will alert; it will not attempt to defeat or bypass the retailer control.");
-        await reportNetworkState({ state, previousState: previous, page });
-      }
+    }
+    if (readinessTransition.report) {
+      const initial = previous == null ? "Initial retailer readiness condition detected" : "One-time retailer readiness change detected";
+      console.log(`⚠️  ${initial}. FateDrop will alert; it will not attempt to defeat or bypass the retailer control.`);
+      await reportNetworkState({ state, previousState: readinessTransition.previousState, page });
     }
   }
   return state;
