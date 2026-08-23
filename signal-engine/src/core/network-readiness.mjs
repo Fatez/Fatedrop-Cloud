@@ -4,7 +4,8 @@ import { stableId } from "./normalize.mjs";
 import { isPrimaryDropRetailer, signalCapabilities } from "./signal-policy.mjs";
 
 const ECHO_STATES = new Set(["queue", "security", "access_blocked"]);
-const LOOKBACK_SECONDS = 6 * 60 * 60;
+const CONTEXT_LOOKBACK_SECONDS = 7 * 24 * 60 * 60;
+const CONTEXT_STATES = ["whisper", "manifested", "vanished"];
 
 function confidenceFor(state) {
   if (state === "queue") return 0.95;
@@ -13,9 +14,9 @@ function confidenceFor(state) {
 }
 
 function reasonFor(state) {
-  if (state === "queue") return "Retailer queue / traffic-control state changed. Get ready; confirmed stock is not claimed yet.";
-  if (state === "security") return "Retailer security / challenge behaviour changed. Get ready; confirmed stock is not claimed yet.";
-  return "Retailer access-control behaviour changed. Treat as readiness intelligence only; confirmed stock is not claimed.";
+  if (state === "queue") return "Retailer queue / traffic-control state changed. Get ready; attached product context is recent retailer activity only and confirmed stock is not claimed yet.";
+  if (state === "security") return "Retailer security / challenge behaviour changed. Get ready; attached product context is recent retailer activity only and confirmed stock is not claimed yet.";
+  return "Retailer access-control behaviour changed. Attached product context is recent retailer activity only; treat this as readiness intelligence, not confirmed stock.";
 }
 
 async function appendSignals(store, signals) {
@@ -34,47 +35,60 @@ async function appendSignals(store, signals) {
   throw new Error("Store cannot append readiness signals");
 }
 
+function distinctProductContexts(signals) {
+  const byProduct = new Map();
+  for (const signal of signals || []) {
+    if (!signal?.productId || !signal?.offerId || byProduct.has(signal.productId)) continue;
+    byProduct.set(signal.productId, signal);
+  }
+  return [...byProduct.values()].slice(0, 10);
+}
+
 export async function recordRetailerReadiness({ retailer, store, state, previousState = null, observedAt = Math.floor(Date.now() / 1000), evidence = [] }) {
   if (!ECHO_STATES.has(state)) return { accepted: false, reason: "not_echo_state", signals: [], discord: { sent: 0, skipped: 0, failed: 0, errors: [] } };
   if (!isPrimaryDropRetailer(retailer?.id)) {
     return { accepted: true, reason: "market_retailer_readiness_suppressed", readinessState: state, previousState, productContexts: 0, signals: [], discord: { sent: 0, skipped: 0, failed: 0, errors: [] } };
   }
 
-  // Echo is readiness intelligence, not stock. It is emitted only for a Primary/RRP
-  // drop sentinel and only when a recent Whisper provides real product context.
-  const recentWhispers = await store.listSignals({ states: ["whisper"], retailerIds: [retailer.id], since: Math.max(0, observedAt - LOOKBACK_SECONDS), limit: 50 });
-  const byProduct = new Map();
-  for (const whisper of recentWhispers) {
-    if (!whisper.productId || !whisper.offerId || byProduct.has(whisper.productId)) continue;
-    byProduct.set(whisper.productId, whisper);
-  }
+  // Echo describes retailer readiness rather than stock. The persisted signal schema still
+  // requires a real product/offer context, so use recent evidence from the same retailer
+  // rather than requiring a Whisper in the preceding six hours. Context never upgrades
+  // the readiness event into a stock claim.
+  const recentContextSignals = await store.listSignals({
+    states: CONTEXT_STATES,
+    retailerIds: [retailer.id],
+    since: Math.max(0, observedAt - CONTEXT_LOOKBACK_SECONDS),
+    limit: 250,
+  });
+  const contexts = distinctProductContexts(recentContextSignals);
 
   const policy = signalCapabilities(retailer.id);
-  const signals = [...byProduct.values()].slice(0, 10).map((whisper) => ({
-    ...whisper,
-    id: stableId("sig", whisper.offerId, "echo", state, String(observedAt)),
+  const signals = contexts.map((context) => ({
+    ...context,
+    id: stableId("sig", context.offerId, "echo", state, String(observedAt)),
     state: "echo",
     kind: state,
     alertClass: policy.alertClass,
     signalCapabilities: policy,
     confidence: confidenceFor(state),
     detectedAt: observedAt,
-    previousStockStatus: whisper.stockStatus ?? null,
+    previousStockStatus: context.stockStatus ?? null,
     reason: reasonFor(state),
     evidence: [
       { kind: "signal_kind", value: state, lifecycle: "echo", observedAt },
       { kind: "signal_alert_class", value: policy.alertClass, observedAt },
       { kind: "retailer_readiness", state, previousState, observedAt },
+      { kind: "echo_product_context", sourceState: context.state, sourceSignalId: context.id, sourceDetectedAt: context.detectedAt },
       ...(Array.isArray(evidence) ? evidence : []),
-      ...(Array.isArray(whisper.evidence) ? whisper.evidence : []),
+      ...(Array.isArray(context.evidence) ? context.evidence : []),
     ],
     target: {
       type: "product",
-      productId: whisper.productId,
-      offerId: whisper.offerId,
+      productId: context.productId,
+      offerId: context.offerId,
       retailerId: retailer.id,
-      productUrl: whisper.url,
-      query: whisper.title,
+      productUrl: context.url,
+      query: context.title,
     },
   }));
 
@@ -88,7 +102,7 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     readinessState: state,
     previousState,
     productContexts: signals.length,
-    reason: signals.length ? "echo_emitted" : "no_recent_whisper_product_context",
+    reason: signals.length ? "echo_emitted" : "no_recent_retailer_product_context",
     signals,
     discord,
   };

@@ -222,7 +222,51 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
   if (!Array.isArray(products) || products.length === 0) throw new Error("products must be a non-empty array");
   if (products.length > 5000) throw new Error("Too many products in one ingest request");
-  return processRetailerProducts({ retailer, store, rawProducts: products, now, pagesScanned: 0, source: "external" });
+
+  const runId = createRetailerRunId(retailer.id);
+  const startedAt = Math.floor(Date.now() / 1000);
+  await safeRunStart(store, { runId, retailerId: retailer.id, startedAt });
+  const runIngest = () => processRetailerProducts({ retailer, store, rawProducts: products, now, pagesScanned: 0, source: "external" });
+
+  try {
+    let result;
+    if (typeof store.withRetailerScanLock === "function") {
+      const locked = await store.withRetailerScanLock(retailer.id, runIngest);
+      result = locked.acquired ? locked.value : {
+        retailerId: retailer.id,
+        retailerName: retailer.name,
+        skipped: true,
+        skipReason: "ingest_in_progress",
+        signalsCreated: 0,
+      };
+    } else {
+      result = await runIngest();
+    }
+
+    const status = result?.skipped ? "skipped" : "success";
+    await safeRunFinish(store, {
+      runId,
+      completedAt: Math.floor(Date.now() / 1000),
+      status,
+      pagesScanned: 0,
+      productsObserved: result?.productsSeen ?? 0,
+      catalogueComplete: status === "success",
+      failureCode: result?.skipReason ?? null,
+      diagnostics: { source: "external", signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0 },
+    });
+    return result;
+  } catch (error) {
+    if (typeof store.recordFailure === "function") await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
+    await safeRunFinish(store, {
+      runId,
+      completedAt: Math.floor(Date.now() / 1000),
+      status: "failed",
+      failureCode: error?.code || "external_ingest_exception",
+      failureDetail: String(error?.message || error),
+      diagnostics: { source: "external" },
+    });
+    throw error;
+  }
 }
 
 export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource, dispatchNotifications = true }) {

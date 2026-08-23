@@ -6,6 +6,12 @@ export const BrowserState = Object.freeze({
   UNEXPECTED: "unexpected",
 });
 
+const REPORTABLE_READINESS_STATES = new Set([
+  BrowserState.QUEUE,
+  BrowserState.SECURITY,
+  BrowserState.ACCESS_BLOCKED,
+]);
+
 export function remainingCycleDelay({ startedAtMs, nowMs = Date.now(), minimumCycleMs }) {
   return Math.max(0, minimumCycleMs - Math.max(0, nowMs - startedAtMs));
 }
@@ -15,6 +21,11 @@ export function nextCollectorFailureState({ consecutiveFailures = 0, browserStat
   if (browserState !== BrowserState.NORMAL) return { consecutiveFailures: 0, recycle: false };
   const nextFailures = Math.max(0, Math.trunc(consecutiveFailures || 0)) + 1;
   return { consecutiveFailures: nextFailures, recycle: nextFailures >= safeMaxFailures };
+}
+
+export function readinessReportTransition({ previousState = null, state } = {}) {
+  if (!REPORTABLE_READINESS_STATES.has(state)) return { report: false, previousState: null };
+  return { report: true, previousState: previousState ?? "unknown" };
 }
 
 export function classifyBrowserState({ url = "", title = "", text = "" } = {}) {
