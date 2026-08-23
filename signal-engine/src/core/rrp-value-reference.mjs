@@ -12,7 +12,8 @@ function fold(value = "") {
     .trim();
 }
 
-function authoritative(product = {}) {
+function authoritative(product) {
+  if (!product) return false;
   return Number.isFinite(product.officialRrpPence)
     && product.officialRrpPence > 0
     && typeof product.rrpSource === "string"
@@ -55,7 +56,7 @@ function setTokens(title = "") {
   return [...new Set(text.split(" ").filter((token) => token.length >= 3))];
 }
 
-function isVerifiedSingleBooster(product = {}) {
+function isVerifiedSingleBooster(product) {
   if (!authoritative(product) || product.productType !== "booster_pack") return false;
   const text = fold(product.title);
   if (!/\bbooster pack\b/.test(text)) return false;
