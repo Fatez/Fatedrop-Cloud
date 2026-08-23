@@ -3,11 +3,11 @@ import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { scanAll } from "./core/engine.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
-import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./notifications/discord-route-health.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
+import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
