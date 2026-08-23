@@ -1,6 +1,7 @@
 import { env } from "../config/env.mjs";
 import { buildFateMatchNotificationReadiness } from "../hosted/notification-readiness.mjs";
 import { getDiscordRouteHealth } from "./discord-route-health.mjs";
+import { loadEffectiveRrpCoverage } from "./effective-rrp-coverage.mjs";
 
 function defaults() {
   return {
@@ -144,15 +145,16 @@ export async function recordBetaRuntimeReadiness({ store, runtime, discord, now 
   const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, now });
   if (!store || typeof store.recordNetworkSnapshot !== "function") return { recorded: false, readiness };
 
-  const [stats, retailers] = await Promise.all([
+  const [stats, retailers, effectiveRrpCoverage] = await Promise.all([
     typeof store.stats === "function" ? store.stats() : {},
     typeof store.listRetailers === "function" ? store.listRetailers() : [],
+    loadEffectiveRrpCoverage(store),
   ]);
   await store.recordNetworkSnapshot({
     id: `beta-runtime:${now}`,
     measuredAt: now,
-    metrics: { ...stats, betaRuntimeReadiness: readiness },
+    metrics: { ...stats, betaRuntimeReadiness: readiness, effectiveRrpCoverage },
     retailers,
   });
-  return { recorded: true, readiness };
+  return { recorded: true, readiness, effectiveRrpCoverage };
 }
