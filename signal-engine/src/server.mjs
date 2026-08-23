@@ -7,6 +7,7 @@ import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
+import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness } from "./telemetry/beta-runtime-readiness.mjs";
 import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
@@ -31,6 +32,15 @@ server.on("request", async (req, res) => {
         "access-control-allow-origin": "*",
       });
       res.end(JSON.stringify(getDiscordRouteHealth()));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/beta-readiness") {
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(getBetaRuntimeReadiness()));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/signal-health") {
@@ -61,6 +71,9 @@ async function scheduledScan() {
     const results = await scanAll({ retailers, store });
     const website = await publishWebsiteSnapshot({ store });
     const hostedFateFind = await runHostedFateFindCycle().catch((error) => ({ enabled: env.hostedFateFind.enabled, error: String(error?.message || error) }));
+    if (hostedFateFind?.enabled && (Number(hostedFateFind?.evaluation?.created || 0) > 0 || hostedFateFind?.readiness?.ready === false)) {
+      await recordBetaRuntimeReadiness({ store }).catch((error) => console.error("[signal-engine] beta readiness refresh failed", { error: String(error?.message || error) }));
+    }
     console.log(`[signal-engine] scan ${new Date().toISOString()}`, {
       registryEnabled: env.retailerRegistryEnabled,
       retailers: results.map((r)=>({retailer:r.retailerId,products:r.productsSeen,signals:r.signalsCreated,error:r.error})),
@@ -89,8 +102,11 @@ async function refreshDiscordRoutes() {
   try {
     const outcome = await refreshDiscordRouteHealth();
     console.log("[signal-engine] Discord lifecycle route health", outcome);
+    const runtime = await recordBetaRuntimeReadiness({ store });
+    console.log("[signal-engine] Beta runtime readiness", { recorded: runtime.recorded, ready: runtime.readiness?.ready });
   } catch (error) {
     console.error("[signal-engine] Discord lifecycle route health failed", { error: String(error?.message || error) });
+    await recordBetaRuntimeReadiness({ store }).catch(() => null);
   } finally {
     checkingDiscordRoutes = false;
   }
