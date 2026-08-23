@@ -7,6 +7,7 @@ import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
+import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
@@ -15,6 +16,29 @@ const retailers = await loadRuntimeRetailers({
   databaseUrl: env.databaseUrl,
 });
 const server = createFateDropHttpServer({ store, retailers });
+const applicationHandler = server.listeners("request")[0];
+server.removeAllListeners("request");
+server.on("request", async (req, res) => {
+  try {
+    const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (req.method === "GET" && url.pathname === "/api/signal-health") {
+      const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get("days") || "7", 10) || 7));
+      const summary = await loadSignalHealthSummary(store, { days });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(summary));
+      return;
+    }
+    return applicationHandler(req, res);
+  } catch (error) {
+    if (res.headersSent) return res.end();
+    res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ error: "Signal health endpoint unavailable", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }));
+  }
+});
 let scanning = false;
 async function scheduledScan() {
   if (scanning) return;
