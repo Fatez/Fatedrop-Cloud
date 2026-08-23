@@ -8,6 +8,7 @@ import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
 
+const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
@@ -16,6 +17,7 @@ const retailers = await loadRuntimeRetailers({
 });
 const server = createFateDropHttpServer({ store, retailers });
 let scanning = false;
+let refreshingAuthoritativeRrp = false;
 async function scheduledScan() {
   if (scanning) return;
   scanning = true;
@@ -32,18 +34,23 @@ async function scheduledScan() {
   } finally { scanning = false; }
 }
 
-async function bootstrapAuthoritativeRrp() {
+async function refreshAuthoritativeRrp() {
+  if (refreshingAuthoritativeRrp) return;
+  refreshingAuthoritativeRrp = true;
   try {
     const outcome = await bootstrapAsmodeeRrp({ store, databaseUrl: env.databaseUrl });
-    console.log("[signal-engine] Asmodee RRP bootstrap", outcome);
+    console.log("[signal-engine] Asmodee RRP authority refresh", outcome);
   } catch (error) {
-    console.error("[signal-engine] Asmodee RRP bootstrap failed", { error: String(error?.message || error) });
+    console.error("[signal-engine] Asmodee RRP authority refresh failed", { error: String(error?.message || error) });
+  } finally {
+    refreshingAuthoritativeRrp = false;
   }
 }
 
 server.listen(env.port, () => {
   console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
-  void bootstrapAuthoritativeRrp();
+  void refreshAuthoritativeRrp();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
+setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
