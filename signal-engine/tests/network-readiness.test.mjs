@@ -44,7 +44,7 @@ function storeWith(signals) {
   };
 }
 
-test("queue readiness emits Echo only onto recent Whisper product context for primary retailer", async () => {
+test("queue readiness emits Echo onto recent real product context for a primary retailer", async () => {
   const store = storeWith([whisper({ detectedAt: 1900 })]);
   const result = await recordRetailerReadiness({ retailer, store, state: "queue", previousState: "normal", observedAt: 2000 });
   assert.equal(result.accepted, true);
@@ -71,11 +71,11 @@ test("market retailer readiness never emits public Echo noise", async () => {
   assert.deepEqual(store.appended, []);
 });
 
-test("security readiness does not invent a public Echo without recent Whisper context", async () => {
+test("security readiness does not invent a public Echo without recent retailer product context", async () => {
   const store = storeWith([]);
   const result = await recordRetailerReadiness({ retailer, store, state: "security", previousState: "normal", observedAt: 2000 });
   assert.equal(result.accepted, true);
-  assert.equal(result.reason, "no_recent_whisper_product_context");
+  assert.equal(result.reason, "no_recent_retailer_product_context");
   assert.equal(result.productContexts, 0);
   assert.deepEqual(store.appended, []);
 });
@@ -88,7 +88,7 @@ test("normal browser state is not an Echo", async () => {
   assert.deepEqual(store.appended, []);
 });
 
-test("readiness fan-out deduplicates multiple Whispers for the same product", async () => {
+test("readiness fan-out deduplicates multiple lifecycle signals for the same product", async () => {
   const store = storeWith([
     whisper({ id: "sig-a", detectedAt: 1950 }),
     whisper({ id: "sig-b", detectedAt: 1940 }),
@@ -98,9 +98,11 @@ test("readiness fan-out deduplicates multiple Whispers for the same product", as
   assert.equal(store.appended.length, 1);
 });
 
-test("old Whispers outside the readiness lookback cannot receive Echo", async () => {
+test("retailer product context older than seven days cannot receive Echo", async () => {
+  const observedAt = 700000;
   const store = storeWith([whisper({ detectedAt: 1 })]);
-  const result = await recordRetailerReadiness({ retailer, store, state: "queue", previousState: "normal", observedAt: 30000 });
+  const result = await recordRetailerReadiness({ retailer, store, state: "queue", previousState: "normal", observedAt });
   assert.equal(result.productContexts, 0);
+  assert.equal(result.reason, "no_recent_retailer_product_context");
   assert.deepEqual(store.appended, []);
 });
