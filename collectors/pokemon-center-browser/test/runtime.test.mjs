@@ -1,10 +1,20 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { BrowserState, classifyBrowserState, nextCollectorFailureState, readinessReportTransition, remainingCycleDelay } from "../src/runtime.mjs";
+import { BrowserState, classifyBrowserState, collectorCooldownMs, nextCollectorFailureState, readinessReportTransition, remainingCycleDelay } from "../src/runtime.mjs";
 
-test("rotation waits only for the remainder of a 60 second cycle", () => {
+test("rotation waits only for the remainder of its configured cycle", () => {
   assert.equal(remainingCycleDelay({ startedAtMs: 1_000, nowMs: 41_000, minimumCycleMs: 60_000 }), 20_000);
   assert.equal(remainingCycleDelay({ startedAtMs: 1_000, nowMs: 71_000, minimumCycleMs: 60_000 }), 0);
+});
+
+test("collector cooldown policy is longest for access blocks and never retries readiness states aggressively", () => {
+  assert.equal(collectorCooldownMs({ ok: true, browserState: BrowserState.NORMAL }), 300_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.NORMAL }), 180_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.QUEUE }), 300_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.SECURITY }), 900_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.ACCESS_BLOCKED }), 3_600_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.UNEXPECTED }), 600_000);
+  assert.equal(collectorCooldownMs({ ok: false, browserState: BrowserState.ACCESS_BLOCKED, accessBlockedMs: 60_000 }), 900_000);
 });
 
 test("browser state classifies queue and security pages without attempting bypass", () => {
