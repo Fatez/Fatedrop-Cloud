@@ -5,6 +5,7 @@ import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
+import { buildPublicRetailerDirectory } from "./retailers/public-directory.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
@@ -27,6 +28,25 @@ server.removeAllListeners("request");
 server.on("request", async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (req.method === "GET" && url.pathname === "/api/retailers") {
+      const healthRows = await store.listRetailers();
+      const directory = buildPublicRetailerDirectory({ retailers, healthRows });
+      const retailerClass = (url.searchParams.get("class") || "").trim().toLowerCase();
+      const filtered = retailerClass ? directory.filter((retailer) => retailer.retailerClass === retailerClass) : directory;
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify({
+        success: true,
+        generatedAt: new Date().toISOString(),
+        count: filtered.length,
+        retailers: filtered,
+        disclaimer: "Monitoring health describes FateDrop's latest effective catalogue-monitor state. It is not a guarantee of current stock at the retailer.",
+      }));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/discord-route-health") {
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
