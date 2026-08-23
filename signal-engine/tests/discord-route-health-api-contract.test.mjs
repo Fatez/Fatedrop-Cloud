@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { refreshDiscordRouteHealth } from "../src/notifications/discord-route-health.mjs";
+import { refreshDiscordRouteHealth } from "../src/telemetry/discord-route-health.mjs";
 
 function response({ ok = true, status = 200, body = {} } = {}) {
   return { ok, status, async json() { return body; } };
