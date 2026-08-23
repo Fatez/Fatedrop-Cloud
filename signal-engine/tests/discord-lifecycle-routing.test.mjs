@@ -54,7 +54,7 @@ test("each lifecycle state has one stable FateDrop companion", () => {
   }
 });
 
-test("lifecycle-specific Discord channels take precedence over fallback", () => {
+test("lifecycle-specific Discord channels are mandatory and take precedence", () => {
   const channelIds = {
     whisper: "whisper-channel",
     echo: "echo-channel",
@@ -74,8 +74,23 @@ test("lifecycle-specific bot tokens take precedence over the legacy fallback tok
   assert.equal(discordBotTokenForState("echo", { botTokens: {}, fallbackBotToken: "legacy-token" }), "legacy-token");
 });
 
-test("missing lifecycle channel safely falls back to legacy premium channel", () => {
-  assert.equal(discordChannelForState("echo", { channelIds: {}, fallbackChannelId: "fallback" }), "fallback");
+test("missing lifecycle channel never falls back to the general premium channel", () => {
+  for (const state of Object.keys(expectedCompanions)) {
+    assert.equal(discordChannelForState(state, { channelIds: {}, fallbackChannelId: "general-channel" }), "");
+  }
+});
+
+test("Vanished can never be routed into the normal fallback channel", async () => {
+  let requests = 0;
+  const result = await sendDiscordSignal({ ...baseSignal, state: "vanished" }, {
+    fetchImpl: async () => { requests += 1; return new Response("{}", { status: 200 }); },
+    enabled: true,
+    botTokens,
+    channelIds: {},
+    fallbackChannelId: "normal-channel",
+  });
+  assert.deepEqual(result, { sent: false, reason: "missing_lifecycle_channel_id" });
+  assert.equal(requests, 0);
 });
 
 test("Discord sends each signal with its companion bot to its lifecycle channel", async () => {

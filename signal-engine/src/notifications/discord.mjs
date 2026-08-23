@@ -123,7 +123,9 @@ export function discordChannelForState(state, {
   channelIds = env.discord.channelIds,
   fallbackChannelId = env.discord.premiumDropsChannelId,
 } = {}) {
-  return channelIds?.[state] || fallbackChannelId || "";
+  void fallbackChannelId;
+  if (!DISCORD_SIGNAL_STATES.has(state)) return "";
+  return channelIds?.[state] || "";
 }
 
 export function discordBotTokenForState(state, {
@@ -193,7 +195,7 @@ export async function sendDiscordSignal(signal, {
   const resolvedBotToken = botToken || discordBotTokenForState(signal.state, { botTokens, fallbackBotToken });
   if (!resolvedBotToken) return { sent: false, reason: "missing_bot_token" };
   const resolvedChannelId = channelId || discordChannelForState(signal.state, { channelIds, fallbackChannelId });
-  if (!resolvedChannelId) return { sent: false, reason: "missing_channel_id" };
+  if (!resolvedChannelId) return { sent: false, reason: "missing_lifecycle_channel_id" };
   if (!enabled) return { sent: false, reason: "disabled" };
 
   const response = await fetchImpl(`${DISCORD_API}/channels/${resolvedChannelId}/messages`, {
