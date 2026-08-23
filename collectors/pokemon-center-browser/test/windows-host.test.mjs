@@ -4,6 +4,7 @@ import test from "node:test";
 
 const launcher = fs.readFileSync(new URL("../scripts/start-windows.ps1", import.meta.url), "utf8");
 const installer = fs.readFileSync(new URL("../scripts/install-windows-startup.ps1", import.meta.url), "utf8");
+const supervisor = fs.readFileSync(new URL("../src/supervisor.mjs", import.meta.url), "utf8");
 
 test("Windows launcher starts a dedicated normal Chrome CDP profile and then the existing supervisor", () => {
   assert.match(launcher, /--remote-debugging-port=\$Port/);
@@ -28,4 +29,14 @@ test("scheduled task remains an interactive per-user logon process and never emb
   assert.match(installer, /-RestartCount 20/);
   assert.match(installer, /-MultipleInstances IgnoreNew/);
   assert.doesNotMatch(installer, /FATEDROP_SIGNAL_INGEST_SECRET/);
+});
+
+test("supervised mode enforces conservative catalogue pacing and fail-closed cooldowns", () => {
+  assert.match(supervisor, /Math\.max\(300_000, Number\.parseInt\(process\.env\.FATEDROP_COLLECTOR_CYCLE_MS/);
+  assert.match(supervisor, /Math\.max\(4_000, Number\.parseInt\(process\.env\.FATEDROP_COLLECTOR_SETTLE_MS/);
+  assert.match(supervisor, /FATEDROP_COLLECTOR_REPEATED_FAILURE_COOLDOWN_MS/);
+  assert.match(supervisor, /rejectedRotations < 2/);
+  assert.match(supervisor, /supervisorAccessCooldownMs/);
+  assert.match(supervisor, /repeated crashes cannot create a tight retry loop/);
+  assert.doesNotMatch(supervisor, /disable-web-security|ignore-certificate-errors|headless/i);
 });
