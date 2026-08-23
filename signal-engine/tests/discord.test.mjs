@@ -93,9 +93,9 @@ test("Discord delivery reports a missing bot token before the generic enable fla
   assert.deepEqual(result, { sent: false, reason: "missing_bot_token" });
 });
 
-test("Discord delivery reports a missing channel before the generic enable flag", async () => {
+test("Discord delivery reports a missing lifecycle channel before the generic enable flag", async () => {
   const result = await sendDiscordSignal(marketSignal, { enabled: false, botToken: "test-token", channelId: "" });
-  assert.deepEqual(result, { sent: false, reason: "missing_channel_id" });
+  assert.deepEqual(result, { sent: false, reason: "missing_lifecycle_channel_id" });
 });
 
 test("Discord delivery reports explicit disable when credentials are otherwise complete", async () => {
