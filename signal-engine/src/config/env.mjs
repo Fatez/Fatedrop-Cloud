@@ -16,6 +16,9 @@ function int(name, fallback) {
   const value = Number.parseInt(process.env[name] ?? "", 10);
   return Number.isFinite(value) ? value : fallback;
 }
+function explicitlyConfigured(name) {
+  return Object.prototype.hasOwnProperty.call(process.env, name) && String(process.env[name] ?? "").trim() !== "";
+}
 
 const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
 const discordBotTokens = Object.freeze({
@@ -55,6 +58,7 @@ export const env = {
   },
   hostedFateFind: {
     enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", false),
+    explicitlyConfigured: explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED"),
     maxFindsPerRun: Math.max(1, Math.min(10000, int("FATEDROP_HOSTED_FATEFIND_MAX_PER_RUN", 2000))),
     outboxBatchSize: Math.max(1, Math.min(500, int("FATEDROP_NOTIFICATION_BATCH_SIZE", 100))),
     expoAccessToken: process.env.EXPO_ACCESS_TOKEN || "",
