@@ -31,7 +31,7 @@ const discordPremiumDropsChannelId = process.env.DISCORD_PREMIUM_DROPS_CHANNEL_I
 const discordChannelIds = Object.freeze({
   whisper: process.env.DISCORD_WHISPER_CHANNEL_ID || "",
   echo: process.env.DISCORD_ECHO_CHANNEL_ID || "",
-  manifested: process.env.DISCORD_KORU_BOT_TOKEN ? process.env.DISCORD_MANIFESTED_CHANNEL_ID || "" : process.env.DISCORD_MANIFESTED_CHANNEL_ID || "",
+  manifested: process.env.DISCORD_MANIFESTED_CHANNEL_ID || "",
   vanished: process.env.DISCORD_VANISHED_CHANNEL_ID || "",
 });
 const discordConfigured = Boolean(
