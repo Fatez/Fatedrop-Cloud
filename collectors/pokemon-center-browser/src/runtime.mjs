@@ -16,6 +16,31 @@ export function remainingCycleDelay({ startedAtMs, nowMs = Date.now(), minimumCy
   return Math.max(0, minimumCycleMs - Math.max(0, nowMs - startedAtMs));
 }
 
+export function collectorCooldownMs({
+  browserState,
+  ok = false,
+  successMs = 300_000,
+  normalFailureMs = 180_000,
+  queueMs = 300_000,
+  securityMs = 900_000,
+  accessBlockedMs = 3_600_000,
+  unexpectedMs = 600_000,
+} = {}) {
+  if (ok) return Math.max(60_000, Math.trunc(successMs));
+  switch (browserState) {
+    case BrowserState.QUEUE:
+      return Math.max(120_000, Math.trunc(queueMs));
+    case BrowserState.SECURITY:
+      return Math.max(300_000, Math.trunc(securityMs));
+    case BrowserState.ACCESS_BLOCKED:
+      return Math.max(900_000, Math.trunc(accessBlockedMs));
+    case BrowserState.UNEXPECTED:
+      return Math.max(300_000, Math.trunc(unexpectedMs));
+    default:
+      return Math.max(120_000, Math.trunc(normalFailureMs));
+  }
+}
+
 export function nextCollectorFailureState({ consecutiveFailures = 0, browserState, maxFailures = 3 } = {}) {
   const safeMaxFailures = Math.max(1, Math.min(10, Number.isFinite(maxFailures) ? Math.trunc(maxFailures) : 3));
   if (browserState !== BrowserState.NORMAL) return { consecutiveFailures: 0, recycle: false };
