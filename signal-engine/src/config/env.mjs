@@ -18,6 +18,12 @@ function int(name, fallback) {
 }
 
 const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
+const discordBotTokens = Object.freeze({
+  whisper: process.env.DISCORD_ORU_BOT_TOKEN || "",
+  echo: process.env.DISCORD_FENN_BOT_TOKEN || "",
+  manifested: process.env.DISCORD_KORU_BOT_TOKEN || "",
+  vanished: process.env.DISCORD_NIXON_BOT_TOKEN || "",
+});
 const discordPremiumDropsChannelId = process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "";
 const discordChannelIds = Object.freeze({
   whisper: process.env.DISCORD_WHISPER_CHANNEL_ID || "",
@@ -26,7 +32,8 @@ const discordChannelIds = Object.freeze({
   vanished: process.env.DISCORD_VANISHED_CHANNEL_ID || "",
 });
 const discordConfigured = Boolean(
-  discordBotToken && (discordPremiumDropsChannelId || Object.values(discordChannelIds).some(Boolean)),
+  (discordBotToken || Object.values(discordBotTokens).some(Boolean))
+  && (discordPremiumDropsChannelId || Object.values(discordChannelIds).some(Boolean)),
 );
 
 export const env = {
@@ -55,6 +62,7 @@ export const env = {
   discord: {
     enabled: bool("FATEDROP_DISCORD_ENABLED", discordConfigured),
     botToken: discordBotToken,
+    botTokens: discordBotTokens,
     premiumDropsChannelId: discordPremiumDropsChannelId,
     channelIds: discordChannelIds,
   },
