@@ -5,10 +5,10 @@ const DISCORD_API = "https://discord.com/api/v10";
 const DISCORD_SIGNAL_STATES = new Set(["whisper", "echo", "manifested", "vanished"]);
 
 const STATE_STYLE = Object.freeze({
-  whisper: { publicStage: "Whisper", label: "WHISPER", colour: 0x67e8f9 },
-  echo: { publicStage: "Echo", label: "ECHO", colour: 0xa855f7 },
-  manifested: { publicStage: "Manifested", label: "MANIFESTED", colour: 0x49e6b1 },
-  vanished: { publicStage: "Vanished", label: "VANISHED", colour: 0xff647c },
+  whisper: { publicStage: "Whisper", label: "WHISPER", colour: 0x67e8f9, companion: "Oru" },
+  echo: { publicStage: "Echo", label: "ECHO", colour: 0xa855f7, companion: "Fenn" },
+  manifested: { publicStage: "Manifested", label: "MANIFESTED", colour: 0x49e6b1, companion: "Koru" },
+  vanished: { publicStage: "Vanished", label: "VANISHED", colour: 0xff647c, companion: "Nixon" },
 });
 
 const FAMILY_LABEL = Object.freeze({
@@ -114,6 +114,18 @@ export function publicDiscordStage(signalOrState) {
   return STATE_STYLE[state]?.publicStage || null;
 }
 
+export function companionForSignal(signalOrState) {
+  const state = typeof signalOrState === "string" ? signalOrState : signalOrState?.state;
+  return STATE_STYLE[state]?.companion || null;
+}
+
+export function discordChannelForState(state, {
+  channelIds = env.discord.channelIds,
+  fallbackChannelId = env.discord.premiumDropsChannelId,
+} = {}) {
+  return channelIds?.[state] || fallbackChannelId || "";
+}
+
 export function isDiscordSignal(signal) {
   return Boolean(signal && DISCORD_SIGNAL_STATES.has(signal.state));
 }
@@ -142,11 +154,11 @@ export function buildDiscordSignalMessage(signal) {
   fields.push({ name: "Signal confidence", value: confidence, inline: true });
 
   const embed = {
-    title: short(`${style.label} · ${familyLabel} · ${signal.title || "FateDrop signal"}`, 256),
+    title: short(`${style.companion} · ${style.label} · ${familyLabel} · ${signal.title || "FateDrop signal"}`, 256),
     description: short(descriptionFor(signal, alertClass), 4096),
     color: style.colour,
     fields,
-    footer: { text: short(`FateDrop Signal · ${familyLabel} · ${signal.id || "test"}`, 2048) },
+    footer: { text: short(`${style.companion} · FateDrop Signal · ${familyLabel} · ${signal.id || "test"}`, 2048) },
     timestamp: new Date((signal.detectedAt || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
   };
 
@@ -164,14 +176,17 @@ export async function sendDiscordSignal(signal, {
   fetchImpl = fetch,
   enabled = env.discord.enabled,
   botToken = env.discord.botToken,
-  channelId = env.discord.premiumDropsChannelId,
+  channelId = null,
+  channelIds = env.discord.channelIds,
+  fallbackChannelId = env.discord.premiumDropsChannelId,
 } = {}) {
   if (!isDiscordSignal(signal)) return { sent: false, reason: "state_not_enabled" };
   if (!botToken) return { sent: false, reason: "missing_bot_token" };
-  if (!channelId) return { sent: false, reason: "missing_channel_id" };
+  const resolvedChannelId = channelId || discordChannelForState(signal.state, { channelIds, fallbackChannelId });
+  if (!resolvedChannelId) return { sent: false, reason: "missing_channel_id" };
   if (!enabled) return { sent: false, reason: "disabled" };
 
-  const response = await fetchImpl(`${DISCORD_API}/channels/${channelId}/messages`, {
+  const response = await fetchImpl(`${DISCORD_API}/channels/${resolvedChannelId}/messages`, {
     method: "POST",
     headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(buildDiscordSignalMessage(signal)),
@@ -183,7 +198,7 @@ export async function sendDiscordSignal(signal, {
   }
 
   const payload = await response.json().catch(() => ({}));
-  return { sent: true, messageId: payload.id ?? null };
+  return { sent: true, messageId: payload.id ?? null, channelId: resolvedChannelId };
 }
 
 export async function dispatchDiscordSignals(signals, options = {}) {
@@ -204,7 +219,7 @@ export async function dispatchDiscordSignals(signals, options = {}) {
       const result = await sendDiscordSignal(signal, options);
       if (result.sent) {
         summary.sent += 1;
-        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "sent", providerMessageId: result.messageId ?? null, detail: null });
+        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "sent", providerMessageId: result.messageId ?? null, detail: result.channelId ? `channel_id:${result.channelId}` : null });
       } else {
         summary.skipped += 1;
         await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "skipped", providerMessageId: null, detail: result.reason || "not_sent" });

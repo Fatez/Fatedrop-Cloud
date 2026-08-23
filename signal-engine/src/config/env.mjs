@@ -19,7 +19,15 @@ function int(name, fallback) {
 
 const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
 const discordPremiumDropsChannelId = process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "";
-const discordConfigured = Boolean(discordBotToken && discordPremiumDropsChannelId);
+const discordChannelIds = Object.freeze({
+  whisper: process.env.DISCORD_WHISPER_CHANNEL_ID || "",
+  echo: process.env.DISCORD_ECHO_CHANNEL_ID || "",
+  manifested: process.env.DISCORD_MANIFESTED_CHANNEL_ID || "",
+  vanished: process.env.DISCORD_VANISHED_CHANNEL_ID || "",
+});
+const discordConfigured = Boolean(
+  discordBotToken && (discordPremiumDropsChannelId || Object.values(discordChannelIds).some(Boolean)),
+);
 
 export const env = {
   port: int("PORT", 8787),
@@ -48,6 +56,7 @@ export const env = {
     enabled: bool("FATEDROP_DISCORD_ENABLED", discordConfigured),
     botToken: discordBotToken,
     premiumDropsChannelId: discordPremiumDropsChannelId,
+    channelIds: discordChannelIds,
   },
   retailers: {
     pokemonCenterUk: bool("FATEDROP_RETAILER_POKEMON_CENTER_UK", true),
