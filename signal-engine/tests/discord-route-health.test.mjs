@@ -7,38 +7,14 @@ import {
 } from "../src/notifications/discord-route-health.mjs";
 
 function reply({ ok = true, status = 200, body = {} } = {}) {
-  return {
-    ok,
-    status,
-    async json() { return body; },
-  };
+  return { ok, status, async json() { return body; } };
 }
 
 test("all four dedicated companion routes can be verified without sending a persistent message", async () => {
-  const botTokens = {
-    whisper: "oru-secret-token",
-    echo: "fenn-secret-token",
-    manifested: "koru-secret-token",
-    vanished: "nixon-secret-token",
-  };
-  const channelIds = {
-    whisper: "111",
-    echo: "222",
-    manifested: "333",
-    vanished: "444",
-  };
-  const usernameByToken = {
-    "oru-secret-token": "Oru",
-    "fenn-secret-token": "Fenn",
-    "koru-secret-token": "Koru",
-    "nixon-secret-token": "Nixon",
-  };
-  const channelById = {
-    "111": "oru-whispers",
-    "222": "fenn-echoes",
-    "333": "koru-manifested",
-    "444": "nixon-vanished",
-  };
+  const botTokens = { whisper: "oru-secret-token", echo: "fenn-secret-token", manifested: "koru-secret-token", vanished: "nixon-secret-token" };
+  const channelIds = { whisper: "111", echo: "222", manifested: "333", vanished: "444" };
+  const usernameByToken = { "oru-secret-token": "Oru", "fenn-secret-token": "Fenn", "koru-secret-token": "Koru", "nixon-secret-token": "Nixon" };
+  const channelById = { "111": "oru-whispers", "222": "fenn-echoes", "333": "koru-manifested", "444": "nixon-vanished" };
   const calls = [];
 
   const fetchImpl = async (url, options = {}) => {
@@ -80,6 +56,23 @@ test("route health requires a dedicated companion token even while legacy delive
   assert.equal(result.healthy, false);
   assert.equal(result.configured, false);
   assert.equal(result.reason, "missing_dedicated_bot_token");
+});
+
+test("route health rejects a valid token wired to the wrong companion", async () => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/users/@me")) return reply({ body: { id: "bot-oru", username: "Oru" } });
+    throw new Error("channel probe should not run after identity mismatch");
+  };
+  const result = await probeDiscordRoute("echo", {
+    fetchImpl,
+    enabled: true,
+    botTokens: { echo: "oru-token-in-fenn-slot" },
+    channelIds: { echo: "222" },
+  });
+  assert.equal(result.healthy, false);
+  assert.equal(result.configured, true);
+  assert.equal(result.reason, "bot_identity_mismatch");
+  assert.equal(result.botUsername, "Oru");
 });
 
 test("route health fails closed when the bot cannot interact with its lifecycle channel", async () => {
