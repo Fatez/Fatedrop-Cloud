@@ -13,6 +13,7 @@ function defaults() {
 let cachedReadiness = {
   checkedAt: null,
   ready: false,
+  infrastructureReady: false,
   discord: getDiscordRouteHealth(),
   hostedFateFind: {
     enabled: Boolean(env.hostedFateFind.enabled),
@@ -47,11 +48,15 @@ function safeHostedSummary(row = {}, notificationReadiness = null, runtime = def
 }
 
 export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checkedAt = new Date().toISOString() } = {}) {
-  const webBaselineReady = hostedFateFind?.eligibleFinds === 0 || hostedFateFind?.webReadyFinds === hostedFateFind?.eligibleFinds;
+  const eligibleFinds = numeric(hostedFateFind?.eligibleFinds);
+  const webBaselineReady = eligibleFinds === 0 || numeric(hostedFateFind?.webReadyFinds) === eligibleFinds;
   const notificationQueueReady = hostedFateFind?.notificationReadiness?.ready !== false;
+  const infrastructureReady = Boolean(discord?.ready) && Boolean(hostedFateFind?.configured) && webBaselineReady && notificationQueueReady;
+  const hostedActivationReady = eligibleFinds === 0 || hostedFateFind?.enabled === true;
   return {
     checkedAt,
-    ready: Boolean(discord?.ready) && Boolean(hostedFateFind?.configured) && webBaselineReady && notificationQueueReady,
+    ready: infrastructureReady && hostedActivationReady,
+    infrastructureReady,
     discord,
     hostedFateFind,
   };
