@@ -7,7 +7,8 @@ import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
-import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
+import { getDiscordRouteHealth, persistDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
+import { buildHostedFateFindReadiness } from "./telemetry/fatefind-readiness.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -33,6 +34,16 @@ server.on("request", async (req, res) => {
       res.end(JSON.stringify(getDiscordRouteHealth()));
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/fatefind-readiness") {
+      const summary = await buildHostedFateFindReadiness(store);
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(summary));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/signal-health") {
       const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get("days") || "7", 10) || 7));
       const summary = await loadSignalHealthSummary(store, { days });
@@ -48,7 +59,7 @@ server.on("request", async (req, res) => {
   } catch (error) {
     if (res.headersSent) return res.end();
     res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-    res.end(JSON.stringify({ error: "Signal health endpoint unavailable", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }));
+    res.end(JSON.stringify({ error: "Signal Engine readiness endpoint unavailable", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }));
   }
 });
 let scanning = false;
@@ -88,7 +99,8 @@ async function refreshDiscordRoutes() {
   checkingDiscordRoutes = true;
   try {
     const outcome = await refreshDiscordRouteHealth();
-    console.log("[signal-engine] Discord lifecycle route health", outcome);
+    const persisted = await persistDiscordRouteHealth(store, outcome).catch((error) => ({ persisted: false, reason: String(error?.message || error) }));
+    console.log("[signal-engine] Discord lifecycle route health", { ...outcome, persisted });
   } catch (error) {
     console.error("[signal-engine] Discord lifecycle route health failed", { error: String(error?.message || error) });
   } finally {
