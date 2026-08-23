@@ -83,14 +83,14 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const itemPrice = money(offer?.pricePence);
   const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
   const isPreorder = offer?.stockStatus === "preorder";
-  const action = isPreorder ? "Your hunt found a preorder" : "Your hunt found stock";
   const huntLabel = String(find?.queryText || productTitle).trim();
 
   return {
-    title: `FateMatch · ${action}`,
-    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing to check preorder terms." : "Move quickly — availability can change fast."}`,
+    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
+    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
     payload: {
       urgency: "high",
+      companion: "Koru",
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
