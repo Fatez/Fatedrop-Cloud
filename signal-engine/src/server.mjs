@@ -3,6 +3,7 @@ import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { scanAll } from "./core/engine.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
+import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./notifications/discord-route-health.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
@@ -10,6 +11,7 @@ import { createStore } from "./stores/index.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
@@ -22,6 +24,15 @@ server.removeAllListeners("request");
 server.on("request", async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (req.method === "GET" && url.pathname === "/api/discord-route-health") {
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(getDiscordRouteHealth()));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/signal-health") {
       const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get("days") || "7", 10) || 7));
       const summary = await loadSignalHealthSummary(store, { days });
@@ -42,6 +53,7 @@ server.on("request", async (req, res) => {
 });
 let scanning = false;
 let refreshingAuthoritativeRrp = false;
+let checkingDiscordRoutes = false;
 async function scheduledScan() {
   if (scanning) return;
   scanning = true;
@@ -71,10 +83,25 @@ async function refreshAuthoritativeRrp() {
   }
 }
 
+async function refreshDiscordRoutes() {
+  if (checkingDiscordRoutes) return;
+  checkingDiscordRoutes = true;
+  try {
+    const outcome = await refreshDiscordRouteHealth();
+    console.log("[signal-engine] Discord lifecycle route health", outcome);
+  } catch (error) {
+    console.error("[signal-engine] Discord lifecycle route health failed", { error: String(error?.message || error) });
+  } finally {
+    checkingDiscordRoutes = false;
+  }
+}
+
 server.listen(env.port, () => {
   console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
   void refreshAuthoritativeRrp();
+  void refreshDiscordRoutes();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
 setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
+setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
