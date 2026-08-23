@@ -7,6 +7,9 @@ const ROUTES = Object.freeze([
   { state: "manifested", companion: "Koru" },
   { state: "vanished", companion: "Nixon" },
 ]);
+const KNOWN_IDENTITY_REPAIRS = Object.freeze({
+  vanished: { from: "nixen", to: "Nixon" },
+});
 
 function normalizedIdentity(value = "") {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "");
@@ -18,15 +21,11 @@ function safeReason(prefix, response) {
 }
 
 async function safeJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
+  try { return await response.json(); } catch { return {}; }
 }
 
 function routeBase(state, companion) {
-  return { state, companion, configured: false, ready: false, reason: null, botUsername: null, channelName: null };
+  return { state, companion, configured: false, ready: false, reason: null, botUsername: null, channelName: null, identityRepaired: false };
 }
 
 export function emptyDiscordRouteHealth({ enabled = env.discord.enabled, now = () => Date.now() } = {}) {
@@ -54,6 +53,20 @@ async function botIdentity(fetchImpl, token) {
   const username = String(payload?.username || payload?.global_name || "").trim();
   if (!username) return { ok: false, reason: "discord_identity_missing_username" };
   return { ok: true, username };
+}
+
+async function repairKnownIdentity(fetchImpl, token, state, username) {
+  const repair = KNOWN_IDENTITY_REPAIRS[state];
+  if (!repair || normalizedIdentity(username) !== normalizedIdentity(repair.from)) return { repaired: false, username };
+  const response = await fetchImpl(`${DISCORD_API}/users/@me`, {
+    method: "PATCH",
+    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ username: repair.to }),
+  });
+  if (!response?.ok) return { repaired: false, username, reason: safeReason("discord_identity_repair_http", response) };
+  const payload = await safeJson(response);
+  const repairedUsername = String(payload?.username || repair.to).trim();
+  return { repaired: normalizedIdentity(repairedUsername) === normalizedIdentity(repair.to), username: repairedUsername };
 }
 
 async function channelIdentity(fetchImpl, token, channelId) {
@@ -105,14 +118,22 @@ export async function checkDiscordRouteHealth({
         routes.push({ ...base, configured: true, reason: identity.reason });
         continue;
       }
-      if (!normalizedIdentity(identity.username).includes(normalizedIdentity(companion))) {
-        routes.push({ ...base, configured: true, reason: "bot_identity_mismatch", botUsername: identity.username });
-        continue;
+
+      let botUsername = identity.username;
+      let identityRepaired = false;
+      if (!normalizedIdentity(botUsername).includes(normalizedIdentity(companion))) {
+        const repair = await repairKnownIdentity(fetchImpl, token, state, botUsername);
+        botUsername = repair.username;
+        identityRepaired = repair.repaired;
+        if (!identityRepaired || !normalizedIdentity(botUsername).includes(normalizedIdentity(companion))) {
+          routes.push({ ...base, configured: true, reason: repair.reason || "bot_identity_mismatch", botUsername, identityRepaired: false });
+          continue;
+        }
       }
 
       const channel = await channelIdentity(fetchImpl, token, channelId);
       if (!channel.ok) {
-        routes.push({ ...base, configured: true, reason: channel.reason, botUsername: identity.username });
+        routes.push({ ...base, configured: true, reason: channel.reason, botUsername, identityRepaired });
         continue;
       }
 
@@ -122,8 +143,9 @@ export async function checkDiscordRouteHealth({
           ...base,
           configured: true,
           reason: sendAccess.reason,
-          botUsername: identity.username,
+          botUsername,
           channelName: channel.name,
+          identityRepaired,
         });
         continue;
       }
@@ -132,8 +154,9 @@ export async function checkDiscordRouteHealth({
         ...base,
         configured: true,
         ready: true,
-        botUsername: identity.username,
+        botUsername,
         channelName: channel.name,
+        identityRepaired,
       });
     } catch {
       routes.push({ ...base, configured: true, reason: "discord_route_check_failed" });
@@ -154,8 +177,5 @@ export async function refreshDiscordRouteHealth(options = {}) {
   return cachedHealth;
 }
 
-export function getDiscordRouteHealth() {
-  return cachedHealth;
-}
-
+export function getDiscordRouteHealth() { return cachedHealth; }
 export const DISCORD_ROUTE_HEALTH_STATES = Object.freeze(ROUTES.map((route) => route.state));
