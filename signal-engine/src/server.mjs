@@ -5,6 +5,7 @@ import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
+import { selectRetailersForScan } from "./retailers/scan-cooldown.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
 import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness } from "./telemetry/beta-runtime-readiness.mjs";
@@ -79,7 +80,10 @@ async function scheduledScan() {
   if (scanning) return;
   scanning = true;
   try {
-    const results = await scanAll({ retailers, store });
+    const now = Math.floor(Date.now() / 1000);
+    const retailerHealth = typeof store.listRetailers === "function" ? await store.listRetailers() : [];
+    const schedule = selectRetailersForScan(retailers, retailerHealth, { now });
+    const results = await scanAll({ retailers: schedule.active, store });
     const website = await publishWebsiteSnapshot({ store });
     const hostedFateFind = await runHostedFateFindCycle().catch((error) => ({ enabled: env.hostedFateFind.enabled, error: String(error?.message || error) }));
     if (hostedFateFind?.enabled && (Number(hostedFateFind?.evaluation?.created || 0) > 0 || hostedFateFind?.readiness?.ready === false)) {
@@ -87,6 +91,8 @@ async function scheduledScan() {
     }
     console.log(`[signal-engine] scan ${new Date().toISOString()}`, {
       registryEnabled: env.retailerRegistryEnabled,
+      activeRetailers: schedule.active.length,
+      heldRetailers: schedule.held.map((item) => ({ retailer: item.retailerId, reason: item.reason, retryAt: item.retryAt })),
       retailers: results.map((r)=>({retailer:r.retailerId,products:r.productsSeen,signals:r.signalsCreated,error:r.error})),
       website,
       hostedFateFind,
