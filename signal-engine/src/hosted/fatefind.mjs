@@ -4,9 +4,18 @@ function normalized(value = "") {
   return String(value).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function normalizedSearch(value = "") {
+  return normalized(value)
+    .replace(/\belite trainer boxes\b/g, "elite trainer box")
+    .replace(/\betbs\b/g, "elite trainer box")
+    .replace(/\betb\b/g, "elite trainer box")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function queryMatches(query, title) {
-  const wanted = normalized(query).split(" ").filter(Boolean);
-  const haystack = normalized(title);
+  const wanted = normalizedSearch(query).split(" ").filter(Boolean);
+  const haystack = normalizedSearch(title);
   return wanted.length > 0 && wanted.every((token) => haystack.includes(token));
 }
 
