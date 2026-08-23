@@ -45,6 +45,10 @@ function multiPackQuantity(title = "") {
   return Number.isFinite(quantity) && quantity > 1 ? quantity : null;
 }
 
+function packFormatVariant(title = "") {
+  return /\bsleeved booster(?: pack)?\b/.test(fold(title)) ? "sleeved" : "standard";
+}
+
 function setTokens(title = "") {
   const text = fold(title)
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
@@ -56,21 +60,23 @@ function setTokens(title = "") {
   return [...new Set(text.split(" ").filter((token) => token.length >= 3))];
 }
 
-function isVerifiedSingleBooster(product) {
+function isVerifiedSingleBooster(product, expectedVariant = "standard") {
   if (!authoritative(product) || product.productType !== "booster_pack") return false;
   const text = fold(product.title);
   if (!/\bbooster pack\b/.test(text)) return false;
   if (/\b(?:bundle|blister|checklane|collection|promo|box|display)\b/.test(text)) return false;
   if (multiPackQuantity(product.title)) return false;
+  if (packFormatVariant(product.title) !== expectedVariant) return false;
   return true;
 }
 
 function basePackReference(input, products = []) {
   const targetTokens = setTokens(input.title);
+  const targetVariant = input.formatVariant || packFormatVariant(input.title);
   if (targetTokens.length < 2) return { resolved: false, reason: "reference_identity_too_weak" };
 
   const candidates = (products || []).filter((product) => {
-    if (!isVerifiedSingleBooster(product)) return false;
+    if (!isVerifiedSingleBooster(product, targetVariant)) return false;
     const candidateTokens = new Set(setTokens(product.title));
     return targetTokens.every((token) => candidateTokens.has(token));
   });
