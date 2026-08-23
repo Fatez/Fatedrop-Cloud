@@ -158,4 +158,20 @@ export function getDiscordRouteHealth() {
   return cachedHealth;
 }
 
+export async function persistDiscordRouteHealth(store, health = cachedHealth) {
+  if (!store || typeof store.pool !== "function") return { persisted: false, reason: "persistent_store_unavailable" };
+  const pool = await store.pool();
+  const { rows } = await pool.query(`
+    UPDATE fatedrop_signal_network_snapshots
+    SET metrics = jsonb_set(COALESCE(metrics, '{}'::jsonb), '{discordRouteHealth}', $1::jsonb, true)
+    WHERE id = (
+      SELECT id FROM fatedrop_signal_network_snapshots
+      ORDER BY measured_at DESC LIMIT 1
+    )
+    RETURNING id, measured_at
+  `, [JSON.stringify(health)]);
+  if (!rows[0]) return { persisted: false, reason: "network_snapshot_unavailable" };
+  return { persisted: true, measuredAt: Number(rows[0].measured_at || 0) || null };
+}
+
 export const DISCORD_ROUTE_HEALTH_STATES = Object.freeze(ROUTES.map((route) => route.state));
