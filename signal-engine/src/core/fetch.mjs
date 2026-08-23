@@ -16,10 +16,17 @@ function assertAllowedResponse(response, kind) {
   if (!response.ok) throw new Error(`${kind} request failed (${response.status})`);
 }
 
-export async function fetchCataloguePage(url) {
+function boundedTimeoutMs(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return env.fetchTimeoutMs;
+  return Math.max(3_000, Math.min(45_000, Math.round(parsed)));
+}
+
+export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs) {
   const previous = cache.get(url) || {};
+  const requestTimeoutMs = boundedTimeoutMs(timeoutMs);
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), env.fetchTimeoutMs);
+  const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
     const headers = requestHeaders("text/html,application/xhtml+xml");
     if (previous.etag) headers["if-none-match"] = previous.etag;
@@ -32,6 +39,9 @@ export async function fetchCataloguePage(url) {
     const html = await response.text();
     cache.set(url, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
     return { html, status: response.status, unchanged: false };
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error(`catalogue request timed out after ${requestTimeoutMs}ms`);
+    throw error;
   } finally {
     clearTimeout(timer);
   }
