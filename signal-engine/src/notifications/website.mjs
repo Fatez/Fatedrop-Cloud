@@ -1,4 +1,5 @@
 import { signalCapabilities } from "../core/signal-policy.mjs";
+import { buildSignalDeliveryReport, flattenSignalDeliveryMetrics } from "../telemetry/signal-delivery-report.mjs";
 
 const DEFAULT_SOURCE = "FateDrop Signal Engine";
 const LIFECYCLE_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
@@ -182,11 +183,12 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
   if (!store) return { published: false, reason: "store_missing" };
 
   const measuredAt = Math.floor(Date.now() / 1000);
-  const [stats, signals, retailers, products] = await Promise.all([
+  const [stats, signals, retailers, products, deliveryReport] = await Promise.all([
     store.stats(),
     store.listSignals({ since: measuredAt - 86_400, limit: 100 }),
     store.listRetailers(),
     typeof store.listProducts === "function" ? store.listProducts({ limit: 2000 }) : [],
+    buildSignalDeliveryReport(store, { since: measuredAt - 86_400, until: measuredAt + 1 }),
   ]);
 
   const relevantSignals = signals
@@ -213,6 +215,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       inStock: stats.currentlyAvailable ?? null,
       catalogueRetailers: retailers.length,
       healthyMonitors,
+      ...flattenSignalDeliveryMetrics(deliveryReport),
     },
     recentSignals,
     rrpReferenceProducts,
@@ -239,6 +242,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       stored: result.stored ?? null,
       measuredAt,
       signals: recentSignals.length,
+      delivery: deliveryReport.available ? deliveryReport.totals : null,
       rrpReferenceProducts: rrpReferenceProducts.length,
       rrpReferenceProcessed: result.rrpReferenceProcessed ?? 0,
       opportunities: opportunities.length,
