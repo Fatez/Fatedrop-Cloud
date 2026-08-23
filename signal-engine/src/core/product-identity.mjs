@@ -79,6 +79,7 @@ function unitKindFrom(text) {
 }
 
 function formatVariantFrom(text) {
+  if (/\bsleeved booster(?: pack)?\b/.test(text)) return "sleeved";
   if (/\bhalf booster box\b/.test(text)) return "half";
   if (/\benhanced booster box\b/.test(text)) return "enhanced";
   if (/\bdeluxe booster box\b/.test(text)) return "deluxe";
@@ -96,6 +97,7 @@ function presentationFrom(text) {
 function removeIdentityNoise(text) {
   return ` ${text} `
     .replace(/\bpokemon center\b/g, " ")
+    .replace(/\b\d{1,3}\s*cards?\b/g, " ")
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
     .replace(/\b(?:japanese|jpn|english|korean|simplified chinese|traditional chinese|chinese|french|german|italian|spanish)\b/g, " ")
     .replace(/\b(?:uk|united kingdom|us|usa|united states|jp|japan|eu|european)\b/g, " ")
