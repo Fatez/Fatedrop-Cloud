@@ -46,13 +46,15 @@ test("verified RRP survives retailer ETB abbreviation", () => {
 
 test("Pokemon Center exclusive RRP is not inherited by a standard ETB", () => {
   const registry = buildCanonicalRrpRegistry(verified);
+  // Keep the underlying set identity complete in both aliases. This test is about
+  // exclusive-vs-standard separation, not weakening identity to tolerate missing set words.
   const standard = resolveCanonicalRrp({
-    title: "Phantasmal Flames Elite Trainer Box",
+    title: "Mega Evolution Phantasmal Flames Elite Trainer Box",
     productType: "elite_trainer_box",
     tcg: "pokemon",
   }, registry);
   const exclusive = resolveCanonicalRrp({
-    title: "Pokemon Center Phantasmal Flames Elite Trainer Box",
+    title: "Pokemon Center Mega Evolution Phantasmal Flames Elite Trainer Box",
     productType: "elite_trainer_box",
     tcg: "pokemon",
   }, registry);
