@@ -20,6 +20,21 @@ function explicitlyConfigured(name) {
   return Object.prototype.hasOwnProperty.call(process.env, name) && String(process.env[name] ?? "").trim() !== "";
 }
 
+export function defaultHostedFateFindEnabled({ railwayEnvironmentName = "", store = "file", databaseUrl = "" } = {}) {
+  return String(railwayEnvironmentName).trim().toLowerCase() === "production"
+    && store === "postgres"
+    && Boolean(String(databaseUrl || "").trim());
+}
+
+const signalStore = process.env.FATEDROP_SIGNAL_STORE || "file";
+const databaseUrl = process.env.DATABASE_URL || "";
+const hostedFateFindExplicitlyConfigured = explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED");
+const hostedFateFindProductionDefault = defaultHostedFateFindEnabled({
+  railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME || "",
+  store: signalStore,
+  databaseUrl,
+});
+
 const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
 const discordBotTokens = Object.freeze({
   whisper: process.env.DISCORD_ORU_BOT_TOKEN || "",
@@ -43,9 +58,9 @@ export const env = {
   port: int("PORT", 8787),
   apiToken: process.env.FATEDROP_SIGNAL_API_TOKEN || "",
   ingestSecret: process.env.FATEDROP_SIGNAL_INGEST_SECRET || "",
-  store: process.env.FATEDROP_SIGNAL_STORE || "file",
+  store: signalStore,
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
-  databaseUrl: process.env.DATABASE_URL || "",
+  databaseUrl,
   retailerRegistryEnabled: bool("FATEDROP_RETAILER_REGISTRY_ENABLED", false),
   scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
   scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
@@ -57,8 +72,9 @@ export const env = {
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY || "",
   },
   hostedFateFind: {
-    enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", false),
-    explicitlyConfigured: explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED"),
+    enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", hostedFateFindProductionDefault),
+    explicitlyConfigured: hostedFateFindExplicitlyConfigured,
+    productionDefault: hostedFateFindProductionDefault,
     maxFindsPerRun: Math.max(1, Math.min(10000, int("FATEDROP_HOSTED_FATEFIND_MAX_PER_RUN", 2000))),
     outboxBatchSize: Math.max(1, Math.min(500, int("FATEDROP_NOTIFICATION_BATCH_SIZE", 100))),
     expoAccessToken: process.env.EXPO_ACCESS_TOKEN || "",
