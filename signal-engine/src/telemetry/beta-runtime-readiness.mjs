@@ -7,6 +7,7 @@ function defaults() {
     databaseConfigured: Boolean(env.databaseUrl),
     store: env.store,
     hostedFateFindEnabled: Boolean(env.hostedFateFind.enabled),
+    hostedFateFindExplicitlyConfigured: Boolean(env.hostedFateFind.explicitlyConfigured),
   };
 }
 
@@ -17,6 +18,7 @@ let cachedReadiness = {
   discord: getDiscordRouteHealth(),
   hostedFateFind: {
     enabled: Boolean(env.hostedFateFind.enabled),
+    explicitlyConfigured: Boolean(env.hostedFateFind.explicitlyConfigured),
     configured: Boolean(env.databaseUrl && env.store === "postgres"),
     enabledFinds: null,
     eligibleFinds: null,
@@ -36,6 +38,7 @@ function numeric(value) {
 function safeHostedSummary(row = {}, notificationReadiness = null, runtime = defaults()) {
   return {
     enabled: Boolean(runtime.hostedFateFindEnabled),
+    explicitlyConfigured: Boolean(runtime.hostedFateFindExplicitlyConfigured),
     configured: Boolean(runtime.databaseConfigured && runtime.store === "postgres"),
     enabledFinds: numeric(row.enabled_finds),
     eligibleFinds: numeric(row.eligible_finds),
@@ -135,9 +138,7 @@ export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(),
   return cachedReadiness;
 }
 
-export function getBetaRuntimeReadiness() {
-  return cachedReadiness;
-}
+export function getBetaRuntimeReadiness() { return cachedReadiness; }
 
 export async function recordBetaRuntimeReadiness({ store, runtime, discord, now = Math.floor(Date.now() / 1000) } = {}) {
   const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, now });
@@ -150,10 +151,7 @@ export async function recordBetaRuntimeReadiness({ store, runtime, discord, now 
   await store.recordNetworkSnapshot({
     id: `beta-runtime:${now}`,
     measuredAt: now,
-    metrics: {
-      ...stats,
-      betaRuntimeReadiness: readiness,
-    },
+    metrics: { ...stats, betaRuntimeReadiness: readiness },
     retailers,
   });
   return { recorded: true, readiness };
