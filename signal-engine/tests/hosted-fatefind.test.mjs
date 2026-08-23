@@ -3,13 +3,24 @@ import assert from "node:assert/strict";
 import { evaluateFateFind, notificationDeliveryPlan } from "../src/hosted/fatefind.mjs";
 
 const baseFind = { queryText:"Destined Rivals ETB",productIdentityId:null,maxItemPricePence:null,maxTruePricePence:null,maxPercentAboveRrp:null,preferredRetailerIds:[],excludedRetailerIds:[],stockRequirement:"in_stock",scope:"online" };
-const product = { id:"prd_1",title:"Pokémon TCG Destined Rivals Elite Trainer Box ETB",officialRrpPence:4999 };
+const product = { id:"prd_1",title:"Pokémon TCG Destined Rivals Elite Trainer Box",officialRrpPence:4999 };
 const offer = { offerId:"off_1",productId:"prd_1",retailerId:"indie",retailerName:"Indie Cards",title:product.title,url:"https://example.test/p",pricePence:5299,postagePence:299,stockStatus:"in_stock" };
 
-test("hosted FateFind matches query, stock and known True Price",()=>{
+test("hosted FateFind treats ETB as Elite Trainer Box across retailer naming",()=>{
   const result=evaluateFateFind({...baseFind,maxTruePricePence:5600},offer,product);
   assert.equal(result.matched,true);
   assert.equal(result.deliveredPricePence,5598);
+});
+
+test("hosted FateFind treats plural ETBs as Elite Trainer Box",()=>{
+  const result=evaluateFateFind({...baseFind,queryText:"Destined Rivals ETBs"},offer,product);
+  assert.equal(result.matched,true);
+});
+
+test("ETB alias expansion does not remove the set-name requirement",()=>{
+  const result=evaluateFateFind({...baseFind,queryText:"Journey Together ETB"},offer,product);
+  assert.equal(result.matched,false);
+  assert.deepEqual(result.reasons,["query-mismatch"]);
 });
 
 test("unknown delivery never satisfies a True Price ceiling",()=>{
