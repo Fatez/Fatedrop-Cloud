@@ -1,6 +1,7 @@
 import { env } from "../config/env.mjs";
 import { buildFateMatchNotificationReadiness } from "../hosted/notification-readiness.mjs";
 import { getDiscordRouteHealth } from "./discord-route-health.mjs";
+import { buildFateFindEvaluatorPreflight } from "./fatefind-evaluator-preflight.mjs";
 
 function defaults() {
   return {
@@ -28,6 +29,7 @@ let cachedReadiness = {
     hostedMatches24h: null,
     notificationReadiness: null,
   },
+  fateFindEvaluator: null,
 };
 
 function numeric(value) {
@@ -50,11 +52,18 @@ function safeHostedSummary(row = {}, notificationReadiness = null, runtime = def
   };
 }
 
-export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checkedAt = new Date().toISOString() } = {}) {
+export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, fateFindEvaluator = null, checkedAt = new Date().toISOString() } = {}) {
   const eligibleFinds = numeric(hostedFateFind?.eligibleFinds);
   const webBaselineReady = eligibleFinds === 0 || numeric(hostedFateFind?.webReadyFinds) === eligibleFinds;
   const notificationQueueReady = hostedFateFind?.notificationReadiness?.ready !== false;
-  const infrastructureReady = Boolean(discord?.ready) && Boolean(hostedFateFind?.configured) && webBaselineReady && notificationQueueReady;
+  const evaluatorReady = eligibleFinds === 0
+    || fateFindEvaluator == null
+    || (fateFindEvaluator?.available === true && fateFindEvaluator?.complete === true);
+  const infrastructureReady = Boolean(discord?.ready)
+    && Boolean(hostedFateFind?.configured)
+    && webBaselineReady
+    && notificationQueueReady
+    && evaluatorReady;
   const hostedActivationReady = eligibleFinds === 0 || hostedFateFind?.enabled === true;
   return {
     checkedAt,
@@ -62,6 +71,7 @@ export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checked
     infrastructureReady,
     discord,
     hostedFateFind,
+    fateFindEvaluator,
   };
 }
 
@@ -134,7 +144,20 @@ export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(),
     };
   }
 
-  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checkedAt });
+  let fateFindEvaluator;
+  try {
+    fateFindEvaluator = await buildFateFindEvaluatorPreflight(store, { now });
+  } catch {
+    fateFindEvaluator = {
+      available: false,
+      featureEnabled: Boolean(runtime.hostedFateFindEnabled),
+      generatedAt: now,
+      complete: false,
+      reason: "evaluator_preflight_failed",
+    };
+  }
+
+  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, fateFindEvaluator, checkedAt });
   return cachedReadiness;
 }
 
