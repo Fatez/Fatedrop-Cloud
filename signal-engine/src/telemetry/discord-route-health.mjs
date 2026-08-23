@@ -26,7 +26,7 @@ async function safeJson(response) {
 }
 
 function routeBase(state, companion) {
-  return { state, companion, configured: false, ready: false, reason: null, botUsername: null, channelName: null };
+  return { state, companion, configured: false, ready: false, reason: null, botUsername: null, channelName: null, identityRepaired: false };
 }
 
 export function emptyDiscordRouteHealth({ enabled = env.discord.enabled, now = () => Date.now() } = {}) {
@@ -54,6 +54,23 @@ async function botIdentity(fetchImpl, token) {
   const username = String(payload?.username || payload?.global_name || "").trim();
   if (!username) return { ok: false, reason: "discord_identity_missing_username" };
   return { ok: true, username };
+}
+
+function isKnownCanonicalTypo(state, companion, username) {
+  return state === "vanished"
+    && normalizedIdentity(companion) === "nixon"
+    && normalizedIdentity(username) === "nixen";
+}
+
+async function repairKnownCanonicalTypo(fetchImpl, token, state, companion, username) {
+  if (!isKnownCanonicalTypo(state, companion, username)) return { attempted: false, ok: false, reason: null };
+  const response = await fetchImpl(`${DISCORD_API}/users/@me`, {
+    method: "PATCH",
+    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ username: companion }),
+  });
+  if (!response?.ok) return { attempted: true, ok: false, reason: safeReason("discord_identity_repair_http", response) };
+  return { attempted: true, ok: true, reason: null };
 }
 
 async function channelIdentity(fetchImpl, token, channelId) {
@@ -100,19 +117,32 @@ export async function checkDiscordRouteHealth({
     }
 
     try {
-      const identity = await botIdentity(fetchImpl, token);
+      let identity = await botIdentity(fetchImpl, token);
       if (!identity.ok) {
         routes.push({ ...base, configured: true, reason: identity.reason });
         continue;
       }
+
+      let identityRepaired = false;
       if (!normalizedIdentity(identity.username).includes(normalizedIdentity(companion))) {
-        routes.push({ ...base, configured: true, reason: "bot_identity_mismatch", botUsername: identity.username });
-        continue;
+        const repair = await repairKnownCanonicalTypo(fetchImpl, token, state, companion, identity.username);
+        if (repair.attempted && !repair.ok) {
+          routes.push({ ...base, configured: true, reason: repair.reason, botUsername: identity.username });
+          continue;
+        }
+        if (repair.ok) {
+          identity = await botIdentity(fetchImpl, token);
+          identityRepaired = true;
+        }
+        if (!identity.ok || !normalizedIdentity(identity.username).includes(normalizedIdentity(companion))) {
+          routes.push({ ...base, configured: true, reason: "bot_identity_mismatch", botUsername: identity.username || null, identityRepaired });
+          continue;
+        }
       }
 
       const channel = await channelIdentity(fetchImpl, token, channelId);
       if (!channel.ok) {
-        routes.push({ ...base, configured: true, reason: channel.reason, botUsername: identity.username });
+        routes.push({ ...base, configured: true, reason: channel.reason, botUsername: identity.username, identityRepaired });
         continue;
       }
 
@@ -124,6 +154,7 @@ export async function checkDiscordRouteHealth({
           reason: sendAccess.reason,
           botUsername: identity.username,
           channelName: channel.name,
+          identityRepaired,
         });
         continue;
       }
@@ -134,6 +165,7 @@ export async function checkDiscordRouteHealth({
         ready: true,
         botUsername: identity.username,
         channelName: channel.name,
+        identityRepaired,
       });
     } catch {
       routes.push({ ...base, configured: true, reason: "discord_route_check_failed" });
