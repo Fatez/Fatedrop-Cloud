@@ -23,11 +23,19 @@ const collectorEntry = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const restartBaseMs = Math.max(30_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESTART_BASE_MS || "60000", 10) || 60_000);
 const restartMaxMs = Math.max(restartBaseMs, Math.min(3_600_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_RESTART_MAX_MS || "1800000", 10) || 1_800_000));
 const stableRuntimeMs = Math.max(300_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_STABLE_RUNTIME_MS || "1200000", 10) || 1_200_000);
+const repeatedFailureCooldownMs = Math.max(300_000, Math.min(3_600_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_REPEATED_FAILURE_COOLDOWN_MS || "600000", 10) || 600_000));
+const safeMinimumCycleMs = Math.max(300_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_CYCLE_MS || "300000", 10) || 300_000);
+const safeMinimumSettleMs = Math.max(4_000, Number.parseInt(process.env.FATEDROP_COLLECTOR_SETTLE_MS || "4000", 10) || 4_000);
 const accessCooldowns = {
   queue: Number.parseInt(process.env.FATEDROP_COLLECTOR_QUEUE_COOLDOWN_MS || "300000", 10),
   security: Number.parseInt(process.env.FATEDROP_COLLECTOR_SECURITY_COOLDOWN_MS || "900000", 10),
   access_blocked: Number.parseInt(process.env.FATEDROP_COLLECTOR_ACCESS_BLOCK_COOLDOWN_MS || "3600000", 10),
 };
+
+// The supervisor owns the safe lower bounds for the long-running host. A local
+// .env may raise these values but cannot make supervised scans more aggressive.
+process.env.FATEDROP_COLLECTOR_CYCLE_MS = String(safeMinimumCycleMs);
+process.env.FATEDROP_COLLECTOR_SETTLE_MS = String(safeMinimumSettleMs);
 
 let child = null;
 let stopping = false;
@@ -38,6 +46,8 @@ let childStartedAt = 0;
 let outputWindow = "";
 let cooldownStopTimer = null;
 let lastCooldownKind = null;
+let rejectedRotations = 0;
+let lastRejectedCycle = null;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,25 +73,49 @@ function accessKindFromOutput(text) {
   return null;
 }
 
+function scheduleCollectorStop(reason) {
+  if (cooldownStopTimer) clearTimeout(cooldownStopTimer);
+  cooldownStopTimer = setTimeout(() => {
+    cooldownStopTimer = null;
+    stopCollector(reason);
+  }, 10_000);
+  cooldownStopTimer.unref?.();
+}
+
 function armAccessCooldown(kind) {
-  if (!kind || kind === lastCooldownKind && Date.now() < restartNotBefore) return;
+  if (!kind || (kind === lastCooldownKind && Date.now() < restartNotBefore)) return;
   const delayMs = supervisorAccessCooldownMs(kind, accessCooldowns);
   restartNotBefore = Math.max(restartNotBefore, Date.now() + delayMs);
   lastCooldownKind = kind;
   console.log(`🧊 Retailer ${kind.replaceAll("_", " ")} detected; pausing collector restarts for at least ${Math.ceil(delayMs / 60_000)} minute(s) to avoid repeated access pressure.`);
+  scheduleCollectorStop(`retailer ${kind.replaceAll("_", " ")} cooldown`);
+}
 
-  if (cooldownStopTimer) clearTimeout(cooldownStopTimer);
-  cooldownStopTimer = setTimeout(() => {
-    cooldownStopTimer = null;
-    stopCollector(`retailer ${kind.replaceAll("_", " ")} cooldown`);
-  }, 10_000);
-  cooldownStopTimer.unref?.();
+function noteRejectedRotation(text) {
+  const matches = [...text.matchAll(/Rotation\s+(\d+)\s+rejected:/gi)];
+  const latest = matches.at(-1)?.[1] ?? null;
+  if (!latest || latest === lastRejectedCycle) return;
+  lastRejectedCycle = latest;
+  rejectedRotations += 1;
+
+  if (rejectedRotations < 2) return;
+  restartNotBefore = Math.max(restartNotBefore, Date.now() + repeatedFailureCooldownMs);
+  console.log(`🧯 ${rejectedRotations} rejected rotations detected in this collector session; pausing for at least ${Math.ceil(repeatedFailureCooldownMs / 60_000)} minute(s) before trying again.`);
+  scheduleCollectorStop("repeated rejected rotations cooldown");
+}
+
+function noteSuccessfulRotation(text) {
+  if (!/Rotation\s+\d+\s+ingested/gi.test(text)) return;
+  rejectedRotations = 0;
+  lastRejectedCycle = null;
 }
 
 function relayCollectorOutput(stream, destination) {
   stream.on("data", (chunk) => {
     destination.write(chunk);
     outputWindow = `${outputWindow}${chunk.toString("utf8")}`.slice(-8_000);
+    noteSuccessfulRotation(outputWindow);
+    noteRejectedRotation(outputWindow);
     const kind = accessKindFromOutput(outputWindow);
     if (kind) armAccessCooldown(kind);
   });
@@ -92,6 +126,8 @@ function launchCollector() {
   console.log("🚀 Chrome CDP is ready; starting FateDrop Pokémon Center collector...");
   outputWindow = "";
   lastCooldownKind = null;
+  rejectedRotations = 0;
+  lastRejectedCycle = null;
   childStartedAt = Date.now();
   child = spawn(process.execPath, [collectorEntry], {
     stdio: ["inherit", "pipe", "pipe"],
@@ -127,6 +163,7 @@ async function supervise() {
   console.log("🛰️  FateDrop Pokémon Center collector supervisor");
   console.log(`🔌 Watching Chrome CDP: ${probeUrl}`);
   console.log(`⏱️  Supervisor probe interval: ${Math.round(intervalMs / 1000)}s`);
+  console.log(`🐢 Safe full-catalogue pacing: ≥${Math.round(safeMinimumCycleMs / 60_000)}m per rotation · ≥${(safeMinimumSettleMs / 1000).toFixed(1)}s settle between catalogue page actions`);
   console.log(`🧯 Restart backoff: ${Math.round(restartBaseMs / 1000)}s base → ${Math.round(restartMaxMs / 60_000)}m max`);
   console.log("🛡️  Access-control cooldowns are fail-closed: queue/security/block evidence pauses retries rather than bypassing retailer controls.");
 
