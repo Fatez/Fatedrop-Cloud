@@ -51,6 +51,24 @@ The scheduled task:
 
 The browser collector still requires a real interactive Windows session. If the host PC is powered off or the user is fully logged out, Pokémon Center monitoring is unavailable until that host session returns. FateDrop reports the source stale rather than pretending the browser collector is live.
 
+### Rate-safe self-healing
+
+The supervisor is deliberately conservative because repeatedly walking a large catalogue can create retailer pressure and eventually lead to temporary access or IP restrictions.
+
+In long-running supervised mode FateDrop therefore enforces these lower bounds even if an older local `.env` requests a faster setting:
+
+- full catalogue rotation: **no faster than once every 5 minutes**;
+- settle between catalogue page actions: **at least 4 seconds**;
+- two rejected rotations in one collector session: **10-minute cooldown** before another collector attempt;
+- queue / traffic-control evidence: **at least 5-minute cooldown**;
+- security-verification evidence: **at least 15-minute cooldown**;
+- explicit access-block evidence: **at least 60-minute cooldown**;
+- repeated child-process crashes: exponential restart backoff from **1 minute up to 30 minutes**.
+
+These values are defaults/minimums, not a promise about Pokémon Center's own thresholds. They are intentionally fail-closed: if access conditions deteriorate, FateDrop reduces requests and preserves the last verified catalogue rather than trying to push through the retailer control.
+
+Longer values can be configured in `.env`. The supervisor will not accept values below the safe cycle/page-action floors for continuous operation.
+
 To remove the automatic startup task later:
 
 ```powershell
@@ -71,7 +89,7 @@ Then run the normal long-running collector command:
 npm start
 ```
 
-`npm start` uses the supervisor. The supervisor only watches Chrome's normal CDP endpoint. It does not change the retailer-observation logic. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it launches a fresh collector process and reconnects normally.
+`npm start` uses the supervisor. The supervisor watches Chrome's normal CDP endpoint, enforces the safe pacing/cooldown policy above, and launches the existing collector as a child process. If Chrome/CDP disappears it stops the child collector rather than letting a dead browser reference keep looping; when Chrome becomes available again it waits for any active cooldown and then reconnects normally.
 
 For a one-off direct/debug run without the supervisor:
 
@@ -79,12 +97,11 @@ For a one-off direct/debug run without the supervisor:
 npm run start:direct
 ```
 
-Optional supervisor settings:
+`start:direct` is for deliberate one-off debugging. Continuous monitoring should use `npm start` so the pacing, cooldown and restart safeguards remain active.
 
-- `FATEDROP_COLLECTOR_SUPERVISOR_INTERVAL_MS` — CDP probe interval, minimum 5 seconds, default 10 seconds.
-- `FATEDROP_COLLECTOR_SUPERVISOR_TIMEOUT_MS` — individual CDP probe timeout, bounded to 1–10 seconds, default 3 seconds.
+Optional supervisor settings are documented in `.env.example`, including the CDP probe interval/timeout, restart backoff and readiness cooldowns.
 
-The collector verifies the captured unique product count against Pokémon Center's own `numFound` value before anything is sent to FateDrop Cloud. An incomplete scan is rejected.
+The collector verifies the captured unique product count against Pokémon Center's own `numFound` value before anything is sent to FateDrop Cloud. An incomplete scan is rejected and the last verified cloud catalogue remains intact.
 
 The external ingest path uses the normal FateDrop lifecycle engine:
 
