@@ -72,6 +72,32 @@ function quietHoursDelaySeconds(prefs, now) {
   return 0;
 }
 
+function money(pence) {
+  if (!Number.isFinite(pence)) return null;
+  return `£${(pence / 100).toFixed(2)}`;
+}
+
+export function buildFateMatchNotification({ find, offer, product, result }) {
+  const productTitle = product?.title || offer.title || "Your hunted product";
+  const delivered = money(result?.deliveredPricePence);
+  const itemPrice = money(offer?.pricePence);
+  const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
+  const isPreorder = offer?.stockStatus === "preorder";
+  const huntLabel = String(find?.queryText || productTitle).trim();
+
+  return {
+    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
+    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
+    payload: {
+      urgency: "high",
+      companion: "Koru",
+      huntQuery: huntLabel,
+      stockStatus: offer?.stockStatus || null,
+      deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
+    },
+  };
+}
+
 export function notificationDeliveryPlan(prefs = {}, findNotifications = {}, now = Math.floor(Date.now() / 1000)) {
   const fateMatchEnabled = prefs.fate_match_enabled !== false;
   const enabled = {
@@ -193,12 +219,19 @@ async function enqueueFateMatchNotifications(pool, { id, find, offer, product, r
   const prefsResult = await pool.query("SELECT * FROM fatedrop_notification_preferences WHERE user_id=$1", [find.userId]).catch(() => ({ rows: [] }));
   const prefs = prefsResult.rows[0] || {};
   const plan = notificationDeliveryPlan(prefs, find.notifications, now);
-  const delivered = Number.isFinite(result.deliveredPricePence) ? `£${(result.deliveredPricePence / 100).toFixed(2)} delivered` : Number.isFinite(offer.pricePence) ? `£${(offer.pricePence / 100).toFixed(2)} + delivery unknown` : "price unavailable";
-  const title = `FateMatch · ${product?.title || offer.title}`;
-  const body = `${offer.retailerName} matched your FateFind at ${delivered}.`;
+  const notification = buildFateMatchNotification({ find, offer, product, result });
   for (const channel of ["web", "push", "discord"]) {
     const state = plan.enabled[channel] ? "pending" : "suppressed";
     const nextAttemptAt = plan.nextAttemptAt[channel];
-    await pool.query(`INSERT INTO fatedrop_notification_outbox (id,dedupe_key,user_id,event_type,event_id,channel,title,body,url,payload_json,state,attempts,next_attempt_at,created_at,updated_at) VALUES ($1,$2,$3,'fate_match',$4,$5,$6,$7,$8,$9::jsonb,$10,0,$11,$12,$12) ON CONFLICT (dedupe_key) DO NOTHING`, [stableId("out",`${id}:${channel}`),`${id}:${channel}`,find.userId,id,channel,title,body,offer.url,JSON.stringify({ fateMatchId:id,fateFindId:find.id,offerId:offer.offerId,productId:offer.productId,retailerId:offer.retailerId,deliveredPricePence:result.deliveredPricePence,quietUntil:plan.quietUntil }),state,nextAttemptAt,now]);
+    const payload = {
+      fateMatchId: id,
+      fateFindId: find.id,
+      offerId: offer.offerId,
+      productId: offer.productId,
+      retailerId: offer.retailerId,
+      quietUntil: plan.quietUntil,
+      ...notification.payload,
+    };
+    await pool.query(`INSERT INTO fatedrop_notification_outbox (id,dedupe_key,user_id,event_type,event_id,channel,title,body,url,payload_json,state,attempts,next_attempt_at,created_at,updated_at) VALUES ($1,$2,$3,'fate_match',$4,$5,$6,$7,$8,$9::jsonb,$10,0,$11,$12,$12) ON CONFLICT (dedupe_key) DO NOTHING`, [stableId("out",`${id}:${channel}`),`${id}:${channel}`,find.userId,id,channel,notification.title,notification.body,offer.url,JSON.stringify(payload),state,nextAttemptAt,now]);
   }
 }

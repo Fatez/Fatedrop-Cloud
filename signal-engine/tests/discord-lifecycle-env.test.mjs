@@ -10,6 +10,10 @@ function readDiscordEnv(overrides = {}) {
   for (const name of [
     "FATEDROP_DISCORD_ENABLED",
     "DISCORD_BOT_TOKEN",
+    "DISCORD_ORU_BOT_TOKEN",
+    "DISCORD_FENN_BOT_TOKEN",
+    "DISCORD_KORU_BOT_TOKEN",
+    "DISCORD_NIXON_BOT_TOKEN",
     "DISCORD_PREMIUM_DROPS_CHANNEL_ID",
     "DISCORD_WHISPER_CHANNEL_ID",
     "DISCORD_ECHO_CHANNEL_ID",
@@ -28,7 +32,7 @@ function readDiscordEnv(overrides = {}) {
   return JSON.parse(result.stdout.trim());
 }
 
-test("Discord auto-enables with bot token and any lifecycle-specific channel", () => {
+test("Discord auto-enables with legacy bot token and any lifecycle-specific channel", () => {
   const discord = readDiscordEnv({
     DISCORD_BOT_TOKEN: "test-token",
     DISCORD_MANIFESTED_CHANNEL_ID: "333",
@@ -38,9 +42,22 @@ test("Discord auto-enables with bot token and any lifecycle-specific channel", (
   assert.equal(discord.premiumDropsChannelId, "");
 });
 
-test("all lifecycle channel IDs are exposed independently", () => {
+test("Discord auto-enables with lifecycle bot token and matching channel", () => {
   const discord = readDiscordEnv({
-    DISCORD_BOT_TOKEN: "test-token",
+    DISCORD_KORU_BOT_TOKEN: "koru-token",
+    DISCORD_MANIFESTED_CHANNEL_ID: "333",
+  });
+  assert.equal(discord.enabled, true);
+  assert.equal(discord.botToken, "");
+  assert.equal(discord.botTokens.manifested, "koru-token");
+});
+
+test("all lifecycle channel IDs and companion bot tokens are exposed independently", () => {
+  const discord = readDiscordEnv({
+    DISCORD_ORU_BOT_TOKEN: "oru-token",
+    DISCORD_FENN_BOT_TOKEN: "fenn-token",
+    DISCORD_KORU_BOT_TOKEN: "koru-token",
+    DISCORD_NIXON_BOT_TOKEN: "nixon-token",
     DISCORD_WHISPER_CHANNEL_ID: "111",
     DISCORD_ECHO_CHANNEL_ID: "222",
     DISCORD_MANIFESTED_CHANNEL_ID: "333",
@@ -51,5 +68,11 @@ test("all lifecycle channel IDs are exposed independently", () => {
     echo: "222",
     manifested: "333",
     vanished: "444",
+  });
+  assert.deepEqual(discord.botTokens, {
+    whisper: "oru-token",
+    echo: "fenn-token",
+    manifested: "koru-token",
+    vanished: "nixon-token",
   });
 });
