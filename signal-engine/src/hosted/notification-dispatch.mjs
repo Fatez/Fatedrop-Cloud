@@ -29,11 +29,12 @@ async function deliverPush(pool, row, fetchImpl) {
 }
 
 async function deliverDiscord(pool, row, fetchImpl) {
-  if (!env.discord.enabled || !env.discord.botToken) return { sent: false, terminal: false, detail: "discord-not-configured" };
+  const botToken = env.discord.botTokens?.manifested || env.discord.botToken;
+  if (!env.discord.enabled || !botToken) return { sent: false, terminal: false, detail: "discord-not-configured" };
   const { rows } = await pool.query("SELECT discord_user_id FROM fatedrop_discord_links WHERE user_id=$1", [row.user_id]);
   const discordUserId = rows[0]?.discord_user_id;
   if (!discordUserId) return { sent: false, terminal: true, detail: "discord-not-linked" };
-  const auth = { Authorization: `Bot ${env.discord.botToken}`, "Content-Type": "application/json" };
+  const auth = { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" };
   const channelResponse = await fetchImpl(`${DISCORD_API}/users/@me/channels`, { method: "POST", headers: auth, body: JSON.stringify({ recipient_id: discordUserId }) });
   if (!channelResponse.ok) return { sent: false, terminal: false, detail: `discord-dm-channel-${channelResponse.status}` };
   const channel = await channelResponse.json();
@@ -48,7 +49,7 @@ async function deliverWeb(row) {
 }
 
 export async function dispatchNotificationOutbox(pool, { limit = env.hostedFateFind.outboxBatchSize, now = Math.floor(Date.now()/1000), fetchImpl = fetch } = {}) {
-  const { rows } = await pool.query("SELECT * FROM fatedrop_notification_outbox WHERE state IN ('pending','failed') AND next_attempt_at <= $1 ORDER BY created_at ASC LIMIT $2", [now, limit]);
+  const { rows } = await pool.query("SELECT * FROM fatedrop_notification_outbox WHERE state IN ('pending','failed') AND next_attempt_at <= $1 ORDER BY CASE WHEN event_type='fate_match' THEN 0 ELSE 1 END, created_at ASC LIMIT $2", [now, limit]);
   const summary = { attempted: 0, sent: 0, failed: 0, suppressed: 0 };
   for (const row of rows) {
     summary.attempted += 1;
