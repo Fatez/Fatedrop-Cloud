@@ -4,6 +4,7 @@ import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
+import { buildCanonicalRrpRegistry, resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
 import { resolveRetailerDelivery } from "./delivery-policies.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
@@ -63,6 +64,38 @@ async function safeRunFinish(store, payload) {
   catch (error) { console.error("[monitor] run-finish telemetry failed", { runId: payload.runId, error: String(error?.message || error) }); }
 }
 
+async function loadCanonicalRrpRegistry(store) {
+  if (!store || typeof store.listProducts !== "function") return buildCanonicalRrpRegistry([]);
+  try {
+    const products = await store.listProducts({ limit: 5000 });
+    return buildCanonicalRrpRegistry(products);
+  } catch (error) {
+    console.error("[rrp] canonical registry preload failed", { error: String(error?.message || error) });
+    return buildCanonicalRrpRegistry([]);
+  }
+}
+
+function productIdentityForRrp(raw, retailer) {
+  return {
+    title: raw.title,
+    productType: raw.productType,
+    tcg: retailer.tcg || "pokemon",
+    language: raw.language,
+    region: raw.region,
+    edition: raw.edition,
+    packCount: raw.packCount,
+    caseQuantity: raw.caseQuantity,
+    unitKind: raw.unitKind,
+    formatVariant: raw.formatVariant,
+    presentation: raw.presentation,
+    identifiers: raw.gtin ? { ...(raw.identifiers || {}), gtin: raw.gtin } : raw.identifiers,
+  };
+}
+
+function validRrp(value) {
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
 function dedupeCanonicalProducts(products) {
   const byId = new Map();
   for (const product of products) {
@@ -95,10 +128,12 @@ function shouldPersistObservation(previousOffer, currentOffer) {
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
+  const rrpRegistry = await loadCanonicalRrpRegistry(store);
   const products = [];
   const offers = [];
   const observations = [];
   const signals = [];
+  let rrpInherited = 0;
 
   const prepared = rawProducts.map((rawInput) => {
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
@@ -116,9 +151,16 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const previousProduct = previousState
       ? previousState.products.get(productId) ?? null
       : await store.getProduct(productId);
-    const explicitOfficialRrp = raw.officialRrpPence ?? null;
-    const hasFreshOfficialRrp = retailer.officialRrpSource && explicitOfficialRrp != null;
-    const officialRrpPence = hasFreshOfficialRrp ? explicitOfficialRrp : previousProduct?.officialRrpPence ?? null;
+    const explicitOfficialRrp = validRrp(raw.officialRrpPence);
+    const hasFreshOfficialRrp = Boolean(retailer.officialRrpSource && explicitOfficialRrp != null);
+    const previousOfficialRrp = validRrp(previousProduct?.officialRrpPence);
+    const inheritedRrp = !hasFreshOfficialRrp && previousOfficialRrp == null
+      ? resolveCanonicalRrp(productIdentityForRrp(raw, retailer), rrpRegistry)
+      : { resolved: false };
+    if (inheritedRrp.resolved) rrpInherited += 1;
+    const officialRrpPence = hasFreshOfficialRrp
+      ? explicitOfficialRrp
+      : previousOfficialRrp ?? (inheritedRrp.resolved ? inheritedRrp.officialRrpPence : null);
     const product = {
       id: productId,
       canonicalKey: raw.canonicalKey,
@@ -126,8 +168,12 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       productType: raw.productType,
       tcg: retailer.tcg || "pokemon",
       officialRrpPence,
-      rrpSource: hasFreshOfficialRrp ? retailer.id : previousProduct?.rrpSource ?? null,
-      rrpObservedAt: hasFreshOfficialRrp ? now : previousProduct?.rrpObservedAt ?? null,
+      rrpSource: hasFreshOfficialRrp
+        ? retailer.id
+        : previousProduct?.rrpSource ?? (inheritedRrp.resolved ? inheritedRrp.rrpSource : null),
+      rrpObservedAt: hasFreshOfficialRrp
+        ? now
+        : previousProduct?.rrpObservedAt ?? (inheritedRrp.resolved ? inheritedRrp.rrpObservedAt : null),
       firstSeenAt: previousProduct?.firstSeenAt ?? now,
       updatedAt: now,
     };
@@ -170,7 +216,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
   const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, signals, discord };
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, rrpInherited, signals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
@@ -250,7 +296,7 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
       catalogueComplete: status === "success",
       failureCode: result?.skipReason || (result?.error ? "scan_failed" : null),
       failureDetail: result?.error || null,
-      diagnostics: { signalsCreated: result?.signalsCreated ?? 0 },
+      diagnostics: { signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0 },
     });
     return result;
   } catch (error) {
