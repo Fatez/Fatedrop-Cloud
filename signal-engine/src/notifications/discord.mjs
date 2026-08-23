@@ -126,6 +126,13 @@ export function discordChannelForState(state, {
   return channelIds?.[state] || fallbackChannelId || "";
 }
 
+export function discordBotTokenForState(state, {
+  botTokens = env.discord.botTokens,
+  fallbackBotToken = env.discord.botToken,
+} = {}) {
+  return botTokens?.[state] || fallbackBotToken || "";
+}
+
 export function isDiscordSignal(signal) {
   return Boolean(signal && DISCORD_SIGNAL_STATES.has(signal.state));
 }
@@ -175,20 +182,23 @@ export function buildDiscordSignalMessage(signal) {
 export async function sendDiscordSignal(signal, {
   fetchImpl = fetch,
   enabled = env.discord.enabled,
-  botToken = env.discord.botToken,
+  botToken = null,
+  botTokens = env.discord.botTokens,
+  fallbackBotToken = env.discord.botToken,
   channelId = null,
   channelIds = env.discord.channelIds,
   fallbackChannelId = env.discord.premiumDropsChannelId,
 } = {}) {
   if (!isDiscordSignal(signal)) return { sent: false, reason: "state_not_enabled" };
-  if (!botToken) return { sent: false, reason: "missing_bot_token" };
+  const resolvedBotToken = botToken || discordBotTokenForState(signal.state, { botTokens, fallbackBotToken });
+  if (!resolvedBotToken) return { sent: false, reason: "missing_bot_token" };
   const resolvedChannelId = channelId || discordChannelForState(signal.state, { channelIds, fallbackChannelId });
   if (!resolvedChannelId) return { sent: false, reason: "missing_channel_id" };
   if (!enabled) return { sent: false, reason: "disabled" };
 
   const response = await fetchImpl(`${DISCORD_API}/channels/${resolvedChannelId}/messages`, {
     method: "POST",
-    headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bot ${resolvedBotToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(buildDiscordSignalMessage(signal)),
   });
 
@@ -198,7 +208,7 @@ export async function sendDiscordSignal(signal, {
   }
 
   const payload = await response.json().catch(() => ({}));
-  return { sent: true, messageId: payload.id ?? null, channelId: resolvedChannelId };
+  return { sent: true, messageId: payload.id ?? null, channelId: resolvedChannelId, companion: companionForSignal(signal.state) };
 }
 
 export async function dispatchDiscordSignals(signals, options = {}) {
