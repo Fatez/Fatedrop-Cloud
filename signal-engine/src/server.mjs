@@ -1,6 +1,7 @@
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
-import { scanAll } from "./core/engine.mjs";
+import { scanAll, scanRetailer } from "./core/engine.mjs";
+import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
@@ -75,11 +76,36 @@ server.on("request", async (req, res) => {
 let scanning = false;
 let refreshingAuthoritativeRrp = false;
 let checkingDiscordRoutes = false;
+
 async function scheduledScan() {
   if (scanning) return;
   scanning = true;
   try {
-    const results = await scanAll({ retailers, store });
+    const now = Math.floor(Date.now() / 1000);
+    const healthRows = await store.listRetailers().catch((error) => {
+      console.error("[signal-engine] retailer health preload failed; using normal scan schedule", { error: String(error?.message || error) });
+      return [];
+    });
+    const healthByRetailer = new Map(healthRows.map((health) => [health.id, health]));
+    const scanWithBackoff = async (args) => {
+      const decision = retailerScanScheduleDecision(args.retailer, healthByRetailer.get(args.retailer.id), {
+        now,
+        globalIntervalSeconds: env.scanIntervalSeconds,
+      });
+      if (!decision.eligible) {
+        return {
+          retailerId: args.retailer.id,
+          retailerName: args.retailer.name,
+          skipped: true,
+          skipReason: decision.reason,
+          nextScanAt: decision.nextScanAt,
+          signalsCreated: 0,
+        };
+      }
+      return scanRetailer(args);
+    };
+
+    const results = await scanAll({ retailers, store, scanRetailerFn: scanWithBackoff });
     const website = await publishWebsiteSnapshot({ store });
     const hostedFateFind = await runHostedFateFindCycle().catch((error) => ({ enabled: env.hostedFateFind.enabled, error: String(error?.message || error) }));
     if (hostedFateFind?.enabled && (Number(hostedFateFind?.evaluation?.created || 0) > 0 || hostedFateFind?.readiness?.ready === false)) {
@@ -87,7 +113,7 @@ async function scheduledScan() {
     }
     console.log(`[signal-engine] scan ${new Date().toISOString()}`, {
       registryEnabled: env.retailerRegistryEnabled,
-      retailers: results.map((r)=>({retailer:r.retailerId,products:r.productsSeen,signals:r.signalsCreated,error:r.error})),
+      retailers: results.map((r)=>({ retailer:r.retailerId, products:r.productsSeen, signals:r.signalsCreated, skipped:r.skipped, skipReason:r.skipReason, nextScanAt:r.nextScanAt, error:r.error })),
       website,
       hostedFateFind,
     });
