@@ -23,6 +23,11 @@ function tcgsFor(retailer) {
   return [...new Set(raw.map((value) => text(String(value)).toLowerCase()).filter(Boolean))];
 }
 
+function physicalLocationsFor(retailer) {
+  const count = Number(retailer?.physicalLocations);
+  return Number.isFinite(count) && count > 0 ? Math.trunc(count) : 0;
+}
+
 export function buildPublicRetailerDirectory({ retailers = [], healthRows = [] } = {}) {
   const healthById = new Map((healthRows || []).map((health) => [health.id, health]));
   return (retailers || []).map((retailer) => {
@@ -35,6 +40,7 @@ export function buildPublicRetailerDirectory({ retailers = [], healthRows = [] }
       verification: verificationState(retailer),
       tcgs: tcgsFor(retailer),
       online: retailer.online !== false,
+      physicalLocations: physicalLocationsFor(retailer),
       monitoring: {
         configured: true,
         healthy: health?.healthy === true,
