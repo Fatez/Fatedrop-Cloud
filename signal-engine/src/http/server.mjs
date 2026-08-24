@@ -3,6 +3,7 @@ import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
 import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
+import { compareGroups, rankGroups } from "../core/fate-verdict.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
@@ -255,6 +256,29 @@ async function appTruePrice(store, url) {
   return { success: true, count: groups.length, groups, disclaimer };
 }
 
+async function appFateVerdict(store, req, body) {
+  const query = typeof body?.query === "string" ? body.query.trim() : "";
+  const truePriceUrl = new URL("/api/true-price", `http://${req.headers.host || "localhost"}`);
+  truePriceUrl.searchParams.set("q", query);
+  const truePrice = await appTruePrice(store, truePriceUrl);
+  const leftId = typeof body?.leftId === "string" ? body.leftId : null;
+  const rightId = typeof body?.rightId === "string" ? body.rightId : null;
+  const pairVerdict = leftId && rightId
+    ? compareGroups(truePrice.groups.find((group) => group.id === leftId), truePrice.groups.find((group) => group.id === rightId))
+    : null;
+  return {
+    success: true,
+    mode: "verdict",
+    count: truePrice.count,
+    groups: truePrice.groups,
+    verdict: rankGroups(truePrice.groups),
+    pairVerdict,
+    source: "FATEDROP_CLOUD",
+    rulesVersion: "fate-verdict-v1",
+    disclaimer: "RRP percentage uses item price against the verified value baseline. True Price adds known mandatory delivery; unknown delivery remains provisional.",
+  };
+}
+
 export function createHttpServer({ store }) {
   return http.createServer(async (req, res) => {
     try {
@@ -284,6 +308,11 @@ export function createHttpServer({ store }) {
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res, 200, await appCatalogue(store, url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res, 200, await appTruePrice(store, url));
+      if (req.method === "POST" && url.pathname === "/api/fatefind/matches") {
+        const body = await readBody(req);
+        if (body?.mode !== "verdict") return json(res, 400, { success: false, error: "mode must be verdict" });
+        return json(res, 200, await appFateVerdict(store, req, body));
+      }
       if (req.method === "GET" && url.pathname === "/api/signals") {
         const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get("limit") || "50", 10) || 50));
         const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
