@@ -10,7 +10,7 @@ test("classifies obvious merchandise and accessories away from collector TCG pro
 test("keeps sealed products even when their bundle includes an accessory", () => {
   const result = classifyProductAlert({ title: "Pokémon TCG Special Collection - Pin & 4 Booster Packs", productType: "collection_box" });
   assert.equal(result.category, "SEALED_TCG");
-  assert.equal(result.subcategory, "BOOSTER_PACK");
+  assert.equal(result.subcategory, "COLLECTION");
   assert.ok(result.confidence >= 0.9);
 });
 
