@@ -1,3 +1,5 @@
+import { publicPresenceForRetailer } from "./presence.mjs";
+
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -27,6 +29,7 @@ export function buildPublicRetailerDirectory({ retailers = [], healthRows = [] }
   const healthById = new Map((healthRows || []).map((health) => [health.id, health]));
   return (retailers || []).map((retailer) => {
     const health = healthById.get(retailer.id) || null;
+    const presence = publicPresenceForRetailer(retailer);
     return {
       id: retailer.id,
       name: retailer.name,
@@ -34,7 +37,9 @@ export function buildPublicRetailerDirectory({ retailers = [], healthRows = [] }
       retailerClass: retailer.retailerClass || "independent",
       verification: verificationState(retailer),
       tcgs: tcgsFor(retailer),
-      online: retailer.online !== false,
+      online: presence.online,
+      physicalStores: presence.physicalStores,
+      physicalLocations: presence.physicalLocations,
       monitoring: {
         configured: true,
         healthy: health?.healthy === true,
