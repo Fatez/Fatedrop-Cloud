@@ -5,10 +5,10 @@ const ROUTES = Object.freeze([
   { state: "whisper", companion: "Oru" },
   { state: "echo", companion: "Fenn" },
   { state: "manifested", companion: "Koru" },
-  { state: "vanished", companion: "Nixon" },
+  { state: "vanished", companion: "Nyxen" },
 ]);
 const KNOWN_IDENTITY_REPAIRS = Object.freeze({
-  vanished: { from: "nixen", to: "Nixon" },
+  vanished: { from: ["nixon", "nixen"], to: "Nyxen" },
 });
 
 function normalizedIdentity(value = "") {
@@ -57,7 +57,9 @@ async function botIdentity(fetchImpl, token) {
 
 async function repairKnownIdentity(fetchImpl, token, state, username) {
   const repair = KNOWN_IDENTITY_REPAIRS[state];
-  if (!repair || normalizedIdentity(username) !== normalizedIdentity(repair.from)) return { repaired: false, username };
+  if (!repair) return { repaired: false, username };
+  const legacyNames = Array.isArray(repair.from) ? repair.from : [repair.from];
+  if (!legacyNames.some((value) => normalizedIdentity(username) === normalizedIdentity(value))) return { repaired: false, username };
   const response = await fetchImpl(`${DISCORD_API}/users/@me`, {
     method: "PATCH",
     headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
