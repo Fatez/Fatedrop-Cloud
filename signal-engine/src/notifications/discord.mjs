@@ -8,7 +8,7 @@ const STATE_STYLE = Object.freeze({
   whisper: { publicStage: "Whisper", label: "WHISPER", colour: 0x67e8f9, companion: "Oru" },
   echo: { publicStage: "Echo", label: "ECHO", colour: 0xa855f7, companion: "Fenn" },
   manifested: { publicStage: "Manifested", label: "MANIFESTED", colour: 0x49e6b1, companion: "Koru" },
-  vanished: { publicStage: "Vanished", label: "VANISHED", colour: 0xff647c, companion: "Nixon" },
+  vanished: { publicStage: "Vanished", label: "VANISHED", colour: 0xff647c, companion: "Nyxen" },
 });
 
 const FAMILY_LABEL = Object.freeze({
