@@ -78,17 +78,24 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const delivered = money(result?.deliveredPricePence);
   const itemPrice = money(offer?.pricePence);
   const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
+  const rrpPrice = money(result?.rrpPence);
+  const valueLabel = fateFindValueLabel(result?.percentAboveRrp);
+  const rrpContext = [rrpPrice ? `RRP ${rrpPrice}` : null, valueLabel].filter(Boolean).join(" · ");
   const isPreorder = offer?.stockStatus === "preorder";
   const huntLabel = String(find?.queryText || productTitle).trim();
+  const companionId = typeof find?.companionId === "string" && find.companionId.trim() ? find.companionId.trim() : null;
+  const companionName = companionId ? companionId.charAt(0).toUpperCase() + companionId.slice(1) : "Your companion";
 
   return {
-    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
-    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
+    title: "FATEMATCH — LIVE NOW",
+    body: `${companionName} found it. ${productTitle} is live at ${offer.retailerName} · ${priceLabel}${rrpContext ? ` · ${rrpContext}` : ""}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
     payload: {
       urgency: "high",
-      companion: "Koru",
+      companion: companionId,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
+      itemPricePence: Number.isFinite(offer?.pricePence) ? offer.pricePence : null,
+      deliveryPence: Number.isFinite(offer?.postagePence) ? offer.postagePence : null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
       rrpPence: Number.isFinite(result?.rrpPence) ? result.rrpPence : null,
       percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
@@ -257,14 +264,80 @@ export function selectBestFateFindOffer(find, offers = [], products = new Map(),
   return rankFateFindOffers(find, offers, products, rrpContext)[0] || null;
 }
 
+function fateFindValueLabel(percentAboveRrp) {
+  if (!Number.isFinite(percentAboveRrp)) return null;
+  const magnitude = Math.abs(percentAboveRrp).toFixed(1);
+  if (percentAboveRrp < 0) return `${magnitude}% BELOW RRP`;
+  if (percentAboveRrp > 0) return `${magnitude}% ABOVE RRP`;
+  return "AT RRP";
+}
+
+export function serializeFateFindCandidate(candidate) {
+  if (!candidate) return null;
+  const { offer, product, result, rank, rankingBasis } = candidate;
+  const itemPricePence = Number.isFinite(offer?.pricePence) ? offer.pricePence : null;
+  const deliveryPence = Number.isFinite(offer?.postagePence) ? offer.postagePence : null;
+  const rrpPence = Number.isFinite(result?.rrpPence) ? result.rrpPence : null;
+  const itemVsRrpDeltaPence = itemPricePence !== null && rrpPence !== null ? itemPricePence - rrpPence : null;
+  return {
+    rank,
+    rankingBasis,
+    productId: product?.id || offer?.productId || null,
+    productTitle: product?.title || offer?.title || "TCG product",
+    productType: product?.productType || offer?.productType || null,
+    tcg: product?.tcg || offer?.tcg || "pokemon",
+    offerId: offer?.offerId || null,
+    retailerId: offer?.retailerId || null,
+    retailerName: offer?.retailerName || null,
+    url: offer?.url || null,
+    stockStatus: offer?.stockStatus || "unknown",
+    lastSeenAt: Number.isFinite(offer?.lastSeenAt) ? offer.lastSeenAt : null,
+    itemPricePence,
+    deliveryKnown: deliveryPence !== null,
+    deliveryPence,
+    truePricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
+    rrpResolved: result?.rrpResolved === true,
+    rrpPence,
+    rrpKind: result?.rrpKind || null,
+    rrpSource: result?.rrpSource || null,
+    rrpReferenceBasis: result?.rrpReferenceBasis || null,
+    rrpReason: result?.rrpReason || null,
+    rrpApplicabilityReason: result?.rrpApplicabilityReason || null,
+    itemVsRrpDeltaPence,
+    percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
+    valueLabel: fateFindValueLabel(result?.percentAboveRrp),
+    qualifyingReasons: Array.isArray(result?.reasons) ? result.reasons : [],
+  };
+}
+
+export function buildFateFindResult(find, offers = [], products = new Map(), rrpContext = null, { generatedAt = Math.floor(Date.now() / 1000) } = {}) {
+  const ranked = rankFateFindOffers(find, offers, products, rrpContext);
+  const rankedOffers = ranked.map(serializeFateFindCandidate);
+  const bestOpportunity = rankedOffers[0] || null;
+  return {
+    contractVersion: 1,
+    query: String(find?.queryText || "").trim(),
+    generatedAt,
+    comparisonStatus: !bestOpportunity
+      ? "no_matches"
+      : Number.isFinite(bestOpportunity.percentAboveRrp)
+        ? "ranked_by_rrp_value"
+        : "ranked_without_rrp",
+    bestOpportunity,
+    rankedOffers,
+  };
+}
+
 function rowToFind(row) {
+  const notifications = row.notification_preferences_json || {};
   return {
     id: row.id, userId: row.user_id, queryText: row.query_text || "", productIdentityId: row.product_identity_id,
     maxItemPricePence: row.max_item_price_pence == null ? null : Number(row.max_item_price_pence),
     maxTruePricePence: row.max_true_price_pence == null ? null : Number(row.max_true_price_pence),
     maxPercentAboveRrp: row.max_percent_above_rrp == null ? null : Number(row.max_percent_above_rrp),
     scope: row.scope || "either", preferredRetailerIds: row.preferred_retailers_json || [], excludedRetailerIds: row.excluded_retailers_json || [],
-    stockRequirement: row.stock_requirement || "in_stock", notifications: row.notification_preferences_json || {},
+    stockRequirement: row.stock_requirement || "in_stock", notifications,
+    companionId: typeof notifications.companionId === "string" ? notifications.companionId : null,
   };
 }
 

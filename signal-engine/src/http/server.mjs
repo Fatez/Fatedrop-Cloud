@@ -5,6 +5,7 @@ import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
+import { buildFateFindResult } from "../hosted/fatefind.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 import { loadAvailabilityIntelligence } from "../telemetry/availability-intelligence.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
@@ -161,6 +162,50 @@ async function appCatalogue(store, url) {
   return { success: true, total, count: page.length, products: page, nextCursor: next, updatedAt: new Date().toISOString() };
 }
 
+async function appFateFind(store, url) {
+  const query = (url.searchParams.get("q") || "").trim();
+  if (query.length < 2) {
+    return {
+      success: true,
+      contractVersion: 1,
+      query,
+      generatedAt: Math.floor(Date.now() / 1000),
+      comparisonStatus: "no_matches",
+      bestOpportunity: null,
+      rankedOffers: [],
+    };
+  }
+
+  const [rawOffers, products] = await Promise.all([
+    store.listOffers({ limit: 10000 }),
+    store.listProducts({ limit: 5000 }),
+  ]);
+  const productsById = new Map(products.map((product) => [product.id, product]));
+  const rrpContext = buildRrpValueContext(products);
+  const offers = rawOffers
+    .filter((offer) => ["in_stock", "low_stock"].includes(offer.stockStatus))
+    .map((offer) => {
+      if (Number.isFinite(offer.postagePence)) return offer;
+      const delivery = resolveRetailerDelivery({ retailerId: offer.retailerId, subtotalPence: offer.pricePence });
+      return Number.isFinite(delivery.postagePence) ? { ...offer, postagePence: delivery.postagePence } : offer;
+    });
+  const find = {
+    queryText: query,
+    productIdentityId: null,
+    maxItemPricePence: null,
+    maxTruePricePence: null,
+    maxPercentAboveRrp: null,
+    scope: "online",
+    preferredRetailerIds: [],
+    excludedRetailerIds: [],
+    stockRequirement: "in_stock",
+  };
+  return {
+    success: true,
+    ...buildFateFindResult(find, offers, productsById, rrpContext),
+  };
+}
+
 async function appTruePrice(store, url) {
   const q = (url.searchParams.get("q") || "").trim().toLowerCase();
   const disclaimer = "Prices and stock can change on the retailer site. FateDrop shows verified official RRP where identity is exact, and clearly-labelled component references only when bundle quantity and a verified unit RRP are both provable. Delivery totals are only compared when delivery is known.";
@@ -250,6 +295,7 @@ export function createHttpServer({ store }) {
         });
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res, 200, await appCatalogue(store, url));
+      if (req.method === "GET" && url.pathname === "/api/fatefind") return json(res, 200, await appFateFind(store, url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res, 200, await appTruePrice(store, url));
       if (req.method === "GET" && url.pathname === "/api/signals") {
         const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get("limit") || "50", 10) || 50));
