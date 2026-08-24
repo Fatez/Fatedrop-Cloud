@@ -45,13 +45,18 @@ test("local scope fails closed until Signal Engine offers carry canonical locati
 });
 
 test("FateMatch stock alert is canonical and preserves the assigned companion identity",()=>{
-  const notification=buildFateMatchNotification({find:{...baseFind,companionId:"fenn"},offer,product,result:{deliveredPricePence:5598}});
+  const notification=buildFateMatchNotification({find:{...baseFind,companionId:"fenn"},offer,product,result:{deliveredPricePence:5598,rrpPence:4999,percentAboveRrp:6}});
   assert.equal(notification.title,"FATEMATCH — LIVE NOW");
   assert.match(notification.body,/Destined Rivals Elite Trainer Box/);
   assert.match(notification.body,/Indie Cards/);
   assert.match(notification.body,/£55\.98 delivered/);
+  assert.match(notification.body,/RRP £49\.99/);
+  assert.match(notification.body,/6\.0% ABOVE RRP/);
   assert.match(notification.body,/FateMatch conditions are met/);
   assert.equal(notification.payload.urgency,"high");
+  assert.equal(notification.payload.itemPricePence,5299);
+  assert.equal(notification.payload.rrpPence,4999);
+  assert.equal(notification.payload.percentAboveRrp,6);
   assert.equal(notification.payload.companion,"fenn");
 });
 
