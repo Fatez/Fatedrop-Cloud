@@ -13,6 +13,8 @@ test("alert documentation preserves the four canonical meanings", () => {
   assert.match(lifecycle, /stock is \*\*not confirmed\*\*/);
   assert.match(lifecycle, /verified that the retailer offer is purchasable/i);
   assert.match(lifecycle, /Observed-live duration belongs \*\*only to Vanished\*\*/);
+  assert.match(lifecycle, /public Vanished must close a previously published, still-open Manifested window/i);
+  assert.match(lifecycle, /Quiet-baseline stock truth cannot create an orphan public Vanished/);
   assert.match(lifecycle, /Not every product must pass through every stage/);
 });
 
