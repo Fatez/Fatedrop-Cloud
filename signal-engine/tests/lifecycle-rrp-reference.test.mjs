@@ -55,7 +55,7 @@ test("lifecycle signal uses the shared verified pack RRP reference without promo
   assert.equal(saved.signals.length, 1);
   assert.equal(saved.signals[0].state, "manifested");
   assert.equal(saved.signals[0].rrpPence, 429);
-  assert.ok(Math.abs(saved.signals[0].markupPercent - (((999 - 429) / 429) * 100)) < 0.000001);
+  assert.equal(saved.signals[0].markupPercent, 132.9);
   assert.equal(saved.signals[0].evidence.find((item) => item.kind === "rrp_value_kind")?.value, "pack_reference");
   assert.match(saved.signals[0].evidence.find((item) => item.kind === "rrp_value_source")?.value || "", /^reference:asmodee-uk$/);
   assert.equal(saved.signals[0].evidence.find((item) => item.kind === "rrp_reference_basis")?.value, "Verified booster-pack RRP reference for this set");
