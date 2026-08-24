@@ -44,21 +44,22 @@ test("local scope fails closed until Signal Engine offers carry canonical locati
   assert.deepEqual(result.reasons,["local-offer-location-unavailable"]);
 });
 
-test("FateMatch stock alert uses Koru voice without hiding purchase facts",()=>{
-  const notification=buildFateMatchNotification({find:baseFind,offer,product,result:{deliveredPricePence:5598}});
-  assert.equal(notification.title,"Koru found stock · go get it");
+test("FateMatch stock alert is canonical and preserves the assigned companion identity",()=>{
+  const notification=buildFateMatchNotification({find:{...baseFind,companionId:"fenn"},offer,product,result:{deliveredPricePence:5598}});
+  assert.equal(notification.title,"FATEMATCH — LIVE NOW");
   assert.match(notification.body,/Destined Rivals Elite Trainer Box/);
   assert.match(notification.body,/Indie Cards/);
   assert.match(notification.body,/£55\.98 delivered/);
+  assert.match(notification.body,/FateMatch conditions are met/);
   assert.equal(notification.payload.urgency,"high");
-  assert.equal(notification.payload.companion,"Koru");
+  assert.equal(notification.payload.companion,"fenn");
 });
 
 test("FateMatch preorder copy does not falsely claim live stock",()=>{
   const notification=buildFateMatchNotification({find:baseFind,offer:{...offer,stockStatus:"preorder"},product,result:{deliveredPricePence:5598}});
-  assert.equal(notification.title,"Koru found it · your FateFind matched");
+  assert.equal(notification.title,"FATEMATCH — LIVE NOW");
   assert.match(notification.body,/check preorder terms/);
-  assert.doesNotMatch(notification.title,/found stock/);
+  assert.doesNotMatch(notification.body,/stock is live/);
 });
 
 test("FateMatch master preference suppresses every delivery channel",()=>{
