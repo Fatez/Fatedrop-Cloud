@@ -16,10 +16,10 @@ function route(result, state) {
 }
 
 test("all four dedicated companion routes can be verified without sending a persistent message", async () => {
-  const botTokens = { whisper: "oru-secret-token", echo: "fenn-secret-token", manifested: "koru-secret-token", vanished: "nixon-secret-token" };
+  const botTokens = { whisper: "oru-secret-token", echo: "fenn-secret-token", manifested: "koru-secret-token", vanished: "nyxen-secret-token" };
   const channelIds = { whisper: "111", echo: "222", manifested: "333", vanished: "444" };
-  const usernameByToken = { "oru-secret-token": "Oru", "fenn-secret-token": "Fenn", "koru-secret-token": "Koru", "nixon-secret-token": "Nixon" };
-  const channelById = { "111": "oru-whispers", "222": "fenn-echoes", "333": "koru-manifested", "444": "nixon-vanished" };
+  const usernameByToken = { "oru-secret-token": "Oru", "fenn-secret-token": "Fenn", "koru-secret-token": "Koru", "nyxen-secret-token": "Nyxen" };
+  const channelById = { "111": "oru-whispers", "222": "fenn-echoes", "333": "koru-manifested", "444": "nyxen-vanished" };
   const calls = [];
 
   const fetchImpl = async (url, options = {}) => {
@@ -41,7 +41,7 @@ test("all four dedicated companion routes can be verified without sending a pers
   assert.equal(route(result, "echo").botUsername, "Fenn");
   assert.equal(route(result, "echo").channelName, "fenn-echoes");
   assert.equal(route(result, "manifested").botUsername, "Koru");
-  assert.equal(route(result, "vanished").botUsername, "Nixon");
+  assert.equal(route(result, "vanished").botUsername, "Nyxen");
   assert.equal(calls.filter((call) => call.method === "POST" && call.url.endsWith("/typing")).length, 4);
   assert.deepEqual(getDiscordRouteHealth(), result);
 
