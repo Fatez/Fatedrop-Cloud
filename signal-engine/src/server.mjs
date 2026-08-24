@@ -6,6 +6,7 @@ import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
+import { reconcileMissingDiscordDeliveries } from "./notifications/discord-reconcile.mjs";
 import { buildPublicRetailerDirectory } from "./retailers/public-directory.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
@@ -19,6 +20,7 @@ import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mj
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
+const DISCORD_DELIVERY_RECONCILE_INTERVAL_MS = 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
@@ -109,6 +111,7 @@ let scanning = false;
 let refreshingAuthoritativeRrp = false;
 let checkingDiscordRoutes = false;
 let checkingBetaReadiness = false;
+let reconcilingDiscordDeliveries = false;
 
 async function scheduledScan() {
   if (scanning) return;
@@ -209,6 +212,23 @@ async function refreshBetaReadiness() {
   }
 }
 
+async function reconcileDiscordDeliveries() {
+  if (reconcilingDiscordDeliveries) return;
+  reconcilingDiscordDeliveries = true;
+  try {
+    const outcome = await reconcileMissingDiscordDeliveries({ store });
+    if (outcome.recovered > 0 || outcome.failed > 0) {
+      console.log("[signal-engine] Discord lifecycle delivery reconciliation", outcome);
+    }
+  } catch (error) {
+    console.error("[signal-engine] Discord lifecycle delivery reconciliation failed", {
+      error: String(error?.message || error),
+    });
+  } finally {
+    reconcilingDiscordDeliveries = false;
+  }
+}
+
 async function refreshDiscordRoutes() {
   if (checkingDiscordRoutes) return;
   checkingDiscordRoutes = true;
@@ -230,9 +250,11 @@ server.listen(env.port, () => {
   void refreshAuthoritativeRrp();
   void refreshDiscordRoutes();
   void refreshBetaReadiness();
+  void reconcileDiscordDeliveries();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
 setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
 setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
 setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
+setInterval(reconcileDiscordDeliveries, DISCORD_DELIVERY_RECONCILE_INTERVAL_MS).unref();
