@@ -132,6 +132,17 @@ export class PostgresStore {
     const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
     return rows.map(dbSignal);
   }
+  async listAvailabilitySignals({ productId = null, offerId = null, retailerId = null, since = 0, limit = 500 } = {}) {
+    const pool = await this.pool();
+    const safe = Math.min(2000, Math.max(1, limit));
+    const values = [since, safe, ["manifested", "vanished"]];
+    const conditions = ["detected_at >= $1", "state = ANY($3)"];
+    if (productId) { values.push(productId); conditions.push(`product_id = $${values.length}`); }
+    if (offerId) { values.push(offerId); conditions.push(`offer_id = $${values.length}`); }
+    if (retailerId) { values.push(retailerId); conditions.push(`retailer_id = $${values.length}`); }
+    const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
+    return rows.map(dbSignal);
+  }
   async listRetailers() { const pool=await this.pool(); const {rows}=await pool.query("SELECT * FROM fatedrop_retailer_health ORDER BY retailer_name"); return rows.map((r)=>({ id:r.retailer_id,name:r.retailer_name,healthy:r.healthy,lastScanAt:Number(r.last_scan_at||0)||null,lastSuccessAt:Number(r.last_success_at||0)||null,lastError:r.last_error,productsSeen:r.products_seen,pagesScanned:r.pages_scanned,baselineCompleted:r.baseline_completed })); }
   async recordNetworkSnapshot(snapshot) { const pool=await this.pool(); await pool.query(`INSERT INTO fatedrop_signal_network_snapshots (id, measured_at, metrics, retailer_health) VALUES ($1,$2,$3::jsonb,$4::jsonb) ON CONFLICT DO NOTHING`, [snapshot.id,snapshot.measuredAt,JSON.stringify(snapshot.metrics),JSON.stringify(snapshot.retailers)]); }
   async listNetworkSnapshots(limit=30) { const pool=await this.pool(); const safe=Math.min(180,Math.max(1,limit)); const {rows}=await pool.query(`SELECT * FROM fatedrop_signal_network_snapshots ORDER BY measured_at DESC LIMIT $1`,[safe]); return rows.map((r)=>({id:r.id,measuredAt:Number(r.measured_at),metrics:r.metrics,retailers:r.retailer_health})); }
