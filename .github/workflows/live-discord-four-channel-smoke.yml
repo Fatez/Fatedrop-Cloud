@@ -1,0 +1,48 @@
+name: Live Discord four-channel smoke test
+
+on:
+  push:
+    branches:
+      - agent/availability-intelligence-v12-2026-08-24
+    paths:
+      - .github/workflows/live-discord-four-channel-smoke.yml
+
+permissions:
+  contents: read
+
+jobs:
+  live-discord-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: signal-engine
+    env:
+      FATEDROP_DISCORD_ENABLED: "true"
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_ORU_BOT_TOKEN: ${{ secrets.DISCORD_ORU_BOT_TOKEN }}
+      DISCORD_FENN_BOT_TOKEN: ${{ secrets.DISCORD_FENN_BOT_TOKEN }}
+      DISCORD_KORU_BOT_TOKEN: ${{ secrets.DISCORD_KORU_BOT_TOKEN }}
+      DISCORD_NYXEN_BOT_TOKEN: ${{ secrets.DISCORD_NYXEN_BOT_TOKEN }}
+      DISCORD_NIXON_BOT_TOKEN: ${{ secrets.DISCORD_NIXON_BOT_TOKEN }}
+      DISCORD_PREMIUM_DROPS_CHANNEL_ID: ${{ secrets.DISCORD_PREMIUM_DROPS_CHANNEL_ID }}
+      DISCORD_WHISPER_CHANNEL_ID: ${{ secrets.DISCORD_WHISPER_CHANNEL_ID }}
+      DISCORD_ECHO_CHANNEL_ID: ${{ secrets.DISCORD_ECHO_CHANNEL_ID }}
+      DISCORD_MANIFESTED_CHANNEL_ID: ${{ secrets.DISCORD_MANIFESTED_CHANNEL_ID }}
+      DISCORD_VANISHED_CHANNEL_ID: ${{ secrets.DISCORD_VANISHED_CHANNEL_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install Signal Engine dependencies
+        run: npm ci
+
+      - name: Send one test alert to each lifecycle channel
+        run: node tests/live-discord-four-channel-smoke.mjs
