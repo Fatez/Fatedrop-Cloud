@@ -64,7 +64,7 @@ test("Market Manifested is value-first and labels premium versus RRP", () => {
   assert.match(message.embeds[0].description, /Check the price against RRP/);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Retailer")?.value, "Titan Cards");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Price")?.value, "£49.99");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% above RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% above RRP · +£5.00");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivered price")?.value, "£54.99");
   assert.equal(message.components[0].components[0].label, "View market listing");
   assert.deepEqual(message.allowed_mentions, { parse: [] });
@@ -80,6 +80,23 @@ test("Vanished uses family-aware alternatives wording", () => {
   const primary = buildDiscordSignalMessage({ ...primarySignal, state: "vanished", stockStatus: "out_of_stock" });
   assert.equal(market.components[0].components[0].label, "Compare alternatives");
   assert.equal(primary.components[0].components[0].label, "View product / alternatives");
+});
+
+test("Discord recalculates RRP percentage from price and RRP when upstream markup is absent", () => {
+  const message = buildDiscordSignalMessage({ ...marketSignal, markupPercent: null });
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% above RRP · +£5.00");
+});
+
+test("Discord RRP comparison works consistently across all four lifecycle alerts", () => {
+  for (const state of ["whisper", "echo", "manifested", "vanished"]) {
+    const message = buildDiscordSignalMessage({ ...marketSignal, state, markupPercent: null });
+    assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% above RRP · +£5.00");
+  }
+});
+
+test("Discord shows below-RRP savings as both percentage and money", () => {
+  const message = buildDiscordSignalMessage({ ...marketSignal, pricePence: 3999, rrpPence: 4499, markupPercent: null });
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "-11.1% below RRP · -£5.00");
 });
 
 test("Discord omits unavailable RRP intelligence instead of showing fake values", () => {
