@@ -5,10 +5,10 @@ const ROUTES = Object.freeze([
   { state: "whisper", companion: "Oru" },
   { state: "echo", companion: "Fenn" },
   { state: "manifested", companion: "Koru" },
-  { state: "vanished", companion: "Nixon" },
+  { state: "vanished", companion: "Nyxen" },
 ]);
-const KNOWN_IDENTITY_REPAIRS = Object.freeze({
-  vanished: { from: "nixen", to: "Nixon" },
+const LEGACY_IDENTITY_ALIASES = Object.freeze({
+  vanished: ["nixon", "nixen"],
 });
 
 function normalizedIdentity(value = "") {
@@ -55,18 +55,10 @@ async function botIdentity(fetchImpl, token) {
   return { ok: true, username };
 }
 
-async function repairKnownIdentity(fetchImpl, token, state, username) {
-  const repair = KNOWN_IDENTITY_REPAIRS[state];
-  if (!repair || normalizedIdentity(username) !== normalizedIdentity(repair.from)) return { repaired: false, username };
-  const response = await fetchImpl(`${DISCORD_API}/users/@me`, {
-    method: "PATCH",
-    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ username: repair.to }),
-  });
-  if (!response?.ok) return { repaired: false, username, reason: safeReason("discord_identity_repair_http", response) };
-  const payload = await safeJson(response);
-  const repairedUsername = String(payload?.username || repair.to).trim();
-  return { repaired: normalizedIdentity(repairedUsername) === normalizedIdentity(repair.to), username: repairedUsername };
+function identityMatches(state, companion, username) {
+  const normalized = normalizedIdentity(username);
+  if (normalized.includes(normalizedIdentity(companion))) return true;
+  return (LEGACY_IDENTITY_ALIASES[state] || []).some((alias) => normalized === normalizedIdentity(alias));
 }
 
 async function channelIdentity(fetchImpl, token, channelId) {
@@ -119,16 +111,11 @@ export async function checkDiscordRouteHealth({
         continue;
       }
 
-      let botUsername = identity.username;
-      let identityRepaired = false;
-      if (!normalizedIdentity(botUsername).includes(normalizedIdentity(companion))) {
-        const repair = await repairKnownIdentity(fetchImpl, token, state, botUsername);
-        botUsername = repair.username;
-        identityRepaired = repair.repaired;
-        if (!identityRepaired || !normalizedIdentity(botUsername).includes(normalizedIdentity(companion))) {
-          routes.push({ ...base, configured: true, reason: repair.reason || "bot_identity_mismatch", botUsername, identityRepaired: false });
-          continue;
-        }
+      const botUsername = identity.username;
+      const identityRepaired = false;
+      if (!identityMatches(state, companion, botUsername)) {
+        routes.push({ ...base, configured: true, reason: "bot_identity_mismatch", botUsername, identityRepaired: false });
+        continue;
       }
 
       const channel = await channelIdentity(fetchImpl, token, channelId);
