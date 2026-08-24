@@ -6,6 +6,7 @@ import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
+import { buildPublicRetailerDirectory } from "./retailers/public-directory.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
@@ -68,11 +69,30 @@ server.on("request", async (req, res) => {
       res.end(JSON.stringify(summary));
       return;
     }
+    if (req.method === "GET" && url.pathname === "/api/retailers") {
+      const healthRows = await store.listRetailers();
+      const requestedClass = String(url.searchParams.get("class") || "").trim().toLowerCase();
+      const directory = buildPublicRetailerDirectory({ retailers, healthRows });
+      const filtered = requestedClass
+        ? directory.filter((retailer) => String(retailer.retailerClass).toLowerCase() === requestedClass)
+        : directory;
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify({
+        success: true,
+        retailers: filtered,
+        disclaimer: "Monitor health describes FateDrop evidence freshness and is not proof that a retailer currently has stock.",
+      }));
+      return;
+    }
     return applicationHandler(req, res);
   } catch (error) {
     if (res.headersSent) return res.end();
     res.writeHead(500, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-    res.end(JSON.stringify({ error: "Signal health endpoint unavailable", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }));
+    res.end(JSON.stringify({ error: "Signal Engine endpoint unavailable", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined }));
   }
 });
 let scanning = false;
