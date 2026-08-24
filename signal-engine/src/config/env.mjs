@@ -65,6 +65,7 @@ export const env = {
   scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
   scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
   scanConcurrency: Math.max(1, Math.min(4, int("FATEDROP_SCAN_CONCURRENCY", 2))),
+  scanDeadlineMs: Math.max(30_000, Math.min(300_000, int("FATEDROP_RETAILER_SCAN_DEADLINE_MS", 120_000))),
   fetchTimeoutMs: Math.max(3000, int("FATEDROP_FETCH_TIMEOUT_MS", 15000)),
   userAgent: process.env.FATEDROP_FETCH_USER_AGENT || "FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)",
   suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
