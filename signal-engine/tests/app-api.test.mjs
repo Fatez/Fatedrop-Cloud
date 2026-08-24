@@ -38,7 +38,15 @@ async function withServer(fn){const server=createHttpServer({store});await new P
 
 test("app catalogue exposes mobile-compatible offers with RRP provenance",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=destined&inStock=true`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.success,true);assert.equal(data.total,3);assert.equal(data.products[0].availability,"IN_STOCK");assert.equal(data.products[0].category,"SEALED");}));
 
+test("catalogue search resolves human shorthand and non-contiguous product intent",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=destined%20etb&inStock=true`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.total,3);assert.equal(data.products[0].title,"Destined Rivals Elite Trainer Box");assert.equal(data.products.some((offer)=>offer.title==="Pokemon TCG Destined Rivals Elite Trainer Box"),true);}));
+
+test("catalogue search treats generic pokemon/tcg words as optional when stronger product terms exist",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=pokemon%20tcg%20destined%20etb&inStock=true`);const data=await response.json();assert.equal(data.total,3);}));
+
+
 test("true price compares known delivered totals and carries product RRP evidence",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=destined`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.groups.length,1);assert.equal(data.groups[0].retailerCount,3);assert.equal(data.groups[0].rrpGbp,49.99);assert.equal(data.groups[0].rrpSource,"pokemon-center-uk");assert.ok(data.groups[0].rrpObservedAt);const inherited=data.groups[0].offers.find((offer)=>offer.id==="retailer-c:sku-4");assert.equal(inherited.priceGbp,44.99);const lowest=data.groups[0].offers.find((offer)=>offer.isLowestKnownDelivered);assert.equal(lowest.id,"retailer-b:sku-2");assert.equal(lowest.totalDeliveredGbp,57.99);}));
+
+test("true price uses the same intent-aware query matcher as catalogue search",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=destined%20etb`);const data=await response.json();assert.equal(data.groups.length,1);assert.equal(data.groups[0].title,"Destined Rivals Elite Trainer Box");assert.equal(data.groups[0].retailerCount,3);}));
+
 
 test("true price resolves verified delivery for an existing offer with no stored postage",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=journey`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.groups.length,1);const offer=data.groups[0].offers[0];assert.equal(offer.retailerId,"pokemon-center-uk");assert.equal(offer.shippingGbp,5);assert.equal(offer.totalDeliveredGbp,23.99);assert.equal(offer.deliveryKnown,true);assert.equal(offer.freeShippingThresholdGbp,20);assert.equal(offer.isLowestKnownDelivered,true);}));
 
