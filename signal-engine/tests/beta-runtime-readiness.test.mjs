@@ -4,6 +4,7 @@ import {
   refreshBetaRuntimeReadiness,
   recordBetaRuntimeReadiness,
   summarizeBetaRuntimeReadiness,
+  summarizeSignalNetworkReadiness,
 } from "../src/telemetry/beta-runtime-readiness.mjs";
 
 const runtime = { databaseConfigured: true, store: "postgres", hostedFateFindEnabled: false };
@@ -17,8 +18,11 @@ const healthyDiscord = {
     { state: "vanished", companion: "Nixon", ready: true },
   ],
 };
+const healthyNetwork = summarizeSignalNetworkReadiness([
+  { id: "one", healthy: true, stale: false, baselineCompleted: true, lastSuccessAt: 1_787_525_000 },
+]);
 
-function mockStore({ readinessRow = {}, notificationRow = {}, snapshots = [] } = {}) {
+function mockStore({ readinessRow = {}, notificationRow = {}, snapshots = [], retailers = [{ id: "pokemon-center-uk", healthy: true, stale: false, baselineCompleted: true, lastSuccessAt: 1_787_525_000 }] } = {}) {
   const pool = {
     async query(sql) {
       if (sql.includes("FROM fatedrop_notification_outbox")) return { rows: [notificationRow] };
@@ -29,7 +33,9 @@ function mockStore({ readinessRow = {}, notificationRow = {}, snapshots = [] } =
   return {
     async pool() { return pool; },
     async stats() { return { productsTracked: 5274, offersTracked: 6436, currentlyAvailable: 587 }; },
-    async listRetailers() { return [{ id: "pokemon-center-uk", healthy: true }]; },
+    async listRetailers() { return retailers; },
+    async listOffers() { return []; },
+    async listProducts() { return []; },
     async recordNetworkSnapshot(snapshot) { snapshots.push(snapshot); },
   };
 }
@@ -48,6 +54,7 @@ test("web inbox can be infrastructure-ready while an eligible hosted hunt remain
   });
   const result = await refreshBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, now: 1_787_525_000 });
   assert.equal(result.infrastructureReady, true);
+  assert.equal(result.signalNetworkReady, true);
   assert.equal(result.ready, false);
   assert.equal(result.hostedFateFind.enabled, false);
   assert.equal(result.hostedFateFind.configured, true);
@@ -58,18 +65,38 @@ test("web inbox can be infrastructure-ready while an eligible hosted hunt remain
   assert.equal(result.hostedFateFind.notificationReadiness.ready, true);
 });
 
-test("beta readiness becomes green when hosted evaluation is active and the guaranteed web path is ready", () => {
+test("beta readiness becomes green when hosted evaluation, delivery and signal network are ready", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
+    signalNetwork: healthyNetwork,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
   });
   assert.equal(result.infrastructureReady, true);
+  assert.equal(result.signalNetworkReady, true);
   assert.equal(result.ready, true);
+});
+
+test("beta readiness fails when the retailer network is stale even if Discord and FateFind are healthy", () => {
+  const staleNetwork = summarizeSignalNetworkReadiness([
+    { id: "a", healthy: false, stale: true, baselineCompleted: true, lastSuccessAt: 1_787_520_000 },
+    { id: "b", healthy: false, stale: true, baselineCompleted: true, lastSuccessAt: 1_787_520_000 },
+    { id: "c", healthy: false, stale: true, baselineCompleted: true, lastSuccessAt: 1_787_520_000 },
+  ]);
+  const result = summarizeBetaRuntimeReadiness({
+    discord: healthyDiscord,
+    signalNetwork: staleNetwork,
+    hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
+  });
+  assert.equal(result.infrastructureReady, true);
+  assert.equal(result.signalNetworkReady, false);
+  assert.equal(result.ready, false);
+  assert.equal(result.signalNetwork.reason, "insufficient_fresh_retailers");
 });
 
 test("beta readiness fails when an eligible hunt has no web inbox delivery path", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
+    signalNetwork: healthyNetwork,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 2, webReadyFinds: 1, notificationReadiness: { ready: true } },
     checkedAt: "2026-08-23T23:00:00.000Z",
   });
@@ -79,6 +106,7 @@ test("beta readiness fails when an eligible hunt has no web inbox delivery path"
 test("beta readiness fails on overdue or stuck FateMatch notification delivery", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
+    signalNetwork: healthyNetwork,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: false, overdue: 1 } },
   });
   assert.equal(result.ready, false);
@@ -95,6 +123,7 @@ test("runtime readiness snapshot persists only safe aggregate operational truth"
   assert.equal(result.recorded, true);
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].metrics.betaRuntimeReadiness.discord.ready, true);
+  assert.equal(snapshots[0].metrics.betaRuntimeReadiness.signalNetwork.ready, true);
   assert.equal(snapshots[0].metrics.betaRuntimeReadiness.hostedFateFind.eligibleFinds, 1);
   const serialized = JSON.stringify(snapshots[0]);
   assert.equal(serialized.includes("user_id"), false);
