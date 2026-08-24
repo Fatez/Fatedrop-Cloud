@@ -2,6 +2,7 @@ import { load } from "cheerio";
 import { env } from "../config/env.mjs";
 import { extractCatalogueProducts } from "../core/extract.mjs";
 import { sleep } from "../core/fetch.mjs";
+import { currentRetailerScanSignal, retailerScanDeadlineError } from "../core/scan-deadline.mjs";
 
 function requestHeaders(accept) {
   return {
@@ -13,15 +14,29 @@ function requestHeaders(accept) {
 
 async function fetchText(url, accept) {
   const controller = new AbortController();
+  const scanSignal = currentRetailerScanSignal();
+  const abortFromScan = () => controller.abort(scanSignal?.reason);
+  if (scanSignal?.aborted) abortFromScan();
+  else scanSignal?.addEventListener("abort", abortFromScan, { once: true });
   const timer = setTimeout(() => controller.abort(), env.fetchTimeoutMs);
   try {
+    if (scanSignal?.aborted) throw scanSignal.reason instanceof Error ? scanSignal.reason : retailerScanDeadlineError(null, env.scanDeadlineMs);
     const response = await fetch(url, { headers: requestHeaders(accept), redirect: "follow", signal: controller.signal });
     if (response.status === 403 || response.status === 401) throw new Error(`Retailer blocked catalogue request (${response.status}); adapter disabled for this scan — FateDrop will not bypass access controls.`);
     if (response.status === 429) throw new Error("Retailer rate-limited catalogue request (429); back off rather than bypassing the limit.");
     if (!response.ok) throw new Error(`catalogue request failed (${response.status})`);
     return { text: await response.text(), status: response.status };
+  } catch (error) {
+    if (scanSignal?.aborted) throw scanSignal.reason instanceof Error ? scanSignal.reason : retailerScanDeadlineError(null, env.scanDeadlineMs);
+    if (controller.signal.aborted) {
+      const timeoutError = new Error(`catalogue request timed out after ${env.fetchTimeoutMs}ms`);
+      timeoutError.code = "retailer_request_timeout";
+      throw timeoutError;
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
+    scanSignal?.removeEventListener("abort", abortFromScan);
   }
 }
 
