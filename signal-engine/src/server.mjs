@@ -1,6 +1,7 @@
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { scanAll, scanRetailer } from "./core/engine.mjs";
+import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
@@ -8,13 +9,14 @@ import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
-import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness } from "./telemetry/beta-runtime-readiness.mjs";
+import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness, refreshBetaRuntimeReadiness } from "./telemetry/beta-runtime-readiness.mjs";
 import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
 import { buildFateFindEvaluatorPreflight } from "./telemetry/fatefind-evaluator-preflight.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
@@ -76,6 +78,7 @@ server.on("request", async (req, res) => {
 let scanning = false;
 let refreshingAuthoritativeRrp = false;
 let checkingDiscordRoutes = false;
+let checkingBetaReadiness = false;
 
 async function scheduledScan() {
   if (scanning) return;
@@ -102,7 +105,30 @@ async function scheduledScan() {
           signalsCreated: 0,
         };
       }
-      return scanRetailer(args);
+      const timeoutMs = Number(args.retailer?.scanDeadlineMs) || env.scanDeadlineMs;
+      try {
+        return await runWithRetailerScanDeadline(
+          () => scanRetailer(args),
+          { retailerId: args.retailer.id, timeoutMs },
+        );
+      } catch (error) {
+        const detail = String(error?.message || error);
+        if (typeof store.recordFailure === "function") {
+          await store.recordFailure(args.retailer, error, Math.floor(Date.now() / 1000)).catch(() => null);
+        }
+        console.error("[signal-engine] retailer scan isolated by hard deadline", {
+          retailer: args.retailer.id,
+          timeoutMs,
+          error: detail,
+        });
+        return {
+          retailerId: args.retailer.id,
+          retailerName: args.retailer.name,
+          error: detail,
+          failureCode: error?.code || "retailer_scan_deadline",
+          signalsCreated: 0,
+        };
+      }
     };
 
     const results = await scanAll({ retailers, store, scanRetailerFn: scanWithBackoff });
@@ -133,6 +159,25 @@ async function refreshAuthoritativeRrp() {
   }
 }
 
+async function refreshBetaReadiness() {
+  if (checkingBetaReadiness) return;
+  checkingBetaReadiness = true;
+  try {
+    const readiness = await refreshBetaRuntimeReadiness({ store });
+    console.log("[signal-engine] Beta runtime readiness heartbeat", {
+      ready: readiness.ready,
+      infrastructureReady: readiness.infrastructureReady,
+      signalNetworkReady: readiness.signalNetworkReady,
+      freshRetailers: readiness.signalNetwork?.freshRetailers,
+      requiredFreshRetailers: readiness.signalNetwork?.minimumFreshRetailers,
+    });
+  } catch (error) {
+    console.error("[signal-engine] Beta readiness heartbeat failed", { error: String(error?.message || error) });
+  } finally {
+    checkingBetaReadiness = false;
+  }
+}
+
 async function refreshDiscordRoutes() {
   if (checkingDiscordRoutes) return;
   checkingDiscordRoutes = true;
@@ -153,8 +198,10 @@ server.listen(env.port, () => {
   console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
   void refreshAuthoritativeRrp();
   void refreshDiscordRoutes();
+  void refreshBetaReadiness();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
 setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
 setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
+setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
