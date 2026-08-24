@@ -1,4 +1,5 @@
 import { env } from "../config/env.mjs";
+import { buildRrpValueContext } from "../core/rrp-value-reference.mjs";
 import { evaluateFateFind } from "../hosted/fatefind.mjs";
 
 function rowToFind(row) {
@@ -35,7 +36,11 @@ function rowToProduct(row) {
   return {
     id: row.id,
     title: row.title,
+    productType: row.product_type || null,
+    tcg: row.tcg || "pokemon",
     officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence),
+    rrpSource: row.rrp_source || null,
+    rrpObservedAt: row.rrp_observed_at == null ? null : Number(row.rrp_observed_at),
   };
 }
 
@@ -88,9 +93,14 @@ export async function buildFateFindEvaluatorPreflight(store, {
   const offers = offerRows.map(rowToOffer);
   const productIds = [...new Set(offers.map((offer) => offer.productId).filter(Boolean))];
   const { rows: productRows } = productIds.length
-    ? await pool.query("SELECT id,title,official_rrp_pence FROM fatedrop_products WHERE id = ANY($1)", [productIds])
+    ? await pool.query(
+      "SELECT id,title,product_type,tcg,official_rrp_pence,rrp_source,rrp_observed_at FROM fatedrop_products WHERE id = ANY($1) OR (official_rrp_pence IS NOT NULL AND rrp_source IS NOT NULL)",
+      [productIds],
+    )
     : { rows: [] };
-  const products = new Map(productRows.map((row) => [row.id, rowToProduct(row)]));
+  const normalizedProducts = productRows.map(rowToProduct);
+  const products = new Map(normalizedProducts.map((product) => [product.id, product]));
+  const rrpContext = buildRrpValueContext(normalizedProducts);
 
   let evaluated = 0;
   let wouldMatch = 0;
@@ -99,7 +109,7 @@ export async function buildFateFindEvaluatorPreflight(store, {
   for (const find of finds) {
     for (const offer of offers) {
       evaluated += 1;
-      const result = evaluateFateFind(find, offer, products.get(offer.productId));
+      const result = evaluateFateFind(find, offer, products.get(offer.productId), rrpContext);
       if (result.matched) {
         wouldMatch += 1;
         findsWithMatch.add(find.id);

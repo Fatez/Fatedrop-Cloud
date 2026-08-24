@@ -1,4 +1,5 @@
 import { buildCanonicalRrpRegistry, resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
+import { classifyRrpApplicability } from "./rrp-applicability.mjs";
 
 function fold(value = "") {
   return String(value)
@@ -127,6 +128,17 @@ export function resolveRrpValue(input = {}, context = {}) {
   const linkedProduct = input.linkedProduct || null;
   const products = context.products || [];
   const registry = context.registry || buildCanonicalRrpRegistry(products);
+  const title = linkedProduct?.title || input.title || "";
+  const productType = linkedProduct?.productType || input.productType || "other";
+  const applicability = classifyRrpApplicability({ title, productType });
+
+  if (!applicability.eligible) {
+    return {
+      resolved: false,
+      reason: "rrp_not_applicable",
+      applicabilityReason: applicability.reason,
+    };
+  }
 
   if (authoritative(linkedProduct)) return officialResult(linkedProduct);
 
@@ -153,7 +165,6 @@ export function resolveRrpValue(input = {}, context = {}) {
     };
   }
 
-  const title = linkedProduct?.title || input.title || "";
   const quantity = bundleQuantity(title);
   if (quantity) {
     const base = basePackReference({ title }, products);
@@ -172,7 +183,6 @@ export function resolveRrpValue(input = {}, context = {}) {
     };
   }
 
-  const productType = linkedProduct?.productType || input.productType;
   if (productType === "booster_pack" && !multiPackQuantity(title)) {
     const base = basePackReference({ title }, products);
     if (base.resolved) {
