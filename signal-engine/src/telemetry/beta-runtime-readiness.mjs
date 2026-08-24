@@ -16,6 +16,17 @@ let cachedReadiness = {
   checkedAt: null,
   ready: false,
   infrastructureReady: false,
+  signalNetworkReady: false,
+  signalNetwork: {
+    ready: false,
+    configuredRetailers: 0,
+    baselineRetailers: 0,
+    freshRetailers: 0,
+    minimumFreshRetailers: 1,
+    staleOrUnhealthyRetailers: 0,
+    latestSuccessAt: null,
+    reason: "not_checked",
+  },
   discord: getDiscordRouteHealth(),
   hostedFateFind: {
     enabled: Boolean(env.hostedFateFind.enabled),
@@ -51,16 +62,41 @@ function safeHostedSummary(row = {}, notificationReadiness = null, runtime = def
   };
 }
 
-export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checkedAt = new Date().toISOString() } = {}) {
+export function summarizeSignalNetworkReadiness(retailers = [], { minimumFreshRetailers = 3 } = {}) {
+  const rows = Array.isArray(retailers) ? retailers : [];
+  const baseline = rows.filter((retailer) => retailer?.baselineCompleted !== false);
+  const fresh = baseline.filter((retailer) => retailer?.healthy === true && retailer?.stale !== true);
+  const required = Math.min(
+    Math.max(1, Math.round(Number(minimumFreshRetailers) || 3)),
+    Math.max(1, baseline.length),
+  );
+  const latestSuccessAt = rows.reduce((latest, retailer) => Math.max(latest, Number(retailer?.lastSuccessAt) || 0), 0) || null;
+  const ready = baseline.length > 0 && fresh.length >= required;
+  return {
+    ready,
+    configuredRetailers: rows.length,
+    baselineRetailers: baseline.length,
+    freshRetailers: fresh.length,
+    minimumFreshRetailers: required,
+    staleOrUnhealthyRetailers: Math.max(0, rows.length - fresh.length),
+    latestSuccessAt,
+    reason: ready ? null : baseline.length === 0 ? "no_completed_retailer_baseline" : "insufficient_fresh_retailers",
+  };
+}
+
+export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, checkedAt = new Date().toISOString() } = {}) {
   const eligibleFinds = numeric(hostedFateFind?.eligibleFinds);
   const webBaselineReady = eligibleFinds === 0 || numeric(hostedFateFind?.webReadyFinds) === eligibleFinds;
   const notificationQueueReady = hostedFateFind?.notificationReadiness?.ready !== false;
   const infrastructureReady = Boolean(discord?.ready) && Boolean(hostedFateFind?.configured) && webBaselineReady && notificationQueueReady;
   const hostedActivationReady = eligibleFinds === 0 || hostedFateFind?.enabled === true;
+  const signalNetworkReady = signalNetwork?.ready === true;
   return {
     checkedAt,
-    ready: infrastructureReady && hostedActivationReady,
+    ready: infrastructureReady && hostedActivationReady && signalNetworkReady,
     infrastructureReady,
+    signalNetworkReady,
+    signalNetwork,
     discord,
     hostedFateFind,
   };
@@ -122,6 +158,14 @@ async function loadHostedSummary(store, { runtime = defaults(), now = Math.floor
   return safeHostedSummary(rows?.[0] || {}, notificationReadiness, runtime);
 }
 
+async function loadSignalNetworkSummary(store) {
+  if (!store || typeof store.listRetailers !== "function") {
+    return summarizeSignalNetworkReadiness([]);
+  }
+  const retailers = await store.listRetailers();
+  return summarizeSignalNetworkReadiness(retailers);
+}
+
 export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(), discord = getDiscordRouteHealth(), now = Math.floor(Date.now() / 1000) } = {}) {
   const checkedAt = new Date(now * 1000).toISOString();
   let hostedFateFind;
@@ -135,7 +179,17 @@ export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(),
     };
   }
 
-  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, checkedAt });
+  let signalNetwork;
+  try {
+    signalNetwork = await loadSignalNetworkSummary(store);
+  } catch {
+    signalNetwork = {
+      ...summarizeSignalNetworkReadiness([]),
+      reason: "retailer_health_query_failed",
+    };
+  }
+
+  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, checkedAt });
   return cachedReadiness;
 }
 

@@ -1,4 +1,5 @@
 import { env } from "../config/env.mjs";
+import { currentRetailerScanSignal, retailerScanDeadlineError } from "./scan-deadline.mjs";
 
 const cache = new Map();
 const hostCooldowns = new Map();
@@ -74,6 +75,24 @@ function boundedTimeoutMs(value) {
   return Math.max(3_000, Math.min(45_000, Math.round(parsed)));
 }
 
+function linkRetailerScanAbort(controller) {
+  const signal = currentRetailerScanSignal();
+  if (!signal) return { signal: null, cleanup() {} };
+  const abort = () => controller.abort(signal.reason);
+  if (signal.aborted) abort();
+  else signal.addEventListener("abort", abort, { once: true });
+  return {
+    signal,
+    cleanup() { signal.removeEventListener("abort", abort); },
+  };
+}
+
+function throwScanAbort(signal) {
+  if (!signal?.aborted) return;
+  if (signal.reason instanceof Error) throw signal.reason;
+  throw retailerScanDeadlineError(null, env.scanDeadlineMs);
+}
+
 export function retailerHostCooldownStatus(url, now = Date.now()) {
   const host = hostFor(url);
   const state = host ? hostCooldowns.get(host) : null;
@@ -90,8 +109,10 @@ export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs) {
   const previous = cache.get(url) || {};
   const requestTimeoutMs = boundedTimeoutMs(timeoutMs);
   const controller = new AbortController();
+  const linked = linkRetailerScanAbort(controller);
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
+    throwScanAbort(linked.signal);
     const headers = requestHeaders("text/html,application/xhtml+xml");
     if (previous.etag) headers["if-none-match"] = previous.etag;
     if (previous.lastModified) headers["if-modified-since"] = previous.lastModified;
@@ -104,6 +125,7 @@ export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs) {
     cache.set(url, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
     return { html, status: response.status, unchanged: false };
   } catch (error) {
+    throwScanAbort(linked.signal);
     if (controller.signal.aborted) {
       const timeoutError = accessError(`catalogue request timed out after ${requestTimeoutMs}ms`, TIMEOUT_COOLDOWN_MS, "retailer_request_timeout");
       beginHostCooldown(url, TIMEOUT_COOLDOWN_MS, timeoutError.message);
@@ -113,14 +135,17 @@ export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs) {
     throw error;
   } finally {
     clearTimeout(timer);
+    linked.cleanup();
   }
 }
 
 export async function fetchStructuredJson(url) {
   assertHostNotCoolingDown(url);
   const controller = new AbortController();
+  const linked = linkRetailerScanAbort(controller);
   const timer = setTimeout(() => controller.abort(), env.fetchTimeoutMs);
   try {
+    throwScanAbort(linked.signal);
     const response = await fetch(url, { headers: requestHeaders("application/json"), redirect: "follow", signal: controller.signal });
     assertAllowedResponse(response, "structured catalogue");
     const contentType = response.headers.get("content-type") || "";
@@ -130,6 +155,7 @@ export async function fetchStructuredJson(url) {
     try { payload = JSON.parse(text); } catch { throw new Error("Structured catalogue returned invalid JSON"); }
     return { payload, status: response.status };
   } catch (error) {
+    throwScanAbort(linked.signal);
     if (controller.signal.aborted) {
       const timeoutError = accessError(`structured catalogue request timed out after ${env.fetchTimeoutMs}ms`, TIMEOUT_COOLDOWN_MS, "retailer_request_timeout");
       beginHostCooldown(url, TIMEOUT_COOLDOWN_MS, timeoutError.message);
@@ -139,7 +165,24 @@ export async function fetchStructuredJson(url) {
     throw error;
   } finally {
     clearTimeout(timer);
+    linked.cleanup();
   }
 }
 
-export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+export const sleep = (ms) => {
+  const signal = currentRetailerScanSignal();
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.reject(signal.reason instanceof Error ? signal.reason : retailerScanDeadlineError(null, env.scanDeadlineMs));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason instanceof Error ? signal.reason : retailerScanDeadlineError(null, env.scanDeadlineMs));
+    };
+    signal.addEventListener("abort", abort, { once: true });
+  });
+};
