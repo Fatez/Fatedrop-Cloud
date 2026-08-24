@@ -4,12 +4,13 @@ import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
-import { buildCanonicalRrpRegistry, resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
+import { resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
 import { resolveRetailerDelivery } from "./delivery-policies.mjs";
 import { deriveSignal } from "./signals.mjs";
 import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
 import { preloadPreviousState } from "./previous-state.mjs";
+import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -64,14 +65,14 @@ async function safeRunFinish(store, payload) {
   catch (error) { console.error("[monitor] run-finish telemetry failed", { runId: payload.runId, error: String(error?.message || error) }); }
 }
 
-async function loadCanonicalRrpRegistry(store) {
-  if (!store || typeof store.listProducts !== "function") return buildCanonicalRrpRegistry([]);
+async function loadRrpValueContext(store) {
+  if (!store || typeof store.listProducts !== "function") return buildRrpValueContext([]);
   try {
     const products = await store.listProducts({ limit: 5000 });
-    return buildCanonicalRrpRegistry(products);
+    return buildRrpValueContext(products);
   } catch (error) {
-    console.error("[rrp] canonical registry preload failed", { error: String(error?.message || error) });
-    return buildCanonicalRrpRegistry([]);
+    console.error("[rrp] value context preload failed", { error: String(error?.message || error) });
+    return buildRrpValueContext([]);
   }
 }
 
@@ -94,6 +95,16 @@ function productIdentityForRrp(raw, retailer) {
 
 function validRrp(value) {
   return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+function rrpEvidence(evidence, resolvedValue) {
+  const base = Array.isArray(evidence) ? evidence : [];
+  if (!resolvedValue?.resolved) return base;
+  const extra = [];
+  if (resolvedValue.kind) extra.push({ kind: "rrp_value_kind", value: String(resolvedValue.kind) });
+  if (resolvedValue.rrpSource) extra.push({ kind: "rrp_value_source", value: String(resolvedValue.rrpSource) });
+  if (resolvedValue.referenceBasis) extra.push({ kind: "rrp_reference_basis", value: String(resolvedValue.referenceBasis) });
+  return [...base, ...extra];
 }
 
 function dedupeCanonicalProducts(products) {
@@ -128,7 +139,8 @@ function shouldPersistObservation(previousOffer, currentOffer) {
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
-  const rrpRegistry = await loadCanonicalRrpRegistry(store);
+  const rrpContext = await loadRrpValueContext(store);
+  const rrpRegistry = rrpContext.registry;
   const products = [];
   const offers = [];
   const observations = [];
@@ -177,6 +189,16 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       firstSeenAt: previousProduct?.firstSeenAt ?? now,
       updatedAt: now,
     };
+    const resolvedRrpValue = resolveRrpValue({
+      title: raw.title,
+      productType: raw.productType,
+      tcg: retailer.tcg || "pokemon",
+      language: raw.language,
+      region: raw.region,
+      edition: raw.edition,
+      linkedProduct: product,
+    }, rrpContext);
+    const offerRrpPence = resolvedRrpValue.resolved ? resolvedRrpValue.rrpPence : officialRrpPence;
     const previousOffer = previousState
       ? previousState.offers.get(offerId) ?? null
       : await store.getOffer(offerId);
@@ -192,13 +214,13 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       url: raw.url,
       imageUrl: raw.imageUrl,
       pricePence: raw.pricePence,
-      rrpPence: officialRrpPence,
+      rrpPence: offerRrpPence,
       postagePence: evidenceBackedPostage(raw, retailer),
       gtin: raw.gtin ?? null,
       stockStatus: raw.stockStatus,
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
-      evidence: raw.evidence,
+      evidence: rrpEvidence(raw.evidence, resolvedRrpValue),
       everAvailableAt,
       firstSeenAt: previousOffer?.firstSeenAt ?? now,
       lastSeenAt: now,
