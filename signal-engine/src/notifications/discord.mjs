@@ -27,6 +27,21 @@ function percent(value) {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+function observedDuration(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  const whole = Math.floor(seconds);
+  if (whole < 60) return `${whole}s`;
+  const minutes = Math.floor(whole / 60);
+  const secondsRemainder = whole % 60;
+  if (minutes < 60) return secondsRemainder ? `${minutes}m ${secondsRemainder}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const minuteRemainder = minutes % 60;
+  if (hours < 24) return minuteRemainder ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const hourRemainder = hours % 24;
+  return hourRemainder ? `${days}d ${hourRemainder}h` : `${days}d`;
+}
+
 function safeHttpUrl(value) {
   try {
     const url = new URL(value);
@@ -160,6 +175,8 @@ export function buildDiscordSignalMessage(signal) {
   if (Number.isFinite(signal.markupPercent)) fields.push({ name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP", value: valueLabel(signal) || percent(signal.markupPercent), inline: true });
   if (Number.isFinite(signal.deliveredPricePence)) fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
   if (exactCause) fields.push({ name: "Signal cause", value: short(exactCause.replaceAll("_", " "), 1024), inline: true });
+  const liveFor = signal.state === "vanished" ? observedDuration(signal.observedDurationSeconds) : null;
+  if (liveFor) fields.push({ name: "Observed live", value: liveFor, inline: true });
   fields.push({ name: "Signal confidence", value: confidence, inline: true });
 
   const embed = {
