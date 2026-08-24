@@ -13,6 +13,7 @@ function readDiscordEnv(overrides = {}) {
     "DISCORD_ORU_BOT_TOKEN",
     "DISCORD_FENN_BOT_TOKEN",
     "DISCORD_KORU_BOT_TOKEN",
+    "DISCORD_NYXEN_BOT_TOKEN",
     "DISCORD_NIXON_BOT_TOKEN",
     "DISCORD_PREMIUM_DROPS_CHANNEL_ID",
     "DISCORD_WHISPER_CHANNEL_ID",
@@ -57,7 +58,7 @@ test("all lifecycle channel IDs and companion bot tokens are exposed independent
     DISCORD_ORU_BOT_TOKEN: "oru-token",
     DISCORD_FENN_BOT_TOKEN: "fenn-token",
     DISCORD_KORU_BOT_TOKEN: "koru-token",
-    DISCORD_NIXON_BOT_TOKEN: "nixon-token",
+    DISCORD_NYXEN_BOT_TOKEN: "nyxen-token",
     DISCORD_WHISPER_CHANNEL_ID: "111",
     DISCORD_ECHO_CHANNEL_ID: "222",
     DISCORD_MANIFESTED_CHANNEL_ID: "333",
@@ -73,6 +74,22 @@ test("all lifecycle channel IDs and companion bot tokens are exposed independent
     whisper: "oru-token",
     echo: "fenn-token",
     manifested: "koru-token",
-    vanished: "nixon-token",
+    vanished: "nyxen-token",
   });
+});
+
+
+test("legacy Nixon token variable remains a migration fallback, but Nyxen takes precedence", () => {
+  const legacy = readDiscordEnv({
+    DISCORD_NIXON_BOT_TOKEN: "legacy-nixon-token",
+    DISCORD_VANISHED_CHANNEL_ID: "444",
+  });
+  assert.equal(legacy.botTokens.vanished, "legacy-nixon-token");
+
+  const canonical = readDiscordEnv({
+    DISCORD_NYXEN_BOT_TOKEN: "nyxen-token",
+    DISCORD_NIXON_BOT_TOKEN: "legacy-nixon-token",
+    DISCORD_VANISHED_CHANNEL_ID: "444",
+  });
+  assert.equal(canonical.botTokens.vanished, "nyxen-token");
 });

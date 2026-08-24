@@ -47,7 +47,7 @@ const discordBotTokens = Object.freeze({
   whisper: process.env.DISCORD_ORU_BOT_TOKEN || "",
   echo: process.env.DISCORD_FENN_BOT_TOKEN || "",
   manifested: process.env.DISCORD_KORU_BOT_TOKEN || "",
-  vanished: process.env.DISCORD_NIXON_BOT_TOKEN || "",
+  vanished: process.env.DISCORD_NYXEN_BOT_TOKEN || process.env.DISCORD_NIXON_BOT_TOKEN || "",
 });
 const discordPremiumDropsChannelId = process.env.DISCORD_PREMIUM_DROPS_CHANNEL_ID || "";
 const discordChannelIds = Object.freeze({
