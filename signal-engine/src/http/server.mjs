@@ -78,6 +78,36 @@ function legacyOffer(offer, product, rrp) {
 }
 
 function titleKey(value = "") { return value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); }
+
+const SEARCH_ALIASES = new Map([
+  ["etb", ["elite", "trainer", "box"]],
+]);
+
+const SEARCH_GENERIC_TOKENS = new Set(["pokemon", "tcg"]);
+
+function searchTerms(value = "") {
+  const raw = titleKey(value).split(" ").filter(Boolean);
+  const expanded = raw.flatMap((token) => SEARCH_ALIASES.get(token) || [token]);
+  const specific = expanded.filter((token) => !SEARCH_GENERIC_TOKENS.has(token));
+  return specific.length ? [...new Set(specific)] : [...new Set(expanded)];
+}
+
+function searchMatchScore(query, offer) {
+  const clean = titleKey(query);
+  if (!clean) return 1;
+  const title = titleKey(offer?.title || "");
+  const sku = titleKey(offer?.sku || "");
+  const haystack = `${title} ${sku}`.trim();
+  const terms = searchTerms(clean);
+  if (!terms.length) return 0;
+  if (title === clean) return 1000;
+  if (sku && sku === clean) return 950;
+  if (title.startsWith(clean)) return 900;
+  if (title.includes(clean)) return 800;
+  if (!terms.every((term) => haystack.includes(term))) return 0;
+  const titleHits = terms.filter((term) => title.includes(term)).length;
+  return 600 + (titleHits * 10) - Math.max(0, title.split(" ").length - terms.length);
+}
 function optionalNumber(searchParams, name) { const raw = searchParams.get(name); if (raw === null || raw.trim() === "") return undefined; const value = Number(raw); return Number.isFinite(value) ? value : undefined; }
 
 function resolveOfferRrp(offer, linkedProduct, rrpContext) {
@@ -124,7 +154,7 @@ async function appCatalogue(store, url) {
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
   const productsById = new Map(products.map((p) => [p.id, p]));
   const rrpContext = buildRrpValueContext(products);
-  const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  const q = (url.searchParams.get("q") || "").trim();
   const retailer = url.searchParams.get("retailer") || "";
   const excluded = new Set(parseCsv(url.searchParams.get("excludeRetailers")));
   const inStock = url.searchParams.get("inStock") === "true";
@@ -138,9 +168,10 @@ async function appCatalogue(store, url) {
   let rows = offers.map((offer) => {
     const linkedProduct = productsById.get(offer.productId);
     const rrp = resolveOfferRrp(offer, linkedProduct, rrpContext);
-    return legacyOffer(offer, linkedProduct, rrp);
+    const publicOffer = legacyOffer(offer, linkedProduct, rrp);
+    return { ...publicOffer, _searchScore: searchMatchScore(q, publicOffer) };
   }).filter((offer) => {
-    if (q && !`${offer.title} ${offer.sku}`.toLowerCase().includes(q)) return false;
+    if (q && offer._searchScore <= 0) return false;
     if (retailer && offer.retailerKey !== retailer) return false;
     if (excluded.has(offer.retailerKey)) return false;
     if (inStock && offer.availability !== "IN_STOCK") return false;
@@ -152,16 +183,18 @@ async function appCatalogue(store, url) {
 
   if (sort === "price") rows.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
   else if (sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+  else if (sort === "recent") rows.sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
+  else if (q || sort === "relevance") rows.sort((a, b) => b._searchScore - a._searchScore || String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
   else rows.sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
 
   const total = rows.length;
-  const page = rows.slice(offset, offset + limit);
+  const page = rows.slice(offset, offset + limit).map(({ _searchScore, ...offer }) => offer);
   const next = offset + limit < total ? String(offset + limit) : null;
   return { success: true, total, count: page.length, products: page, nextCursor: next, updatedAt: new Date().toISOString() };
 }
 
 async function appTruePrice(store, url) {
-  const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+  const q = (url.searchParams.get("q") || "").trim();
   const disclaimer = "Prices and stock can change on the retailer site. FateDrop shows verified official RRP where identity is exact, and clearly-labelled component references only when bundle quantity and a verified unit RRP are both provable. Delivery totals are only compared when delivery is known.";
   if (q.length < 2) return { success: true, count: 0, groups: [], disclaimer };
 
@@ -171,7 +204,8 @@ async function appTruePrice(store, url) {
   const grouped = new Map();
 
   for (const offer of offers) {
-    if (!["in_stock", "low_stock", "preorder"].includes(offer.stockStatus) || !offer.title.toLowerCase().includes(q)) continue;
+    if (!["in_stock", "low_stock", "preorder"].includes(offer.stockStatus)) continue;
+    if (q && searchMatchScore(q, { title: offer.title, sku: offer.retailerSku }) <= 0) continue;
     const linkedProduct = productsById.get(offer.productId);
     const rrp = resolveOfferRrp(offer, linkedProduct, rrpContext);
     const exactCanonicalId = rrp.resolved && rrp.kind === "official" && rrp.matchedProductIds?.length === 1 ? rrp.matchedProductIds[0] : null;
