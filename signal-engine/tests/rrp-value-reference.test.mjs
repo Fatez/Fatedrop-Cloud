@@ -126,3 +126,21 @@ test("conflicting verified loose-pack references fail closed", () => {
   assert.equal(result.resolved, false);
   assert.equal(result.reason, "conflicting_verified_pack_reference");
 });
+
+
+test("canonical RRP resolver refuses a UK RRP comparison for obvious imports", () => {
+  const result = resolveRrpValue({
+    linkedProduct: {
+      id: "jp-box",
+      title: "Pokemon Mega Brave Japanese Booster Box",
+      productType: "booster_box",
+      tcg: "pokemon",
+      officialRrpPence: 4999,
+      rrpSource: "incorrect-uk-reference",
+      rrpObservedAt: 1_780_000_000,
+    },
+  }, context);
+  assert.equal(result.resolved, false);
+  assert.equal(result.reason, "rrp_not_applicable");
+  assert.equal(result.applicabilityReason, "non_uk_import");
+});
