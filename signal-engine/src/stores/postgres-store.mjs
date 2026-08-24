@@ -127,8 +127,19 @@ export class PostgresStore {
     const pool = await this.pool();
     const values = [since, Math.min(250, limit)];
     const conditions = ["detected_at >= $1"];
-    if (states.length) { values.push(states); conditions.push(`state = ANY($${values.length})`); }
-    if (retailerIds.length) { values.push(retailerIds); conditions.push(`retailer_id = ANY($${values.length})`); }
+    if (states.length) { values.push(states); conditions.push(`state = ANY(${values.length})`); }
+    if (retailerIds.length) { values.push(retailerIds); conditions.push(`retailer_id = ANY(${values.length})`); }
+    const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
+    return rows.map(dbSignal);
+  }
+  async listAvailabilitySignals({ productId = null, offerId = null, retailerId = null, since = 0, limit = 500 } = {}) {
+    const pool = await this.pool();
+    const safe = Math.min(2000, Math.max(1, limit));
+    const values = [since, safe, ["manifested", "vanished"]];
+    const conditions = ["detected_at >= $1", "state = ANY($3)"];
+    if (productId) { values.push(productId); conditions.push(`product_id = ${values.length}`); }
+    if (offerId) { values.push(offerId); conditions.push(`offer_id = ${values.length}`); }
+    if (retailerId) { values.push(retailerId); conditions.push(`retailer_id = ${values.length}`); }
     const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
     return rows.map(dbSignal);
   }
