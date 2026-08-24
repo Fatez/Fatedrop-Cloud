@@ -110,6 +110,8 @@ Vanished says:
 
 > Verified availability has disappeared.
 
+A **public Vanished must close a previously published, still-open Manifested window for the same offer**. If FateDrop only knew an item was live from a quiet baseline or internal observation, and never published Manifested for that availability cycle, the later loss of stock is recorded internally but does **not** become a public Vanished.
+
 Vanished can include **Observed live** duration when FateDrop has a valid closed Manifested → Vanished window. For example:
 
 > Observed live · 12m 34s
@@ -198,7 +200,7 @@ The retailer class changes presentation and recommended action, not the meaning 
 
 1. Whisper and Echo must explicitly avoid implying confirmed stock.
 2. Manifested is the only stage that may make a current verified-live claim.
-3. Vanished only follows previously verified purchasable availability.
+3. Vanished only follows a previously published, unmatched Manifested for the same offer availability cycle. Quiet-baseline stock truth cannot create an orphan public Vanished.
 4. Observed-live duration is Vanished-only and requires a closed observed window.
 5. Not every product must pass through every stage.
 6. Product filtering changes delivery, not underlying detection.
