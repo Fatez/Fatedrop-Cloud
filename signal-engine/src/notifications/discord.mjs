@@ -91,8 +91,9 @@ function resolvedRrpComparison(signal) {
   const rrpPence = finiteNumber(signal?.rrpPence);
   if (pricePence == null || rrpPence == null || rrpPence <= 0) return null;
 
-  const explicitMarkup = finiteNumber(signal?.markupPercent);
-  const markupPercent = explicitMarkup ?? Math.round((((pricePence - rrpPence) / rrpPence) * 100) * 10) / 10;
+  // Discord derives the public percentage directly from the current item price
+  // and canonical RRP so the displayed calculator cannot drift from its inputs.
+  const markupPercent = Math.round((((pricePence - rrpPence) / rrpPence) * 100) * 10) / 10;
   const deltaPence = pricePence - rrpPence;
 
   if (Math.abs(markupPercent) <= 0.5) {
