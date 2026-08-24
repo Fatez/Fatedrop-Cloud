@@ -5,7 +5,9 @@ import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
+import { buildFateFindResult } from "../hosted/fatefind.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
+import { loadAvailabilityIntelligence } from "../telemetry/availability-intelligence.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
 
 const PUBLIC_SIGNAL_STATES = ["whisper", "echo", "manifested", "vanished"];
@@ -193,6 +195,50 @@ async function appCatalogue(store, url) {
   return { success: true, total, count: page.length, products: page, nextCursor: next, updatedAt: new Date().toISOString() };
 }
 
+async function appFateFind(store, url) {
+  const query = (url.searchParams.get("q") || "").trim();
+  if (query.length < 2) {
+    return {
+      success: true,
+      contractVersion: 1,
+      query,
+      generatedAt: Math.floor(Date.now() / 1000),
+      comparisonStatus: "no_matches",
+      bestOpportunity: null,
+      rankedOffers: [],
+    };
+  }
+
+  const [rawOffers, products] = await Promise.all([
+    store.listOffers({ limit: 10000 }),
+    store.listProducts({ limit: 5000 }),
+  ]);
+  const productsById = new Map(products.map((product) => [product.id, product]));
+  const rrpContext = buildRrpValueContext(products);
+  const offers = rawOffers
+    .filter((offer) => ["in_stock", "low_stock"].includes(offer.stockStatus))
+    .map((offer) => {
+      if (Number.isFinite(offer.postagePence)) return offer;
+      const delivery = resolveRetailerDelivery({ retailerId: offer.retailerId, subtotalPence: offer.pricePence });
+      return Number.isFinite(delivery.postagePence) ? { ...offer, postagePence: delivery.postagePence } : offer;
+    });
+  const find = {
+    queryText: query,
+    productIdentityId: null,
+    maxItemPricePence: null,
+    maxTruePricePence: null,
+    maxPercentAboveRrp: null,
+    scope: "online",
+    preferredRetailerIds: [],
+    excludedRetailerIds: [],
+    stockRequirement: "in_stock",
+  };
+  return {
+    success: true,
+    ...buildFateFindResult(find, offers, productsById, rrpContext),
+  };
+}
+
 async function appTruePrice(store, url) {
   const q = (url.searchParams.get("q") || "").trim();
   const disclaimer = "Prices and stock can change on the retailer site. FateDrop shows verified official RRP where identity is exact, and clearly-labelled component references only when bundle quantity and a verified unit RRP are both provable. Delivery totals are only compared when delivery is known.";
@@ -283,6 +329,7 @@ export function createHttpServer({ store }) {
         });
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res, 200, await appCatalogue(store, url));
+      if (req.method === "GET" && url.pathname === "/api/fatefind") return json(res, 200, await appFateFind(store, url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res, 200, await appTruePrice(store, url));
       if (req.method === "GET" && url.pathname === "/api/signals") {
         const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get("limit") || "50", 10) || 50));
@@ -312,6 +359,26 @@ export function createHttpServer({ store }) {
         const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
         const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit });
         return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), signals });
+      }
+      if (req.method === "GET" && url.pathname === "/v1/availability-intelligence") {
+        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        const productId = (url.searchParams.get("productId") || "").trim() || null;
+        const offerId = (url.searchParams.get("offerId") || "").trim() || null;
+        const retailerId = (url.searchParams.get("retailerId") || "").trim() || null;
+        if (!productId && !offerId) return json(res, 400, { error: "productId or offerId is required" });
+        const days = Math.max(1, Math.min(365, Number.parseInt(url.searchParams.get("days") || "90", 10) || 90));
+        const limit = Math.max(1, Math.min(2000, Number.parseInt(url.searchParams.get("limit") || "500", 10) || 500));
+        const now = Math.floor(Date.now() / 1000);
+        const since = now - (days * 86400);
+        const availability = await loadAvailabilityIntelligence(store, { productId, offerId, retailerId, since, limit, now });
+        return json(res, 200, {
+          generatedAt: now,
+          productId,
+          offerId,
+          retailerId,
+          days,
+          availability,
+        });
       }
       if (req.method === "POST" && url.pathname === "/internal/network-state") {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);

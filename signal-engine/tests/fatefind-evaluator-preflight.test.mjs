@@ -44,7 +44,7 @@ function storeFor({ find = findRow(), offer = offerRow(), productTitle = "Pokemo
       calls.push(sql);
       if (sql.includes("FROM fatedrop_fate_matches")) return { rows: find ? [find] : [] };
       if (sql.includes("FROM fatedrop_retail_offers")) return { rows: offer ? [offer] : [] };
-      if (sql.includes("FROM fatedrop_products")) return { rows: [{ id: "product-secret-id", title: productTitle, official_rrp_pence: 5499 }] };
+      if (sql.includes("FROM fatedrop_products")) return { rows: [{ id: "product-secret-id", title: productTitle, product_type: "elite_trainer_box", tcg: "pokemon", official_rrp_pence: 5499, rrp_source: "pokemon-center-uk", rrp_observed_at: 1780000000 }] };
       throw new Error(`Unexpected query: ${sql}`);
     },
   };

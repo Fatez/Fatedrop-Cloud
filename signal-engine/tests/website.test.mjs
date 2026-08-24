@@ -82,6 +82,27 @@ test("website publisher sends canonical lifecycle plus links, identity and RRP p
   assert.equal(published.rrpPosition, "at_rrp");
 });
 
+test("legacy queue and security states normalize to Echo with their exact causes", async () => {
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const now = Math.floor(Date.now() / 1000);
+  const store = {
+    stats: async () => ({ echo24h: 2 }),
+    listSignals: async () => [
+      { id:"queue-1", state:"queue", retailerId:"pokemon-center-uk", retailerName:"Pokémon Center UK", title:"Queue", reason:"Queue", detectedAt:now },
+      { id:"security-1", state:"security", retailerId:"pokemon-center-uk", retailerName:"Pokémon Center UK", title:"Security", reason:"Security", detectedAt:now-1 },
+    ],
+    listRetailers: async () => [],
+    listProducts: async () => [],
+    getProduct: async () => null,
+    getOffer: async () => null,
+  };
+  let body;
+  const fetchImpl = async (_url, options) => { body = JSON.parse(options.body); return new Response(JSON.stringify({stored:true}), {status:201,headers:{"content-type":"application/json"}}); };
+  await publishWebsiteSnapshot({store,fetchImpl});
+  assert.deepEqual(body.recentSignals.map((signal)=>[signal.state,signal.kind,signal.intensity]),[["echo","queue","major"],["echo","security","major"]]);
+});
+
 test("market signals calculate actual markup rather than assuming a fixed indie premium", async () => {
   process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://example.com/api/dashboard/network-snapshot";
   process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
