@@ -183,6 +183,7 @@ async function appCatalogue(store, url) {
 
   if (sort === "price") rows.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
   else if (sort === "title") rows.sort((a, b) => a.title.localeCompare(b.title));
+  else if (sort === "recent") rows.sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
   else if (q || sort === "relevance") rows.sort((a, b) => b._searchScore - a._searchScore || String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
   else rows.sort((a, b) => String(b.lastSeen || "").localeCompare(String(a.lastSeen || "")));
 
