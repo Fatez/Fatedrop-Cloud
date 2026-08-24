@@ -35,6 +35,63 @@ async function appendSignals(store, signals) {
   throw new Error("Store cannot append readiness signals");
 }
 
+function readinessEventFor({ retailer, state, previousState, observedAt, evidence }) {
+  return {
+    id: stableId("evt", "retailer_readiness", retailer.id, state, String(observedAt)),
+    kind: "retailer_readiness",
+    occurredAt: observedAt,
+    evidence: {
+      lifecycle: "echo",
+      readinessState: state,
+      previousState,
+      observedAt,
+      retailer: {
+        id: retailer.id,
+        name: retailer.name,
+      },
+      evidence: Array.isArray(evidence) ? evidence : [],
+    },
+  };
+}
+
+async function persistReadinessEvent(store, payload) {
+  const event = readinessEventFor(payload);
+  if (typeof store.appendSignalEvent === "function") {
+    await store.appendSignalEvent(event);
+    return { recorded: true, event };
+  }
+  if (typeof store.pool === "function") {
+    const pool = await store.pool();
+    await pool.query(
+      `INSERT INTO fatedrop_signal_events
+        (id,kind,product_identity_id,offer_id,retailer_id,location_id,occurred_at,evidence_json)
+       VALUES ($1,$2,NULL,NULL,NULL,NULL,$3,$4::jsonb)
+       ON CONFLICT (id) DO NOTHING`,
+      [event.id, event.kind, event.occurredAt, JSON.stringify(event.evidence)],
+    );
+    return { recorded: true, event };
+  }
+  return { recorded: false, reason: "readiness_event_store_unavailable", event };
+}
+
+async function safePersistReadinessEvent(store, payload) {
+  try {
+    return await persistReadinessEvent(store, payload);
+  } catch (error) {
+    console.error("[echo] readiness event persistence failed", {
+      retailerId: payload?.retailer?.id,
+      state: payload?.state,
+      error: String(error?.message || error),
+    });
+    return {
+      recorded: false,
+      reason: "readiness_event_persistence_failed",
+      error: String(error?.message || error),
+      event: readinessEventFor(payload),
+    };
+  }
+}
+
 function distinctProductContexts(signals) {
   const byProduct = new Map();
   for (const signal of signals || []) {
@@ -50,10 +107,20 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     return { accepted: true, reason: "market_retailer_readiness_suppressed", readinessState: state, previousState, productContexts: 0, signals: [], discord: { sent: 0, skipped: 0, failed: 0, errors: [] } };
   }
 
+  // Persist the retailer-level readiness observation independently from product-linked
+  // Echo alerts. A real queue/security/access event must remain auditable even when
+  // no recent product context exists, and it must never require a fake product/offer FK.
+  const readinessEvent = await safePersistReadinessEvent(store, {
+    retailer,
+    state,
+    previousState,
+    observedAt,
+    evidence,
+  });
+
   // Echo describes retailer readiness rather than stock. The persisted signal schema still
-  // requires a real product/offer context, so use recent evidence from the same retailer
-  // rather than requiring a Whisper in the preceding six hours. Context never upgrades
-  // the readiness event into a stock claim.
+  // requires a real product/offer context, so use recent evidence from the same retailer.
+  // Context never upgrades the readiness event into a stock claim.
   const recentContextSignals = await store.listSignals({
     states: CONTEXT_STATES,
     retailerIds: [retailer.id],
@@ -77,7 +144,7 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     evidence: [
       { kind: "signal_kind", value: state, lifecycle: "echo", observedAt },
       { kind: "signal_alert_class", value: policy.alertClass, observedAt },
-      { kind: "retailer_readiness", state, previousState, observedAt },
+      { kind: "retailer_readiness", state, previousState, observedAt, readinessEventId: readinessEvent.event?.id || null },
       { kind: "echo_product_context", sourceState: context.state, sourceSignalId: context.id, sourceDetectedAt: context.detectedAt },
       ...(Array.isArray(evidence) ? evidence : []),
       ...(Array.isArray(context.evidence) ? context.evidence : []),
@@ -101,6 +168,7 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     accepted: true,
     readinessState: state,
     previousState,
+    readinessEvent,
     productContexts: signals.length,
     reason: signals.length ? "echo_emitted" : "no_recent_retailer_product_context",
     signals,
