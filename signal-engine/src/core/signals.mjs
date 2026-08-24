@@ -20,7 +20,7 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
   ];
 }
 
-export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
+export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000), availabilityWindow = null }) {
   if (isBaseline) return null;
 
   const previousStatus = previousOffer?.stockStatus ?? null;
@@ -59,9 +59,13 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       reason = "Retailer SKU availability became verified";
     }
   } else if (wasPurchasable && !nowPurchasable) {
+    // Public lifecycle continuity is strict: Vanished may only close a
+    // previously published, still-open Manifested window for this offer.
+    // Stock truth is still persisted by the engine when this returns null.
+    if (!availabilityWindow?.manifestedSignalId) return null;
     state = SignalState.VANISHED;
     kind = "sold_out";
-    reason = "Previously purchasable retailer SKU is no longer verified available";
+    reason = "Previously Manifested retailer SKU is no longer verified available";
   } else if (previousStatus !== currentStatus && !nowPurchasable) {
     state = SignalState.WHISPER;
     kind = "catalogue_state_change";
@@ -71,6 +75,20 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   if (!state || !kind) return null;
   const productAlertClassification = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
+  const availabilityWindowId = state === SignalState.MANIFESTED
+    ? stableId("avw", currentOffer.offerId, id)
+    : state === SignalState.VANISHED
+      ? availabilityWindow?.id || stableId("avw", currentOffer.offerId, availabilityWindow.manifestedSignalId)
+      : null;
+  const pairedManifestedSignalId = state === SignalState.VANISHED ? availabilityWindow?.manifestedSignalId || null : null;
+  const availabilityEvidence = availabilityWindowId ? [{
+    kind: "availability_window",
+    value: availabilityWindowId,
+    status: state === SignalState.MANIFESTED ? "opened" : "closed",
+    manifestedSignalId: state === SignalState.MANIFESTED ? id : pairedManifestedSignalId,
+    ...(state === SignalState.VANISHED ? { vanishedSignalId: id } : {}),
+    observedAt: now,
+  }] : [];
   const deliveredPricePence = currentOffer.postagePence == null || currentOffer.pricePence == null
     ? null
     : currentOffer.pricePence + currentOffer.postagePence;
@@ -101,6 +119,8 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     detectedAt: now,
     reason,
     productAlertClassification,
+    availabilityWindowId,
+    pairedManifestedSignalId,
     target: {
       type: "product",
       productId: currentOffer.productId,
@@ -109,13 +129,16 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: signalEvidence(currentOffer.evidence, {
-      kind,
-      state,
-      alertClass: policy.alertClass,
-      retailerSku: currentOffer.retailerSku,
-      observedAt: now,
-      productAlertClassification,
-    }),
+    evidence: [
+      ...signalEvidence(currentOffer.evidence, {
+        kind,
+        state,
+        alertClass: policy.alertClass,
+        retailerSku: currentOffer.retailerSku,
+        observedAt: now,
+        productAlertClassification,
+      }),
+      ...availabilityEvidence,
+    ],
   };
 }
