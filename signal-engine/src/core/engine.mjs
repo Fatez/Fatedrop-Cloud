@@ -48,6 +48,33 @@ function evidenceBackedPostage(raw, retailer) {
 
 function emptyDiscordResult(extra = {}) { return { sent: 0, skipped: 0, failed: 0, errors: [], ...extra }; }
 
+async function openAvailabilityWindowForVanished(store, offerId, now) {
+  if (!offerId) return null;
+  try {
+    const availability = await loadAvailabilityIntelligence(store, {
+      offerId,
+      since: 0,
+      limit: 100,
+      now,
+    });
+    const active = availability.activeWindows.find((candidate) => candidate.offerId === offerId);
+    if (!active?.manifestedSignalId) return null;
+    return {
+      id: stableId("avw", offerId, active.manifestedSignalId),
+      manifestedSignalId: active.manifestedSignalId,
+      manifestedAt: active.startedAt,
+    };
+  } catch (error) {
+    console.error("[availability] lifecycle continuity lookup failed", {
+      offerId,
+      error: String(error?.message || error),
+    });
+    // Fail closed for public Vanished. The stock observation is still persisted,
+    // but we do not publish an orphan lifecycle event when history cannot be proven.
+    return null;
+  }
+}
+
 async function signalWithObservedDuration(store, signal) {
   if (signal?.state !== "vanished" || !signal?.offerId) return signal;
   try {
@@ -228,7 +255,14 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       lastSeenAt: now,
     };
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
-    const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
+    const needsVanishedPair = !quietBaseline
+      && previousOffer
+      && isPurchasable(previousOffer.stockStatus)
+      && !isPurchasable(offer.stockStatus);
+    const availabilityWindow = needsVanishedPair
+      ? await openAvailabilityWindowForVanished(store, offerId, now)
+      : null;
+    const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now, availabilityWindow });
     products.push(product);
     offers.push(offer);
     if (shouldPersistObservation(previousOffer, offer)) observations.push(observation);
