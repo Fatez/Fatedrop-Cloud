@@ -80,13 +80,15 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
   const isPreorder = offer?.stockStatus === "preorder";
   const huntLabel = String(find?.queryText || productTitle).trim();
+  const companionId = typeof find?.companionId === "string" && find.companionId.trim() ? find.companionId.trim() : null;
+  const companionName = companionId ? companionId.charAt(0).toUpperCase() + companionId.slice(1) : "Your companion";
 
   return {
     title: "FATEMATCH — LIVE NOW",
-    body: `${productTitle} is live at ${offer.retailerName} · ${priceLabel}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
+    body: `${companionName} found it. ${productTitle} is live at ${offer.retailerName} · ${priceLabel}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
     payload: {
       urgency: "high",
-      companion: find?.companionId || null,
+      companion: companionId,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
@@ -322,13 +324,15 @@ export function buildFateFindResult(find, offers = [], products = new Map(), rrp
 }
 
 function rowToFind(row) {
+  const notifications = row.notification_preferences_json || {};
   return {
     id: row.id, userId: row.user_id, queryText: row.query_text || "", productIdentityId: row.product_identity_id,
     maxItemPricePence: row.max_item_price_pence == null ? null : Number(row.max_item_price_pence),
     maxTruePricePence: row.max_true_price_pence == null ? null : Number(row.max_true_price_pence),
     maxPercentAboveRrp: row.max_percent_above_rrp == null ? null : Number(row.max_percent_above_rrp),
     scope: row.scope || "either", preferredRetailerIds: row.preferred_retailers_json || [], excludedRetailerIds: row.excluded_retailers_json || [],
-    stockRequirement: row.stock_requirement || "in_stock", notifications: row.notification_preferences_json || {},
+    stockRequirement: row.stock_requirement || "in_stock", notifications,
+    companionId: typeof notifications.companionId === "string" ? notifications.companionId : null,
   };
 }
 
