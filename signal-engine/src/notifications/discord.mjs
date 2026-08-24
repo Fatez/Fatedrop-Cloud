@@ -77,11 +77,36 @@ function retailerSkuFor(signal) {
   return signal?.retailerSku || evidenceValue(signal, "retailer_sku") || null;
 }
 
-function valueLabel(signal) {
-  if (!Number.isFinite(signal?.markupPercent)) return null;
-  if (signal.markupPercent < -0.5) return `${percent(signal.markupPercent)} below RRP`;
-  if (Math.abs(signal.markupPercent) <= 0.5) return "At RRP";
-  return `${percent(signal.markupPercent)} above RRP`;
+function finiteNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function resolvedRrpComparison(signal) {
+  const pricePence = finiteNumber(signal?.pricePence);
+  const rrpPence = finiteNumber(signal?.rrpPence);
+  if (pricePence == null || rrpPence == null || rrpPence <= 0) return null;
+
+  const explicitMarkup = finiteNumber(signal?.markupPercent);
+  const markupPercent = explicitMarkup ?? Math.round((((pricePence - rrpPence) / rrpPence) * 100) * 10) / 10;
+  const deltaPence = pricePence - rrpPence;
+
+  if (Math.abs(markupPercent) <= 0.5) {
+    return { markupPercent: 0, deltaPence, label: "At RRP" };
+  }
+
+  const direction = markupPercent > 0 ? "above RRP" : "below RRP";
+  const deltaPrefix = deltaPence > 0 ? "+" : deltaPence < 0 ? "-" : "";
+  const deltaMoney = money(Math.abs(deltaPence));
+  return {
+    markupPercent,
+    deltaPence,
+    label: `${percent(markupPercent)} ${direction} · ${deltaPrefix}${deltaMoney}`,
+  };
 }
 
 function descriptionFor(signal, alertClass) {
@@ -163,6 +188,7 @@ export function buildDiscordSignalMessage(signal) {
   const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
   const retailerSku = retailerSkuFor(signal);
   const exactCause = signalKindFor(signal);
+  const rrpComparison = resolvedRrpComparison(signal);
 
   const fields = [
     { name: "Retailer", value: short(signal.retailerName || signal.retailerId || "Unknown", 1024), inline: true },
@@ -171,8 +197,8 @@ export function buildDiscordSignalMessage(signal) {
   ];
 
   if (retailerSku) fields.push({ name: "Retailer SKU", value: short(retailerSku, 1024), inline: true });
-  if (Number.isFinite(signal.rrpPence)) fields.push({ name: "Official RRP", value: money(signal.rrpPence), inline: true });
-  if (Number.isFinite(signal.markupPercent)) fields.push({ name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP", value: valueLabel(signal) || percent(signal.markupPercent), inline: true });
+  if (finiteNumber(signal.rrpPence) != null) fields.push({ name: "Official RRP", value: money(finiteNumber(signal.rrpPence)), inline: true });
+  if (rrpComparison) fields.push({ name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP", value: rrpComparison.label, inline: true });
   if (Number.isFinite(signal.deliveredPricePence)) fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
   if (exactCause) fields.push({ name: "Signal cause", value: short(exactCause.replaceAll("_", " "), 1024), inline: true });
   const liveFor = signal.state === "vanished" ? observedDuration(signal.observedDurationSeconds) : null;
