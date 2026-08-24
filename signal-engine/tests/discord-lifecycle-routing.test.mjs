@@ -35,14 +35,14 @@ const expectedCompanions = {
   whisper: "Oru",
   echo: "Fenn",
   manifested: "Koru",
-  vanished: "Nixon",
+  vanished: "Nyxen",
 };
 
 const botTokens = {
   whisper: "oru-token",
   echo: "fenn-token",
   manifested: "koru-token",
-  vanished: "nixon-token",
+  vanished: "nyxen-token",
 };
 
 test("each lifecycle state has one stable FateDrop companion", () => {
@@ -127,6 +127,6 @@ test("Discord sends each signal with its companion bot to its lifecycle channel"
     { url: "https://discord.com/api/v10/channels/111/messages", authorization: "Bot oru-token" },
     { url: "https://discord.com/api/v10/channels/222/messages", authorization: "Bot fenn-token" },
     { url: "https://discord.com/api/v10/channels/333/messages", authorization: "Bot koru-token" },
-    { url: "https://discord.com/api/v10/channels/444/messages", authorization: "Bot nixon-token" },
+    { url: "https://discord.com/api/v10/channels/444/messages", authorization: "Bot nyxen-token" },
   ]);
 });
