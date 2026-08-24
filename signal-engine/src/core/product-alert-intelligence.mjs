@@ -15,11 +15,11 @@ function sealedSubtype(productType, title) {
   if (productType === "elite_trainer_box" || /elite trainer box|\betb\b/.test(title)) return "ETB";
   if (productType === "booster_box" || /booster (?:box|display)/.test(title)) return "BOOSTER_BOX";
   if (productType === "booster_bundle" || /booster bundle/.test(title)) return "BOOSTER_BUNDLE";
+  if (productType === "collection_box" || /\bcollection\b/.test(title)) return "COLLECTION";
   if (productType === "booster_pack" || /booster pack|sleeved booster/.test(title)) return "BOOSTER_PACK";
   if (/blister/.test(title)) return "BLISTER";
   if (productType === "tin" || /\btin\b/.test(title)) return "TIN";
   if (productType === "deck" || /battle deck|theme deck|league battle deck|starter deck/.test(title)) return "DECK";
-  if (productType === "collection_box" || /\bcollection\b/.test(title)) return "COLLECTION";
   return "SEALED_PRODUCT";
 }
 
