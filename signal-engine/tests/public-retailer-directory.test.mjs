@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildPublicRetailerDirectory } from "../src/retailers/public-directory.mjs";
 
-test("public retailer directory exposes identity and effective monitoring truth without adapter internals", () => {
+test("public retailer directory exposes identity, presence and effective monitoring truth without adapter internals", () => {
   const [profile] = buildPublicRetailerDirectory({
     retailers: [{
       id: "indie-one",
@@ -11,6 +11,8 @@ test("public retailer directory exposes identity and effective monitoring truth 
       retailerClass: "independent",
       verification: "verified",
       tcgs: ["pokemon", "magic"],
+      online: true,
+      physicalLocations: 2,
       adapterType: "shopify",
       catalogueUrls: ["https://indie.example/private-ish-catalogue-path"],
     }],
@@ -29,11 +31,25 @@ test("public retailer directory exposes identity and effective monitoring truth 
   assert.equal(profile.websiteUrl, "https://indie.example/");
   assert.equal(profile.retailerClass, "independent");
   assert.deepEqual(profile.tcgs, ["pokemon", "magic"]);
+  assert.equal(profile.online, true);
+  assert.equal(profile.physicalLocations, 2);
   assert.equal(profile.monitoring.healthy, true);
   assert.equal(profile.monitoring.productsSeen, 123);
   assert.equal("adapterType" in profile, false);
   assert.equal("catalogueUrls" in profile, false);
   assert.equal("lastError" in profile.monitoring, false);
+});
+
+test("directory fails closed when physical presence is not explicitly known", () => {
+  const [profile] = buildPublicRetailerDirectory({ retailers: [{
+    id: "online-only",
+    name: "Online Only",
+    baseUrl: "https://online.example",
+    retailerClass: "independent",
+    online: true,
+  }] });
+  assert.equal(profile.online, true);
+  assert.equal(profile.physicalLocations, 0);
 });
 
 test("directory prefers independents and specialists ahead of national retailers", () => {
