@@ -44,6 +44,10 @@ export function parseMoneyToPence(value) {
 
 export function productTypeFromTitle(title = "") {
   const t = normalizeTitle(title);
+  // Digital redemption/code listings often repeat the physical product name in
+  // their title. They are not the sealed product and must not inherit its RRP or
+  // inflate sealed-product coverage/alert counts.
+  if (/\b(?:online code|code card|ptcgo|tcg live|digital code)\b/.test(t)) return "other";
   if (/elite trainer box|\betb\b/.test(t)) return "elite_trainer_box";
   if (/booster display|booster box/.test(t)) return "booster_box";
   if (/booster bundle/.test(t)) return "booster_bundle";
