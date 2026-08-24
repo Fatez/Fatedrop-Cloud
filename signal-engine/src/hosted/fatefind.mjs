@@ -82,11 +82,11 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const huntLabel = String(find?.queryText || productTitle).trim();
 
   return {
-    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
-    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
+    title: "FATEMATCH — LIVE NOW",
+    body: `${productTitle} is live at ${offer.retailerName} · ${priceLabel}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
     payload: {
       urgency: "high",
-      companion: "Koru",
+      companion: find?.companionId || null,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
@@ -255,6 +255,70 @@ export function rankFateFindOffers(find, offers = [], products = new Map(), rrpC
 
 export function selectBestFateFindOffer(find, offers = [], products = new Map(), rrpContext = null) {
   return rankFateFindOffers(find, offers, products, rrpContext)[0] || null;
+}
+
+function fateFindValueLabel(percentAboveRrp) {
+  if (!Number.isFinite(percentAboveRrp)) return null;
+  const magnitude = Math.abs(percentAboveRrp).toFixed(1);
+  if (percentAboveRrp < 0) return `${magnitude}% BELOW RRP`;
+  if (percentAboveRrp > 0) return `${magnitude}% ABOVE RRP`;
+  return "AT RRP";
+}
+
+export function serializeFateFindCandidate(candidate) {
+  if (!candidate) return null;
+  const { offer, product, result, rank, rankingBasis } = candidate;
+  const itemPricePence = Number.isFinite(offer?.pricePence) ? offer.pricePence : null;
+  const deliveryPence = Number.isFinite(offer?.postagePence) ? offer.postagePence : null;
+  const rrpPence = Number.isFinite(result?.rrpPence) ? result.rrpPence : null;
+  const itemVsRrpDeltaPence = itemPricePence !== null && rrpPence !== null ? itemPricePence - rrpPence : null;
+  return {
+    rank,
+    rankingBasis,
+    productId: product?.id || offer?.productId || null,
+    productTitle: product?.title || offer?.title || "TCG product",
+    productType: product?.productType || offer?.productType || null,
+    tcg: product?.tcg || offer?.tcg || "pokemon",
+    offerId: offer?.offerId || null,
+    retailerId: offer?.retailerId || null,
+    retailerName: offer?.retailerName || null,
+    url: offer?.url || null,
+    stockStatus: offer?.stockStatus || "unknown",
+    lastSeenAt: Number.isFinite(offer?.lastSeenAt) ? offer.lastSeenAt : null,
+    itemPricePence,
+    deliveryKnown: deliveryPence !== null,
+    deliveryPence,
+    truePricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
+    rrpResolved: result?.rrpResolved === true,
+    rrpPence,
+    rrpKind: result?.rrpKind || null,
+    rrpSource: result?.rrpSource || null,
+    rrpReferenceBasis: result?.rrpReferenceBasis || null,
+    rrpReason: result?.rrpReason || null,
+    rrpApplicabilityReason: result?.rrpApplicabilityReason || null,
+    itemVsRrpDeltaPence,
+    percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
+    valueLabel: fateFindValueLabel(result?.percentAboveRrp),
+    qualifyingReasons: Array.isArray(result?.reasons) ? result.reasons : [],
+  };
+}
+
+export function buildFateFindResult(find, offers = [], products = new Map(), rrpContext = null, { generatedAt = Math.floor(Date.now() / 1000) } = {}) {
+  const ranked = rankFateFindOffers(find, offers, products, rrpContext);
+  const rankedOffers = ranked.map(serializeFateFindCandidate);
+  const bestOpportunity = rankedOffers[0] || null;
+  return {
+    contractVersion: 1,
+    query: String(find?.queryText || "").trim(),
+    generatedAt,
+    comparisonStatus: !bestOpportunity
+      ? "no_matches"
+      : Number.isFinite(bestOpportunity.percentAboveRrp)
+        ? "ranked_by_rrp_value"
+        : "ranked_without_rrp",
+    bestOpportunity,
+    rankedOffers,
+  };
 }
 
 function rowToFind(row) {
