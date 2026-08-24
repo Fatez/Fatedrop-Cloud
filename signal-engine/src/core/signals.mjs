@@ -1,12 +1,21 @@
 import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
+import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 
-function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt }) {
+function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, productAlertClassification }) {
   return [
     ...(Array.isArray(evidence) ? evidence : []),
     { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
     { kind: "signal_alert_class", value: alertClass, observedAt },
+    ...(productAlertClassification ? [{
+      kind: "product_alert_classification",
+      category: productAlertClassification.category,
+      subcategory: productAlertClassification.subcategory,
+      confidence: productAlertClassification.confidence,
+      evidence: productAlertClassification.evidence,
+      observedAt,
+    }] : []),
     ...(retailerSku ? [{ kind: "retailer_sku", value: retailerSku, observedAt }] : []),
   ];
 }
@@ -60,6 +69,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   }
 
   if (!state || !kind) return null;
+  const productAlertClassification = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
   const deliveredPricePence = currentOffer.postagePence == null || currentOffer.pricePence == null
     ? null
@@ -90,6 +100,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     confidence: currentOffer.stockConfidence ?? 0.5,
     detectedAt: now,
     reason,
+    productAlertClassification,
     target: {
       type: "product",
       productId: currentOffer.productId,
@@ -98,6 +109,13 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: signalEvidence(currentOffer.evidence, { kind, state, alertClass: policy.alertClass, retailerSku: currentOffer.retailerSku, observedAt: now }),
+    evidence: signalEvidence(currentOffer.evidence, {
+      kind,
+      state,
+      alertClass: policy.alertClass,
+      retailerSku: currentOffer.retailerSku,
+      observedAt: now,
+      productAlertClassification,
+    }),
   };
 }
