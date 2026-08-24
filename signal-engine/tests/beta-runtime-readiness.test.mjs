@@ -15,7 +15,7 @@ const healthyDiscord = {
     { state: "whisper", companion: "Oru", ready: true },
     { state: "echo", companion: "Fenn", ready: true },
     { state: "manifested", companion: "Koru", ready: true },
-    { state: "vanished", companion: "Nixon", ready: true },
+    { state: "vanished", companion: "Nyxen", ready: true },
   ],
 };
 const healthyNetwork = summarizeSignalNetworkReadiness([
