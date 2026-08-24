@@ -106,6 +106,13 @@ const policies = {
     rules: [{ minSubtotalPence: 4000, postagePence: 0 }],
     note: "Public site confirms free delivery above £39.99; below-threshold standard charge is not treated as fixed without stronger evidence.",
   },
+  "tgc-collectables": {
+    source: "https://collect.thegamecollection.net/pages/faqs",
+    verifiedAt: "2026-08-24",
+    freeShippingThresholdPence: 2000,
+    rules: [{ minSubtotalPence: 2000, postagePence: 0 }],
+    note: "TGC advertises free UK delivery over £20; below-threshold delivery remains unknown unless stronger checkout evidence is available.",
+  },
   "total-cards": {
     source: "https://totalcards.net/pages/delivery/",
     verifiedAt: VERIFIED_AT,

@@ -35,6 +35,13 @@ const hostedFateFindProductionDefault = defaultHostedFateFindEnabled({
   databaseUrl,
 });
 
+const amazonCreatorsClientId = process.env.AMAZON_CREATORS_CLIENT_ID || "";
+const amazonCreatorsClientSecret = process.env.AMAZON_CREATORS_CLIENT_SECRET || "";
+const amazonCreatorsPartnerTag = process.env.AMAZON_CREATORS_PARTNER_TAG || "";
+const amazonCreatorsConfigured = Boolean(
+  amazonCreatorsClientId && amazonCreatorsClientSecret && amazonCreatorsPartnerTag,
+);
+
 const discordBotToken = process.env.DISCORD_BOT_TOKEN || "";
 const discordBotTokens = Object.freeze({
   whisper: process.env.DISCORD_ORU_BOT_TOKEN || "",
@@ -72,6 +79,13 @@ export const env = {
   encounters: {
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY || "",
   },
+  amazonCreators: {
+    configured: amazonCreatorsConfigured,
+    clientId: amazonCreatorsClientId,
+    clientSecret: amazonCreatorsClientSecret,
+    partnerTag: amazonCreatorsPartnerTag,
+    marketplace: "www.amazon.co.uk",
+  },
   hostedFateFind: {
     enabled: bool("FATEDROP_HOSTED_FATEFIND_ENABLED", hostedFateFindProductionDefault),
     explicitlyConfigured: hostedFateFindExplicitlyConfigured,
@@ -106,5 +120,7 @@ export const env = {
     jetCards: bool("FATEDROP_RETAILER_JET_CARDS", true),
     gatheringGames: bool("FATEDROP_RETAILER_GATHERING_GAMES", true),
     zatuGames: bool("FATEDROP_RETAILER_ZATU_GAMES", true),
+    tgcCollectables: bool("FATEDROP_RETAILER_TGC_COLLECTABLES", true),
+    amazonUk: bool("FATEDROP_RETAILER_AMAZON_UK", false),
   },
 };
