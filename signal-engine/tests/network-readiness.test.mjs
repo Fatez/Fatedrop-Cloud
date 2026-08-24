@@ -70,6 +70,14 @@ test("queue readiness emits Echo onto recent real product context for a primary 
   assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "retailer_readiness")?.readinessEventId, store.events[0].id);
 });
 
+test("security readiness records security as the exact Echo cause", async () => {
+  const store = storeWith([whisper({ detectedAt: 1900 })]);
+  await recordRetailerReadiness({ retailer, store, state: "security", previousState: "normal", observedAt: 2000 });
+  assert.equal(store.appended[0].state, "echo");
+  assert.equal(store.appended[0].kind, "security");
+  assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "retailer_readiness")?.state, "security");
+});
+
 test("market retailer readiness never emits public Echo noise", async () => {
   const marketRetailer = { id: "titan-cards", name: "Titan Cards" };
   const store = storeWith([whisper({ retailerId: marketRetailer.id, retailerName: marketRetailer.name, detectedAt: 1900 })]);
