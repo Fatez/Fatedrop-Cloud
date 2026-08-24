@@ -78,6 +78,9 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const delivered = money(result?.deliveredPricePence);
   const itemPrice = money(offer?.pricePence);
   const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
+  const rrpPrice = money(result?.rrpPence);
+  const valueLabel = fateFindValueLabel(result?.percentAboveRrp);
+  const rrpContext = [rrpPrice ? `RRP ${rrpPrice}` : null, valueLabel].filter(Boolean).join(" · ");
   const isPreorder = offer?.stockStatus === "preorder";
   const huntLabel = String(find?.queryText || productTitle).trim();
   const companionId = typeof find?.companionId === "string" && find.companionId.trim() ? find.companionId.trim() : null;
@@ -85,12 +88,14 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
 
   return {
     title: "FATEMATCH — LIVE NOW",
-    body: `${companionName} found it. ${productTitle} is live at ${offer.retailerName} · ${priceLabel}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
+    body: `${companionName} found it. ${productTitle} is live at ${offer.retailerName} · ${priceLabel}${rrpContext ? ` · ${rrpContext}` : ""}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
     payload: {
       urgency: "high",
       companion: companionId,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
+      itemPricePence: Number.isFinite(offer?.pricePence) ? offer.pricePence : null,
+      deliveryPence: Number.isFinite(offer?.postagePence) ? offer.postagePence : null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
       rrpPence: Number.isFinite(result?.rrpPence) ? result.rrpPence : null,
       percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
