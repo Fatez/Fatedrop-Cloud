@@ -6,6 +6,7 @@ import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
+import { loadAvailabilityIntelligence } from "../telemetry/availability-intelligence.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
 
 const PUBLIC_SIGNAL_STATES = ["whisper", "echo", "manifested", "vanished"];
@@ -312,6 +313,26 @@ export function createHttpServer({ store }) {
         const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
         const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit });
         return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), signals });
+      }
+      if (req.method === "GET" && url.pathname === "/v1/availability-intelligence") {
+        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        const productId = (url.searchParams.get("productId") || "").trim() || null;
+        const offerId = (url.searchParams.get("offerId") || "").trim() || null;
+        const retailerId = (url.searchParams.get("retailerId") || "").trim() || null;
+        if (!productId && !offerId) return json(res, 400, { error: "productId or offerId is required" });
+        const days = Math.max(1, Math.min(365, Number.parseInt(url.searchParams.get("days") || "90", 10) || 90));
+        const limit = Math.max(1, Math.min(2000, Number.parseInt(url.searchParams.get("limit") || "500", 10) || 500));
+        const now = Math.floor(Date.now() / 1000);
+        const since = now - (days * 86400);
+        const availability = await loadAvailabilityIntelligence(store, { productId, offerId, retailerId, since, limit, now });
+        return json(res, 200, {
+          generatedAt: now,
+          productId,
+          offerId,
+          retailerId,
+          days,
+          availability,
+        });
       }
       if (req.method === "POST" && url.pathname === "/internal/network-state") {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);

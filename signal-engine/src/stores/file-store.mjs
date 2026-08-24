@@ -59,6 +59,18 @@ export class FileStore {
     const state = await this.read();
     return (state.signals || []).filter((signal) => signal.detectedAt >= since).filter((signal) => !states.length || states.includes(signal.state)).filter((signal) => !retailerIds.length || retailerIds.includes(signal.retailerId)).sort((a, b) => b.detectedAt - a.detectedAt).slice(0, limit);
   }
+  async listAvailabilitySignals({ productId = null, offerId = null, retailerId = null, since = 0, limit = 500 } = {}) {
+    const state = await this.read();
+    const safe = Math.min(2000, Math.max(1, limit));
+    return (state.signals || [])
+      .filter((signal) => ["manifested", "vanished"].includes(signal.state))
+      .filter((signal) => signal.detectedAt >= since)
+      .filter((signal) => !productId || signal.productId === productId)
+      .filter((signal) => !offerId || signal.offerId === offerId)
+      .filter((signal) => !retailerId || signal.retailerId === retailerId)
+      .sort((a, b) => b.detectedAt - a.detectedAt)
+      .slice(0, safe);
+  }
   async listRetailers() { return Object.values((await this.read()).retailers || {}); }
   async upsertEncounters(events = []) {
     return this.mutate((state) => {
