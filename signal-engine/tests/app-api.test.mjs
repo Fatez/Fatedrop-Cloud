@@ -34,13 +34,43 @@ const store={
   async listNetworkSnapshots(){return[];},
 };
 
-async function withServer(fn){const server=createHttpServer({store});await new Promise((resolve)=>server.listen(0,"127.0.0.1",resolve));try{const address=server.address();await fn(`http://127.0.0.1:${address.port}`);}finally{await new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve()));}}
+async function withServer(fn, activeStore=store){const server=createHttpServer({store:activeStore});await new Promise((resolve)=>server.listen(0,"127.0.0.1",resolve));try{const address=server.address();await fn(`http://127.0.0.1:${address.port}`);}finally{await new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve()));}}
 
 test("app catalogue exposes mobile-compatible offers with RRP provenance",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=destined&inStock=true`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.success,true);assert.equal(data.total,3);assert.equal(data.products[0].availability,"IN_STOCK");assert.equal(data.products[0].category,"SEALED");}));
 
 test("catalogue search resolves human shorthand and non-contiguous product intent",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=destined%20etb&inStock=true`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.total,3);assert.equal(data.products[0].title,"Destined Rivals Elite Trainer Box");assert.equal(data.products.some((offer)=>offer.title==="Pokemon TCG Destined Rivals Elite Trainer Box"),true);}));
 
 test("catalogue search treats generic pokemon/tcg words as optional when stronger product terms exist",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/catalogue?q=pokemon%20tcg%20destined%20etb&inStock=true`);const data=await response.json();assert.equal(data.total,3);}));
+
+test("FateFind ranks best value across single and multipack configurations instead of lowest raw price",async()=>{
+  const fateFindStore={
+    ...store,
+    async listOffers(){return[
+      {offerId:"single",productId:"pack",retailerId:"single-shop",retailerName:"Single Shop",retailerSku:"s1",title:"Pokemon TCG Destined Rivals Booster Pack",url:"https://example.com/single",pricePence:900,postagePence:0,stockStatus:"in_stock",lastSeenAt:1776768300},
+      {offerId:"four",productId:"four-pack",retailerId:"four-shop",retailerName:"Four Shop",retailerSku:"s4",title:"Pokemon TCG Destined Rivals 4 Booster Packs Bundle",url:"https://example.com/four",pricePence:1600,postagePence:0,stockStatus:"in_stock",lastSeenAt:1776768400},
+      {offerId:"ten",productId:"ten-pack",retailerId:"ten-shop",retailerName:"Ten Shop",retailerSku:"s10",title:"Pokemon TCG Destined Rivals 10 Booster Packs Bundle",url:"https://example.com/ten",pricePence:4100,postagePence:0,stockStatus:"in_stock",lastSeenAt:1776768500},
+    ];},
+    async listProducts(){return[
+      {id:"pack",title:"Pokemon TCG Destined Rivals Booster Pack",productType:"booster_pack",tcg:"pokemon",officialRrpPence:429,rrpSource:"pokemon-center-uk",rrpObservedAt:1776767000},
+      {id:"four-pack",title:"Pokemon TCG Destined Rivals 4 Booster Packs Bundle",productType:"sealed",tcg:"pokemon",officialRrpPence:null,rrpSource:null,rrpObservedAt:null},
+      {id:"ten-pack",title:"Pokemon TCG Destined Rivals 10 Booster Packs Bundle",productType:"sealed",tcg:"pokemon",officialRrpPence:null,rrpSource:null,rrpObservedAt:null},
+    ];},
+  };
+  await withServer(async(base)=>{
+    const response=await fetch(base+"/api/fatefind?q=destined%20rivals");
+    assert.equal(response.status,200);
+    const data=await response.json();
+    assert.equal(data.success,true);
+    assert.equal(data.contractVersion,1);
+    assert.equal(data.rankedOffers.length,3);
+    assert.equal(data.bestOpportunity.offerId,"four");
+    assert.equal(data.bestOpportunity.itemPricePence,1600);
+    assert.equal(data.bestOpportunity.rrpPence,1716);
+    assert.equal(data.bestOpportunity.percentAboveRrp,-6.8);
+    assert.equal(data.bestOpportunity.valueLabel,"6.8% BELOW RRP");
+    assert.equal(data.rankedOffers.find((offer)=>offer.offerId==="single").itemPricePence,900);
+  },fateFindStore);
+});
 
 
 test("true price compares known delivered totals and carries product RRP evidence",async()=>withServer(async(base)=>{const response=await fetch(`${base}/api/true-price?q=destined`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.groups.length,1);assert.equal(data.groups[0].retailerCount,3);assert.equal(data.groups[0].rrpGbp,49.99);assert.equal(data.groups[0].rrpSource,"pokemon-center-uk");assert.ok(data.groups[0].rrpObservedAt);const inherited=data.groups[0].offers.find((offer)=>offer.id==="retailer-c:sku-4");assert.equal(inherited.priceGbp,44.99);const lowest=data.groups[0].offers.find((offer)=>offer.isLowestKnownDelivered);assert.equal(lowest.id,"retailer-b:sku-2");assert.equal(lowest.totalDeliveredGbp,57.99);}));
