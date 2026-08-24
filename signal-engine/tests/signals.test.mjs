@@ -34,10 +34,24 @@ test("previously available return manifests as restock",()=>{
   assert.equal(signal.state,"manifested");
   assert.equal(signal.kind,"restock");
 });
-test("available to unavailable vanishes as sold out",()=>{
+test("available to unavailable does not publish an orphan Vanished",()=>{
   const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200});
+  assert.equal(signal,null);
+});
+test("available to unavailable vanishes only when it closes an open Manifested window",()=>{
+  const signal=deriveSignal({
+    previousOffer:offer("in_stock",{everAvailableAt:50}),
+    currentOffer:offer("out_of_stock",{everAvailableAt:50}),
+    now:200,
+    availabilityWindow:{id:"avw_1",manifestedSignalId:"sig_manifested_1",manifestedAt:100},
+  });
   assert.equal(signal.state,"vanished");
   assert.equal(signal.kind,"sold_out");
+  assert.equal(signal.availabilityWindowId,"avw_1");
+  assert.equal(signal.pairedManifestedSignalId,"sig_manifested_1");
+  const windowEvidence=signal.evidence.find((entry)=>entry?.kind==="availability_window");
+  assert.equal(windowEvidence?.status,"closed");
+  assert.equal(windowEvidence?.manifestedSignalId,"sig_manifested_1");
 });
 test("catalogue derivation never invents Echo because Echo belongs to traffic/security readiness intelligence",()=>{
   const states=[
