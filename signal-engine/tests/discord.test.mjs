@@ -6,7 +6,7 @@ const marketSignal = {
   id: "sig-test", state: "manifested", kind: "availability_live", alertClass: "market_stock",
   retailerId: "titan-cards", retailerName: "Titan Cards", retailerSku: "SKU-123", offerId: "off-1", productId: "prd-1",
   title: "Test Booster Box", url: "https://example.com/product", imageUrl: null,
-  pricePence: 4999, rrpPence: 4499, deliveredPricePence: 5499, markupPercent: 11.1135,
+  pricePence: 4999, rrpPence: 4499, postagePence: 500, deliveredPricePence: 5499, markupPercent: 11.1135,
   confidence: 0.98, detectedAt: 1_700_000_000, stockStatus: "in_stock", reason: "Availability became verified",
 };
 
@@ -17,6 +17,7 @@ const primarySignal = {
   retailerName: "Pokémon Center UK",
   alertClass: "primary_drop",
   pricePence: 4499,
+  postagePence: 0,
   deliveredPricePence: 4499,
   markupPercent: 0,
 };
@@ -54,7 +55,7 @@ test("Primary Manifested is a direct buy-now alert", () => {
   assert.match(message.embeds[0].title, /MANIFESTED · PRIMARY \/ RRP/);
   assert.match(message.embeds[0].description, /live drop/i);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Official RRP")?.value, "£44.99");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Vs RRP")?.value, "At RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Vs RRP")?.value, "0.0% · AT RRP");
   assert.equal(message.components[0].components[0].label, "Buy now");
 });
 
@@ -64,8 +65,9 @@ test("Market Manifested is value-first and labels premium versus RRP", () => {
   assert.match(message.embeds[0].description, /Check the price against RRP/);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Retailer")?.value, "Titan Cards");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Price")?.value, "£49.99");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% above RRP");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivered price")?.value, "£54.99");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% · ABOVE RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "£5.00");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "True Price")?.value, "£54.99");
   assert.equal(message.components[0].components[0].label, "View market listing");
   assert.deepEqual(message.allowed_mentions, { parse: [] });
 });
@@ -82,10 +84,31 @@ test("Vanished uses family-aware alternatives wording", () => {
   assert.equal(primary.components[0].components[0].label, "View product / alternatives");
 });
 
-test("Discord omits unavailable RRP intelligence instead of showing fake values", () => {
-  const message = buildDiscordSignalMessage({ ...marketSignal, rrpPence: null, markupPercent: null });
+test("Discord shows explicit UNKNOWN RRP truth instead of silently omitting the calculation", () => {
+  const message = buildDiscordSignalMessage({ ...marketSignal, rrpPence: null, markupPercent: null, postagePence: null, deliveredPricePence: null });
   assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
-  assert.equal(message.embeds[0].fields.some((field) => field.name === "Value vs RRP"), false);
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "RRP / reference")?.value, "UNKNOWN — no verified RRP/reference");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "UNKNOWN — no verified RRP/reference");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "UNKNOWN");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "True Price")?.value, "UNKNOWN");
+});
+
+test("Discord labels derived verified pack value as an RRP reference rather than official RRP", () => {
+  const message = buildDiscordSignalMessage({
+    ...marketSignal,
+    pricePence: 999,
+    rrpPence: 429,
+    markupPercent: ((999 - 429) / 429) * 100,
+    evidence: [
+      { kind: "rrp_value_kind", value: "pack_reference" },
+      { kind: "rrp_value_source", value: "reference:asmodee-uk" },
+      { kind: "rrp_reference_basis", value: "Verified booster-pack RRP reference for this set" },
+    ],
+  });
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "RRP / reference")?.value, "£4.29");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+132.9% · ABOVE RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Reference basis")?.value, "Verified booster-pack RRP reference for this set");
 });
 
 test("Discord delivery reports a missing bot token before the generic enable flag", async () => {

@@ -17,12 +17,12 @@ const FAMILY_LABEL = Object.freeze({
 });
 
 function money(pence) {
-  if (!Number.isFinite(pence)) return "Unknown";
+  if (!Number.isFinite(pence)) return "UNKNOWN";
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
 }
 
 function percent(value) {
-  if (!Number.isFinite(value)) return "Unknown";
+  if (!Number.isFinite(value)) return "UNKNOWN";
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
@@ -62,11 +62,15 @@ function retailerSkuFor(signal) {
   return signal?.retailerSku || evidenceValue(signal, "retailer_sku") || null;
 }
 
+function rrpKindFor(signal) {
+  return evidenceValue(signal, "rrp_value_kind") || null;
+}
+
 function valueLabel(signal) {
   if (!Number.isFinite(signal?.markupPercent)) return null;
-  if (signal.markupPercent < -0.5) return `${percent(signal.markupPercent)} below RRP`;
-  if (Math.abs(signal.markupPercent) <= 0.5) return "At RRP";
-  return `${percent(signal.markupPercent)} above RRP`;
+  if (signal.markupPercent < -0.5) return `${percent(signal.markupPercent)} · BELOW RRP`;
+  if (Math.abs(signal.markupPercent) <= 0.5) return `${percent(signal.markupPercent)} · AT RRP`;
+  return `${percent(signal.markupPercent)} · ABOVE RRP`;
 }
 
 function descriptionFor(signal, alertClass) {
@@ -148,6 +152,10 @@ export function buildDiscordSignalMessage(signal) {
   const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
   const retailerSku = retailerSkuFor(signal);
   const exactCause = signalKindFor(signal);
+  const rrpKind = rrpKindFor(signal);
+  const rrpReferenceBasis = evidenceValue(signal, "rrp_reference_basis");
+  const rrpKnown = Number.isFinite(signal.rrpPence);
+  const markupKnown = Number.isFinite(signal.markupPercent);
 
   const fields = [
     { name: "Retailer", value: short(signal.retailerName || signal.retailerId || "Unknown", 1024), inline: true },
@@ -156,9 +164,21 @@ export function buildDiscordSignalMessage(signal) {
   ];
 
   if (retailerSku) fields.push({ name: "Retailer SKU", value: short(retailerSku, 1024), inline: true });
-  if (Number.isFinite(signal.rrpPence)) fields.push({ name: "Official RRP", value: money(signal.rrpPence), inline: true });
-  if (Number.isFinite(signal.markupPercent)) fields.push({ name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP", value: valueLabel(signal) || percent(signal.markupPercent), inline: true });
-  if (Number.isFinite(signal.deliveredPricePence)) fields.push({ name: "Delivered price", value: money(signal.deliveredPricePence), inline: true });
+  fields.push({
+    name: rrpKnown && (!rrpKind || rrpKind === "official") ? "Official RRP" : "RRP / reference",
+    value: rrpKnown ? money(signal.rrpPence) : "UNKNOWN — no verified RRP/reference",
+    inline: true,
+  });
+  fields.push({
+    name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP",
+    value: markupKnown ? (valueLabel(signal) || percent(signal.markupPercent)) : "UNKNOWN — no verified RRP/reference",
+    inline: true,
+  });
+  if (rrpKnown && rrpKind && rrpKind !== "official" && rrpReferenceBasis) {
+    fields.push({ name: "Reference basis", value: short(rrpReferenceBasis, 1024), inline: false });
+  }
+  fields.push({ name: "Delivery", value: Number.isFinite(signal.postagePence) ? money(signal.postagePence) : "UNKNOWN", inline: true });
+  fields.push({ name: "True Price", value: Number.isFinite(signal.deliveredPricePence) ? money(signal.deliveredPricePence) : "UNKNOWN", inline: true });
   if (exactCause) fields.push({ name: "Signal cause", value: short(exactCause.replaceAll("_", " "), 1024), inline: true });
   fields.push({ name: "Signal confidence", value: confidence, inline: true });
 
