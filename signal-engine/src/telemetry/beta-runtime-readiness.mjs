@@ -203,8 +203,8 @@ export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(),
 
 export function getBetaRuntimeReadiness() { return cachedReadiness; }
 
-export async function recordBetaRuntimeReadiness({ store, runtime, discord, now = Math.floor(Date.now() / 1000) } = {}) {
-  const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, now });
+export async function recordBetaRuntimeReadiness({ store, runtime, discord, websiteSnapshot = null, now = Math.floor(Date.now() / 1000) } = {}) {
+  const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, websiteSnapshot, now });
   if (!store || typeof store.recordNetworkSnapshot !== "function") return { recorded: false, readiness };
 
   const [stats, retailers, effectiveRrpCoverage] = await Promise.all([
