@@ -1,4 +1,6 @@
 import crypto from "node:crypto";
+import { calculateOfferIntelligence } from "../core/price-intelligence.mjs";
+import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
 
 function normalized(value = "") {
   return String(value).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -19,14 +21,8 @@ function queryMatches(query, title) {
   return wanted.length > 0 && wanted.every((token) => haystack.includes(token));
 }
 
-function deliveredPence(offer) {
-  if (!Number.isFinite(offer.pricePence) || !Number.isFinite(offer.postagePence)) return null;
-  return offer.pricePence + offer.postagePence;
-}
-
-function percentAboveRrp(pricePence, rrpPence) {
-  if (!Number.isFinite(pricePence) || !Number.isFinite(rrpPence) || rrpPence <= 0) return null;
-  return Math.round((((pricePence - rrpPence) / rrpPence) * 100) * 10) / 10;
+function roundedPercent(value) {
+  return Number.isFinite(value) ? Math.round(value * 10) / 10 : null;
 }
 
 function purchasable(status) {
@@ -82,18 +78,29 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const delivered = money(result?.deliveredPricePence);
   const itemPrice = money(offer?.pricePence);
   const priceLabel = delivered ? `${delivered} delivered` : itemPrice ? `${itemPrice} + delivery unknown` : "price unavailable";
+  const rrpPrice = money(result?.rrpPence);
+  const valueLabel = fateFindValueLabel(result?.percentAboveRrp);
+  const rrpContext = [rrpPrice ? `RRP ${rrpPrice}` : null, valueLabel].filter(Boolean).join(" · ");
   const isPreorder = offer?.stockStatus === "preorder";
   const huntLabel = String(find?.queryText || productTitle).trim();
+  const companionId = typeof find?.companionId === "string" && find.companionId.trim() ? find.companionId.trim() : null;
+  const companionName = companionId ? companionId.charAt(0).toUpperCase() + companionId.slice(1) : "Your companion";
 
   return {
-    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
-    body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
+    title: "FATEMATCH — LIVE NOW",
+    body: `${companionName} found it. ${productTitle} is live at ${offer.retailerName} · ${priceLabel}${rrpContext ? ` · ${rrpContext}` : ""}. Your FateMatch conditions are met. ${isPreorder ? "Open the listing now to check preorder terms." : "Buy now if it still suits you — availability can change fast."}`,
     payload: {
       urgency: "high",
-      companion: "Koru",
+      companion: companionId,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
+      itemPricePence: Number.isFinite(offer?.pricePence) ? offer.pricePence : null,
+      deliveryPence: Number.isFinite(offer?.postagePence) ? offer.postagePence : null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
+      rrpPence: Number.isFinite(result?.rrpPence) ? result.rrpPence : null,
+      percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
+      rrpKind: result?.rrpKind || null,
+      rrpSource: result?.rrpSource || null,
     },
   };
 }
@@ -117,7 +124,7 @@ export function notificationDeliveryPlan(prefs = {}, findNotifications = {}, now
   };
 }
 
-export function evaluateFateFind(find, offer, product) {
+export function evaluateFateFind(find, offer, product, rrpContext = null) {
   const reasons = [];
   const title = product?.title || offer.title || "";
   if (find.productIdentityId && find.productIdentityId === product?.id) reasons.push("product-identity");
@@ -136,42 +143,218 @@ export function evaluateFateFind(find, offer, product) {
     reasons.push("item-price");
   }
 
-  const delivered = deliveredPence(offer);
+  const context = rrpContext || buildRrpValueContext(product ? [product] : []);
+  const rrpReference = resolveRrpValue({
+    title,
+    productType: product?.productType || offer.productType || "other",
+    tcg: product?.tcg || offer.tcg || "pokemon",
+    linkedProduct: product || null,
+  }, context);
+  const intelligence = calculateOfferIntelligence({
+    pricePence: offer.pricePence,
+    postagePence: offer.postagePence,
+    officialRrpPence: rrpReference.resolved ? rrpReference.rrpPence : null,
+    rrpSource: rrpReference.resolved ? rrpReference.rrpSource : null,
+    rrpObservedAt: rrpReference.resolved ? rrpReference.rrpObservedAt : null,
+  });
+  const delivered = intelligence.deliveredPence;
+
   if (Number.isFinite(find.maxTruePricePence)) {
     if (!Number.isFinite(delivered)) return { matched: false, reasons: ["delivery-unknown"] };
     if (delivered > find.maxTruePricePence) return { matched: false, reasons: ["true-price-above-limit"] };
     reasons.push("true-price");
   }
 
-  const premium = percentAboveRrp(offer.pricePence, product?.officialRrpPence);
+  const premium = roundedPercent(intelligence.itemVsRrp.deltaPercent);
   if (Number.isFinite(find.maxPercentAboveRrp)) {
-    if (!Number.isFinite(premium)) return { matched: false, reasons: ["rrp-unknown"] };
+    if (!Number.isFinite(premium)) return {
+      matched: false,
+      reasons: [rrpReference.reason === "rrp_not_applicable" ? "rrp-not-applicable" : "rrp-unknown"],
+      rrpReason: rrpReference.reason || null,
+      rrpApplicabilityReason: rrpReference.applicabilityReason || null,
+    };
     if (premium > find.maxPercentAboveRrp) return { matched: false, reasons: ["rrp-premium-above-limit"] };
     reasons.push("rrp-premium");
   }
 
   if (find.scope === "local") return { matched: false, reasons: ["local-offer-location-unavailable"] };
 
-  return { matched: true, reasons, deliveredPricePence: delivered, percentAboveRrp: premium };
+  return {
+    matched: true,
+    reasons,
+    deliveredPricePence: delivered,
+    percentAboveRrp: premium,
+    rrpResolved: rrpReference.resolved === true,
+    rrpPence: rrpReference.resolved ? rrpReference.rrpPence : null,
+    rrpKind: rrpReference.resolved ? rrpReference.kind : null,
+    rrpSource: rrpReference.resolved ? rrpReference.rrpSource : null,
+    rrpReferenceBasis: rrpReference.resolved ? rrpReference.referenceBasis : null,
+    rrpReason: rrpReference.resolved ? null : rrpReference.reason || "verified_rrp_unavailable",
+    rrpApplicabilityReason: rrpReference.resolved ? null : rrpReference.applicabilityReason || null,
+  };
+}
+
+function stockRank(status) {
+  if (status === "in_stock") return 0;
+  if (status === "low_stock") return 1;
+  if (status === "preorder") return 2;
+  return 3;
+}
+
+function preferredRetailerRank(find, retailerId) {
+  if (!Array.isArray(find?.preferredRetailerIds) || !find.preferredRetailerIds.length) return 0;
+  const index = find.preferredRetailerIds.indexOf(retailerId);
+  return index < 0 ? Number.MAX_SAFE_INTEGER : index;
+}
+
+export function rankFateFindOffers(find, offers = [], products = new Map(), rrpContext = null) {
+  const productMap = products instanceof Map
+    ? products
+    : new Map((products || []).map((product) => [product.id, product]));
+  const context = rrpContext || buildRrpValueContext([...productMap.values()]);
+  const candidates = [];
+
+  for (const offer of offers || []) {
+    const product = productMap.get(offer.productId) || null;
+    const result = evaluateFateFind(find, offer, product, context);
+    if (!result.matched) continue;
+    candidates.push({ offer, product, result });
+  }
+
+  candidates.sort((a, b) => {
+    const aHasRrp = Number.isFinite(a.result.percentAboveRrp);
+    const bHasRrp = Number.isFinite(b.result.percentAboveRrp);
+    if (aHasRrp !== bHasRrp) return aHasRrp ? -1 : 1;
+    if (aHasRrp && bHasRrp && a.result.percentAboveRrp !== b.result.percentAboveRrp) {
+      return a.result.percentAboveRrp - b.result.percentAboveRrp;
+    }
+
+    const aHasTruePrice = Number.isFinite(a.result.deliveredPricePence);
+    const bHasTruePrice = Number.isFinite(b.result.deliveredPricePence);
+    if (aHasTruePrice !== bHasTruePrice) return aHasTruePrice ? -1 : 1;
+    if (aHasTruePrice && bHasTruePrice && a.result.deliveredPricePence !== b.result.deliveredPricePence) {
+      return a.result.deliveredPricePence - b.result.deliveredPricePence;
+    }
+
+    const aPrice = Number.isFinite(a.offer.pricePence) ? a.offer.pricePence : Number.MAX_SAFE_INTEGER;
+    const bPrice = Number.isFinite(b.offer.pricePence) ? b.offer.pricePence : Number.MAX_SAFE_INTEGER;
+    if (aPrice !== bPrice) return aPrice - bPrice;
+
+    const stockDifference = stockRank(a.offer.stockStatus) - stockRank(b.offer.stockStatus);
+    if (stockDifference !== 0) return stockDifference;
+
+    const aSeen = Number.isFinite(a.offer.lastSeenAt) ? a.offer.lastSeenAt : 0;
+    const bSeen = Number.isFinite(b.offer.lastSeenAt) ? b.offer.lastSeenAt : 0;
+    if (aSeen !== bSeen) return bSeen - aSeen;
+
+    const retailerDifference = preferredRetailerRank(find, a.offer.retailerId) - preferredRetailerRank(find, b.offer.retailerId);
+    if (retailerDifference !== 0) return retailerDifference;
+
+    return String(a.offer.retailerName || "").localeCompare(String(b.offer.retailerName || ""));
+  });
+
+  return candidates.map((candidate, index) => ({
+    ...candidate,
+    rank: index + 1,
+    rankingBasis: Number.isFinite(candidate.result.percentAboveRrp) ? "rrp_value" : "true_price_rrp_unavailable",
+  }));
+}
+
+export function selectBestFateFindOffer(find, offers = [], products = new Map(), rrpContext = null) {
+  return rankFateFindOffers(find, offers, products, rrpContext)[0] || null;
+}
+
+function fateFindValueLabel(percentAboveRrp) {
+  if (!Number.isFinite(percentAboveRrp)) return null;
+  const magnitude = Math.abs(percentAboveRrp).toFixed(1);
+  if (percentAboveRrp < 0) return `${magnitude}% BELOW RRP`;
+  if (percentAboveRrp > 0) return `${magnitude}% ABOVE RRP`;
+  return "AT RRP";
+}
+
+export function serializeFateFindCandidate(candidate) {
+  if (!candidate) return null;
+  const { offer, product, result, rank, rankingBasis } = candidate;
+  const itemPricePence = Number.isFinite(offer?.pricePence) ? offer.pricePence : null;
+  const deliveryPence = Number.isFinite(offer?.postagePence) ? offer.postagePence : null;
+  const rrpPence = Number.isFinite(result?.rrpPence) ? result.rrpPence : null;
+  const itemVsRrpDeltaPence = itemPricePence !== null && rrpPence !== null ? itemPricePence - rrpPence : null;
+  return {
+    rank,
+    rankingBasis,
+    productId: product?.id || offer?.productId || null,
+    productTitle: product?.title || offer?.title || "TCG product",
+    productType: product?.productType || offer?.productType || null,
+    tcg: product?.tcg || offer?.tcg || "pokemon",
+    offerId: offer?.offerId || null,
+    retailerId: offer?.retailerId || null,
+    retailerName: offer?.retailerName || null,
+    url: offer?.url || null,
+    stockStatus: offer?.stockStatus || "unknown",
+    lastSeenAt: Number.isFinite(offer?.lastSeenAt) ? offer.lastSeenAt : null,
+    itemPricePence,
+    deliveryKnown: deliveryPence !== null,
+    deliveryPence,
+    truePricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
+    rrpResolved: result?.rrpResolved === true,
+    rrpPence,
+    rrpKind: result?.rrpKind || null,
+    rrpSource: result?.rrpSource || null,
+    rrpReferenceBasis: result?.rrpReferenceBasis || null,
+    rrpReason: result?.rrpReason || null,
+    rrpApplicabilityReason: result?.rrpApplicabilityReason || null,
+    itemVsRrpDeltaPence,
+    percentAboveRrp: Number.isFinite(result?.percentAboveRrp) ? result.percentAboveRrp : null,
+    valueLabel: fateFindValueLabel(result?.percentAboveRrp),
+    qualifyingReasons: Array.isArray(result?.reasons) ? result.reasons : [],
+  };
+}
+
+export function buildFateFindResult(find, offers = [], products = new Map(), rrpContext = null, { generatedAt = Math.floor(Date.now() / 1000) } = {}) {
+  const ranked = rankFateFindOffers(find, offers, products, rrpContext);
+  const rankedOffers = ranked.map(serializeFateFindCandidate);
+  const bestOpportunity = rankedOffers[0] || null;
+  return {
+    contractVersion: 1,
+    query: String(find?.queryText || "").trim(),
+    generatedAt,
+    comparisonStatus: !bestOpportunity
+      ? "no_matches"
+      : Number.isFinite(bestOpportunity.percentAboveRrp)
+        ? "ranked_by_rrp_value"
+        : "ranked_without_rrp",
+    bestOpportunity,
+    rankedOffers,
+  };
 }
 
 function rowToFind(row) {
+  const notifications = row.notification_preferences_json || {};
   return {
     id: row.id, userId: row.user_id, queryText: row.query_text || "", productIdentityId: row.product_identity_id,
     maxItemPricePence: row.max_item_price_pence == null ? null : Number(row.max_item_price_pence),
     maxTruePricePence: row.max_true_price_pence == null ? null : Number(row.max_true_price_pence),
     maxPercentAboveRrp: row.max_percent_above_rrp == null ? null : Number(row.max_percent_above_rrp),
     scope: row.scope || "either", preferredRetailerIds: row.preferred_retailers_json || [], excludedRetailerIds: row.excluded_retailers_json || [],
-    stockRequirement: row.stock_requirement || "in_stock", notifications: row.notification_preferences_json || {},
+    stockRequirement: row.stock_requirement || "in_stock", notifications,
+    companionId: typeof notifications.companionId === "string" ? notifications.companionId : null,
   };
 }
 
 function rowToOffer(row) {
-  return { offerId: row.offer_id, productId: row.product_id, retailerId: row.retailer_id, retailerName: row.retailer_name, title: row.title, url: row.url, pricePence: row.price_pence == null ? null : Number(row.price_pence), postagePence: row.postage_pence == null ? null : Number(row.postage_pence), stockStatus: row.stock_status, lastSeenAt: Number(row.last_seen_at) };
+  return { offerId: row.offer_id, productId: row.product_id, retailerId: row.retailer_id, retailerName: row.retailer_name, title: row.title, productType: row.product_type || null, tcg: row.tcg || null, url: row.url, pricePence: row.price_pence == null ? null : Number(row.price_pence), postagePence: row.postage_pence == null ? null : Number(row.postage_pence), stockStatus: row.stock_status, lastSeenAt: Number(row.last_seen_at) };
 }
 
 function rowToProduct(row) {
-  return { id: row.id, title: row.title, officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence) };
+  return {
+    id: row.id,
+    title: row.title,
+    productType: row.product_type || null,
+    tcg: row.tcg || "pokemon",
+    officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence),
+    rrpSource: row.rrp_source || null,
+    rrpObservedAt: row.rrp_observed_at == null ? null : Number(row.rrp_observed_at),
+  };
 }
 
 function stableId(prefix, value) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
@@ -187,8 +370,13 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
 
   const { rows: offerRows } = await pool.query("SELECT * FROM fatedrop_retail_offers WHERE stock_status IN ('in_stock','low_stock','preorder') ORDER BY last_seen_at DESC LIMIT 10000");
   const productIds = [...new Set(offerRows.map((row) => row.product_id))];
-  const { rows: productRows } = productIds.length ? await pool.query("SELECT * FROM fatedrop_products WHERE id = ANY($1)", [productIds]) : { rows: [] };
-  const products = new Map(productRows.map((row) => [row.id, rowToProduct(row)]));
+  const { rows: productRows } = productIds.length ? await pool.query(
+    "SELECT id,title,product_type,tcg,official_rrp_pence,rrp_source,rrp_observed_at FROM fatedrop_products WHERE id = ANY($1) OR (official_rrp_pence IS NOT NULL AND rrp_source IS NOT NULL)",
+    [productIds],
+  ) : { rows: [] };
+  const normalizedProducts = productRows.map(rowToProduct);
+  const products = new Map(normalizedProducts.map((product) => [product.id, product]));
+  const rrpContext = buildRrpValueContext(normalizedProducts);
   let evaluated = 0, created = 0;
 
   for (const findRow of findRows) {
@@ -196,7 +384,7 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
     for (const rawOffer of offerRows) {
       const offer = rowToOffer(rawOffer); const product = products.get(offer.productId);
       evaluated += 1;
-      const result = evaluateFateFind(find, offer, product);
+      const result = evaluateFateFind(find, offer, product, rrpContext);
       if (!result.matched) continue;
       const fingerprint = `${find.id}:${offer.offerId}:${offer.pricePence ?? "x"}:${offer.postagePence ?? "x"}:${offer.stockStatus}`;
       const id = stableId("fm", fingerprint);
@@ -205,7 +393,7 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
         ON CONFLICT (fingerprint) DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at
         RETURNING (xmax = 0) AS inserted
-      `, [id,fingerprint,find.id,find.userId,offer.offerId,offer.productId,offer.retailerId,offer.retailerName,title,offer.url,offer.pricePence,offer.postagePence,result.deliveredPricePence,product?.officialRrpPence ?? null,result.percentAboveRrp,offer.stockStatus,JSON.stringify(result.reasons),now,offer.lastSeenAt || now]);
+      `, [id,fingerprint,find.id,find.userId,offer.offerId,offer.productId,offer.retailerId,offer.retailerName,product?.title || offer.title || "",offer.url,offer.pricePence,offer.postagePence,result.deliveredPricePence,result.rrpPence,result.percentAboveRrp,offer.stockStatus,JSON.stringify(result.reasons),now,offer.lastSeenAt || now]);
       if (response.rows[0]?.inserted) {
         created += 1;
         await enqueueFateMatchNotifications(pool, { id, find, offer, product, result, now });
