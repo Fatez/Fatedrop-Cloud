@@ -21,6 +21,14 @@ const healthyDiscord = {
 const healthyNetwork = summarizeSignalNetworkReadiness([
   { id: "one", healthy: true, stale: false, baselineCompleted: true, lastSuccessAt: 1_787_525_000 },
 ]);
+const healthyWebsiteSnapshot = {
+  ready: true,
+  configured: true,
+  urlConfigured: true,
+  secretConfigured: true,
+  lastSuccessAt: 1_787_525_000,
+  reason: null,
+};
 
 function mockStore({ readinessRow = {}, notificationRow = {}, snapshots = [], retailers = [{ id: "pokemon-center-uk", healthy: true, stale: false, baselineCompleted: true, lastSuccessAt: 1_787_525_000 }] } = {}) {
   const pool = {
@@ -52,7 +60,7 @@ test("web inbox can be infrastructure-ready while an eligible hosted hunt remain
     },
     notificationRow: { total: 0, sent: 0, suppressed: 0, pending: 0, failed: 0, sending: 0, overdue: 0, stuck_sending: 0 },
   });
-  const result = await refreshBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, now: 1_787_525_000 });
+  const result = await refreshBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, websiteSnapshot: healthyWebsiteSnapshot, now: 1_787_525_000 });
   assert.equal(result.infrastructureReady, true);
   assert.equal(result.signalNetworkReady, true);
   assert.equal(result.ready, false);
@@ -69,6 +77,7 @@ test("beta readiness becomes green when hosted evaluation, delivery and signal n
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
     signalNetwork: healthyNetwork,
+    websiteSnapshot: healthyWebsiteSnapshot,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
   });
   assert.equal(result.infrastructureReady, true);
@@ -85,6 +94,7 @@ test("beta readiness fails when the retailer network is stale even if Discord an
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
     signalNetwork: staleNetwork,
+    websiteSnapshot: healthyWebsiteSnapshot,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
   });
   assert.equal(result.infrastructureReady, true);
@@ -93,10 +103,23 @@ test("beta readiness fails when the retailer network is stale even if Discord an
   assert.equal(result.signalNetwork.reason, "insufficient_fresh_retailers");
 });
 
+test("beta readiness fails when the website snapshot feed is stale even if Discord, FateFind and retailers are healthy", () => {
+  const result = summarizeBetaRuntimeReadiness({
+    discord: healthyDiscord,
+    signalNetwork: healthyNetwork,
+    websiteSnapshot: { ...healthyWebsiteSnapshot, ready: false, reason: "stale" },
+    hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: true } },
+  });
+  assert.equal(result.infrastructureReady, false);
+  assert.equal(result.ready, false);
+  assert.equal(result.websiteSnapshot.reason, "stale");
+});
+
 test("beta readiness fails when an eligible hunt has no web inbox delivery path", () => {
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
     signalNetwork: healthyNetwork,
+    websiteSnapshot: healthyWebsiteSnapshot,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 2, webReadyFinds: 1, notificationReadiness: { ready: true } },
     checkedAt: "2026-08-23T23:00:00.000Z",
   });
@@ -107,6 +130,7 @@ test("beta readiness fails on overdue or stuck FateMatch notification delivery",
   const result = summarizeBetaRuntimeReadiness({
     discord: healthyDiscord,
     signalNetwork: healthyNetwork,
+    websiteSnapshot: healthyWebsiteSnapshot,
     hostedFateFind: { enabled: true, configured: true, eligibleFinds: 1, webReadyFinds: 1, notificationReadiness: { ready: false, overdue: 1 } },
   });
   assert.equal(result.ready, false);
@@ -119,11 +143,12 @@ test("runtime readiness snapshot persists only safe aggregate operational truth"
     readinessRow: { enabled_finds: 1, eligible_finds: 1, web_ready_finds: 1, push_ready_finds: 0, discord_ready_finds: 0, hosted_matches_24h: 0 },
     notificationRow: { total: 0, sent: 0, suppressed: 0, pending: 0, failed: 0, sending: 0, overdue: 0, stuck_sending: 0 },
   });
-  const result = await recordBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, now: 1_787_525_000 });
+  const result = await recordBetaRuntimeReadiness({ store, runtime, discord: healthyDiscord, websiteSnapshot: healthyWebsiteSnapshot, now: 1_787_525_000 });
   assert.equal(result.recorded, true);
   assert.equal(snapshots.length, 1);
   assert.equal(snapshots[0].metrics.betaRuntimeReadiness.discord.ready, true);
   assert.equal(snapshots[0].metrics.betaRuntimeReadiness.signalNetwork.ready, true);
+  assert.equal(snapshots[0].metrics.betaRuntimeReadiness.websiteSnapshot.ready, true);
   assert.equal(snapshots[0].metrics.betaRuntimeReadiness.hostedFateFind.eligibleFinds, 1);
   const serialized = JSON.stringify(snapshots[0]);
   assert.equal(serialized.includes("user_id"), false);
