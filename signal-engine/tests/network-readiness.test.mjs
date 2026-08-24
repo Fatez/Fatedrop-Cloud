@@ -35,12 +35,15 @@ function whisper(overrides = {}) {
 
 function storeWith(signals) {
   const appended = [];
+  const events = [];
   return {
     appended,
+    events,
     async listSignals({ states, retailerIds, since }) {
       return signals.filter((signal) => states.includes(signal.state) && retailerIds.includes(signal.retailerId) && signal.detectedAt >= since);
     },
     async appendSignals(next) { appended.push(...next); },
+    async appendSignalEvent(event) { events.push(event); },
   };
 }
 
@@ -50,6 +53,11 @@ test("queue readiness emits Echo onto recent real product context for a primary 
   assert.equal(result.accepted, true);
   assert.equal(result.reason, "echo_emitted");
   assert.equal(result.productContexts, 1);
+  assert.equal(result.readinessEvent.recorded, true);
+  assert.equal(store.events.length, 1);
+  assert.equal(store.events[0].kind, "retailer_readiness");
+  assert.equal(store.events[0].evidence.readinessState, "queue");
+  assert.equal(store.events[0].evidence.retailer.id, retailer.id);
   assert.equal(store.appended.length, 1);
   assert.equal(store.appended[0].state, "echo");
   assert.equal(store.appended[0].kind, "queue");
@@ -59,6 +67,7 @@ test("queue readiness emits Echo onto recent real product context for a primary 
   assert.match(store.appended[0].reason, /queue \/ traffic-control/);
   assert.equal(store.appended[0].target.type, "product");
   assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "signal_kind")?.value, "queue");
+  assert.equal(store.appended[0].evidence.find((entry) => entry.kind === "retailer_readiness")?.readinessEventId, store.events[0].id);
 });
 
 test("market retailer readiness never emits public Echo noise", async () => {
@@ -69,14 +78,25 @@ test("market retailer readiness never emits public Echo noise", async () => {
   assert.equal(result.reason, "market_retailer_readiness_suppressed");
   assert.equal(result.productContexts, 0);
   assert.deepEqual(store.appended, []);
+  assert.deepEqual(store.events, []);
 });
 
-test("security readiness does not invent a public Echo without recent retailer product context", async () => {
+test("security readiness persists evidence without inventing a public Echo when product context is absent", async () => {
   const store = storeWith([]);
-  const result = await recordRetailerReadiness({ retailer, store, state: "security", previousState: "normal", observedAt: 2000 });
+  const result = await recordRetailerReadiness({
+    retailer,
+    store,
+    state: "security",
+    previousState: "normal",
+    observedAt: 2000,
+    evidence: [{ kind: "browser_state", value: "security" }],
+  });
   assert.equal(result.accepted, true);
   assert.equal(result.reason, "no_recent_retailer_product_context");
   assert.equal(result.productContexts, 0);
+  assert.equal(result.readinessEvent.recorded, true);
+  assert.equal(store.events.length, 1);
+  assert.equal(store.events[0].evidence.readinessState, "security");
   assert.deepEqual(store.appended, []);
 });
 
@@ -86,6 +106,7 @@ test("normal browser state is not an Echo", async () => {
   assert.equal(result.accepted, false);
   assert.equal(result.reason, "not_echo_state");
   assert.deepEqual(store.appended, []);
+  assert.deepEqual(store.events, []);
 });
 
 test("readiness fan-out deduplicates multiple lifecycle signals for the same product", async () => {
@@ -95,14 +116,17 @@ test("readiness fan-out deduplicates multiple lifecycle signals for the same pro
   ]);
   const result = await recordRetailerReadiness({ retailer, store, state: "security", previousState: "normal", observedAt: 2000 });
   assert.equal(result.productContexts, 1);
+  assert.equal(store.events.length, 1);
   assert.equal(store.appended.length, 1);
 });
 
-test("retailer product context older than seven days cannot receive Echo", async () => {
+test("retailer product context older than seven days cannot receive Echo but readiness remains durable", async () => {
   const observedAt = 700000;
   const store = storeWith([whisper({ detectedAt: 1 })]);
   const result = await recordRetailerReadiness({ retailer, store, state: "queue", previousState: "normal", observedAt });
   assert.equal(result.productContexts, 0);
   assert.equal(result.reason, "no_recent_retailer_product_context");
+  assert.equal(result.readinessEvent.recorded, true);
+  assert.equal(store.events.length, 1);
   assert.deepEqual(store.appended, []);
 });
