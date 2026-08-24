@@ -1,5 +1,6 @@
 import { signalCapabilities } from "../core/signal-policy.mjs";
 import { buildSignalDeliveryReport, flattenSignalDeliveryMetrics } from "../telemetry/signal-delivery-report.mjs";
+import { recordWebsiteSnapshotOutcome, websiteSnapshotConfigured } from "../telemetry/website-snapshot-health.mjs";
 
 const DEFAULT_SOURCE = "FateDrop Signal Engine";
 const LIFECYCLE_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
@@ -17,7 +18,7 @@ const PRECISE_KINDS = new Set([
 ]);
 
 function configured() {
-  return Boolean(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL && process.env.FATEDROP_METRICS_INGEST_SECRET);
+  return websiteSnapshotConfigured();
 }
 
 function evidenceValue(signal, kind) {
@@ -179,8 +180,16 @@ async function networkOpportunity(store, signal) {
 }
 
 export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, fetchImpl = fetch } = {}) {
-  if (!configured()) return { published: false, reason: "not_configured" };
-  if (!store) return { published: false, reason: "store_missing" };
+  if (!configured()) {
+    const outcome = { published: false, reason: "not_configured" };
+    recordWebsiteSnapshotOutcome(outcome);
+    return outcome;
+  }
+  if (!store) {
+    const outcome = { published: false, reason: "store_missing" };
+    recordWebsiteSnapshotOutcome(outcome);
+    return outcome;
+  }
 
   const measuredAt = Math.floor(Date.now() / 1000);
   const [stats, signals, retailers, products, deliveryReport] = await Promise.all([
@@ -234,10 +243,18 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
     });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      throw new Error(`Website snapshot publish failed (${response.status})${body ? `: ${body.slice(0, 300)}` : ""}`);
+      const outcome = {
+        published: false,
+        reason: "publish_failed",
+        httpStatus: response.status,
+        error: `Website snapshot publish failed (${response.status})${body ? `: ${body.slice(0, 300)}` : ""}`,
+      };
+      console.error("[website] snapshot publish failed", outcome.error);
+      recordWebsiteSnapshotOutcome(outcome, { attemptedAt: measuredAt });
+      return outcome;
     }
     const result = await response.json().catch(() => ({}));
-    return {
+    const outcome = {
       published: true,
       stored: result.stored ?? null,
       measuredAt,
@@ -248,8 +265,12 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       opportunities: opportunities.length,
       fateMatchesTriggered: result.fateMatchesTriggered ?? 0,
     };
+    recordWebsiteSnapshotOutcome(outcome, { attemptedAt: measuredAt });
+    return outcome;
   } catch (error) {
-    console.error("[website] snapshot publish failed", String(error?.message || error));
-    return { published: false, reason: "publish_failed", error: String(error?.message || error) };
+    const outcome = { published: false, reason: "publish_failed", error: String(error?.message || error) };
+    console.error("[website] snapshot publish failed", outcome.error);
+    recordWebsiteSnapshotOutcome(outcome, { attemptedAt: measuredAt });
+    return outcome;
   }
 }

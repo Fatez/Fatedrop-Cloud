@@ -2,6 +2,7 @@ import { env } from "../config/env.mjs";
 import { buildFateMatchNotificationReadiness } from "../hosted/notification-readiness.mjs";
 import { getDiscordRouteHealth } from "./discord-route-health.mjs";
 import { loadEffectiveRrpCoverage } from "./effective-rrp-coverage.mjs";
+import { getWebsiteSnapshotHealth } from "./website-snapshot-health.mjs";
 
 function defaults() {
   return {
@@ -27,6 +28,7 @@ let cachedReadiness = {
     latestSuccessAt: null,
     reason: "not_checked",
   },
+  websiteSnapshot: getWebsiteSnapshotHealth(),
   discord: getDiscordRouteHealth(),
   hostedFateFind: {
     enabled: Boolean(env.hostedFateFind.enabled),
@@ -84,11 +86,15 @@ export function summarizeSignalNetworkReadiness(retailers = [], { minimumFreshRe
   };
 }
 
-export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, checkedAt = new Date().toISOString() } = {}) {
+export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, websiteSnapshot, checkedAt = new Date().toISOString() } = {}) {
   const eligibleFinds = numeric(hostedFateFind?.eligibleFinds);
   const webBaselineReady = eligibleFinds === 0 || numeric(hostedFateFind?.webReadyFinds) === eligibleFinds;
   const notificationQueueReady = hostedFateFind?.notificationReadiness?.ready !== false;
-  const infrastructureReady = Boolean(discord?.ready) && Boolean(hostedFateFind?.configured) && webBaselineReady && notificationQueueReady;
+  const infrastructureReady = Boolean(discord?.ready)
+    && Boolean(hostedFateFind?.configured)
+    && webBaselineReady
+    && notificationQueueReady
+    && websiteSnapshot?.ready === true;
   const hostedActivationReady = eligibleFinds === 0 || hostedFateFind?.enabled === true;
   const signalNetworkReady = signalNetwork?.ready === true;
   return {
@@ -97,6 +103,7 @@ export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalN
     infrastructureReady,
     signalNetworkReady,
     signalNetwork,
+    websiteSnapshot,
     discord,
     hostedFateFind,
   };
@@ -166,7 +173,7 @@ async function loadSignalNetworkSummary(store) {
   return summarizeSignalNetworkReadiness(retailers);
 }
 
-export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(), discord = getDiscordRouteHealth(), now = Math.floor(Date.now() / 1000) } = {}) {
+export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(), discord = getDiscordRouteHealth(), websiteSnapshot = null, now = Math.floor(Date.now() / 1000) } = {}) {
   const checkedAt = new Date(now * 1000).toISOString();
   let hostedFateFind;
   try {
@@ -189,14 +196,15 @@ export async function refreshBetaRuntimeReadiness({ store, runtime = defaults(),
     };
   }
 
-  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, checkedAt });
+  const snapshotHealth = websiteSnapshot ?? getWebsiteSnapshotHealth({ now });
+  cachedReadiness = summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalNetwork, websiteSnapshot: snapshotHealth, checkedAt });
   return cachedReadiness;
 }
 
 export function getBetaRuntimeReadiness() { return cachedReadiness; }
 
-export async function recordBetaRuntimeReadiness({ store, runtime, discord, now = Math.floor(Date.now() / 1000) } = {}) {
-  const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, now });
+export async function recordBetaRuntimeReadiness({ store, runtime, discord, websiteSnapshot = null, now = Math.floor(Date.now() / 1000) } = {}) {
+  const readiness = await refreshBetaRuntimeReadiness({ store, runtime, discord, websiteSnapshot, now });
   if (!store || typeof store.recordNetworkSnapshot !== "function") return { recorded: false, readiness };
 
   const [stats, retailers, effectiveRrpCoverage] = await Promise.all([

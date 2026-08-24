@@ -14,6 +14,7 @@ import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness, refreshBetaRuntime
 import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
 import { buildFateFindEvaluatorPreflight } from "./telemetry/fatefind-evaluator-preflight.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
+import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -46,6 +47,15 @@ server.on("request", async (req, res) => {
         "access-control-allow-origin": "*",
       });
       res.end(JSON.stringify(getBetaRuntimeReadiness()));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/website-snapshot-health") {
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(getWebsiteSnapshotHealth()));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/fatefind-evaluator-preflight") {
@@ -153,6 +163,7 @@ async function scheduledScan() {
 
     const results = await scanAll({ retailers, store, scanRetailerFn: scanWithBackoff });
     const website = await publishWebsiteSnapshot({ store });
+    await refreshBetaRuntimeReadiness({ store }).catch((error) => console.error("[signal-engine] beta readiness refresh after website publish failed", { error: String(error?.message || error) }));
     const hostedFateFind = await runHostedFateFindCycle().catch((error) => ({ enabled: env.hostedFateFind.enabled, error: String(error?.message || error) }));
     if (hostedFateFind?.enabled && (Number(hostedFateFind?.evaluation?.created || 0) > 0 || hostedFateFind?.readiness?.ready === false)) {
       await recordBetaRuntimeReadiness({ store }).catch((error) => console.error("[signal-engine] beta readiness refresh failed", { error: String(error?.message || error) }));
