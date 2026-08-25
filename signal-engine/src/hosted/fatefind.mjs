@@ -193,7 +193,16 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
   `, [limit]);
   if (!findRows.length) return { finds: 0, evaluated: 0, created: 0 };
 
-  const { rows: offerRows } = await pool.query("SELECT * FROM fatedrop_retail_offers WHERE stock_status IN ('in_stock','low_stock','preorder') ORDER BY last_seen_at DESC LIMIT 10000");
+  const { rows: offerRows } = await pool.query(`
+    SELECT ro.*
+    FROM fatedrop_retail_offers ro
+    JOIN fatedrop_retailer_health rh ON rh.retailer_id=ro.retailer_id
+      AND rh.healthy=true
+      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+    WHERE ro.stock_status IN ('in_stock','low_stock','preorder')
+    ORDER BY ro.last_seen_at DESC
+    LIMIT 10000
+  `);
   const productIds = [...new Set(offerRows.map((row) => row.product_id))];
   const { rows: productRows } = productIds.length ? await pool.query("SELECT * FROM fatedrop_products WHERE id = ANY($1)", [productIds]) : { rows: [] };
   const products = new Map(productRows.map((row) => [row.id, rowToProduct(row)]));
@@ -202,7 +211,9 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
   for (const findRow of findRows) {
     const find = rowToFind(findRow);
     for (const rawOffer of offerRows) {
-      const offer = rowToOffer(rawOffer); const product = products.get(offer.productId);
+      const offer = rowToOffer(rawOffer);
+      const product = products.get(offer.productId);
+      const title = product?.title || offer.title || "Matched product";
       evaluated += 1;
       const result = evaluateFateFind(find, offer, product);
       if (!result.matched) continue;
