@@ -51,10 +51,12 @@ function deltaPrepared() {
   }));
 }
 
-test("Delta Reign product configurations reduce to a shared preparation family where appropriate", () => {
+test("Delta Reign product configurations reduce to the shared preparation family", () => {
   assert.equal(preparationFamilyKey("Pokemon Delta Reign Elite Trainer Box"), "delta reign");
   assert.equal(preparationFamilyKey("Pokemon Delta Reign Booster Box (36 Packs)"), "delta reign");
   assert.equal(preparationFamilyKey("Pokemon Delta Reign 3-Pack Blister"), "delta reign");
+  assert.equal(preparationFamilyKey("Pokemon Delta Reign Premium Checklane Blister — Ampharos"), "delta reign");
+  assert.equal(preparationFamilyKey("Pokemon Delta Reign Premium Checklane Blister — Delphox"), "delta reign");
 });
 
 test("real Delta Reign-style multi-SKU sentinel activation creates one strong preparation cluster", () => {
@@ -63,12 +65,13 @@ test("real Delta Reign-style multi-SKU sentinel activation creates one strong pr
   assert.equal(result.clusters.length, 1);
   const cluster = result.clusters[0];
   assert.equal(cluster.productFamilyKey, "delta reign");
-  assert.ok(cluster.skuCount >= 5);
+  assert.equal(cluster.skuCount, 7);
   assert.ok(cluster.productTypeCount >= 4);
-  assert.ok(cluster.placeholderPriceCount >= 5);
+  assert.equal(cluster.placeholderPriceCount, 7);
+  assert.equal(cluster.structuredEvidenceCount, 7);
   assert.equal(cluster.activationMode, "new_family_activation");
   assert.equal(cluster.leaderOfferId, "off_etb");
-  assert.ok(result.byOfferId.has("off_etb"));
+  assert.equal(result.byOfferId.size, 7);
 });
 
 test("a lone random one-penny listing is not enough to create a preparation cluster", () => {
