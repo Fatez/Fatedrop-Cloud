@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { normaliseSourceCardCandidate } from '../card-identity.mjs';
+import { normaliseCollectorNumber, normaliseSourceCardCandidate } from '../card-identity.mjs';
 
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
@@ -15,13 +15,6 @@ export function normaliseComparableName(value) {
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
-}
-
-function normaliseCollectorNumber(value) {
-  return requireText(value, 'collectorNumber')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/\s+/g, '');
 }
 
 function stableId(prefix, parts) {
