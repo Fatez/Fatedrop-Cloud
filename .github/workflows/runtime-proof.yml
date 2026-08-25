@@ -1,0 +1,49 @@
+name: Probe FateDrop Production Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-proof.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe Railway runtime and Mega Dream reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+            'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+            > response.json
+          python - <<'PY'
+          import json
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          print('RUNTIME_GIT_SHA=' + str(runtime.get('gitCommitSha')))
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          groups = data.get('groups') or []
+          mega = [g for g in groups if 'mega dream' in str(g.get('title','')).lower()]
+          print('MEGA_DREAM_GROUPS=' + str(len(mega)))
+          for group in mega:
+              print('MEGA_DREAM_REFERENCE=' + json.dumps({
+                  'title': group.get('title'),
+                  'rrpKind': group.get('rrpKind'),
+                  'rrpGbp': group.get('rrpGbp'),
+                  'rrpReferenceBasis': group.get('rrpReferenceBasis'),
+                  'unitCount': group.get('unitCount'),
+                  'unitKind': group.get('unitKind'),
+              }, sort_keys=True))
+          if not runtime.get('gitCommitSha'):
+              raise SystemExit('Railway runtime did not expose RAILWAY_GIT_COMMIT_SHA')
+          PY
