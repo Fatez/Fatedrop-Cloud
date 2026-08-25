@@ -61,7 +61,7 @@ test("lifecycle signal uses the shared verified pack RRP reference without promo
   assert.equal(saved.signals[0].evidence.find((item) => item.kind === "rrp_reference_basis")?.value, "Verified booster-pack RRP reference for this set");
 });
 
-test("lifecycle signal stays UNKNOWN when no verified shared RRP/reference can be resolved", async () => {
+test("sealed lifecycle signal stays UNKNOWN when no verified shared RRP/reference can be resolved", async () => {
   const fixture = referenceFixture();
   fixture.store.listProducts = async () => [];
 
@@ -72,9 +72,9 @@ test("lifecycle signal stays UNKNOWN when no verified shared RRP/reference can b
     dispatchNotifications: false,
     now: 1_800_000_001,
     rawProducts: [{
-      retailerSku: "PORTFOLIO-001",
-      title: "Pokemon TCG: Mini Portfolio - Q1 2026",
-      url: "https://example.com/portfolio",
+      retailerSku: "UNKNOWN-BUNDLE-001",
+      title: "Pokemon TCG: Unknown Set Booster Bundle",
+      url: "https://example.com/unknown-booster-bundle",
       pricePence: 999,
       postagePence: null,
       stockStatus: "in_stock",
@@ -84,6 +84,7 @@ test("lifecycle signal stays UNKNOWN when no verified shared RRP/reference can b
 
   const saved = fixture.saved();
   assert.equal(saved.offers[0].rrpPence, null);
+  assert.equal(saved.signals.length, 1, "sealed products should still emit lifecycle without fabricated RRP");
   assert.equal(saved.signals[0].rrpPence, null);
   assert.equal(saved.signals[0].markupPercent, null);
   assert.equal(saved.signals[0].evidence.some((item) => item.kind === "rrp_value_kind"), false);
