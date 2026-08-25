@@ -98,7 +98,9 @@ test('verified reciprocal intent produces FATE TRADE FOUND with a full compatibi
   assert.equal(result.opportunityClass, TRADE_OPPORTUNITY_CLASSES.EXACT);
   assert.equal(result.headline, 'FATE TRADE FOUND');
   assert.equal(result.score, 100);
+  assert.equal(result.targetRelation, 'exact');
   assert.equal(result.verifiedReciprocal, true);
+  assert.equal(result.compatibleReciprocal, true);
   assert.equal(result.fateTradeFoundEligible, true);
   assert.equal(result.finderEligible, true);
   assert.equal(result.reciprocalEvidence.length, 1);
@@ -116,6 +118,37 @@ test('wanted card plus open-to-offers behavior becomes a strong potential match 
   assert.equal(result.fateTradeFoundEligible, false);
   assert.equal(result.finderEligible, true);
   assert.ok(result.evidence.includes('candidate_open_to_flexible_trade'));
+});
+
+test('acceptable target-card pools create potential matches but never FATE TRADE FOUND', () => {
+  const result = evaluate({
+    target: targetWant({ acceptableFateCardIds: ['card-mewtwo'] }),
+    targetOffer: offer({ fateCardId: 'card-mewtwo' }),
+    candidateWants: [],
+  });
+
+  assert.equal(result.targetRelation, 'acceptable');
+  assert.equal(result.opportunityClass, TRADE_OPPORTUNITY_CLASSES.POTENTIAL);
+  assert.equal(result.score, 67);
+  assert.equal(result.fateTradeFoundEligible, false);
+  assert.ok(result.evidence.includes('candidate_matches_acceptable_card_pool'));
+});
+
+test('acceptable reciprocal pools can create a strong opportunity without becoming an exact reciprocal event', () => {
+  const result = evaluate({
+    candidateWants: [candidateWant({
+      fateCardId: 'card-blastoise',
+      acceptableFateCardIds: ['card-charizard'],
+    })],
+  });
+
+  assert.equal(result.opportunityClass, TRADE_OPPORTUNITY_CLASSES.STRONG);
+  assert.equal(result.score, 93);
+  assert.equal(result.verifiedReciprocal, false);
+  assert.equal(result.compatibleReciprocal, true);
+  assert.equal(result.fateTradeFoundEligible, false);
+  assert.equal(result.reciprocalEvidence[0].relation, 'acceptable');
+  assert.ok(result.evidence.includes('compatible_reciprocal_pool_overlap'));
 });
 
 test('lower-confidence but viable card-show connection remains a potential trader', () => {
@@ -181,13 +214,20 @@ test('self matches and non-tradeable listings can never enter Finder', () => {
   assert.deepEqual(privateOffer.hardRejects, ['candidate_offer_not_tradeable']);
 });
 
-test('exact-wants-only listings require a real reciprocal card overlap', () => {
+test('exact-wants-only listings require a real exact reciprocal card overlap', () => {
   const rejected = evaluate({
     targetOffer: offer({ tradeMode: 'exact_wants_only' }),
     candidateWants: [],
   });
   assert.equal(rejected.opportunityClass, TRADE_OPPORTUNITY_CLASSES.NONE);
   assert.deepEqual(rejected.hardRejects, ['candidate_requires_exact_want']);
+
+  const poolOnly = evaluate({
+    targetOffer: offer({ tradeMode: 'exact_wants_only' }),
+    candidateWants: [candidateWant({ fateCardId: 'card-blastoise', acceptableFateCardIds: ['card-charizard'] })],
+  });
+  assert.equal(poolOnly.opportunityClass, TRADE_OPPORTUNITY_CLASSES.NONE);
+  assert.deepEqual(poolOnly.hardRejects, ['candidate_requires_exact_want']);
 
   const accepted = evaluate({ targetOffer: offer({ tradeMode: 'exact_wants_only' }) });
   assert.equal(accepted.opportunityClass, TRADE_OPPORTUNITY_CLASSES.EXACT);
