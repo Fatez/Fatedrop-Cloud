@@ -104,8 +104,8 @@ const store = {
   async listProducts() { return products; },
 };
 
-async function withServer(fn) {
-  const server = createHttpServer({ store });
+async function withServer(fn, customStore = store) {
+  const server = createHttpServer({ store: customStore });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   try {
     const address = server.address();
@@ -161,7 +161,7 @@ test("canonical Cloud route keeps 1-pack, 4-pack and 10-pack distinct while shar
   assert.match(four.rrpReferenceBasis, /4 × verified booster-pack RRP/);
 }));
 
-test("physical iPhone failure class now returns a canonical 10-pack vs 4-pack pair verdict", async () => withServer(async (base) => {
+test("physical iPhone failure class returns a canonical 10-pack vs 4-pack pair verdict while both offers qualify", async () => withServer(async (base) => {
   const data = await postVerdict(base, { leftId: TEN_ID, rightId: FOUR_ID });
   assert.ok(data.pairVerdict);
   assert.equal(data.pairVerdict.basis, "rrp_percent");
@@ -173,6 +173,30 @@ test("physical iPhone failure class now returns a canonical 10-pack vs 4-pack pa
   closeTo(data.pairVerdict.right.rrpGbp, 17.16);
   closeTo(data.pairVerdict.left.rrpPercent, ((166.95 - 42.90) / 42.90) * 100);
   closeTo(data.pairVerdict.right.rrpPercent, ((66.95 - 17.16) / 17.16) * 100);
+}));
+
+test("a selected configuration that sells out between list and verdict stays identified but fails with NO_QUALIFYING_LIVE_OFFERS", async () => {
+  const soldOutOffers = offers.map((offer) => offer.productId === FOUR_ID ? { ...offer, stockStatus: "out_of_stock" } : offer);
+  const soldOutStore = {
+    async listOffers() { return soldOutOffers; },
+    async listProducts() { return products; },
+  };
+
+  await withServer(async (base) => {
+    const data = await postVerdict(base, { leftId: TEN_ID, rightId: FOUR_ID });
+    assert.ok(data.pairVerdict);
+    assert.equal(data.pairVerdict.winnerId, null);
+    assert.equal(data.pairVerdict.reasonCode, FateVerdictReason.NO_QUALIFYING_LIVE_OFFERS);
+    assert.match(data.pairVerdict.reason, /qualifying live commercial offer/i);
+  }, soldOutStore);
+});
+
+test("a different pair with two current qualifying offers still returns a production-compatible winner", async () => withServer(async (base) => {
+  const data = await postVerdict(base, { leftId: TEN_ID, rightId: STANDARD_PACK_ID });
+  assert.ok(data.pairVerdict);
+  assert.equal(data.pairVerdict.reasonCode, FateVerdictReason.WINNER_RRP_PERCENT);
+  assert.equal(data.pairVerdict.basis, "rrp_percent");
+  assert.equal(data.pairVerdict.winnerId, STANDARD_PACK_ID);
 }));
 
 test("delivery stays separate from item-price-vs-RRP and unknown delivery never becomes zero", async () => withServer(async (base) => {
@@ -200,6 +224,20 @@ test("unresolved selected configuration returns a structured reason instead of a
   assert.equal(data.pairVerdict.reasonCode, FateVerdictReason.IDENTITY_UNRESOLVED);
   assert.match(data.pairVerdict.reason, /resolve both selected canonical product configurations/i);
 }));
+
+test("verdict response exposes non-secret Railway Git SHA for exact runtime certification", async () => {
+  const previous = process.env.RAILWAY_GIT_COMMIT_SHA;
+  process.env.RAILWAY_GIT_COMMIT_SHA = "test-runtime-sha";
+  try {
+    await withServer(async (base) => {
+      const data = await postVerdict(base, { leftId: TEN_ID, rightId: STANDARD_PACK_ID });
+      assert.equal(data.runtime.gitCommitSha, "test-runtime-sha");
+    });
+  } finally {
+    if (previous === undefined) delete process.env.RAILWAY_GIT_COMMIT_SHA;
+    else process.env.RAILWAY_GIT_COMMIT_SHA = previous;
+  }
+});
 
 test("missing verified family/reference fails closed", () => {
   const left = {

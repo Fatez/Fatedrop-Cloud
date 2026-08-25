@@ -66,6 +66,43 @@ function valueFamilyKey(rrp) {
   return ids.length ? `rrp:${String(rrp.unitKind).toLowerCase()}:${ids.join("+")}` : null;
 }
 
+function productConfigurationGroup(product, rrp) {
+  if (!product?.id) return null;
+  return {
+    id: product.id,
+    canonicalProductId: product.id,
+    configurationId: product.id,
+    title: product.title || "Product configuration",
+    category: categoryOf(product.title || "", product.productType),
+    matchingConfidence: rrp?.resolved ? 1 : 0.75,
+    retailerCount: 0,
+    identityKey: product.canonicalKey || null,
+    valueFamilyKey: valueFamilyKey(rrp),
+    ...rrpFields(rrp),
+    configuration: {
+      unitCount: Number.isFinite(rrp?.unitCount) ? rrp.unitCount : null,
+      unitKind: rrp?.unitKind || null,
+      referenceKind: rrp?.kind || null,
+    },
+    offers: [],
+  };
+}
+
+async function resolveSelectedConfigurationGroup(store, productId) {
+  if (!productId) return null;
+  const products = await store.listProducts({ limit: 5000 });
+  const product = products.find((item) => item.id === productId);
+  if (!product) return null;
+  const rrpContext = buildRrpValueContext(products);
+  const rrp = resolveRrpValue({
+    title: product.title,
+    productType: product.productType,
+    tcg: product.tcg || "pokemon",
+    linkedProduct: product,
+  }, rrpContext);
+  return productConfigurationGroup(product, rrp);
+}
+
 function legacyOffer(offer, product, rrp) {
   return {
     id: offer.offerId,
@@ -286,12 +323,19 @@ async function appFateVerdict(store, req, body) {
   const truePrice = await appTruePrice(store, truePriceUrl);
   const leftId = typeof body?.leftId === "string" && body.leftId.trim() ? body.leftId.trim() : null;
   const rightId = typeof body?.rightId === "string" && body.rightId.trim() ? body.rightId.trim() : null;
-  const pairVerdict = leftId && rightId
-    ? compareGroups(
-        truePrice.groups.find((group) => group.id === leftId),
-        truePrice.groups.find((group) => group.id === rightId),
-      )
-    : null;
+
+  let leftGroup = leftId ? truePrice.groups.find((group) => group.id === leftId) || null : null;
+  let rightGroup = rightId ? truePrice.groups.find((group) => group.id === rightId) || null : null;
+
+  // A selected configuration can disappear from the live-offer group list between
+  // the App loading the selector and the head-to-head request (for example, a scan
+  // confirms it just sold out). Preserve the canonical configuration identity so
+  // the authoritative reason becomes NO_QUALIFYING_LIVE_OFFERS, not a false
+  // IDENTITY_UNRESOLVED. This does not make an out-of-stock offer eligible.
+  if (leftId && !leftGroup) leftGroup = await resolveSelectedConfigurationGroup(store, leftId);
+  if (rightId && !rightGroup) rightGroup = await resolveSelectedConfigurationGroup(store, rightId);
+
+  const pairVerdict = leftId && rightId ? compareGroups(leftGroup, rightGroup) : null;
 
   return {
     success: true,
@@ -302,6 +346,10 @@ async function appFateVerdict(store, req, body) {
     pairVerdict,
     source: "FATEDROP_CLOUD",
     rulesVersion: "fate-verdict-v2",
+    runtime: {
+      gitCommitSha: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+      deploymentId: process.env.RAILWAY_DEPLOYMENT_ID || null,
+    },
     disclaimer: "RRP/reference percentage uses commercial item price against the verified value baseline. True Price adds known mandatory delivery; unknown delivery remains unknown and never becomes £0.",
     notice: "Canonical FateDrop Cloud verdict is live.",
   };
