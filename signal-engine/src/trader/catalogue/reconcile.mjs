@@ -40,6 +40,16 @@ function setEvidenceContains(setMatch, cardEvidence) {
   ) === true;
 }
 
+function compactSetEvidence(evidence) {
+  return Object.freeze({
+    sourceName: evidence.sourceName,
+    sourceRecordId: evidence.sourceRecordId,
+    sourceSeriesCode: evidence.sourceSeriesCode ?? null,
+    sourceUrl: evidence.sourceUrl ?? null,
+    languageCode: evidence.languageCode ?? null,
+  });
+}
+
 export function reconcileSetEvidence(left, right) {
   if (!left || !right) throw new TypeError('two set evidence records are required');
   if (left.sourceName === right.sourceName) {
@@ -105,8 +115,8 @@ export function reconcileSetEvidence(left, right) {
     printedTotal,
     total,
     evidence: Object.freeze([
-      Object.freeze({ sourceName: left.sourceName, sourceRecordId: left.sourceRecordId }),
-      Object.freeze({ sourceName: right.sourceName, sourceRecordId: right.sourceRecordId }),
+      compactSetEvidence(left),
+      compactSetEvidence(right),
     ]),
   });
 }

@@ -38,8 +38,16 @@ export function promoteMatchedCardEvidence(match, { verifiedAt = Date.now() } = 
       verifiedAt,
       verificationBasis: Object.freeze({
         baseIdentitySources: Object.freeze([
-          Object.freeze({ sourceName: candidate.sourceName, sourceRecordId: candidate.sourceRecordId }),
-          Object.freeze({ sourceName: match.corroboration.sourceName, sourceRecordId: match.corroboration.sourceRecordId }),
+          Object.freeze({
+            sourceName: candidate.sourceName,
+            sourceRecordId: candidate.sourceRecordId,
+            sourceUrl: candidate.sourceUrl ?? null,
+          }),
+          Object.freeze({
+            sourceName: match.corroboration.sourceName,
+            sourceRecordId: match.corroboration.sourceRecordId,
+            sourceUrl: match.corroboration.sourceUrl ?? null,
+          }),
         ]),
         variantEvidenceSource: candidate.sourceName,
         variantEvidenceExplicit: true,

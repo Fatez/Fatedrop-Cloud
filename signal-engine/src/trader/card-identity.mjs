@@ -28,6 +28,29 @@ function normaliseKeyPart(value, field) {
   return normalized;
 }
 
+function digestId(prefix, canonicalKey) {
+  const digest = createHash('sha256').update(canonicalKey).digest('hex').slice(0, 24);
+  return `${prefix}_${digest}`;
+}
+
+export function makeFateTcgId(tcgCode) {
+  return `fdtcg_${normaliseKeyPart(tcgCode, 'tcgCode')}`;
+}
+
+export function makeCanonicalPrintingKey(input) {
+  const tcgCode = normaliseKeyPart(input?.tcgCode, 'tcgCode');
+  const seriesCode = normaliseKeyPart(input?.seriesCode, 'seriesCode');
+  const setCode = normaliseKeyPart(input?.setCode, 'setCode');
+  const collectorNumber = normaliseKeyPart(input?.collectorNumber, 'collectorNumber');
+  const printingCode = normaliseKeyPart(input?.printingCode, 'printingCode');
+  return ['printing:v1', tcgCode, seriesCode, setCode, collectorNumber, printingCode].join(':');
+}
+
+export function makeFatePrintingId(input) {
+  const canonicalKey = typeof input === 'string' ? input : makeCanonicalPrintingKey(input);
+  return digestId('fdprinting', canonicalKey);
+}
+
 export function makeCanonicalCardKey(input) {
   const tcgCode = normaliseKeyPart(input?.tcgCode, 'tcgCode');
   const seriesCode = normaliseKeyPart(input?.seriesCode, 'seriesCode');
@@ -51,8 +74,7 @@ export function makeCanonicalCardKey(input) {
 
 export function makeFateCardId(input) {
   const canonicalKey = typeof input === 'string' ? input : makeCanonicalCardKey(input);
-  const digest = createHash('sha256').update(canonicalKey).digest('hex').slice(0, 24);
-  return `fdcard_${digest}`;
+  return digestId('fdcard', canonicalKey);
 }
 
 export function normaliseSourceCardCandidate(candidate) {
