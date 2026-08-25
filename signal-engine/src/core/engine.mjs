@@ -6,8 +6,9 @@ import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } 
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
 import { resolveRetailerDelivery } from "./delivery-policies.mjs";
+import { buildRetailerPreparationClusters, preparationClusterEvidence } from "./preparation-cluster.mjs";
+import { effectivePurchasable } from "./preparation-intelligence.mjs";
 import { deriveSignal } from "./signals.mjs";
-import { isPurchasable } from "./model.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
 import { preloadPreviousState } from "./previous-state.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
@@ -157,6 +158,20 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   });
 
   const previousState = await preloadPreviousState(store, prepared);
+  const preparationClusters = buildRetailerPreparationClusters({
+    retailerId: retailer.id,
+    prepared,
+    previousOffers: previousState?.offers ?? new Map(),
+    now,
+  });
+  for (const item of prepared) {
+    const cluster = preparationClusters.byOfferId.get(item.offerId);
+    if (!cluster) continue;
+    item.raw = {
+      ...item.raw,
+      evidence: [...(Array.isArray(item.raw.evidence) ? item.raw.evidence : []), ...preparationClusterEvidence(cluster)],
+    };
+  }
 
   for (const item of prepared) {
     const { raw, productId, offerId } = item;
@@ -202,7 +217,6 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const previousOffer = previousState
       ? previousState.offers.get(offerId) ?? null
       : await store.getOffer(offerId);
-    const everAvailableAt = previousOffer?.everAvailableAt ?? (isPurchasable(raw.stockStatus) ? now : null);
     const offer = {
       offerId,
       productId,
@@ -221,10 +235,11 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
       evidence: rrpEvidence(raw.evidence, resolvedRrpValue),
-      everAvailableAt,
+      everAvailableAt: previousOffer?.everAvailableAt ?? null,
       firstSeenAt: previousOffer?.firstSeenAt ?? now,
       lastSeenAt: now,
     };
+    if (!offer.everAvailableAt && effectivePurchasable(offer)) offer.everAvailableAt = now;
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
     const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
     products.push(product);
@@ -238,7 +253,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
 
   const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, rrpInherited, signals, discord };
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, signals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {

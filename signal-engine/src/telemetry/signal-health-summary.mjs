@@ -23,13 +23,35 @@ function emptyDelivery(day0, days) {
   return Object.fromEntries(LIFECYCLE_STATES.map((state) => [state, {
     sent: 0,
     policySkipped: 0,
+    duplicateSuppressed: 0,
     issues: 0,
     todaySent: 0,
-    trend: Array.from({ length: days }, (_, index) => ({ measuredAt: day0 + (index * 86_400), sent: 0, policySkipped: 0, issues: 0 })),
+    latencySampleSize: 0,
+    medianLatencySeconds: null,
+    p95LatencySeconds: null,
+    trend: Array.from({ length: days }, (_, index) => ({ measuredAt: day0 + (index * 86_400), sent: 0, policySkipped: 0, duplicateSuppressed: 0, issues: 0 })),
   }]));
 }
 
-export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
+function monitorDiagnostics(monitorRows = []) {
+  const rows = Array.isArray(monitorRows) ? monitorRows : [];
+  const stale = rows.filter((row) => row?.stale === true);
+  const unhealthy = rows.filter((row) => row?.healthy !== true && row?.stale !== true);
+  const blocked = rows.filter((row) => /\b403\b|blocked/i.test(String(row?.lastError || "")));
+  const fresh = rows.filter((row) => row?.healthy === true && row?.stale !== true);
+  return {
+    totalRetailers: rows.length,
+    freshRetailers: fresh.length,
+    staleRetailers: stale.length,
+    unhealthyRetailers: unhealthy.length,
+    blockedRetailers: blocked.length,
+    staleRetailerIds: stale.map((row) => row.id),
+    unhealthyRetailerIds: unhealthy.map((row) => row.id),
+    blockedRetailerIds: blocked.map((row) => row.id),
+  };
+}
+
+export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   const { safeDays, day0 } = safeWindow(days, now);
   const lifecycle = emptyLifecycle(day0, safeDays);
   const delivery = emptyDelivery(day0, safeDays);
@@ -58,7 +80,24 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     const detail = String(row.detail || "").toLowerCase();
     if (result === "sent") point.sent += value;
     else if (result === "skipped" && detail === "disabled") point.policySkipped += value;
+    else if (result === "skipped" && detail === "duplicate_batch_signal") point.duplicateSuppressed += value;
     else point.issues += value;
+  }
+
+  let overallLatency = { sampleSize: 0, medianSeconds: null, p95Seconds: null };
+  for (const row of latencyRows) {
+    const state = String(row?.state || "").toLowerCase();
+    const sampleSize = Number(row.sample_size) || 0;
+    const medianSeconds = row.median_seconds == null ? null : Number(row.median_seconds);
+    const p95Seconds = row.p95_seconds == null ? null : Number(row.p95_seconds);
+    if (state === "__all__") {
+      overallLatency = { sampleSize, medianSeconds, p95Seconds };
+      continue;
+    }
+    if (!LIFECYCLE_STATES.includes(state)) continue;
+    delivery[state].latencySampleSize = sampleSize;
+    delivery[state].medianLatencySeconds = Number.isFinite(medianSeconds) ? medianSeconds : null;
+    delivery[state].p95LatencySeconds = Number.isFinite(p95Seconds) ? p95Seconds : null;
   }
 
   for (const state of LIFECYCLE_STATES) {
@@ -66,6 +105,7 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     lifecycle[state].today = lifecycle[state].trend.at(-1)?.value ?? 0;
     delivery[state].sent = delivery[state].trend.reduce((sum, point) => sum + point.sent, 0);
     delivery[state].policySkipped = delivery[state].trend.reduce((sum, point) => sum + point.policySkipped, 0);
+    delivery[state].duplicateSuppressed = delivery[state].trend.reduce((sum, point) => sum + point.duplicateSuppressed, 0);
     delivery[state].issues = delivery[state].trend.reduce((sum, point) => sum + point.issues, 0);
     delivery[state].todaySent = delivery[state].trend.at(-1)?.sent ?? 0;
   }
@@ -77,6 +117,13 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     day0,
     lifecycle,
     delivery,
+    diagnostics: {
+      absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0),
+      duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0),
+      discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0),
+      discordLatency: overallLatency,
+      monitors: monitorDiagnostics(monitorRows),
+    },
   };
 }
 
@@ -86,7 +133,7 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
   }
   const { safeDays, day0 } = safeWindow(days, now);
   const pool = await store.pool();
-  const [detections, deliveries] = await Promise.all([
+  const [detections, deliveries, latency, monitorRows] = await Promise.all([
     pool.query(`SELECT state,(FLOOR(detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count
       FROM fatedrop_signals
       WHERE detected_at >= $1 AND state IN ('whisper','echo','manifested','vanished')
@@ -96,6 +143,26 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
       INNER JOIN fatedrop_signals s ON s.id=a.signal_id
       WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished')
       GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
+    pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size,
+        percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds,
+        percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds
+      FROM (
+        SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds
+        FROM fatedrop_signal_delivery_attempts a
+        INNER JOIN fatedrop_signals s ON s.id=a.signal_id
+        WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord'
+          AND a.attempted_at >= s.detected_at
+          AND s.state IN ('whisper','echo','manifested','vanished')
+      ) sent
+      GROUP BY GROUPING SETS ((state),())`, [day0]),
+    typeof store.listRetailers === "function" ? store.listRetailers() : [],
   ]);
-  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, days: safeDays, now });
+  return buildSignalHealthSummary({
+    detectionRows: detections.rows,
+    deliveryRows: deliveries.rows,
+    latencyRows: latency.rows,
+    monitorRows,
+    days: safeDays,
+    now,
+  });
 }

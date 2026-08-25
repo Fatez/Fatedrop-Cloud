@@ -75,14 +75,17 @@ function valueLabel(signal) {
 
 function descriptionFor(signal, alertClass) {
   const primary = alertClass === ALERT_CLASSES.PRIMARY_DROP;
+  const preparationEcho = signal.state === "echo" && signalKindFor(signal) === "retailer_preparation";
   if (primary) {
     if (signal.state === "whisper") return "Early retailer/SKU movement detected at a Primary/RRP retailer. Something may be coming — stock is not confirmed yet.";
+    if (preparationEcho) return "Retailer preparation detected. Product/SKU infrastructure is activating, but genuine purchase availability is not confirmed yet.";
     if (signal.state === "echo") return "Readiness activity detected at a Primary/RRP retailer. Queue, traffic or security behaviour changed — get ready, but stock is not confirmed yet.";
     if (signal.state === "manifested") return "Verified purchasable stock detected at a Primary/RRP retailer. This is the live drop — go now.";
     return "This Primary/RRP offer is no longer verified purchasable. Check the product page or alternatives.";
   }
 
   if (signal.state === "whisper") return "New market listing/SKU movement detected. Useful market intelligence, but no live-stock claim is being made yet.";
+  if (preparationEcho) return "Strong retailer preparation evidence detected. This listing appears to be getting ready, but FateDrop has not confirmed that it can be purchased yet.";
   if (signal.state === "echo") return "Market readiness activity detected. This is supporting context only; no live-stock claim is being made.";
   if (signal.state === "manifested") return "Verified market stock is live. Check the price against RRP before buying.";
   return "This market offer is no longer verified purchasable. Compare other available sellers before giving up.";
@@ -154,6 +157,7 @@ export function buildDiscordSignalMessage(signal) {
   const exactCause = signalKindFor(signal);
   const rrpKind = rrpKindFor(signal);
   const rrpReferenceBasis = evidenceValue(signal, "rrp_reference_basis");
+  const priceQuality = signal.priceQuality || evidenceValue(signal, "price_quality");
   const rrpKnown = Number.isFinite(signal.rrpPence);
   const markupKnown = Number.isFinite(signal.markupPercent);
 
@@ -163,6 +167,7 @@ export function buildDiscordSignalMessage(signal) {
     { name: "Stock", value: short(signal.stockStatus || "Unknown", 1024), inline: true },
   ];
 
+  if (priceQuality === "placeholder") fields.push({ name: "Price quality", value: "PLACEHOLDER — excluded from deal/RRP calculations", inline: false });
   if (retailerSku) fields.push({ name: "Retailer SKU", value: short(retailerSku, 1024), inline: true });
   fields.push({
     name: rrpKnown && (!rrpKind || rrpKind === "official") ? "Official RRP" : "RRP / reference",

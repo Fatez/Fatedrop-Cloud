@@ -165,3 +165,12 @@ test("distinguishes case sizes for the same product", () => {
   assert.equal(result.decision, "reject");
   assert.match(result.reasons[0], /^case_quantity_conflict:/);
 });
+
+test("keeps the audited 1x sealed and 8x sealed retailer configurations separate", () => {
+  const result = compareProductIdentity(
+    "30th Anniversary First Partner Illustration Collection Vol. 3 — 1x Sealed",
+    "30th Anniversary First Partner Illustration Collection Vol. 3 — 8x Sealed",
+  );
+  assert.equal(result.decision, "reject");
+  assert.match(result.reasons.at(-1), /^identity_core_conflict:/);
+});

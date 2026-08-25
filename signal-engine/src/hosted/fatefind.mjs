@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { PriceQuality, classifyObservedPrice } from "../core/price-quality.mjs";
 
 function normalized(value = "") {
   return String(value).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -20,8 +21,9 @@ function queryMatches(query, title) {
 }
 
 function deliveredPence(offer) {
-  if (!Number.isFinite(offer.pricePence) || !Number.isFinite(offer.postagePence)) return null;
-  return offer.pricePence + offer.postagePence;
+  const price = classifyObservedPrice({ pricePence: offer?.pricePence, retailerId: offer?.retailerId });
+  if (!Number.isFinite(price.canonicalPricePence) || !Number.isFinite(offer?.postagePence)) return null;
+  return price.canonicalPricePence + offer.postagePence;
 }
 
 function percentAboveRrp(pricePence, rrpPence) {
@@ -131,8 +133,14 @@ export function evaluateFateFind(find, offer, product) {
   if (find.stockRequirement === "purchasable" && !purchasable(offer.stockStatus)) return { matched: false, reasons: ["stock-not-purchasable"] };
   reasons.push(`stock:${offer.stockStatus}`);
 
+  const price = classifyObservedPrice({ pricePence: offer.pricePence, retailerId: offer.retailerId });
+  if ([PriceQuality.PLACEHOLDER, PriceQuality.INVALID].includes(price.priceQuality)) {
+    return { matched: false, reasons: ["price-not-commercial"], priceQuality: price.priceQuality };
+  }
+  const commercialItemPricePence = price.canonicalPricePence;
+
   if (Number.isFinite(find.maxItemPricePence)) {
-    if (!Number.isFinite(offer.pricePence) || offer.pricePence > find.maxItemPricePence) return { matched: false, reasons: ["item-price-above-limit"] };
+    if (!Number.isFinite(commercialItemPricePence) || commercialItemPricePence > find.maxItemPricePence) return { matched: false, reasons: ["item-price-above-limit"] };
     reasons.push("item-price");
   }
 
@@ -143,7 +151,7 @@ export function evaluateFateFind(find, offer, product) {
     reasons.push("true-price");
   }
 
-  const premium = percentAboveRrp(offer.pricePence, product?.officialRrpPence);
+  const premium = percentAboveRrp(commercialItemPricePence, product?.officialRrpPence);
   if (Number.isFinite(find.maxPercentAboveRrp)) {
     if (!Number.isFinite(premium)) return { matched: false, reasons: ["rrp-unknown"] };
     if (premium > find.maxPercentAboveRrp) return { matched: false, reasons: ["rrp-premium-above-limit"] };
