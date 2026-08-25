@@ -63,11 +63,15 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const evidence = Array.isArray(currentOffer?.evidence) ? currentOffer.evidence : [];
   const kinds = evidenceKinds(evidence);
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
+  const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
   const structuredCatalogue = hasStructuredCatalogueEvidence(kinds);
   const identityValid = Boolean(currentOffer?.retailerId && currentOffer?.retailerSku && currentOffer?.title && currentOffer?.url);
   const repeated = repeatedObservationThresholdCrossed(previousOffer, now, repeatedAfterSeconds)
     || kinds.has("observation_repeated");
+  const placeholderResolved = Boolean(previousOffer)
+    && previousPrice.priceQuality === PriceQuality.PLACEHOLDER
+    && price.priceQuality === PriceQuality.VALID;
   const clusterId = evidenceValue(evidence, "retailer_preparation_cluster");
   const clusterStrong = Boolean(clusterId);
   const metadataKinds = [...kinds].filter((kind) => PREPARATION_METADATA_EVIDENCE.has(kind));
@@ -78,10 +82,11 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   if (structuredCatalogue) score += 1;
   if (price.priceQuality === PriceQuality.PLACEHOLDER) score += 2;
   if (repeated) score += 2;
+  if (placeholderResolved) score += 3;
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  const corroborated = repeated || clusterStrong || metadataKinds.length >= 2;
+  const corroborated = repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
   const echoEligible = notConfirmedPurchasable
     && !purchaseVerified
     && identityValid
@@ -104,6 +109,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       { kind: "retailer_preparation_identity", value: identityValid ? "valid" : "incomplete", observedAt: now },
       { kind: "retailer_preparation_structured_catalogue", value: structuredCatalogue ? "present" : "absent", observedAt: now },
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
+      ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster", value: String(clusterId), observedAt: now }] : []),
       ...metadataKinds.map((kind) => ({ kind: "retailer_preparation_metadata", value: kind, observedAt: now })),
     ],
