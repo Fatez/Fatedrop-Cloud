@@ -2,10 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPokemonTcgClient, createTcgdexClient } from '../src/trader/catalogue/source-clients.mjs';
 
-function response(body, status = 200) {
+function response(body, status = 200, headers = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: { get(name) { return headers[String(name).toLowerCase()] ?? null; } },
     async json() { return body; },
   };
 }
@@ -66,7 +67,62 @@ test('Pokémon TCG API card-set query does not assume source IDs equal FateDrop 
   assert.equal(parsed.searchParams.get('q'), 'set.id:"provider-set-123"');
 });
 
-test('catalogue clients fail closed on non-success source responses', async () => {
-  const client = createTcgdexClient({ fetchImpl: async () => response({}, 503) });
+test('catalogue clients retry bounded provider throttling and respect Retry-After', async () => {
+  let calls = 0;
+  const delays = [];
+  const client = createTcgdexClient({
+    retryAttempts: 3,
+    sleepImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) return response({}, 429, { 'retry-after': '2' });
+      return response({ id: 'ok' });
+    },
+  });
+
+  const card = await client.getCard('x');
+  assert.equal(card.id, 'ok');
+  assert.equal(calls, 2);
+  assert.deepEqual(delays, [2000]);
+});
+
+test('catalogue clients retry transient fetch failures and 5xx responses only within the configured bound', async () => {
+  let calls = 0;
+  const delays = [];
+  const client = createTcgdexClient({
+    retryAttempts: 3,
+    sleepImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('temporary network failure');
+      if (calls === 2) return response({}, 503);
+      return response({ id: 'recovered' });
+    },
+  });
+
+  assert.equal((await client.getCard('x')).id, 'recovered');
+  assert.equal(calls, 3);
+  assert.deepEqual(delays, [250, 500]);
+});
+
+test('catalogue clients fail immediately on non-retryable source responses', async () => {
+  let calls = 0;
+  const client = createTcgdexClient({
+    retryAttempts: 4,
+    sleepImpl: async () => { throw new Error('sleep should not run'); },
+    fetchImpl: async () => { calls += 1; return response({}, 404); },
+  });
+  await assert.rejects(() => client.getCard('x'), /Catalogue source request failed \(404\)/);
+  assert.equal(calls, 1);
+});
+
+test('catalogue clients still fail closed when retryable source responses never recover', async () => {
+  let calls = 0;
+  const client = createTcgdexClient({
+    retryAttempts: 2,
+    sleepImpl: async () => {},
+    fetchImpl: async () => { calls += 1; return response({}, 503); },
+  });
   await assert.rejects(() => client.getCard('x'), /Catalogue source request failed \(503\)/);
+  assert.equal(calls, 2);
 });
