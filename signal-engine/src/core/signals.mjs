@@ -1,6 +1,7 @@
 import { SignalState, StockStatus } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
 import { classifyRetailerPreparation, effectivePurchasable } from "./preparation-intelligence.mjs";
+import { PriceQuality } from "./price-quality.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 
 function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null }) {
@@ -77,7 +78,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       state = SignalState.ECHO;
       kind = "retailer_preparation";
       reason = "Corroborated retailer preparation detected before verified purchase availability";
-    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)) {
+    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus) || preparation.price.priceQuality === PriceQuality.PLACEHOLDER) {
       state = SignalState.WHISPER;
       kind = "catalogue_new";
       reason = "New retailer SKU/catalogue activity observed before verified availability";
