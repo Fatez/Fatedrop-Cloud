@@ -1,5 +1,6 @@
 import { PostgresStore } from '../../stores/postgres-store.mjs';
 import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
+import { selectVerifiedSetCrosswalk } from './selection.mjs';
 import { createPokemonTcgClient, createTcgdexClient } from './source-clients.mjs';
 
 function enabled(value) {
@@ -12,6 +13,11 @@ function argValue(name) {
   return value ? value.slice(prefix.length) : null;
 }
 
+function csvSetIds(value) {
+  if (value == null || value === '') return [];
+  return value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 function positiveInt(value, fallback, max) {
   if (value == null || value === '') return fallback;
   const parsed = Number(value);
@@ -19,6 +25,19 @@ function positiveInt(value, fallback, max) {
     throw new TypeError(`Expected integer between 1 and ${max}, received ${value}`);
   }
   return parsed;
+}
+
+function compactMatchedSet(row) {
+  return {
+    tcgdexSetId: row.tcgdexSetId,
+    pokemonTcgSetId: row.pokemonTcgSetId,
+    canonicalSetId: row.setMatch.canonicalSetId,
+    seriesName: row.setMatch.seriesName,
+    setName: row.setMatch.setName,
+    releasedAt: row.setMatch.releasedAt,
+    printedTotal: row.setMatch.printedTotal,
+    total: row.setMatch.total,
+  };
 }
 
 function problemBreakdown(plan) {
@@ -45,28 +64,29 @@ function problemBreakdown(plan) {
 
 async function main() {
   const write = process.argv.includes('--write');
-  const maxSets = positiveInt(argValue('max-sets'), 10, 100);
+  const requestedSetIds = csvSetIds(argValue('sets'));
+  const maxSets = positiveInt(argValue('max-sets'), requestedSetIds.length || 10, 100);
   const maxCardsPerChunk = positiveInt(argValue('max-cards'), 100, 250);
   const startAfterSetId = argValue('start-after');
 
   const tcgdexClient = createTcgdexClient({ languageCode: 'en' });
   const pokemonTcgClient = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null });
   const plan = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient });
+  const selection = selectVerifiedSetCrosswalk(plan, requestedSetIds);
   const report = {
     mode: write ? 'write' : 'plan',
     generatedAt: new Date().toISOString(),
     sourceCounts: plan.sourceCounts,
     counts: plan.counts,
-    matchedSets: plan.matched.map((row) => ({
-      tcgdexSetId: row.tcgdexSetId,
-      pokemonTcgSetId: row.pokemonTcgSetId,
-      canonicalSetId: row.setMatch.canonicalSetId,
-      seriesName: row.setMatch.seriesName,
-      setName: row.setMatch.setName,
-      releasedAt: row.setMatch.releasedAt,
-      printedTotal: row.setMatch.printedTotal,
-      total: row.setMatch.total,
-    })),
+    selection: {
+      mode: selection.mode,
+      requestedSetIds: selection.requestedSetIds,
+      selectedCount: selection.selected.length,
+      maxSets,
+      startAfterSetId: startAfterSetId || null,
+    },
+    selectedSets: selection.selected.map(compactMatchedSet),
+    matchedSets: plan.matched.map(compactMatchedSet),
     problems: problemBreakdown(plan),
     unresolved: {
       sourceErrors: plan.sourceErrors,
@@ -93,7 +113,7 @@ async function main() {
     store,
     tcgdexClient,
     pokemonTcgClient,
-    crosswalk: plan,
+    crosswalk: selection.crosswalk,
     startAfterSetId,
     maxSets,
     maxCardsPerChunk,
