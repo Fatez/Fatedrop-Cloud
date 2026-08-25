@@ -78,6 +78,9 @@ export function createTcgdexClient({
       if (!Array.isArray(payload)) throw new TypeError('TCGdex sets payload must be an array');
       return payload;
     },
+    async getSeries(id) {
+      return fetchJson(`${base}/${encodeURIComponent(language)}/series/${encodeURIComponent(requireText(id, 'seriesId'))}`, request);
+    },
     async getSet(id) {
       return fetchJson(`${base}/${encodeURIComponent(language)}/sets/${encodeURIComponent(requireText(id, 'setId'))}`, request);
     },
