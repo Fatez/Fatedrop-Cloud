@@ -23,12 +23,14 @@ test('TCGdex client uses language-scoped v2 catalogue routes', async () => {
   });
 
   await client.listSets();
+  await client.getSeries('tcgp');
   await client.getSet('sv1');
   await client.getCard('sv1-1');
 
   assert.equal(calls[0], 'https://api.tcgdex.net/v2/en/sets');
-  assert.equal(calls[1], 'https://api.tcgdex.net/v2/en/sets/sv1');
-  assert.equal(calls[2], 'https://api.tcgdex.net/v2/en/cards/sv1-1');
+  assert.equal(calls[1], 'https://api.tcgdex.net/v2/en/series/tcgp');
+  assert.equal(calls[2], 'https://api.tcgdex.net/v2/en/sets/sv1');
+  assert.equal(calls[3], 'https://api.tcgdex.net/v2/en/cards/sv1-1');
 });
 
 test('Pokémon TCG API client paginates until totalCount is reached and sends optional API key', async () => {
