@@ -59,9 +59,12 @@ export function createPokemonTcgClient({
       const payload = await fetchJson(url.toString(), { fetchImpl, headers });
       if (!Array.isArray(payload?.data)) throw new TypeError('Pokémon TCG API paged payload must contain data[]');
       rows.push(...payload.data);
+
       const count = Number(payload.count ?? payload.data.length);
-      const totalCount = Number(payload.totalCount ?? rows.length);
-      if (!Number.isFinite(count) || count <= 0 || rows.length >= totalCount || payload.data.length < safePageSize) break;
+      const totalCount = payload.totalCount == null ? null : Number(payload.totalCount);
+      if (!Number.isFinite(count) || count <= 0) break;
+      if (Number.isFinite(totalCount) && rows.length >= totalCount) break;
+      if (payload.data.length < safePageSize) break;
       page += 1;
     }
     return rows;
