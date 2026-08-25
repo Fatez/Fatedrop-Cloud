@@ -31,7 +31,7 @@ const store = {
   async upsertEncounterInventory(items){for(const item of items){const index=savedInventory.findIndex((row)=>row.id===item.id);if(index>=0)savedInventory[index]=item;else savedInventory.push(item);}return{saved:items.length};},
   async listEncounterInventory(eventId){return savedInventory.filter((item)=>item.eventId===eventId);},
   async stats() { return { productsTracked: 0, offersTracked: 0, currentlyAvailable: 0 }; },
-  async listRetailers() { return []; },
+  async listRetailers() { return [{ id: "indie-live", healthy: true, stale: false, baselineCompleted: true }]; },
   async listProducts() { return []; },
   async listSignals() { return []; },
   async listNetworkSnapshots() { return []; },
