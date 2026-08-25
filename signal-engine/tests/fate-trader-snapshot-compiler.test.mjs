@@ -71,6 +71,15 @@ test('snapshot compiler promotes only a completely reconciled set', async () => 
 
   const numbers = new Set(artifact.rows.cardIdentities.map((card) => card.collectorNumber));
   assert.deepEqual(numbers, new Set(['1', '2']));
+  assert.deepEqual(
+    new Set(artifact.rows.setSourceMappings.map((row) => row.sourceVersion)),
+    new Set(['tcgdex-commit', 'pokemon-commit']),
+  );
+  assert.ok(artifact.rows.cardSourceMappings.every((row) => row.sourceVersion === 'tcgdex-commit'));
+  assert.deepEqual(
+    new Set(artifact.rows.cardProvenance.map((row) => row.evidenceJson.sourceCommit)),
+    new Set(['tcgdex-commit', 'pokemon-commit']),
+  );
 });
 
 test('snapshot compiler rejects an incomplete set without leaking partial catalogue rows', async () => {

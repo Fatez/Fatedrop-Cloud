@@ -49,6 +49,37 @@ function mergeBatch(rows, batch) {
   for (const row of batch.cardProvenance) putUnique(rows.cardProvenance, row, 'card provenance');
 }
 
+function sourceCommit(sourceName, sources) {
+  if (sourceName === 'tcgdex') return sources.tcgdex?.commit || null;
+  if (sourceName === 'pokemontcg-api') return sources.pokemonTcg?.commit || null;
+  return null;
+}
+
+function rowsWithSourceVersions(rows, sources) {
+  return Object.freeze({
+    tcgs: Object.freeze([...rows.tcgs.values()]),
+    series: Object.freeze([...rows.series.values()]),
+    sets: Object.freeze([...rows.sets.values()]),
+    setSourceMappings: Object.freeze([...rows.setSourceMappings.values()].map((row) => Object.freeze({
+      ...row,
+      sourceVersion: sourceCommit(row.sourceName, sources) ?? row.sourceVersion ?? null,
+    }))),
+    printings: Object.freeze([...rows.printings.values()]),
+    cardIdentities: Object.freeze([...rows.cardIdentities.values()]),
+    cardSourceMappings: Object.freeze([...rows.cardSourceMappings.values()].map((row) => Object.freeze({
+      ...row,
+      sourceVersion: sourceCommit(row.sourceName, sources) ?? row.sourceVersion ?? null,
+    }))),
+    cardProvenance: Object.freeze([...rows.cardProvenance.values()].map((row) => Object.freeze({
+      ...row,
+      evidenceJson: Object.freeze({
+        ...(row.evidenceJson || {}),
+        sourceCommit: sourceCommit(row.sourceName, sources),
+      }),
+    }))),
+  });
+}
+
 async function compileSet({ tcgdexClient, pokemonTcgClient, pair, verifiedAt }) {
   const [rawTcgdexSet, rawPokemonSet] = await Promise.all([
     tcgdexClient.getSet(pair.tcgdexSetId),
@@ -160,14 +191,16 @@ export async function compilePokemonCatalogueSnapshots({
     }
   }
 
+  const sources = Object.freeze({
+    tcgdex: Object.freeze({ ...(tcgdexClient.snapshotMeta || {}) }),
+    pokemonTcg: Object.freeze({ ...(pokemonTcgClient.snapshotMeta || {}) }),
+  });
+  const compiledRows = rowsWithSourceVersions(rows, sources);
   const artifact = Object.freeze({
     format: 'fatedrop-pokemon-catalogue-v1',
     generatedAt: new Date(verifiedAt).toISOString(),
     verifiedAt,
-    sources: Object.freeze({
-      tcgdex: Object.freeze({ ...(tcgdexClient.snapshotMeta || {}) }),
-      pokemonTcg: Object.freeze({ ...(pokemonTcgClient.snapshotMeta || {}) }),
-    }),
+    sources,
     crosswalk: Object.freeze({ sourceCounts: crosswalk.sourceCounts, counts: crosswalk.counts }),
     compilation: Object.freeze({
       requestedSetCount: selection.selected.length,
@@ -177,25 +210,16 @@ export async function compilePokemonCatalogueSnapshots({
       rejectedSets: Object.freeze(rejectedSets),
     }),
     counts: Object.freeze({
-      tcgs: rows.tcgs.size,
-      series: rows.series.size,
-      sets: rows.sets.size,
-      setSourceMappings: rows.setSourceMappings.size,
-      printings: rows.printings.size,
-      cardIdentities: rows.cardIdentities.size,
-      cardSourceMappings: rows.cardSourceMappings.size,
-      cardProvenance: rows.cardProvenance.size,
+      tcgs: compiledRows.tcgs.length,
+      series: compiledRows.series.length,
+      sets: compiledRows.sets.length,
+      setSourceMappings: compiledRows.setSourceMappings.length,
+      printings: compiledRows.printings.length,
+      cardIdentities: compiledRows.cardIdentities.length,
+      cardSourceMappings: compiledRows.cardSourceMappings.length,
+      cardProvenance: compiledRows.cardProvenance.length,
     }),
-    rows: Object.freeze({
-      tcgs: Object.freeze([...rows.tcgs.values()]),
-      series: Object.freeze([...rows.series.values()]),
-      sets: Object.freeze([...rows.sets.values()]),
-      setSourceMappings: Object.freeze([...rows.setSourceMappings.values()]),
-      printings: Object.freeze([...rows.printings.values()]),
-      cardIdentities: Object.freeze([...rows.cardIdentities.values()]),
-      cardSourceMappings: Object.freeze([...rows.cardSourceMappings.values()]),
-      cardProvenance: Object.freeze([...rows.cardProvenance.values()]),
-    }),
+    rows: compiledRows,
   });
 
   return artifact;
