@@ -28,6 +28,12 @@ function normaliseKeyPart(value, field) {
   return normalized;
 }
 
+export function normaliseCollectorNumber(value) {
+  const normalized = normaliseKeyPart(value, 'collectorNumber');
+  if (/^\d+$/.test(normalized)) return normalized.replace(/^0+(?=\d)/, '');
+  return normalized;
+}
+
 function digestId(prefix, canonicalKey) {
   const digest = createHash('sha256').update(canonicalKey).digest('hex').slice(0, 24);
   return `${prefix}_${digest}`;
@@ -41,7 +47,7 @@ export function makeCanonicalPrintingKey(input) {
   const tcgCode = normaliseKeyPart(input?.tcgCode, 'tcgCode');
   const seriesCode = normaliseKeyPart(input?.seriesCode, 'seriesCode');
   const setCode = normaliseKeyPart(input?.setCode, 'setCode');
-  const collectorNumber = normaliseKeyPart(input?.collectorNumber, 'collectorNumber');
+  const collectorNumber = normaliseCollectorNumber(input?.collectorNumber);
   const printingCode = normaliseKeyPart(input?.printingCode, 'printingCode');
   return ['printing:v1', tcgCode, seriesCode, setCode, collectorNumber, printingCode].join(':');
 }
@@ -55,7 +61,7 @@ export function makeCanonicalCardKey(input) {
   const tcgCode = normaliseKeyPart(input?.tcgCode, 'tcgCode');
   const seriesCode = normaliseKeyPart(input?.seriesCode, 'seriesCode');
   const setCode = normaliseKeyPart(input?.setCode, 'setCode');
-  const collectorNumber = normaliseKeyPart(input?.collectorNumber, 'collectorNumber');
+  const collectorNumber = normaliseCollectorNumber(input?.collectorNumber);
   const printingCode = normaliseKeyPart(input?.printingCode, 'printingCode');
   const variantCode = normaliseKeyPart(input?.variantCode, 'variantCode');
   const languageCode = normaliseKeyPart(input?.languageCode, 'languageCode');
@@ -92,7 +98,7 @@ export function normaliseSourceCardCandidate(candidate) {
     tcgCode: requireText(candidate.tcgCode, 'tcgCode'),
     seriesCode: requireText(candidate.seriesCode, 'seriesCode'),
     setCode: requireText(candidate.setCode, 'setCode'),
-    collectorNumber: requireText(candidate.collectorNumber, 'collectorNumber'),
+    collectorNumber: normaliseCollectorNumber(candidate.collectorNumber),
     printingCode: requireText(candidate.printingCode, 'printingCode'),
     variantCode: requireText(candidate.variantCode, 'variantCode'),
     languageCode: requireText(candidate.languageCode, 'languageCode'),
