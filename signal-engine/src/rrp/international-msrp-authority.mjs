@@ -8,11 +8,14 @@ function fold(value = "") {
     .trim();
 }
 
+// Dated FX evidence converts the authoritative native MSRP into the GBP reference
+// used by Fate Verdict. The native MSRP remains the authority; this snapshot is
+// intentionally auditable and must not be described as a UK RRP.
 const FX_SNAPSHOT = Object.freeze({
   JPY: { gbpPerUnit: 0.00460364, observedAt: "2026-08-25T13:08:00Z" },
   KRW: { gbpPerUnit: 0.000529851, observedAt: "2026-08-25T12:55:00Z" },
   CNY: { gbpPerUnit: 0.109095, observedAt: "2026-08-25T12:16:00Z" },
-  TWD: { gbpPerUnit: 0.02304, observedAt: "2026-08-24T23:59:00Z" },
+  TWD: { gbpPerUnit: 0.0230126, observedAt: "2026-08-25T00:00:00Z" },
   HKD: { gbpPerUnit: 0.0935715, observedAt: "2026-08-25T12:16:00Z" },
 });
 
@@ -32,46 +35,56 @@ const CURRENCY_SYMBOL = Object.freeze({
   HKD: "HK$",
 });
 
-const AUTHORITIES = Object.freeze([
-  // Japan — official Pokémon Card Game product catalogue / 2026 manufacturer price notice.
-  { id: "jp-abyss-eye", market: "JP", currency: "JPY", aliases: ["abyss eye"], unitMsrp: 200, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/products/index.html?dateLowerM=1&dateUpperD=28&dateUpperM=5&dateUpperY=2026&productType=expansion", sourceObservedAt: "2026-05-22T00:00:00Z" },
-  { id: "jp-ninja-spinner", market: "JP", currency: "JPY", aliases: ["ninja spinner"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/products/index.html?dateLowerM=1&dateUpperD=28&dateUpperM=5&dateUpperY=2026&productType=expansion", sourceObservedAt: "2026-03-13T00:00:00Z" },
-  { id: "jp-nihil-zero", market: "JP", currency: "JPY", aliases: ["nihil zero", "nullifying zero"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/products/index.html?dateLowerM=1&dateUpperD=28&dateUpperM=5&dateUpperY=2026&productType=expansion", sourceObservedAt: "2026-01-23T00:00:00Z" },
-  { id: "jp-mega-dream-ex", market: "JP", currency: "JPY", aliases: ["mega dream ex", "mega dream"], unitMsrp: 550, cardsPerPack: 10, sourceUrl: "https://www.pokemon-card.com/products/index.html?dateLowerM=1&dateUpperD=28&dateUpperM=5&dateUpperY=2026&productType=expansion", sourceObservedAt: "2025-11-28T00:00:00Z" },
+const JP_CATALOGUE = "https://www.pokemon-card.com/products/index.html";
+const CN_CATALOGUE = "https://www.pokemon.cn/products_category/products";
 
-  // Korea — official Pokémon Card Korea product pages publish pack and box prices directly.
+const AUTHORITIES = Object.freeze([
+  // Japan — exact manufacturer suggested retail prices from Pokémon Card Game Japan.
+  { id: "jp-abyss-eye", market: "JP", currency: "JPY", aliases: ["abyss eye"], unitMsrp: 200, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/ex/m5/", sourceObservedAt: "2026-05-22T00:00:00Z" },
+  { id: "jp-emerald-storm", market: "JP", currency: "JPY", aliases: ["emerald storm", "storm emerald"], unitMsrp: 200, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2026-07-31T00:00:00Z" },
+  { id: "jp-ninja-spinner", market: "JP", currency: "JPY", aliases: ["ninja spinner"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2026-03-13T00:00:00Z" },
+  { id: "jp-nihil-zero", market: "JP", currency: "JPY", aliases: ["nihil zero", "nullifying zero"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2026-01-23T00:00:00Z" },
+  { id: "jp-mega-dream-ex", market: "JP", currency: "JPY", aliases: ["mega dream ex", "mega dream"], unitMsrp: 550, cardsPerPack: 10, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-11-28T00:00:00Z" },
+  { id: "jp-inferno-x", market: "JP", currency: "JPY", aliases: ["inferno x"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-09-26T00:00:00Z" },
+  { id: "jp-mega-brave", market: "JP", currency: "JPY", aliases: ["mega brave"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-08-01T00:00:00Z" },
+  { id: "jp-mega-symphonia", market: "JP", currency: "JPY", aliases: ["mega symphonia"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-08-01T00:00:00Z" },
+  { id: "jp-team-rocket-glory", market: "JP", currency: "JPY", aliases: ["glory of team rocket", "team rocket glory"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-04-18T00:00:00Z" },
+
+  // Korea — official Pokémon Card Korea pages publish both pack and 30-pack box prices.
   { id: "kr-inferno-x", market: "KR", currency: "KRW", aliases: ["inferno x"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/838", sourceObservedAt: "2025-11-28T00:00:00Z" },
   { id: "kr-mega-symphonia", market: "KR", currency: "KRW", aliases: ["mega symphonia"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/815", sourceObservedAt: "2025-09-26T00:00:00Z" },
   { id: "kr-nihil-zero", market: "KR", currency: "KRW", aliases: ["nihil zero", "nullifying zero"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/869", sourceObservedAt: "2026-03-13T00:00:00Z" },
   { id: "kr-ninja-spinner", market: "KR", currency: "KRW", aliases: ["ninja spinner"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/887", sourceObservedAt: "2026-05-01T00:00:00Z" },
 
-  // Mainland China — official Pokémon China catalogue. Standard/slim 5-card packs are CN¥10,
-  // jumbo/deluxe 20-card packs are CN¥50 for the mapped sets below; Gem packs are CN¥10.
-  { id: "cn-blade-awakened", market: "CN", currency: "CNY", aliases: ["blade awakened"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: "https://www.pokemon.cn/products_category/products/p/2", sourceObservedAt: "2026-01-16T00:00:00Z" },
-  { id: "cn-brilliant-illusions", market: "CN", currency: "CNY", aliases: ["brilliant illusions"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: "https://www.pokemon.cn/products_category/products/p/2", sourceObservedAt: "2026-03-13T00:00:00Z" },
-  { id: "cn-chasing-glory-together", market: "CN", currency: "CNY", aliases: ["chasing glory together"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: "https://www.pokemon.cn/products_category/products", sourceObservedAt: "2026-07-16T00:00:00Z" },
-  { id: "cn-gem-1", market: "CN", currency: "CNY", aliases: ["gem 1", "gem vol 1"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/tcg/product/15582.html", sourceObservedAt: "2025-01-17T00:00:00Z" },
-  { id: "cn-gem-2", market: "CN", currency: "CNY", aliases: ["gem 2", "gem vol 2"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/tcg/product/15518.html", sourceObservedAt: "2025-05-16T00:00:00Z" },
-  { id: "cn-gem-3", market: "CN", currency: "CNY", aliases: ["gem 3", "gem vol 3"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/tcg/product/15431.html", sourceObservedAt: "2025-09-26T00:00:00Z" },
-  { id: "cn-gem-4", market: "CN", currency: "CNY", aliases: ["gem 4", "gem vol 4"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/tcg/product/20382.html", sourceObservedAt: "2026-02-06T00:00:00Z" },
-  { id: "cn-gem-5", market: "CN", currency: "CNY", aliases: ["gem 5", "gem vol 5"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/tcg/product/21078.html", sourceObservedAt: "2026-04-24T00:00:00Z" },
-  { id: "cn-gem-6", market: "CN", currency: "CNY", aliases: ["gem 6", "gem vol 6"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: "https://www.pokemon.cn/products_category/products", sourceObservedAt: "2026-08-07T00:00:00Z" },
+  // Mainland China — official Pokémon China suggested retail prices. Sets with
+  // both 5-card and 20-card pack formats stay separate value families.
+  { id: "cn-blade-awakened", market: "CN", currency: "CNY", aliases: ["blade awakened"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: "https://www.pokemon.cn/tcg/product/19812.html", sourceObservedAt: "2026-01-16T00:00:00Z" },
+  { id: "cn-brilliant-illusions", market: "CN", currency: "CNY", aliases: ["brilliant illusions"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-03-13T00:00:00Z" },
+  { id: "cn-chasing-glory-together", market: "CN", currency: "CNY", aliases: ["chasing glory together"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-07-16T00:00:00Z" },
+  { id: "cn-gem-1", market: "CN", currency: "CNY", aliases: ["gem 1", "gem vol 1"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2025-01-17T00:00:00Z" },
+  { id: "cn-gem-2", market: "CN", currency: "CNY", aliases: ["gem 2", "gem vol 2"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2025-05-16T00:00:00Z" },
+  { id: "cn-gem-3", market: "CN", currency: "CNY", aliases: ["gem 3", "gem vol 3"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2025-09-26T00:00:00Z" },
+  { id: "cn-gem-4", market: "CN", currency: "CNY", aliases: ["gem 4", "gem vol 4"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-02-06T00:00:00Z" },
+  { id: "cn-gem-5", market: "CN", currency: "CNY", aliases: ["gem 5", "gem vol 5"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-04-24T00:00:00Z" },
+  { id: "cn-gem-6", market: "CN", currency: "CNY", aliases: ["gem 6", "gem vol 6"], unitMsrp: 10, cardsPerPack: 4, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-08-07T00:00:00Z" },
 
-  // Traditional Chinese official Trainer sites. Region must be explicit because TWD and HKD differ.
-  { id: "tw-abyss-eye", market: "TW", currency: "TWD", aliases: ["abyss eye"], unitMsrp: 54, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/tw/archives/12084/", sourceObservedAt: "2026-05-01T00:00:00Z" },
-  { id: "tw-emerald-storm", market: "TW", currency: "TWD", aliases: ["emerald storm", "storm emerald"], unitMsrp: 54, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/tw/archive/special/card/m6/", sourceObservedAt: "2026-08-07T00:00:00Z" },
+  // Traditional Chinese authority is region-specific. A title must identify Taiwan
+  // or Hong Kong; plain "Traditional Chinese" deliberately fails closed.
+  { id: "tw-abyss-eye", market: "TW", currency: "TWD", aliases: ["abyss eye"], unitMsrp: 54, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/tw/archives/12084/", sourceObservedAt: "2026-05-22T00:00:00Z" },
+  { id: "tw-emerald-storm", market: "TW", currency: "TWD", aliases: ["emerald storm", "storm emerald"], unitMsrp: 54, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/tw/archives/12084/", sourceObservedAt: "2026-08-07T00:00:00Z" },
   { id: "hk-abyss-eye", market: "HK", currency: "HKD", aliases: ["abyss eye"], unitMsrp: 13, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/hk/archive/special/card/m5/", sourceObservedAt: "2026-06-05T00:00:00Z" },
   { id: "hk-emerald-storm", market: "HK", currency: "HKD", aliases: ["emerald storm", "storm emerald"], unitMsrp: 13, cardsPerPack: 5, sourceUrl: "https://asia.pokemon-card.com/hk/archive/special/card/m6/", sourceObservedAt: "2026-08-07T00:00:00Z" },
 ]);
 
-function marketFromTitle(title = "") {
+function importIdentityFromTitle(title = "") {
   const text = fold(title);
-  if (/\b(?:japanese|japan|jpn)\b/.test(text)) return "JP";
-  if (/\b(?:korean|korea)\b/.test(text)) return "KR";
-  if (/\b(?:simplified chinese|chinese simplified)\b/.test(text)) return "CN";
-  if (/\btraditional chinese\b/.test(text) && /\b(?:taiwan|tw)\b/.test(text)) return "TW";
-  if (/\btraditional chinese\b/.test(text) && /\b(?:hong kong|hk)\b/.test(text)) return "HK";
-  return null;
+  if (/\b(?:japanese|japan|jpn)\b/.test(text)) return { recognized: true, market: "JP" };
+  if (/\b(?:korean|korea)\b/.test(text)) return { recognized: true, market: "KR" };
+  if (/\b(?:simplified chinese|chinese simplified)\b/.test(text)) return { recognized: true, market: "CN" };
+  if (/\btraditional chinese\b/.test(text) && /\b(?:taiwan|tw)\b/.test(text)) return { recognized: true, market: "TW" };
+  if (/\btraditional chinese\b/.test(text) && /\b(?:hong kong|hk)\b/.test(text)) return { recognized: true, market: "HK" };
+  if (/\b(?:traditional chinese|chinese)\b/.test(text)) return { recognized: true, market: null };
+  return { recognized: false, market: null };
 }
 
 function quantityFromTitle(title = "") {
@@ -81,6 +94,7 @@ function quantityFromTitle(title = "") {
     /\b(\d{1,3})\s+(?:sealed\s+)?(?:booster\s+)?packs?\s+bundle\b/,
     /\b(\d{1,3})\s+pack\s+bundle\b/,
     /\bbox\s*\(\s*(\d{1,3})\s*(?:boosters?|packs?)\s*\)/,
+    /\b\(\s*(\d{1,3})\s*(?:boosters?|packs?)\s*\)/,
     /\b(\d{1,3})\s*(?:boosters?|packs?)\b/,
   ]) {
     const match = text.match(pattern);
@@ -123,8 +137,11 @@ function epoch(value) {
 export function resolveInternationalMsrp(input = {}) {
   const title = String(input.title || input.linkedProduct?.title || "");
   const text = fold(title);
-  const market = marketFromTitle(title);
-  if (!market) return { recognized: false, resolved: false, reason: "not_source_market_import" };
+  const importIdentity = importIdentityFromTitle(title);
+  if (!importIdentity.recognized) return { recognized: false, resolved: false, reason: "not_source_market_import" };
+  if (!importIdentity.market) return { recognized: true, resolved: false, reason: "source_market_region_unresolved", sourceMarket: null };
+  const market = importIdentity.market;
+
   if (/\bopened live(?: on stream)?\b/.test(text)) {
     return { recognized: true, resolved: false, reason: "source_market_opened_live_not_comparable", sourceMarket: market };
   }
@@ -187,20 +204,23 @@ export function resolveInternationalMsrp(input = {}) {
   const sourceText = quantity > 1
     ? `${nativeLabel(sourceMsrp, authority.currency)} for ${quantity} comparable booster packs`
     : `${nativeLabel(sourceMsrp, authority.currency)} per booster pack`;
+  const referenceFamilyKey = `source-msrp:${authority.id}:${formatKey || "standard"}`;
 
   return {
     recognized: true,
     resolved: true,
     kind: referenceKind,
     rrpPence,
-    rrpSource: `official-msrp:${market.toLowerCase()}:${authority.sourceUrl}`,
+    rrpSource: `official-msrp:${market.toLowerCase()}:${authority.id}:${formatKey || "standard"}:${authority.sourceUrl}`,
     rrpObservedAt: epoch(authority.sourceObservedAt),
     unitCount: quantity,
     unitKind: "booster_pack",
     unitRrpPence,
     referenceBasis: `Official ${marketLabel} MSRP ${sourceText}; converted to GBP using FateDrop FX snapshot ${fx.observedAt.slice(0, 10)}. This is a source-market reference, not a UK RRP.`,
-    matchedProductIds: [],
-    referenceFamilyKey: `source-msrp:${authority.id}:${formatKey || "standard"}`,
+    // Current value-family plumbing keys off matchedProductIds. This names the
+    // external authority explicitly and cannot collide with prd_* product IDs.
+    matchedProductIds: [`external-reference:${referenceFamilyKey}`],
+    referenceFamilyKey,
     sourceMarket: market,
     sourceCurrency: authority.currency,
     sourceMsrp,
