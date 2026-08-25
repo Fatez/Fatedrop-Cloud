@@ -2,13 +2,34 @@ import { SignalState, StockStatus, isPurchasable } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 
-function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt }) {
+function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null }) {
   return [
     ...(Array.isArray(evidence) ? evidence : []),
     { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
     { kind: "signal_alert_class", value: alertClass, observedAt },
     ...(retailerSku ? [{ kind: "retailer_sku", value: retailerSku, observedAt }] : []),
+    ...(priorLiveConfirmation ? [{
+      kind: "prior_live_confirmation",
+      value: "persisted_purchasable_offer",
+      observedAt: priorLiveConfirmation.observedAt,
+      firstAvailableAt: priorLiveConfirmation.firstAvailableAt,
+      stockStatus: priorLiveConfirmation.stockStatus,
+      confidence: priorLiveConfirmation.confidence,
+    }] : []),
   ];
+}
+
+function priorLiveConfirmation(previousOffer) {
+  if (!previousOffer || !isPurchasable(previousOffer.stockStatus)) return null;
+  const observedAt = Number(previousOffer.lastSeenAt);
+  const firstAvailableAt = Number(previousOffer.everAvailableAt);
+  if (!Number.isFinite(observedAt) || observedAt <= 0 || !Number.isFinite(firstAvailableAt) || firstAvailableAt <= 0) return null;
+  return {
+    observedAt,
+    firstAvailableAt,
+    stockStatus: previousOffer.stockStatus,
+    confidence: Number.isFinite(previousOffer.stockConfidence) ? previousOffer.stockConfidence : null,
+  };
 }
 
 export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
@@ -23,12 +44,13 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   let state = null;
   let kind = null;
   let reason = null;
+  let priorLive = null;
 
   // FINAL FATEDROP LIFECYCLE CONTRACT:
   // WHISPER = new SKU/catalogue movement or meaningful pre-live state change.
   // ECHO = retailer readiness evidence such as queue/security/access changes.
   // MANIFESTED = verified purchasable availability/restock.
-  // VANISHED = previously purchasable availability lost.
+  // VANISHED = previously confirmed purchasable availability lost.
   // The lifecycle stays universal; alertClass controls Primary/RRP vs Market/Indie presentation downstream.
   if (!previousOffer) {
     if (nowPurchasable) {
@@ -50,9 +72,11 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       reason = "Retailer SKU availability became verified";
     }
   } else if (wasPurchasable && !nowPurchasable) {
+    priorLive = priorLiveConfirmation(previousOffer);
+    if (!priorLive) return null;
     state = SignalState.VANISHED;
     kind = "sold_out";
-    reason = "Previously purchasable retailer SKU is no longer verified available";
+    reason = "Previously confirmed purchasable retailer SKU is no longer verified available";
   } else if (previousStatus !== currentStatus && !nowPurchasable) {
     state = SignalState.WHISPER;
     kind = "catalogue_state_change";
@@ -98,6 +122,13 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: signalEvidence(currentOffer.evidence, { kind, state, alertClass: policy.alertClass, retailerSku: currentOffer.retailerSku, observedAt: now }),
+    evidence: signalEvidence(currentOffer.evidence, {
+      kind,
+      state,
+      alertClass: policy.alertClass,
+      retailerSku: currentOffer.retailerSku,
+      observedAt: now,
+      priorLiveConfirmation: priorLive,
+    }),
   };
 }
