@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_card_series (
 CREATE TABLE IF NOT EXISTS fatedrop_card_sets (
   id TEXT PRIMARY KEY,
   tcg_id TEXT NOT NULL REFERENCES fatedrop_tcgs(id) ON DELETE RESTRICT,
-  series_id TEXT REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
+  series_id TEXT NOT NULL REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
   code TEXT NOT NULL,
   name TEXT NOT NULL,
   printed_total INTEGER,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_card_sets (
 CREATE TABLE IF NOT EXISTS fatedrop_card_printings (
   id TEXT PRIMARY KEY,
   tcg_id TEXT NOT NULL REFERENCES fatedrop_tcgs(id) ON DELETE RESTRICT,
-  series_id TEXT REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
+  series_id TEXT NOT NULL REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
   set_id TEXT NOT NULL REFERENCES fatedrop_card_sets(id) ON DELETE RESTRICT,
   printing_code TEXT NOT NULL,
   collector_number TEXT NOT NULL,
@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_card_identities (
   id TEXT PRIMARY KEY,
   canonical_key TEXT NOT NULL UNIQUE,
   tcg_id TEXT NOT NULL REFERENCES fatedrop_tcgs(id) ON DELETE RESTRICT,
-  series_id TEXT REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
+  series_id TEXT NOT NULL REFERENCES fatedrop_card_series(id) ON DELETE RESTRICT,
   set_id TEXT NOT NULL REFERENCES fatedrop_card_sets(id) ON DELETE RESTRICT,
   printing_id TEXT NOT NULL REFERENCES fatedrop_card_printings(id) ON DELETE RESTRICT,
   collector_number TEXT NOT NULL,
@@ -91,17 +91,20 @@ CREATE INDEX IF NOT EXISTS fatedrop_card_identities_verified_idx
   ON fatedrop_card_identities(verification_status, tcg_id, set_id)
   WHERE verification_status = 'verified';
 
--- External IDs never become FateDrop's identity. They are mappings to it.
+-- External IDs never become FateDrop's identity. A single upstream card record
+-- may describe several finish variants, so source_variant_key is part of the
+-- mapping identity even though it is not an upstream primary key.
 CREATE TABLE IF NOT EXISTS fatedrop_card_source_mappings (
   id TEXT PRIMARY KEY,
   card_identity_id TEXT NOT NULL REFERENCES fatedrop_card_identities(id) ON DELETE CASCADE,
   source_name TEXT NOT NULL,
   source_record_id TEXT NOT NULL,
+  source_variant_key TEXT NOT NULL,
   source_url TEXT,
   source_version TEXT,
   first_observed_at BIGINT NOT NULL,
   last_observed_at BIGINT NOT NULL,
-  UNIQUE(source_name, source_record_id)
+  UNIQUE(source_name, source_record_id, source_variant_key)
 );
 
 CREATE INDEX IF NOT EXISTS fatedrop_card_source_mappings_identity_idx
@@ -113,6 +116,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_card_provenance (
   card_identity_id TEXT REFERENCES fatedrop_card_identities(id) ON DELETE CASCADE,
   source_name TEXT NOT NULL,
   source_record_id TEXT NOT NULL,
+  source_variant_key TEXT NOT NULL,
   source_url TEXT,
   observed_at BIGINT NOT NULL,
   evidence_status TEXT NOT NULL DEFAULT 'staged'
@@ -125,7 +129,7 @@ CREATE INDEX IF NOT EXISTS fatedrop_card_provenance_identity_time_idx
   ON fatedrop_card_provenance(card_identity_id, observed_at DESC);
 
 CREATE INDEX IF NOT EXISTS fatedrop_card_provenance_source_idx
-  ON fatedrop_card_provenance(source_name, source_record_id);
+  ON fatedrop_card_provenance(source_name, source_record_id, source_variant_key);
 
 -- Conflicting upstream identities are quarantined rather than guessed through.
 CREATE TABLE IF NOT EXISTS fatedrop_card_identity_conflicts (
@@ -133,6 +137,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_card_identity_conflicts (
   canonical_key TEXT,
   source_name TEXT NOT NULL,
   source_record_id TEXT NOT NULL,
+  source_variant_key TEXT,
   conflict_type TEXT NOT NULL,
   existing_evidence JSONB,
   incoming_evidence JSONB NOT NULL,
