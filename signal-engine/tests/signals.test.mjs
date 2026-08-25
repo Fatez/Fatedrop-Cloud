@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveSignal } from "../src/core/signals.mjs";
 
-const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",retailerSku:"SKU-123",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,...extra });
+const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",retailerSku:"SKU-123",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,lastSeenAt:null,...extra });
 
 function kind(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "signal_kind")?.value ?? null;
@@ -14,6 +14,10 @@ function alertClass(signal) {
 
 function retailerSku(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "retailer_sku")?.value ?? null;
+}
+
+function priorLive(signal) {
+  return signal?.evidence?.find((entry) => entry?.kind === "prior_live_confirmation") ?? null;
 }
 
 test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
@@ -34,10 +38,22 @@ test("previously available return manifests as restock",()=>{
   assert.equal(signal.state,"manifested");
   assert.equal(signal.kind,"restock");
 });
-test("available to unavailable vanishes as sold out",()=>{
-  const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200});
+test("available to unavailable vanishes only with auditable prior-live state",()=>{
+  const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150}),currentOffer:offer("out_of_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
   assert.equal(signal.state,"vanished");
   assert.equal(signal.kind,"sold_out");
+  assert.deepEqual(priorLive(signal),{
+    kind:"prior_live_confirmation",
+    value:"persisted_purchasable_offer",
+    observedAt:150,
+    firstAvailableAt:50,
+    stockStatus:"in_stock",
+    confidence:0.99,
+  });
+});
+test("available to unavailable fails closed when prior-live provenance is incomplete",()=>{
+  assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:null}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200}),null);
+  assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:null,lastSeenAt:150}),currentOffer:offer("out_of_stock"),now:200}),null);
 });
 test("catalogue derivation never invents Echo because Echo belongs to traffic/security readiness intelligence",()=>{
   const states=[
