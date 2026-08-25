@@ -68,6 +68,13 @@ async function main() {
       total: row.setMatch.total,
     })),
     problems: problemBreakdown(plan),
+    unresolved: {
+      sourceErrors: plan.sourceErrors,
+      ambiguous: plan.ambiguous,
+      rejected: plan.rejected,
+      unmatchedTcgdex: plan.unmatchedTcgdex,
+      unmatchedPokemon: plan.unmatchedPokemon,
+    },
   };
 
   if (!write) {
