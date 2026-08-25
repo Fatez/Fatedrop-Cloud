@@ -51,6 +51,7 @@ const enabledFlags = Object.freeze({
   enabled: true,
   catalogueEnabled: true,
   collectionEnabled: false,
+  binderEnabled: false,
   networkEnabled: false,
   matchingEnabled: false,
   huntsEnabled: false,
@@ -62,6 +63,7 @@ test('Fate Trader flags default dark and enforce dependency ordering', () => {
     enabled: false,
     catalogueEnabled: false,
     collectionEnabled: false,
+    binderEnabled: false,
     networkEnabled: false,
     matchingEnabled: false,
     huntsEnabled: false,
@@ -77,6 +79,7 @@ test('Fate Trader flags default dark and enforce dependency ordering', () => {
     FATE_TRADER_COLLECTION_ENABLED: 'true',
   });
   assert.equal(collection.collectionEnabled, true);
+  assert.equal(collection.binderEnabled, false);
   assert.equal(collection.networkEnabled, false);
   assert.equal(collection.matchingEnabled, false);
 });
