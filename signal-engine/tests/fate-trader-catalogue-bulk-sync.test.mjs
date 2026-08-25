@@ -50,12 +50,16 @@ function pokemonSet(id, name, series, releaseDate, number, cardName = 'Alpha') {
   };
 }
 
-function catalogueClients({ tcgdexSets, pokemonSets, failCardId = null }) {
+function catalogueClients({ tcgdexSets, pokemonSets, failCardId = null, pocketSetIds = [] }) {
   const td = new Map(tcgdexSets.map((set) => [set.id, set]));
   const pk = new Map(pokemonSets.map((set) => [set.id, set]));
   return {
     tcgdexClient: {
       async listSets() { return tcgdexSets.map(({ id, name }) => ({ id, name })); },
+      async getSeries(id) {
+        assert.equal(id, 'tcgp');
+        return { id: 'tcgp', name: 'Pokémon TCG Pocket', sets: pocketSetIds.map((setId) => ({ id: setId })) };
+      },
       async getSet(id) { return td.get(id); },
       async getCard(id) {
         if (id === failCardId) throw new Error('simulated source failure');
@@ -84,6 +88,23 @@ test('crosswalk accepts only independently reconciled English set pairs and repo
   assert.equal(plan.matched[0].pokemonTcgSetId, 'pk-a');
   assert.deepEqual(plan.unmatchedTcgdex.map((row) => row.tcgdexSetId), ['td-b']);
   assert.ok(plan.unmatchedPokemon.some((row) => row.pokemonTcgSetId === 'pk-extra'));
+});
+
+test('crosswalk excludes every TCG Pocket set before physical-card reconciliation', async () => {
+  const physical = tcgdexSet('sv1', 'Physical Set', 'Scarlet & Violet', '2023-01-01', 1);
+  const pocket = tcgdexSet('A1', 'Digital Set', 'Pokémon TCG Pocket', '2024-01-01', 1);
+  const pokemon = pokemonSet('sv1', 'Physical Set', 'Scarlet & Violet', '2023-01-01', 1);
+  const plan = await buildVerifiedPokemonSetCrosswalk(catalogueClients({
+    tcgdexSets: [physical, pocket],
+    pokemonSets: [pokemon],
+    pocketSetIds: ['A1'],
+  }));
+
+  assert.equal(plan.sourceCounts.tcgdexAll, 2);
+  assert.equal(plan.sourceCounts.tcgdex, 1);
+  assert.equal(plan.sourceCounts.tcgdexPocketExcluded, 1);
+  assert.deepEqual(plan.matched.map((row) => row.tcgdexSetId), ['sv1']);
+  assert.ok(!plan.unmatchedTcgdex.some((row) => row.tcgdexSetId === 'A1'));
 });
 
 test('crosswalk never guesses when duplicate source names produce more than one verified candidate', async () => {
