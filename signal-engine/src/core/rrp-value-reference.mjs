@@ -1,4 +1,5 @@
 import { buildCanonicalRrpRegistry, resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
+import { resolveInternationalMsrp } from "../rrp/international-msrp-authority.mjs";
 
 function fold(value = "") {
   return String(value)
@@ -127,12 +128,33 @@ export function resolveRrpValue(input = {}, context = {}) {
   const linkedProduct = input.linkedProduct || null;
   const products = context.products || [];
   const registry = context.registry || buildCanonicalRrpRegistry(products);
+  const title = linkedProduct?.title || input.title || "";
+  const productType = linkedProduct?.productType || input.productType;
+
+  // Source-market products must never silently inherit an English/UK RRP.
+  // If an import is recognised, either return its verified local MSRP reference
+  // or fail closed with the source-market reason supplied by the authority layer.
+  const international = resolveInternationalMsrp({
+    title,
+    productType,
+    linkedProduct,
+  });
+  if (international.recognized) {
+    // Native-currency MSRP is authoritative. For multi-unit imports the GBP total
+    // is converted once from that native total. Do not also expose a penny-rounded
+    // per-unit GBP value: multiplying rounded pennies can differ from direct FX by
+    // a few pence and would (correctly) trip the global RRP consistency guard.
+    if (international.resolved && Number(international.unitCount) > 1) {
+      return { ...international, unitRrpPence: null };
+    }
+    return international;
+  }
 
   if (authoritative(linkedProduct)) return officialResult(linkedProduct);
 
   const exact = resolveCanonicalRrp({
-    title: linkedProduct?.title || input.title,
-    productType: linkedProduct?.productType || input.productType,
+    title,
+    productType,
     tcg: linkedProduct?.tcg || input.tcg || "pokemon",
     language: input.language,
     region: input.region,
@@ -146,14 +168,13 @@ export function resolveRrpValue(input = {}, context = {}) {
       rrpSource: exact.rrpSource,
       rrpObservedAt: exact.rrpObservedAt,
       unitCount: 1,
-      unitKind: linkedProduct?.productType || input.productType || "product",
+      unitKind: productType || "product",
       unitRrpPence: exact.officialRrpPence,
       referenceBasis: "Verified official RRP matched to the canonical product identity",
       matchedProductIds: exact.matchedProductIds || [],
     };
   }
 
-  const title = linkedProduct?.title || input.title || "";
   const quantity = bundleQuantity(title);
   if (quantity) {
     const base = basePackReference({ title }, products);
@@ -172,7 +193,6 @@ export function resolveRrpValue(input = {}, context = {}) {
     };
   }
 
-  const productType = linkedProduct?.productType || input.productType;
   if (productType === "booster_pack" && !multiPackQuantity(title)) {
     const base = basePackReference({ title }, products);
     if (base.resolved) {
