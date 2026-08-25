@@ -1,4 +1,4 @@
-name: Fate Trader 151 Bootstrap Preflight (Temporary)
+name: Fate Trader 151 Bootstrap Artifact (Temporary)
 
 on:
   push:
@@ -9,12 +9,9 @@ permissions:
   contents: read
 
 jobs:
-  preflight:
+  artifact:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      POKEMON_TCG_API_KEY: ${{ secrets.POKEMON_TCG_API_KEY }}
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -25,39 +22,52 @@ jobs:
       - name: Install dependencies
         working-directory: signal-engine
         run: npm ci
-      - name: Check secure database secret presence
-        shell: bash
-        run: |
-          if [ -n "$DATABASE_URL" ]; then
-            echo "DATABASE_URL_PRESENT=true"
-          else
-            echo "DATABASE_URL_PRESENT=false"
-          fi
-          if [ -n "$POKEMON_TCG_API_KEY" ]; then
-            echo "POKEMON_TCG_API_KEY_PRESENT=true"
-          else
-            echo "POKEMON_TCG_API_KEY_PRESENT=false"
-          fi
-      - name: Preview exact 151 verified batch
-        working-directory: signal-engine
-        run: node src/trader/catalogue/sync-all-cli.mjs --sets=sv03.5 > catalogue-plan-151.json
-      - name: Print safe 151 preview summary
+      - name: Build exact verified 151 catalogue artifact
         working-directory: signal-engine
         run: |
           node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const plan = JSON.parse(fs.readFileSync('catalogue-plan-151.json', 'utf8'));
-          console.log(JSON.stringify({
-            sourceCounts: plan.sourceCounts,
-            counts: plan.counts,
-            selection: plan.selection,
-            selectedSets: plan.selectedSets,
+          import fs from 'node:fs/promises';
+          import { FileStore } from './src/stores/file-store.mjs';
+          import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './src/trader/catalogue/bulk-sync.mjs';
+          import { selectVerifiedSetCrosswalk } from './src/trader/catalogue/selection.mjs';
+          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
+
+          const tcgdexClient = createTcgdexClient({ languageCode: 'en' });
+          const pokemonTcgClient = createPokemonTcgClient();
+          const plan = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient });
+          const selection = selectVerifiedSetCrosswalk(plan, ['sv03.5']);
+          const store = new FileStore('./catalogue-151-store.json');
+          const sync = await syncVerifiedPokemonCatalogue({
+            store,
+            tcgdexClient,
+            pokemonTcgClient,
+            crosswalk: selection.crosswalk,
+            maxSets: 1,
+            maxCardsPerChunk: 100,
+            verifiedAt: Date.now(),
+          });
+          await fs.writeFile('./catalogue-151-sync.json', JSON.stringify({
+            globalCounts: plan.counts,
+            selection: selection.selected.map((row) => ({
+              tcgdexSetId: row.tcgdexSetId,
+              pokemonTcgSetId: row.pokemonTcgSetId,
+              canonicalSetId: row.setMatch.canonicalSetId,
+              setName: row.setMatch.setName,
+              printedTotal: row.setMatch.printedTotal,
+              total: row.setMatch.total,
+            })),
+            sync,
           }, null, 2));
           NODE
-      - name: Upload 151 read-only plan
+      - name: Print safe bootstrap summary
+        working-directory: signal-engine
+        run: cat catalogue-151-sync.json
+      - name: Upload verified 151 bootstrap data
         uses: actions/upload-artifact@v4
         with:
-          name: fate-trader-151-bootstrap-preflight
-          path: signal-engine/catalogue-plan-151.json
+          name: fate-trader-151-verified-bootstrap
+          path: |
+            signal-engine/catalogue-151-store.json
+            signal-engine/catalogue-151-sync.json
           if-no-files-found: error
           retention-days: 1
