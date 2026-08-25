@@ -17,6 +17,7 @@ async function main() {
   const outputPath = resolve(argValue('out') || 'pokemontcg-snapshot-en.json');
   const sets = await readJson(join(repoRoot, 'sets', 'en.json'));
   if (!Array.isArray(sets)) throw new TypeError('Pokémon TCG sets/en.json must contain an array');
+  const setIndex = new Map(sets.map((set) => [String(set?.id || '').trim(), set]));
 
   const cardsDir = join(repoRoot, 'cards', 'en');
   const files = (await readdir(cardsDir, { withFileTypes: true }))
@@ -32,7 +33,13 @@ async function main() {
     const setId = String(rows[0]?.set?.id || fallbackSetId).trim();
     if (!setId) throw new Error(`Unable to resolve set id for ${file.name}`);
     if (cardsBySet[setId]) throw new Error(`Duplicate Pokémon TCG card set snapshot: ${setId}`);
-    cardsBySet[setId] = rows;
+    const set = setIndex.get(setId);
+    if (!set) throw new Error(`Pokémon TCG set metadata not found for card file: ${setId}`);
+
+    // Raw pokemon-tcg-data card files omit the API's embedded set object.
+    // Rehydrate only from the same pinned repository's authoritative sets/en.json
+    // so the local snapshot presents exactly the evidence shape our API adapter expects.
+    cardsBySet[setId] = rows.map((card) => ({ ...card, set }));
     totalCards += rows.length;
   }
 
