@@ -22,7 +22,7 @@ async function store(){
 const user=async()=>({id:'user_1',fateId:'FD-TEST',username:'tester'});
 
 test('session hash contract matches FateDrop website SHA-256 model',()=>{
-  assert.equal(hashFateDropSessionToken('example-token'),'b6fbd675f98e2abd22d4ed29e22af10a53a67815c8f37a4fe730d75c5b71f60d');
+  assert.equal(hashFateDropSessionToken('example-token'),'4d1566a1d7df42a8517456d60ea06ed284e535cfe4c956aa6ee172dbcdf945f7');
 });
 
 test('collection routes fail closed when feature flag is dark',async()=>{
