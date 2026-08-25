@@ -4,6 +4,7 @@ import {
   identitiesMatch,
   makeCanonicalCardKey,
   makeFateCardId,
+  normaliseCollectorNumber,
   normaliseSourceCardCandidate,
 } from '../src/trader/card-identity.mjs';
 
@@ -29,6 +30,24 @@ test('canonical card identity is deterministic across harmless formatting differ
 
   assert.equal(a, b);
   assert.equal(makeFateCardId(a), makeFateCardId(b));
+});
+
+test('purely numeric collector numbers ignore source zero-padding', () => {
+  assert.equal(normaliseCollectorNumber('001'), '1');
+  assert.equal(normaliseCollectorNumber('000'), '0');
+  assert.equal(
+    makeFateCardId({ ...baseIdentity, collectorNumber: '001' }),
+    makeFateCardId({ ...baseIdentity, collectorNumber: '1' }),
+  );
+});
+
+test('alphanumeric and denominator-bearing collector numbers preserve meaningful formatting', () => {
+  assert.equal(normaliseCollectorNumber('SVP001'), 'svp001');
+  assert.equal(normaliseCollectorNumber('001/165'), '001/165');
+  assert.notEqual(
+    makeFateCardId({ ...baseIdentity, collectorNumber: 'SVP001' }),
+    makeFateCardId({ ...baseIdentity, collectorNumber: 'SVP1' }),
+  );
 });
 
 test('variant and language are identity-bearing fields', () => {
@@ -64,6 +83,18 @@ test('different upstream sources converge on the same FateDrop card identity', (
   assert.equal(one.canonicalKey, two.canonicalKey);
   assert.equal(one.fateCardId, two.fateCardId);
   assert.equal(one.verificationStatus, 'staged');
+});
+
+test('shared normaliser canonicalizes numeric collector number before persistence', () => {
+  const row = normaliseSourceCardCandidate({
+    ...baseIdentity,
+    collectorNumber: '001',
+    sourceName: 'source-a',
+    sourceRecordId: 'abc-001',
+    name: 'Example',
+  });
+  assert.equal(row.collectorNumber, '1');
+  assert.ok(row.canonicalKey.includes(':1:'));
 });
 
 test('shared normaliser fails closed when variant is missing', () => {
