@@ -1,0 +1,42 @@
+name: Fate Trader Reconciliation Audit (Temporary)
+
+on:
+  push:
+    branches:
+      - audit/fate-trader-reconciliation-live-2026-08-25
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Build read-only catalogue plan
+        working-directory: signal-engine
+        run: node src/trader/catalogue/sync-all-cli.mjs > catalogue-plan.json
+      - name: Print coverage summary
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const plan = JSON.parse(fs.readFileSync('catalogue-plan.json', 'utf8'));
+          console.log(JSON.stringify({ mode: plan.mode, sourceCounts: plan.sourceCounts, counts: plan.counts, problems: plan.problems }, null, 2));
+          NODE
+      - name: Upload complete plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: fate-trader-reconciliation-audit
+          path: signal-engine/catalogue-plan.json
+          if-no-files-found: error
+          retention-days: 1
