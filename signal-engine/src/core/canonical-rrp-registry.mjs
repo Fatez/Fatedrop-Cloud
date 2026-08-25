@@ -22,6 +22,7 @@ function normalizeRrpAliasInput(input = {}) {
       title: title
         .replace(/\bME\s*0?4\b/gi, " ")
         .replace(/\bMega\s+Evolution(?:\s+4)?\b/gi, " ")
+        .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")
         .replace(/\s+/g, " ")
         .trim(),
     };
