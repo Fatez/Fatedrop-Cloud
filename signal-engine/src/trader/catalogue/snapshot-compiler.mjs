@@ -19,8 +19,10 @@ function putUnique(map, row, label) {
     map.set(row.id, row);
     return;
   }
-  const comparable = (value) => JSON.stringify(value, Object.keys(value).sort());
-  if (comparable(existing) !== comparable(row)) throw new Error(`${label} identity collision: ${row.id}`);
+  // Rows are built through the same deterministic persistence constructor with
+  // one compiler timestamp, so byte-for-byte JSON equality is the safest
+  // collision check. Do not use a JSON replacer here: it can hide nested fields.
+  if (JSON.stringify(existing) !== JSON.stringify(row)) throw new Error(`${label} identity collision: ${row.id}`);
 }
 
 function emptyRows() {
@@ -52,7 +54,8 @@ async function compileSet({ tcgdexClient, pokemonTcgClient, pair, verifiedAt }) 
     tcgdexClient.getSet(pair.tcgdexSetId),
     pokemonTcgClient.getSet(pair.pokemonTcgSetId),
   ]);
-  const setMatch = reconcileSetEvidence(adaptTcgdexSet(rawTcgdexSet), adaptPokemonTcgSet(rawPokemonSet));
+  const tcgdexSetEvidence = adaptTcgdexSet(rawTcgdexSet);
+  const setMatch = reconcileSetEvidence(tcgdexSetEvidence, adaptPokemonTcgSet(rawPokemonSet));
   if (setMatch.status !== 'matched' || setMatch.canonicalSetId !== pair.setMatch.canonicalSetId) {
     throw new Error('verified set crosswalk changed inside snapshot compiler');
   }
@@ -70,7 +73,7 @@ async function compileSet({ tcgdexClient, pokemonTcgClient, pair, verifiedAt }) 
     tcgdexCards,
     pokemonTcgCards: pokemonCards,
     setMatch,
-    sourceSeriesCode: adaptTcgdexSet(rawTcgdexSet).sourceSeriesCode,
+    sourceSeriesCode: tcgdexSetEvidence.sourceSeriesCode,
     languageCode: 'en',
   });
 
