@@ -65,6 +65,19 @@ function positiveInt(value, fallback = 1) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function normalizedCardPool(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(text).filter(Boolean))];
+}
+
+function cardRelation(want, offeredCardId) {
+  const cardId = text(offeredCardId);
+  if (!want || !cardId) return 'none';
+  if (text(want.fateCardId) === cardId) return 'exact';
+  if (normalizedCardPool(want.acceptableFateCardIds).includes(cardId)) return 'acceptable';
+  return 'none';
+}
+
 function activeNetworkOffer(offer) {
   if (!offer || typeof offer !== 'object') return false;
   if (lower(offer.status || 'available') !== 'available') return false;
@@ -170,19 +183,20 @@ function methodScore(methods) {
   return 0;
 }
 
-function exactWantMatchesOffer(want, offer) {
-  if (!want || want.active === false) return { ok: false, methods: [], copy: null, quantitySatisfied: false };
-  if (text(want.fateCardId) !== text(offer.fateCardId)) {
-    return { ok: false, methods: [], copy: null, quantitySatisfied: false };
+function wantMatchesOffer(want, offer) {
+  if (!want || want.active === false) return { ok: false, relation: 'none', methods: [], copy: null, quantitySatisfied: false };
+  const relation = cardRelation(want, offer?.fateCardId);
+  if (relation === 'none') {
+    return { ok: false, relation, methods: [], copy: null, quantitySatisfied: false };
   }
-  if (!activeNetworkOffer(offer)) return { ok: false, methods: [], copy: null, quantitySatisfied: false };
+  if (!activeNetworkOffer(offer)) return { ok: false, relation, methods: [], copy: null, quantitySatisfied: false };
   const constraints = want.constraints || want;
   const copy = checkCopyCompatibility(offer, constraints);
-  if (!copy.ok) return { ok: false, methods: [], copy, quantitySatisfied: false };
+  if (!copy.ok) return { ok: false, relation, methods: [], copy, quantitySatisfied: false };
   const methods = commonTradeMethods(constraints, offer);
-  if (!methods.length) return { ok: false, methods, copy, quantitySatisfied: false };
+  if (!methods.length) return { ok: false, relation, methods, copy, quantitySatisfied: false };
   const quantitySatisfied = positiveInt(offer.tradeQuantity, 0) >= positiveInt(want.quantity, 1);
-  return { ok: true, methods, copy, quantitySatisfied };
+  return { ok: true, relation, methods, copy, quantitySatisfied };
 }
 
 function findReciprocalEvidence(seekerOffers, candidateWants) {
@@ -190,9 +204,10 @@ function findReciprocalEvidence(seekerOffers, candidateWants) {
   for (const offer of seekerOffers || []) {
     if (!activeNetworkOffer(offer)) continue;
     for (const want of candidateWants || []) {
-      const match = exactWantMatchesOffer(want, offer);
+      const match = wantMatchesOffer(want, offer);
       if (!match.ok || !match.quantitySatisfied) continue;
       hits.push(Object.freeze({
+        relation: match.relation,
         fateCardId: offer.fateCardId,
         binderItemId: offer.id || offer.binderItemId || null,
         wantId: want.id || null,
@@ -203,9 +218,20 @@ function findReciprocalEvidence(seekerOffers, candidateWants) {
   return Object.freeze(hits);
 }
 
-function opportunityFingerprint({ seekerUserId, candidateUserId, targetCardId, candidateOfferId, reciprocalEvidence }) {
-  const reciprocalCards = reciprocalEvidence.map((row) => row.fateCardId).sort().join(',');
-  const input = [seekerUserId, candidateUserId, targetCardId, candidateOfferId, reciprocalCards].map(text).join('|');
+function reciprocalScore(evidence) {
+  if (evidence.some((row) => row.relation === 'exact')) return 25;
+  if (evidence.some((row) => row.relation === 'acceptable')) return 18;
+  return 0;
+}
+
+function opportunityFingerprint({ seekerUserId, candidateUserId, targetCardId, offeredTargetCardId, candidateOfferId, reciprocalEvidence }) {
+  const reciprocalCards = reciprocalEvidence
+    .map((row) => `${row.relation}:${row.fateCardId}`)
+    .sort()
+    .join(',');
+  const input = [seekerUserId, candidateUserId, targetCardId, offeredTargetCardId, candidateOfferId, reciprocalCards]
+    .map(text)
+    .join('|');
   return `fdtradeopp_${createHash('sha256').update(input).digest('hex').slice(0, 24)}`;
 }
 
@@ -216,7 +242,9 @@ function noneResult(reasons, context = {}) {
     headline: TRADE_OPPORTUNITY_HEADLINES[opportunityClass],
     score: 0,
     scoreBreakdown: Object.freeze({ desiredCard: 0, reciprocal: 0, copyCompatibility: 0, tradeMethod: 0, flexibility: 0, freshness: 0 }),
+    targetRelation: 'none',
     verifiedReciprocal: false,
+    compatibleReciprocal: false,
     fateTradeFoundEligible: false,
     finderEligible: false,
     evidence: Object.freeze([]),
@@ -231,18 +259,25 @@ function noneResult(reasons, context = {}) {
 /**
  * Scores intent compatibility only. It deliberately does not inspect card prices,
  * cash values or subjective trade fairness.
+ *
+ * `acceptableFateCardIds` is an optional future-facing pool on either side of a
+ * Want. Pool overlap can create potential opportunities, but only exact primary
+ * Want ↔ exact primary Want reciprocity is eligible for `FATE TRADE FOUND`.
  */
 export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = Date.now() } = {}) {
   const seekerUserId = text(seeker?.userId);
   const candidateUserId = text(candidate?.userId);
   const targetCardId = text(targetWant?.fateCardId);
   const offer = candidate?.offer;
+  const offeredTargetCardId = text(offer?.fateCardId);
   const candidateOfferId = text(offer?.id || offer?.binderItemId);
 
   if (!seekerUserId || !candidateUserId) return noneResult(['user_identity_missing']);
   if (seekerUserId === candidateUserId) return noneResult(['self_match']);
   if (!targetWant || targetWant.active === false || !targetCardId) return noneResult(['target_want_inactive']);
-  if (!offer || text(offer.fateCardId) !== targetCardId) return noneResult(['candidate_does_not_offer_target_card']);
+
+  const targetRelation = cardRelation(targetWant, offeredTargetCardId);
+  if (!offer || targetRelation === 'none') return noneResult(['candidate_does_not_offer_compatible_target_card']);
   if (!activeNetworkOffer(offer)) return noneResult(['candidate_offer_not_tradeable']);
 
   const targetConstraints = targetWant.constraints || targetWant;
@@ -253,19 +288,23 @@ export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = 
   if (!methods.length) return noneResult(['trade_method_incompatible']);
 
   const reciprocalEvidence = findReciprocalEvidence(seeker?.offers || [], candidate?.wants || []);
-  const verifiedReciprocal = reciprocalEvidence.length > 0;
+  const verifiedReciprocal = reciprocalEvidence.some((row) => row.relation === 'exact');
+  const compatibleReciprocal = reciprocalEvidence.length > 0;
   const tradeMode = lower(offer.tradeMode || 'open');
   if (tradeMode === 'exact_wants_only' && !verifiedReciprocal) {
-    return noneResult(['candidate_requires_exact_want'], { targetCardId, candidateOfferId });
+    return noneResult(['candidate_requires_exact_want'], { targetCardId, offeredTargetCardId, candidateOfferId });
   }
 
   const requestedQuantity = positiveInt(targetWant.quantity, 1);
   const offeredQuantity = positiveInt(offer.tradeQuantity, 0);
   const targetQuantitySatisfied = offeredQuantity >= requestedQuantity;
+  const desiredScore = targetRelation === 'exact'
+    ? (targetQuantitySatisfied ? 40 : 32)
+    : (targetQuantitySatisfied ? 32 : 26);
 
   const scoreBreakdown = {
-    desiredCard: targetQuantitySatisfied ? 40 : 32,
-    reciprocal: verifiedReciprocal ? 25 : 0,
+    desiredCard: desiredScore,
+    reciprocal: reciprocalScore(reciprocalEvidence),
     copyCompatibility: copy.score,
     tradeMethod: methodScore(methods),
     flexibility: verifiedReciprocal && tradeMode === 'exact_wants_only'
@@ -276,15 +315,16 @@ export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = 
   const score = Math.min(100, Object.values(scoreBreakdown).reduce((sum, value) => sum + value, 0));
 
   const evidence = [
-    'candidate_has_wanted_card',
+    targetRelation === 'exact' ? 'candidate_has_exact_wanted_card' : 'candidate_matches_acceptable_card_pool',
     copy.reason,
     `trade_method_${methods.join('_and_')}`,
   ];
   if (verifiedReciprocal) evidence.push('exact_reciprocal_want_overlap');
+  else if (compatibleReciprocal) evidence.push('compatible_reciprocal_pool_overlap');
   else if (['open', 'negotiable', 'bundle_ok'].includes(tradeMode)) evidence.push('candidate_open_to_flexible_trade');
   if (!targetQuantitySatisfied) evidence.push('target_quantity_partially_satisfied');
 
-  const exact = verifiedReciprocal && targetQuantitySatisfied;
+  const exact = targetRelation === 'exact' && verifiedReciprocal && targetQuantitySatisfied;
   let opportunityClass = TRADE_OPPORTUNITY_CLASSES.NONE;
   if (exact) opportunityClass = TRADE_OPPORTUNITY_CLASSES.EXACT;
   else if (score >= TRADE_COMPATIBILITY_THRESHOLDS.strong) opportunityClass = TRADE_OPPORTUNITY_CLASSES.STRONG;
@@ -294,6 +334,7 @@ export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = 
     seekerUserId,
     candidateUserId,
     targetCardId,
+    offeredTargetCardId,
     candidateOfferId,
     reciprocalEvidence,
   });
@@ -303,7 +344,9 @@ export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = 
     headline: TRADE_OPPORTUNITY_HEADLINES[opportunityClass],
     score,
     scoreBreakdown: Object.freeze(scoreBreakdown),
+    targetRelation,
     verifiedReciprocal,
+    compatibleReciprocal,
     fateTradeFoundEligible: exact,
     finderEligible: opportunityClass !== TRADE_OPPORTUNITY_CLASSES.NONE,
     targetQuantitySatisfied,
@@ -312,6 +355,7 @@ export function evaluateTradeOpportunity({ seeker, targetWant, candidate, now = 
     commonTradeMethods: Object.freeze([...methods]),
     reciprocalEvidence,
     targetCardId,
+    offeredTargetCardId,
     candidateOfferId: candidateOfferId || null,
     seekerUserId,
     candidateUserId,
