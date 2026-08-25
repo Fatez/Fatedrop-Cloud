@@ -43,6 +43,25 @@ function compactCandidate(candidate, result) {
   });
 }
 
+function sourceFailure(sourceNameValue, sourceRecordId, setName, error) {
+  return Object.freeze({
+    sourceName: sourceNameValue,
+    sourceRecordId,
+    setName,
+    status: error?.status ?? null,
+    sourceUrl: error?.sourceUrl ?? null,
+    message: error?.message || String(error),
+  });
+}
+
+function pokemonBriefHasFullSetEvidence(set) {
+  return typeof set?.series === 'string'
+    && set.series.trim() !== ''
+    && typeof set?.releaseDate === 'string'
+    && Number.isInteger(set?.printedTotal)
+    && Number.isInteger(set?.total);
+}
+
 export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient } = {}) {
   const tcgdex = requireClient(tcgdexClient, 'tcgdexClient');
   const pokemon = requireClient(pokemonTcgClient, 'pokemonTcgClient');
@@ -65,7 +84,9 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
     if (!tcgdexFullCache.has(id)) tcgdexFullCache.set(id, Promise.resolve(tcgdex.getSet(id)));
     return tcgdexFullCache.get(id);
   };
-  const getPokemonFull = async (id) => {
+  const getPokemonFull = async (candidate) => {
+    if (pokemonBriefHasFullSetEvidence(candidate)) return candidate;
+    const id = sourceId(candidate.id, 'pokemon set id');
     if (!pokemonFullCache.has(id)) pokemonFullCache.set(id, Promise.resolve(pokemon.getSet(id)));
     return pokemonFullCache.get(id);
   };
@@ -74,6 +95,7 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
   const ambiguous = [];
   const rejected = [];
   const unmatchedTcgdex = [];
+  const sourceErrors = [];
   const claimedPokemonIds = new Set();
 
   const orderedTcgdex = [...tcgdexBriefs].sort((a, b) => {
@@ -92,19 +114,32 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
       continue;
     }
 
-    const rawTcgdexSet = await getTcgdexFull(tcgdexSetId);
-    const tcgdexEvidence = adaptTcgdexSet(rawTcgdexSet);
-    const candidateResults = [];
-    for (const candidate of candidates) {
-      const pokemonTcgSetId = sourceId(candidate.id, 'pokemon set id');
-      const rawPokemonSet = await getPokemonFull(pokemonTcgSetId);
-      const pokemonEvidence = adaptPokemonTcgSet(rawPokemonSet);
-      const result = reconcileSetEvidence(tcgdexEvidence, pokemonEvidence);
-      candidateResults.push({ candidate, result });
+    let tcgdexEvidence;
+    try {
+      tcgdexEvidence = adaptTcgdexSet(await getTcgdexFull(tcgdexSetId));
+    } catch (error) {
+      sourceErrors.push(sourceFailure('tcgdex', tcgdexSetId, tcgdexSetName, error));
+      continue;
     }
 
+    const candidateResults = [];
+    let candidateSourceFailures = 0;
+    for (const candidate of candidates) {
+      const pokemonTcgSetId = sourceId(candidate.id, 'pokemon set id');
+      try {
+        const pokemonEvidence = adaptPokemonTcgSet(await getPokemonFull(candidate));
+        const result = reconcileSetEvidence(tcgdexEvidence, pokemonEvidence);
+        candidateResults.push({ candidate, result });
+      } catch (error) {
+        candidateSourceFailures += 1;
+        sourceErrors.push(sourceFailure('pokemontcg-api', pokemonTcgSetId, sourceName(candidate.name, 'pokemon set name'), error));
+      }
+    }
+
+    if (candidateResults.length === 0) continue;
     const viable = candidateResults.filter((entry) => entry.result.status === 'matched');
-    if (viable.length === 1) {
+    const everyCandidateResolved = candidateSourceFailures === 0 && candidateResults.length === candidates.length;
+    if (viable.length === 1 && everyCandidateResolved) {
       const chosen = viable[0];
       const pokemonTcgSetId = sourceId(chosen.candidate.id, 'pokemon set id');
       claimedPokemonIds.add(pokemonTcgSetId);
@@ -117,8 +152,13 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
     }
 
     const compact = Object.freeze(candidateResults.map(({ candidate, result }) => compactCandidate(candidate, result)));
-    if (viable.length > 1 || candidates.length > 1) {
-      ambiguous.push(Object.freeze({ tcgdexSetId, tcgdexSetName, candidates: compact }));
+    if (viable.length > 1 || candidates.length > 1 || candidateSourceFailures > 0) {
+      ambiguous.push(Object.freeze({
+        tcgdexSetId,
+        tcgdexSetName,
+        candidates: compact,
+        unresolvedSourceCandidates: candidateSourceFailures,
+      }));
     } else {
       const only = candidateResults[0];
       rejected.push(Object.freeze({
@@ -138,6 +178,7 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
   ambiguous.sort((a, b) => a.tcgdexSetName.localeCompare(b.tcgdexSetName) || a.tcgdexSetId.localeCompare(b.tcgdexSetId));
   rejected.sort((a, b) => a.tcgdexSetName.localeCompare(b.tcgdexSetName) || a.tcgdexSetId.localeCompare(b.tcgdexSetId));
   unmatchedTcgdex.sort((a, b) => a.tcgdexSetName.localeCompare(b.tcgdexSetName) || a.tcgdexSetId.localeCompare(b.tcgdexSetId));
+  sourceErrors.sort((a, b) => a.sourceName.localeCompare(b.sourceName) || a.setName.localeCompare(b.setName) || a.sourceRecordId.localeCompare(b.sourceRecordId));
 
   const unmatchedPokemon = pokemonBriefs
     .filter((set) => !claimedPokemonIds.has(sourceId(set.id, 'pokemon set id')))
@@ -153,12 +194,14 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
       matched: matched.length,
       ambiguous: ambiguous.length,
       rejected: rejected.length,
+      sourceErrors: sourceErrors.length,
       unmatchedTcgdex: unmatchedTcgdex.length,
       unmatchedPokemon: unmatchedPokemon.length,
     }),
     matched: Object.freeze(matched),
     ambiguous: Object.freeze(ambiguous),
     rejected: Object.freeze(rejected),
+    sourceErrors: Object.freeze(sourceErrors),
     unmatchedTcgdex: Object.freeze(unmatchedTcgdex),
     unmatchedPokemon: Object.freeze(unmatchedPokemon),
   });
