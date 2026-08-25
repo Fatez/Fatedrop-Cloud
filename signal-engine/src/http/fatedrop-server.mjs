@@ -197,7 +197,7 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     if(isFateTraderBinderPath(url.pathname)){await handleFateTraderBinder(req,res,{store});return;}
     const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
-    if(isEncounterRoute){await handleFateEncounters(req,res,{store,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
+    if(isEncounterRoute){await handleFateEncounters(req,res,{store:liveReadStore,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);
   }catch(error){return json(res,500,{error:"FateDrop route error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
   return server;
