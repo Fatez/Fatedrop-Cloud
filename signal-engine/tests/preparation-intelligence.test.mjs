@@ -67,6 +67,7 @@ test("real Delta Reign-style multi-SKU sentinel activation creates one strong pr
   assert.ok(cluster.productTypeCount >= 4);
   assert.ok(cluster.placeholderPriceCount >= 5);
   assert.equal(cluster.activationMode, "new_family_activation");
+  assert.equal(cluster.leaderOfferId, "off_etb");
   assert.ok(result.byOfferId.has("off_etb"));
 });
 
@@ -102,13 +103,21 @@ test("first sentinel observation stays Whisper while repeated corroborated prepa
   assert.ok(second.evidence.some((entry) => entry.kind === "retailer_preparation_repeated"));
 });
 
-test("cluster evidence can promote strong first-observation preparation to Echo", () => {
+test("cluster leader creates the representative Echo", () => {
   const current = offer("out_of_stock", {
-    evidence: [...structured("SKU-1"), { kind: "retailer_preparation_cluster", value: "prep_delta_reign" }],
+    evidence: [...structured("SKU-1"), { kind: "retailer_preparation_cluster", value: "prep_delta_reign", leaderOfferId: "off_1" }],
   });
   const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
   assert.equal(signal.state, "echo");
   assert.equal(signal.kind, "retailer_preparation");
+});
+
+test("non-leader cluster SKU remains an observation instead of a duplicate lifecycle alert", () => {
+  const current = offer("out_of_stock", {
+    evidence: [...structured("SKU-1"), { kind: "retailer_preparation_cluster", value: "prep_delta_reign", leaderOfferId: "off_other" }],
+  });
+  const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
+  assert.equal(signal, null);
 });
 
 test("placeholder price can never Manifest from stock metadata alone", () => {
