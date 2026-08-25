@@ -27,8 +27,15 @@ function problemBreakdown(plan) {
     const key = row.field || row.reason || row.status || 'unknown';
     rejectedByField[key] = (rejectedByField[key] || 0) + 1;
   }
+  const sourceErrorsByStatus = {};
+  for (const row of plan.sourceErrors || []) {
+    const key = `${row.sourceName}:${row.status ?? 'unknown'}`;
+    sourceErrorsByStatus[key] = (sourceErrorsByStatus[key] || 0) + 1;
+  }
   return Object.freeze({
     rejectedByField,
+    sourceErrorsByStatus,
+    sourceErrorExamples: (plan.sourceErrors || []).slice(0, 20),
     ambiguousExamples: (plan.ambiguous || []).slice(0, 20),
     rejectedExamples: (plan.rejected || []).slice(0, 20),
     unmatchedTcgdexExamples: (plan.unmatchedTcgdex || []).slice(0, 20),
