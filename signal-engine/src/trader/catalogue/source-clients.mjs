@@ -19,6 +19,14 @@ function defaultRetryDelay(attempt) {
   return Math.min(5_000, 250 * (2 ** attempt));
 }
 
+function sourceRequestError(url, status, cause = null) {
+  const error = new Error(`Catalogue source request failed (${status}) for ${url}`);
+  error.status = status;
+  error.sourceUrl = url;
+  if (cause) error.cause = cause;
+  return error;
+}
+
 async function fetchJson(url, {
   fetchImpl,
   headers = {},
@@ -33,9 +41,9 @@ async function fetchJson(url, {
     let response;
     try {
       response = await fetchImpl(url, { headers: { accept: 'application/json', ...headers } });
-    } catch (error) {
-      lastError = error;
-      if (attempt === attempts - 1) throw error;
+    } catch (cause) {
+      lastError = sourceRequestError(url, 'network', cause);
+      if (attempt === attempts - 1) throw lastError;
       await sleepImpl(defaultRetryDelay(attempt));
       continue;
     }
@@ -43,15 +51,14 @@ async function fetchJson(url, {
     if (response?.ok) return response.json();
 
     const status = Number(response?.status) || 0;
-    const error = new Error(`Catalogue source request failed (${status})`);
-    error.status = status;
+    const error = sourceRequestError(url, status);
     lastError = error;
     if (!RETRYABLE_STATUSES.has(status) || attempt === attempts - 1) throw error;
 
     await sleepImpl(retryAfterMs(response) ?? defaultRetryDelay(attempt));
   }
 
-  throw lastError || new Error('Catalogue source request failed');
+  throw lastError || sourceRequestError(url, 'unknown');
 }
 
 export function createTcgdexClient({
