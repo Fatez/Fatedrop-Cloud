@@ -10,6 +10,7 @@
     "scan": "node src/scan-once.mjs",
     "rrp:asmodee": "node src/rrp-sync-asmodee.mjs",
     "trader:catalogue": "node src/trader/catalogue/sync-all-cli.mjs",
+    "trader:catalogue:compile": "node src/trader/catalogue/compile-snapshots-cli.mjs",
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
     "retailers:seed": "node src/retailers/seed-candidates.mjs",
