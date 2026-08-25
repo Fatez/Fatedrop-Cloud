@@ -119,7 +119,7 @@ test('crosswalk never guesses when duplicate source names produce more than one 
   assert.ok(plan.ambiguous[0].candidates.every((candidate) => candidate.status === 'matched'));
 });
 
-test('crosswalk quarantines a same-name candidate when independent set totals conflict', async () => {
+test('crosswalk quarantines a same-name candidate when independent printed totals conflict', async () => {
   const td = tcgdexSet('td-a', 'Conflict Set', 'Series X', '2022-01-01', 1);
   const pk = pokemonSet('pk-a', 'Conflict Set', 'Series X', '2022-01-01', 1);
   pk.printedTotal = 99;
@@ -129,6 +129,24 @@ test('crosswalk quarantines a same-name candidate when independent set totals co
   assert.equal(plan.counts.rejected, 1);
   assert.equal(plan.rejected[0].status, 'conflict');
   assert.equal(plan.rejected[0].field, 'printedTotal');
+});
+
+test('crosswalk accepts total-only counting differences while preserving the discrepancy', async () => {
+  const td = tcgdexSet('td-a', 'Count Convention Set', 'Series X', '2022-01-01', 1);
+  td.cardCount.total = 100;
+  const pk = pokemonSet('pk-a', 'Count Convention Set', 'Series X', '2022-01-01', 1);
+  pk.total = 101;
+  const plan = await buildVerifiedPokemonSetCrosswalk(catalogueClients({ tcgdexSets: [td], pokemonSets: [pk] }));
+
+  assert.equal(plan.counts.matched, 1);
+  assert.equal(plan.counts.rejected, 0);
+  assert.equal(plan.matched[0].setMatch.total, null);
+  assert.deepEqual(plan.matched[0].setMatch.acceptedDifferences, [{
+    field: 'total',
+    left: 100,
+    right: 101,
+    reason: 'source_counting_convention',
+  }]);
 });
 
 test('whole-catalogue sync is bounded, resumable by verified set and idempotent across runs', async () => {

@@ -74,16 +74,23 @@ export function reconcileSetEvidence(left, right) {
     return conflict('printedTotal', left.printedTotal, right.printedTotal);
   }
 
-  // Total can move when an upstream source adds secrets/variants late. Treat a
-  // disagreement as a conflict while both sources assert concrete totals.
-  if (left.total != null && right.total != null && left.total !== right.total) {
-    return conflict('total', left.total, right.total);
-  }
+  // Upstream `total` is not a stable identity field: providers can count secret,
+  // alternate-art, subset and other non-numbered records differently. Keep a
+  // disagreement visible, but never invent which convention is canonical.
+  const totalDisagrees = left.total != null && right.total != null && left.total !== right.total;
+  const acceptedDifferences = totalDisagrees
+    ? Object.freeze([Object.freeze({
+      field: 'total',
+      left: left.total,
+      right: right.total,
+      reason: 'source_counting_convention',
+    })])
+    : Object.freeze([]);
 
   const anchors = [
     left.releasedAt != null && right.releasedAt != null,
     left.printedTotal != null && right.printedTotal != null,
-    left.total != null && right.total != null,
+    left.total != null && right.total != null && !totalDisagrees,
   ].filter(Boolean).length;
 
   if (anchors < 2) {
@@ -92,7 +99,7 @@ export function reconcileSetEvidence(left, right) {
 
   const releasedAt = left.releasedAt ?? right.releasedAt;
   const printedTotal = left.printedTotal ?? right.printedTotal;
-  const total = left.total ?? right.total;
+  const total = totalDisagrees ? null : (left.total ?? right.total);
   const tcgCode = left.tcgCode;
 
   const canonicalSeriesId = stableId('fdseries', [tcgCode, leftSeriesName]);
@@ -114,6 +121,7 @@ export function reconcileSetEvidence(left, right) {
     releasedAt,
     printedTotal,
     total,
+    acceptedDifferences,
     evidence: Object.freeze([
       compactSetEvidence(left),
       compactSetEvidence(right),
