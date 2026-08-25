@@ -27,6 +27,16 @@ This is the default mode. It reads both source catalogues, builds the strict cro
 
 It does not open a database connection or mutate FateDrop.
 
+### Preview an exact verified batch
+
+Use TCGdex source set IDs with `--sets` to preview the precise batch that would be eligible for a later write:
+
+```bash
+npm run trader:catalogue -- --sets=sv03.5,sv04.5,sv08.5
+```
+
+Every requested set must already belong to the verified crosswalk. Unknown, unresolved, duplicate, digital Pocket or otherwise unverified set IDs are rejected rather than guessed.
+
 ## Controlled writes
 
 Writes require two independent operator decisions:
@@ -34,7 +44,14 @@ Writes require two independent operator decisions:
 1. the `--write` CLI flag
 2. `FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true`
 
-`DATABASE_URL` is also required. Example:
+`DATABASE_URL` is also required. For a targeted batch, prefer explicit set IDs rather than relying on catalogue ordering:
+
+```bash
+FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true \
+  npm run trader:catalogue -- --write --sets=sv03.5,sv04.5,sv08.5 --max-cards=100
+```
+
+Whole-catalogue bounded writes remain available when intentionally required:
 
 ```bash
 FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true \
@@ -53,6 +70,7 @@ The whole-catalogue runner reuses the tested per-set `syncVerifiedPokemonSet` pa
 ## Rules
 
 - Run the read-only plan against live sources before enabling bulk writes.
+- For production bootstrap, prefer explicit `--sets` batches so the exact intended sets are auditable before mutation.
 - Review ambiguous and rejected set pairs before describing coverage as complete.
 - Do not add broad fuzzy aliases to improve the match percentage. Any alias must be narrow, evidence-backed and regression-tested.
 - Only matched card evidence is promoted to `verified`.
