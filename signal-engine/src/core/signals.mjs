@@ -69,6 +69,9 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   // VANISHED = previously confirmed purchasable availability lost.
   // Echo is universal: catalogue preparation and network/queue/security readiness can all contribute.
   // A placeholder price is evidence, never proof of purchasability and never commercial pricing truth.
+  // Cluster members remain raw observations; one representative offer carries the lifecycle Echo.
+  if (!wasPurchasable && !nowPurchasable && preparation.suppressStandaloneLifecycle) return null;
+
   if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
