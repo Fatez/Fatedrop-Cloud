@@ -1,0 +1,84 @@
+name: Fate Trader 151 Bootstrap V2 (Temporary)
+
+on:
+  push:
+    branches:
+      - ops/fate-trader-151-bootstrap-v2-2026-08-25
+
+permissions:
+  contents: read
+
+jobs:
+  artifact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Build exact verified 151 catalogue artifact
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import { FileStore } from './src/stores/file-store.mjs';
+          import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './src/trader/catalogue/bulk-sync.mjs';
+          import { selectVerifiedSetCrosswalk } from './src/trader/catalogue/selection.mjs';
+          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
+
+          const tcgdexClient = createTcgdexClient({ languageCode: 'en' });
+          const pokemonTcgClient = createPokemonTcgClient();
+          const plan = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient });
+          const selection = selectVerifiedSetCrosswalk(plan, ['sv03.5']);
+          const store = new FileStore('./catalogue-151-store.json');
+          const sync = await syncVerifiedPokemonCatalogue({
+            store,
+            tcgdexClient,
+            pokemonTcgClient,
+            crosswalk: selection.crosswalk,
+            maxSets: 1,
+            maxCardsPerChunk: 100,
+            verifiedAt: Date.now(),
+          });
+          await fs.writeFile('./catalogue-151-sync.json', JSON.stringify({
+            globalCounts: plan.counts,
+            selection: selection.selected.map((row) => ({
+              tcgdexSetId: row.tcgdexSetId,
+              pokemonTcgSetId: row.pokemonTcgSetId,
+              canonicalSetId: row.setMatch.canonicalSetId,
+              setName: row.setMatch.setName,
+              printedTotal: row.setMatch.printedTotal,
+              total: row.setMatch.total,
+            })),
+            sync,
+          }, null, 2));
+          NODE
+      - name: Enforce complete 151 base-card reconciliation
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('catalogue-151-sync.json', 'utf8'));
+          const totals = report.sync?.totals || {};
+          console.log(JSON.stringify(report, null, 2));
+          if (totals.sourceCardsProcessed !== 207) throw new Error(`Expected 207 source cards, got ${totals.sourceCardsProcessed}`);
+          if (totals.matchedCardRecords !== 207) throw new Error(`Expected 207 matched base cards, got ${totals.matchedCardRecords}`);
+          if (totals.unmatchedCards !== 0) throw new Error(`Expected 0 unmatched cards, got ${totals.unmatchedCards}`);
+          if (totals.cardConflicts !== 0) throw new Error(`Expected 0 conflicts, got ${totals.cardConflicts}`);
+          if (totals.quarantined !== 0) throw new Error(`Expected 0 quarantined cards, got ${totals.quarantined}`);
+          NODE
+      - name: Upload verified 151 bootstrap data
+        uses: actions/upload-artifact@v4
+        with:
+          name: fate-trader-151-verified-bootstrap-v2
+          path: |
+            signal-engine/catalogue-151-store.json
+            signal-engine/catalogue-151-sync.json
+          if-no-files-found: error
+          retention-days: 1
