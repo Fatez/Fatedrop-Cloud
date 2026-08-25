@@ -1,0 +1,63 @@
+name: Fate Trader 151 Bootstrap Preflight (Temporary)
+
+on:
+  push:
+    branches:
+      - ops/fate-trader-151-bootstrap-2026-08-25
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      POKEMON_TCG_API_KEY: ${{ secrets.POKEMON_TCG_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Check secure database secret presence
+        shell: bash
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "DATABASE_URL_PRESENT=true"
+          else
+            echo "DATABASE_URL_PRESENT=false"
+          fi
+          if [ -n "$POKEMON_TCG_API_KEY" ]; then
+            echo "POKEMON_TCG_API_KEY_PRESENT=true"
+          else
+            echo "POKEMON_TCG_API_KEY_PRESENT=false"
+          fi
+      - name: Preview exact 151 verified batch
+        working-directory: signal-engine
+        run: node src/trader/catalogue/sync-all-cli.mjs --sets=sv03.5 > catalogue-plan-151.json
+      - name: Print safe 151 preview summary
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const plan = JSON.parse(fs.readFileSync('catalogue-plan-151.json', 'utf8'));
+          console.log(JSON.stringify({
+            sourceCounts: plan.sourceCounts,
+            counts: plan.counts,
+            selection: plan.selection,
+            selectedSets: plan.selectedSets,
+          }, null, 2));
+          NODE
+      - name: Upload 151 read-only plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: fate-trader-151-bootstrap-preflight
+          path: signal-engine/catalogue-plan-151.json
+          if-no-files-found: error
+          retention-days: 1
