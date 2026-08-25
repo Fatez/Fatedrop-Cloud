@@ -10,16 +10,22 @@ export class FileStore {
     catch (error) { if (error.code === "ENOENT") return structuredClone(EMPTY); throw error; }
   }
   async mutate(fn) {
-    this.writeQueue = this.writeQueue.then(async () => {
-      const state = await this.read();
-      const result = await fn(state);
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      const temp = `${this.filePath}.tmp`;
-      await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`);
-      await fs.rename(temp, this.filePath);
-      return result;
-    });
-    return this.writeQueue;
+    // A rejected mutation must reject its own caller without permanently
+    // poisoning the serial write queue. The failed state is never written, and
+    // the next mutation starts from the last successfully persisted snapshot.
+    const operation = this.writeQueue
+      .catch(() => undefined)
+      .then(async () => {
+        const state = await this.read();
+        const result = await fn(state);
+        await fs.mkdir(path.dirname(this.filePath), { recursive: true });
+        const temp = `${this.filePath}.tmp`;
+        await fs.writeFile(temp, `${JSON.stringify(state, null, 2)}\n`);
+        await fs.rename(temp, this.filePath);
+        return result;
+      });
+    this.writeQueue = operation.catch(() => undefined);
+    return operation;
   }
   async getOffer(offerId) { return (await this.read()).offers[offerId] || null; }
   async getProduct(productId) { return (await this.read()).products[productId] || null; }
