@@ -2,9 +2,10 @@ import { SignalState, StockStatus } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
 import { classifyRetailerPreparation, effectivePurchasable } from "./preparation-intelligence.mjs";
 import { PriceQuality } from "./price-quality.mjs";
+import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 
-function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null }) {
+function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
   const price = preparation?.price ?? null;
   return [
     ...(Array.isArray(evidence) ? evidence : []),
@@ -19,6 +20,12 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
       { kind: "availability_confidence", value: String(preparation.availabilityConfidence), observedAt },
       { kind: "lifecycle_confidence", value: String(preparation.lifecycleConfidence), observedAt },
       ...preparation.evidence,
+    ] : []),
+    ...(productAlert ? [
+      { kind: "product_alert_category", value: productAlert.category, observedAt },
+      { kind: "product_alert_subcategory", value: productAlert.subcategory, observedAt },
+      { kind: "product_alert_confidence", value: String(productAlert.confidence), observedAt },
+      ...productAlert.evidence.map((value) => ({ kind: "product_alert_evidence", value, observedAt })),
     ] : []),
     { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
     { kind: "signal_alert_class", value: alertClass, observedAt },
@@ -49,6 +56,12 @@ function priorLiveConfirmation(previousOffer) {
 
 export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
   if (isBaseline) return null;
+
+  const productAlert = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
+  // Beta alert delivery is intentionally sealed-TCG only. The offer/catalogue observation
+  // is still persisted by the engine; we simply do not promote accessories, merchandise,
+  // single cards or ambiguous products into the user-facing lifecycle stream.
+  if (productAlert.category !== "SEALED_TCG") return null;
 
   const previousStatus = previousOffer?.stockStatus ?? null;
   const currentStatus = currentOffer.stockStatus;
@@ -124,6 +137,9 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     kind,
     alertClass: policy.alertClass,
     signalCapabilities: policy,
+    productCategory: productAlert.category,
+    productSubcategory: productAlert.subcategory,
+    productCategoryConfidence: productAlert.confidence,
     productId: currentOffer.productId,
     offerId: currentOffer.offerId,
     retailerId: currentOffer.retailerId,
@@ -162,6 +178,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       observedAt: now,
       priorLiveConfirmation: priorLive,
       preparation,
+      productAlert,
     }),
   };
 }
