@@ -10,6 +10,7 @@ import {
   upsertEncountersIntoStore,
 } from "../encounters/store.mjs";
 import { normalizeInventoryBatch, normalizeVendorBatch } from "../encounters/vendors.mjs";
+import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 import { handleFateTraderCatalogue, isFateTraderCataloguePath } from "../trader/catalogue/http.mjs";
 import { handleFateTraderCollection, isFateTraderCollectionPath } from "../trader/collection/http.mjs";
 import { handleFateTraderBinder, isFateTraderBinderPath } from "../trader/binder/http.mjs";
@@ -186,8 +187,12 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
 
 export function createFateDropHttpServer({ store, retailers = [], placesSearch, postcodeLookup=lookupUkPostcode, postcodeBatchLookup=lookupUkPostcodes } = {}) {
   const server=createLegacyHttpServer({store});const legacyHandler=server.listeners("request")[0];server.removeAllListeners("request");
+  const liveReadStore=createLiveOfferReadStore(store);
+  const liveReadServer=createLegacyHttpServer({store:liveReadStore});const liveReadHandler=liveReadServer.listeners("request")[0];liveReadServer.removeAllListeners("request");
   server.on("request",async(req,res)=>{try{
     const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`);
+    const isLiveRetailRead=(req.method==="GET"&&(url.pathname==="/api/catalogue"||url.pathname==="/api/true-price"))||(req.method==="POST"&&url.pathname==="/api/fatefind/matches");
+    if(isLiveRetailRead){return liveReadHandler(req,res);}
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
     if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     if(isFateTraderBinderPath(url.pathname)){await handleFateTraderBinder(req,res,{store});return;}
