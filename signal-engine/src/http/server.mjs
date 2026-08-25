@@ -3,7 +3,9 @@ import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
 import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
+import { compareGroups, rankGroups } from "../core/fate-verdict.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
+import { commercialPricePence } from "../core/price-quality.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
@@ -54,7 +56,14 @@ function rrpFields(rrp) {
     unitCount: Number.isFinite(rrp.unitCount) ? rrp.unitCount : undefined,
     unitKind: rrp.unitKind || undefined,
     unitRrpGbp: pounds(rrp.unitRrpPence),
+    referenceProductIds: Array.isArray(rrp.matchedProductIds) ? rrp.matchedProductIds : undefined,
   };
+}
+
+function valueFamilyKey(rrp) {
+  if (!rrp?.resolved || !rrp.unitKind || !Array.isArray(rrp.matchedProductIds) || !rrp.matchedProductIds.length) return null;
+  const ids = [...new Set(rrp.matchedProductIds.map((id) => String(id || "").trim()).filter(Boolean))].sort();
+  return ids.length ? `rrp:${String(rrp.unitKind).toLowerCase()}:${ids.join("+")}` : null;
 }
 
 function legacyOffer(offer, product, rrp) {
@@ -206,6 +215,12 @@ async function appTruePrice(store, url) {
   for (const offer of offers) {
     if (!["in_stock", "low_stock", "preorder"].includes(offer.stockStatus)) continue;
     if (q && searchMatchScore(q, { title: offer.title, sku: offer.retailerSku }) <= 0) continue;
+
+    // £0 / £0.01 and any other non-commercial observations remain available to
+    // monitoring intelligence, but cannot enter True Price or Fate Verdict.
+    const canonicalPricePence = commercialPricePence(offer.pricePence);
+    if (!Number.isFinite(canonicalPricePence)) continue;
+
     const linkedProduct = productsById.get(offer.productId);
     const rrp = resolveOfferRrp(offer, linkedProduct, rrpContext);
     const exactCanonicalId = rrp.resolved && rrp.kind === "official" && rrp.matchedProductIds?.length === 1 ? rrp.matchedProductIds[0] : null;
@@ -213,23 +228,32 @@ async function appTruePrice(store, url) {
     const key = exactCanonicalId || linkedProduct?.id || offer.productId || titleKey(offer.title);
     const group = grouped.get(key) || {
       id: key,
+      canonicalProductId: key,
+      configurationId: key,
       title: canonicalProduct?.title || offer.title,
       category: categoryOf(offer.title, canonicalProduct?.productType || linkedProduct?.productType),
       matchingConfidence: rrp.resolved ? 1 : (offer.productId ? 1 : 0.75),
       retailerCount: 0,
+      identityKey: canonicalProduct?.canonicalKey || linkedProduct?.canonicalKey || null,
+      valueFamilyKey: valueFamilyKey(rrp),
       ...rrpFields(rrp),
+      configuration: {
+        unitCount: Number.isFinite(rrp?.unitCount) ? rrp.unitCount : null,
+        unitKind: rrp?.unitKind || null,
+        referenceKind: rrp?.kind || null,
+      },
       offers: [],
     };
-    const resolved = resolveRetailerDelivery({ retailerId: offer.retailerId, subtotalPence: offer.pricePence });
+    const resolved = resolveRetailerDelivery({ retailerId: offer.retailerId, subtotalPence: canonicalPricePence });
     const postage = Number.isFinite(offer.postagePence) ? offer.postagePence : resolved.postagePence;
     const deliveryKnown = Number.isFinite(postage);
-    const totalPence = deliveryKnown && Number.isFinite(offer.pricePence) ? offer.pricePence + postage : undefined;
+    const totalPence = deliveryKnown ? canonicalPricePence + postage : undefined;
     group.offers.push({
       id: offer.offerId,
       retailerId: offer.retailerId,
       retailerName: offer.retailerName,
       title: offer.title,
-      priceGbp: pounds(offer.pricePence),
+      priceGbp: pounds(canonicalPricePence),
       shippingGbp: pounds(postage),
       totalDeliveredGbp: pounds(totalPence),
       deliveryKnown,
@@ -253,6 +277,34 @@ async function appTruePrice(store, url) {
   }).sort((a, b) => b.retailerCount - a.retailerCount || a.title.localeCompare(b.title));
 
   return { success: true, count: groups.length, groups, disclaimer };
+}
+
+async function appFateVerdict(store, req, body) {
+  const query = typeof body?.query === "string" ? body.query.trim() : "";
+  const truePriceUrl = new URL("/api/true-price", `http://${req.headers.host || "localhost"}`);
+  truePriceUrl.searchParams.set("q", query);
+  const truePrice = await appTruePrice(store, truePriceUrl);
+  const leftId = typeof body?.leftId === "string" && body.leftId.trim() ? body.leftId.trim() : null;
+  const rightId = typeof body?.rightId === "string" && body.rightId.trim() ? body.rightId.trim() : null;
+  const pairVerdict = leftId && rightId
+    ? compareGroups(
+        truePrice.groups.find((group) => group.id === leftId),
+        truePrice.groups.find((group) => group.id === rightId),
+      )
+    : null;
+
+  return {
+    success: true,
+    mode: "verdict",
+    count: truePrice.count,
+    groups: truePrice.groups,
+    verdict: rankGroups(truePrice.groups),
+    pairVerdict,
+    source: "FATEDROP_CLOUD",
+    rulesVersion: "fate-verdict-v2",
+    disclaimer: "RRP/reference percentage uses commercial item price against the verified value baseline. True Price adds known mandatory delivery; unknown delivery remains unknown and never becomes £0.",
+    notice: "Canonical FateDrop Cloud verdict is live.",
+  };
 }
 
 export function createHttpServer({ store }) {
@@ -284,6 +336,19 @@ export function createHttpServer({ store }) {
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res, 200, await appCatalogue(store, url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res, 200, await appTruePrice(store, url));
+      if (req.method === "POST" && url.pathname === "/api/fatefind/matches") {
+        const body = await readBody(req);
+        if (body?.mode !== "verdict") {
+          return json(res, 400, {
+            success: false,
+            mode: "verdict",
+            source: "FATEDROP_CLOUD",
+            error: "INVALID_VERDICT_MODE",
+            reason: "mode must be verdict",
+          });
+        }
+        return json(res, 200, await appFateVerdict(store, req, body));
+      }
       if (req.method === "GET" && url.pathname === "/api/signals") {
         const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get("limit") || "50", 10) || 50));
         const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
