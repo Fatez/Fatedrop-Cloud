@@ -1,3 +1,4 @@
+import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
 import { normaliseComparableName, reconcileCardEvidence, reconcileSetEvidence } from './reconcile.mjs';
@@ -7,7 +8,7 @@ function comparableSetKey(evidence) {
 }
 
 function comparableCardKey(evidence) {
-  const number = String(evidence.collectorNumber || '').normalize('NFKC').toLowerCase().replace(/\s+/g, '');
+  const number = normaliseCollectorNumber(evidence.collectorNumber);
   return `${number}|${normaliseComparableName(evidence.name)}`;
 }
 
