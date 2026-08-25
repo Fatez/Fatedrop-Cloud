@@ -65,6 +65,7 @@ test('independent set evidence reconciles into FateDrop-owned set identity', () 
   assert.match(match.canonicalSeriesId, /^fdseries_[a-f0-9]{24}$/);
   assert.match(match.canonicalSetId, /^fdset_[a-f0-9]{24}$/);
   assert.equal(match.evidence.length, 2);
+  assert.deepEqual(match.acceptedDifferences, []);
 });
 
 test('canonical set identity does not depend on either upstream set ID', () => {
@@ -90,6 +91,48 @@ test('set reconciliation fails closed on conflicting printed totals', () => {
 
   assert.equal(result.status, 'conflict');
   assert.equal(result.field, 'printedTotal');
+});
+
+test('set reconciliation records total-count convention differences without choosing a fake canonical total', () => {
+  const left = adaptTcgdexSet({ ...tcgdexSet, cardCount: { official: 189, total: 201 } });
+  const right = adaptPokemonTcgSet({ ...pokemonTcgSet, printedTotal: 189, total: 202 });
+  const result = reconcileSetEvidence(left, right);
+
+  assert.equal(result.status, 'matched');
+  assert.equal(result.printedTotal, 189);
+  assert.equal(result.total, null);
+  assert.deepEqual(result.acceptedDifferences, [{
+    field: 'total',
+    left: 201,
+    right: 202,
+    reason: 'source_counting_convention',
+  }]);
+});
+
+test('a total disagreement cannot replace a missing independent identity anchor', () => {
+  const left = adaptTcgdexSet({ ...tcgdexSet, cardCount: { official: null, total: 201 } });
+  const right = adaptPokemonTcgSet({ ...pokemonTcgSet, printedTotal: null, total: 202 });
+  const result = reconcileSetEvidence(left, right);
+
+  assert.deepEqual(result, { status: 'insufficient', reason: 'not_enough_set_anchors' });
+});
+
+test('set reconciliation still fails closed on release-date differences', () => {
+  const left = adaptTcgdexSet(tcgdexSet);
+  const right = adaptPokemonTcgSet({ ...pokemonTcgSet, releaseDate: '2020/08/15' });
+  const result = reconcileSetEvidence(left, right);
+
+  assert.equal(result.status, 'conflict');
+  assert.equal(result.field, 'releasedAt');
+});
+
+test('set reconciliation still fails closed on series differences', () => {
+  const left = adaptTcgdexSet(tcgdexSet);
+  const right = adaptPokemonTcgSet({ ...pokemonTcgSet, series: 'Different Series' });
+  const result = reconcileSetEvidence(left, right);
+
+  assert.equal(result.status, 'conflict');
+  assert.equal(result.field, 'seriesName');
 });
 
 test('set reconciliation requires independent sources', () => {
