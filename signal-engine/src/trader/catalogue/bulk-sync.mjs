@@ -62,6 +62,11 @@ function pokemonBriefHasFullSetEvidence(set) {
     && Number.isInteger(set?.total);
 }
 
+function setIdsFromSeries(series) {
+  if (!Array.isArray(series?.sets)) return new Set();
+  return new Set(series.sets.map((set) => String(set?.id ?? '').trim()).filter(Boolean));
+}
+
 export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient } = {}) {
   const tcgdex = requireClient(tcgdexClient, 'tcgdexClient');
   const pokemon = requireClient(pokemonTcgClient, 'pokemonTcgClient');
@@ -69,6 +74,17 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
   if (!Array.isArray(tcgdexBriefs) || !Array.isArray(pokemonBriefs)) {
     throw new TypeError('catalogue source set listings must be arrays');
   }
+
+  const sourceErrors = [];
+  let pocketSetIds = new Set();
+  if (typeof tcgdex.getSeries === 'function') {
+    try {
+      pocketSetIds = setIdsFromSeries(await tcgdex.getSeries('tcgp'));
+    } catch (error) {
+      sourceErrors.push(sourceFailure('tcgdex', 'series:tcgp', 'Pokémon TCG Pocket exclusion', error));
+    }
+  }
+  const physicalTcgdexBriefs = tcgdexBriefs.filter((set) => !pocketSetIds.has(String(set?.id ?? '').trim()));
 
   const pokemonByName = new Map();
   for (const set of pokemonBriefs) {
@@ -95,10 +111,9 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
   const ambiguous = [];
   const rejected = [];
   const unmatchedTcgdex = [];
-  const sourceErrors = [];
   const claimedPokemonIds = new Set();
 
-  const orderedTcgdex = [...tcgdexBriefs].sort((a, b) => {
+  const orderedTcgdex = [...physicalTcgdexBriefs].sort((a, b) => {
     const nameCompare = String(a?.name || '').localeCompare(String(b?.name || ''));
     if (nameCompare !== 0) return nameCompare;
     return String(a?.id || '').localeCompare(String(b?.id || ''));
@@ -189,7 +204,12 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
     .sort((a, b) => a.pokemonTcgSetName.localeCompare(b.pokemonTcgSetName) || a.pokemonTcgSetId.localeCompare(b.pokemonTcgSetId));
 
   return Object.freeze({
-    sourceCounts: Object.freeze({ tcgdex: tcgdexBriefs.length, pokemonTcgApi: pokemonBriefs.length }),
+    sourceCounts: Object.freeze({
+      tcgdex: physicalTcgdexBriefs.length,
+      tcgdexAll: tcgdexBriefs.length,
+      tcgdexPocketExcluded: pocketSetIds.size,
+      pokemonTcgApi: pokemonBriefs.length,
+    }),
     counts: Object.freeze({
       matched: matched.length,
       ambiguous: ambiguous.length,
