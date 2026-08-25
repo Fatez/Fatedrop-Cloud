@@ -139,7 +139,16 @@ export function resolveRrpValue(input = {}, context = {}) {
     productType,
     linkedProduct,
   });
-  if (international.recognized) return international;
+  if (international.recognized) {
+    // Native-currency MSRP is authoritative. For multi-unit imports the GBP total
+    // is converted once from that native total. Do not also expose a penny-rounded
+    // per-unit GBP value: multiplying rounded pennies can differ from direct FX by
+    // a few pence and would (correctly) trip the global RRP consistency guard.
+    if (international.resolved && Number(international.unitCount) > 1) {
+      return { ...international, unitRrpPence: null };
+    }
+    return international;
+  }
 
   if (authoritative(linkedProduct)) return officialResult(linkedProduct);
 
