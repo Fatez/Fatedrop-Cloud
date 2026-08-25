@@ -17,6 +17,15 @@ const CONFIGURATION_PATTERNS = [
   /\bcase\b/g,
 ];
 
+const LEADER_PRIORITY = Object.freeze({
+  elite_trainer_box: 0,
+  booster_box: 1,
+  booster_bundle: 2,
+  booster_pack: 3,
+  collection_box: 4,
+  other: 9,
+});
+
 function structuredCatalogueEvidence(evidence = []) {
   return (Array.isArray(evidence) ? evidence : []).some((entry) => /(?:shopify|woocommerce|structured|catalogue|product_page|retailer_sku)/i.test(String(entry?.kind || "")));
 }
@@ -27,6 +36,15 @@ function thresholdCrossed(previousOffer, now, thresholdSeconds) {
   const previousSeenAt = Number(previousOffer.lastSeenAt);
   if (!Number.isFinite(firstSeenAt) || firstSeenAt <= 0 || !Number.isFinite(previousSeenAt) || previousSeenAt <= 0) return false;
   return previousSeenAt - firstSeenAt < thresholdSeconds && Number(now) - firstSeenAt >= thresholdSeconds;
+}
+
+function clusterLeader(members) {
+  return [...members].sort((a, b) => {
+    const aPriority = LEADER_PRIORITY[a.productType] ?? 8;
+    const bPriority = LEADER_PRIORITY[b.productType] ?? 8;
+    if (aPriority !== bPriority) return aPriority - bPriority;
+    return String(a.raw.title || a.offerId).localeCompare(String(b.raw.title || b.offerId));
+  })[0] ?? null;
 }
 
 export function preparationFamilyKey(title = "") {
@@ -83,6 +101,7 @@ export function buildRetailerPreparationClusters({ retailerId, prepared = [], pr
         : null;
     if (!strong || !activationMode) continue;
 
+    const leader = clusterLeader(members);
     const firstObservedAt = Math.min(...members.map((member) => Number(member.previousOffer?.firstSeenAt) || Number(now)));
     const cluster = {
       id: stableId("prep", retailerId || "unknown", familyKey, String(firstObservedAt)),
@@ -90,6 +109,7 @@ export function buildRetailerPreparationClusters({ retailerId, prepared = [], pr
       productFamilyKey: familyKey,
       firstObservedAt,
       observedAt: now,
+      leaderOfferId: leader?.offerId ?? null,
       skuCount,
       productTypeCount,
       placeholderPriceCount,
@@ -106,13 +126,15 @@ export function buildRetailerPreparationClusters({ retailerId, prepared = [], pr
   return { clusters, byOfferId };
 }
 
-export function preparationClusterEvidence(cluster) {
+export function preparationClusterEvidence(cluster, offerId = null) {
   if (!cluster) return [];
   return [{
     kind: "retailer_preparation_cluster",
     value: cluster.id,
     observedAt: cluster.observedAt,
     productFamilyKey: cluster.productFamilyKey,
+    leaderOfferId: cluster.leaderOfferId,
+    clusterLeader: Boolean(offerId && cluster.leaderOfferId === offerId),
     skuCount: cluster.skuCount,
     productTypeCount: cluster.productTypeCount,
     placeholderPriceCount: cluster.placeholderPriceCount,
