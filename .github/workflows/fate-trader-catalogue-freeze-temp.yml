@@ -1,0 +1,65 @@
+name: Fate Trader Catalogue Freeze (Temporary)
+
+on:
+  push:
+    branches:
+      - ops/fate-trader-catalogue-freeze-2026-08-25
+
+permissions:
+  contents: read
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install FateDrop dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Clone source repositories
+        run: |
+          git clone --depth=1 https://github.com/tcgdex/cards-database.git /tmp/tcgdex
+          git clone --depth=1 https://github.com/PokemonTCG/pokemon-tcg-data.git /tmp/pokemontcg
+      - name: Extract pinned English snapshots
+        working-directory: signal-engine
+        run: |
+          bun scripts/extract-tcgdex-snapshot.mjs --repo=/tmp/tcgdex --out=/tmp/tcgdex-en.json
+          node scripts/extract-pokemontcg-snapshot.mjs --repo=/tmp/pokemontcg --out=/tmp/pokemontcg-en.json
+      - name: Compile verified FateDrop catalogue
+        working-directory: signal-engine
+        run: |
+          npm run trader:catalogue:compile -- \
+            --tcgdex=/tmp/tcgdex-en.json \
+            --pokemon=/tmp/pokemontcg-en.json \
+            --out=/tmp/fatedrop-pokemon-catalogue.json
+      - name: Validate frozen artifact
+        working-directory: signal-engine
+        run: |
+          npm run trader:catalogue:load -- --artifact=/tmp/fatedrop-pokemon-catalogue.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const d = JSON.parse(fs.readFileSync('/tmp/fatedrop-pokemon-catalogue.json','utf8'));
+          if (d.compilation.verifiedSetCount !== 91) throw new Error(`Expected 91 clean sets, got ${d.compilation.verifiedSetCount}`);
+          if (d.counts.printings !== 11595) throw new Error(`Expected 11595 printings, got ${d.counts.printings}`);
+          if (d.counts.cardIdentities !== 17307) throw new Error(`Expected 17307 identities, got ${d.counts.cardIdentities}`);
+          if (!d.rows.setSourceMappings.every(x => x.sourceVersion)) throw new Error('Set mapping source versions missing');
+          if (!d.rows.cardSourceMappings.every(x => x.sourceVersion)) throw new Error('Card mapping source versions missing');
+          if (!d.rows.cardProvenance.every(x => x.evidenceJson?.sourceCommit)) throw new Error('Provenance source commits missing');
+          console.log(JSON.stringify({sources:d.sources,compilation:{verified:d.compilation.verifiedSetCount,rejected:d.compilation.rejectedSetCount},counts:d.counts},null,2));
+          NODE
+      - name: Upload frozen catalogue
+        uses: actions/upload-artifact@v4
+        with:
+          name: fate-trader-pokemon-catalogue-freeze-2026-08-25
+          path: /tmp/fatedrop-pokemon-catalogue.json
+          if-no-files-found: error
+          retention-days: 7
