@@ -1,0 +1,63 @@
+name: Probe Chaos Rising Production Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-proof-chaos.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Railway runtime and Chaos Rising reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Chaos Rising"}' \
+            'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+            > response.json
+          python - <<'PY'
+          import json
+          EXPECTED = '4c7036fea9ea98894f3a1230e716835ad4304863'
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          sha = runtime.get('gitCommitSha')
+          print('RUNTIME_GIT_SHA=' + str(sha))
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          groups = data.get('groups') or []
+          chaos = [g for g in groups if 'chaos rising' in str(g.get('title','')).lower()]
+          print('CHAOS_RISING_GROUPS=' + str(len(chaos)))
+          for group in chaos:
+              print('CHAOS_RISING_REFERENCE=' + json.dumps({
+                  'id': group.get('id'),
+                  'title': group.get('title'),
+                  'rrpKind': group.get('rrpKind'),
+                  'rrpGbp': group.get('rrpGbp'),
+                  'rrpReferenceBasis': group.get('rrpReferenceBasis'),
+                  'unitCount': group.get('unitCount'),
+                  'unitKind': group.get('unitKind'),
+                  'offers': [
+                      {
+                          'retailer': o.get('retailer'),
+                          'price': o.get('price'),
+                          'rrpGbp': o.get('rrpGbp'),
+                      }
+                      for o in (group.get('offers') or [])
+                  ],
+              }, sort_keys=True))
+          if sha != EXPECTED:
+              raise SystemExit(f'Railway not on expected SHA yet: {sha}')
+          matched = [g for g in chaos if abs(float(g.get('rrpGbp') or 0) - 151.99) < 0.01]
+          if not matched:
+              raise SystemExit('Chaos Rising £151.99 verified RRP not resolved by live runtime')
+          print('CHAOS_RISING_RRP_PROOF=PASS')
+          PY
