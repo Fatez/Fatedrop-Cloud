@@ -1,6 +1,7 @@
 import { normalizeTitle, stableId } from "./normalize.mjs";
 import { PriceQuality, classifyObservedPrice } from "./price-quality.mjs";
 
+const CONFIGURATION_MARKER = /\b(?:elite trainer box|booster display|booster box|booster bundle|sleeved booster|booster pack|premium checklane blisters?|checklane blisters?|\d+ pack blisters?|blisters?|\d+ packs?|sealed case|case)\b/;
 const CONFIGURATION_PATTERNS = [
   /\belite trainer box\b/g,
   /\bbooster display\b/g,
@@ -48,8 +49,12 @@ function clusterLeader(members) {
 }
 
 export function preparationFamilyKey(title = "") {
-  let family = normalizeTitle(title);
-  for (const pattern of CONFIGURATION_PATTERNS) family = family.replace(pattern, " ");
+  const normalized = normalizeTitle(title);
+  const marker = normalized.match(CONFIGURATION_MARKER);
+  let family = marker?.index > 0 ? normalized.slice(0, marker.index) : normalized;
+  if (!marker || marker.index === 0) {
+    for (const pattern of CONFIGURATION_PATTERNS) family = family.replace(pattern, " ");
+  }
   family = family.replace(/\b(?:x\s*)?\d+\b/g, " ").replace(/\s+/g, " ").trim();
   const tokens = family.split(" ").filter(Boolean);
   return tokens.length >= 2 ? tokens.join(" ") : null;
