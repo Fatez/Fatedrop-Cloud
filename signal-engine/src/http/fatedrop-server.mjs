@@ -10,6 +10,8 @@ import {
   upsertEncountersIntoStore,
 } from "../encounters/store.mjs";
 import { normalizeInventoryBatch, normalizeVendorBatch } from "../encounters/vendors.mjs";
+import { handleFateTraderCatalogue, isFateTraderCataloguePath } from "../trader/catalogue/http.mjs";
+import { handleFateTraderCollection, isFateTraderCollectionPath } from "../trader/collection/http.mjs";
 import { createHttpServer as createLegacyHttpServer } from "./server.mjs";
 
 function json(res, status, body) {
@@ -185,9 +187,11 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
   const server=createLegacyHttpServer({store});const legacyHandler=server.listeners("request")[0];server.removeAllListeners("request");
   server.on("request",async(req,res)=>{try{
     const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`);
+    if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
+    if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
     if(isEncounterRoute){await handleFateEncounters(req,res,{store,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);
-  }catch(error){return json(res,500,{error:"Fate Encounters error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
+  }catch(error){return json(res,500,{error:"FateDrop route error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
   return server;
 }
