@@ -1,14 +1,23 @@
-export function calculateOfferIntelligence({ pricePence, postagePence = null, officialRrpPence = null, rrpSource = null, rrpObservedAt = null } = {}) {
-  const priceKnown = Number.isFinite(pricePence) && pricePence >= 0;
+import { classifyObservedPrice } from "./price-quality.mjs";
+
+export function calculateOfferIntelligence({ pricePence, postagePence = null, officialRrpPence = null, rrpSource = null, rrpObservedAt = null, retailerId = null, evidence = [] } = {}) {
+  const price = classifyObservedPrice({ pricePence, retailerId, evidence });
+  const priceKnown = Number.isFinite(price.canonicalPricePence);
+  const canonicalPricePence = priceKnown ? price.canonicalPricePence : null;
   const deliveryKnown = Number.isFinite(postagePence) && postagePence >= 0;
   const rrpKnown = Number.isFinite(officialRrpPence) && officialRrpPence > 0;
-  const deliveredPence = priceKnown && deliveryKnown ? pricePence + postagePence : null;
-  const itemDeltaPence = priceKnown && rrpKnown ? pricePence - officialRrpPence : null;
+  const deliveredPence = priceKnown && deliveryKnown ? canonicalPricePence + postagePence : null;
+  const itemDeltaPence = priceKnown && rrpKnown ? canonicalPricePence - officialRrpPence : null;
   const itemDeltaPercent = itemDeltaPence === null ? null : (itemDeltaPence / officialRrpPence) * 100;
   const deliveredDeltaPence = deliveredPence !== null && rrpKnown ? deliveredPence - officialRrpPence : null;
   const deliveredDeltaPercent = deliveredDeltaPence === null ? null : (deliveredDeltaPence / officialRrpPence) * 100;
   return {
     priceKnown,
+    rawObservedPricePence: price.rawObservedPricePence,
+    canonicalPricePence,
+    priceQuality: price.priceQuality,
+    priceConfidence: price.priceConfidence,
+    priceEvidence: price.priceEvidence,
     deliveryKnown,
     deliveredPence,
     rrp: {
@@ -36,8 +45,8 @@ export function sortOffersByTruePrice(offers = []) {
     const bKnown = Number.isFinite(b?.intelligence?.deliveredPence);
     if (aKnown !== bKnown) return aKnown ? -1 : 1;
     if (aKnown && bKnown) return a.intelligence.deliveredPence - b.intelligence.deliveredPence;
-    const aPrice = Number.isFinite(a?.pricePence) ? a.pricePence : Infinity;
-    const bPrice = Number.isFinite(b?.pricePence) ? b.pricePence : Infinity;
+    const aPrice = Number.isFinite(a?.intelligence?.canonicalPricePence) ? a.intelligence.canonicalPricePence : Infinity;
+    const bPrice = Number.isFinite(b?.intelligence?.canonicalPricePence) ? b.intelligence.canonicalPricePence : Infinity;
     return aPrice - bPrice;
   });
 }
