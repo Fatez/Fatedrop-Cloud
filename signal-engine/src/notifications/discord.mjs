@@ -17,12 +17,12 @@ const FAMILY_LABEL = Object.freeze({
 });
 
 function money(pence) {
-  if (!Number.isFinite(pence)) return "UNKNOWN";
+  if (!Number.isFinite(pence)) return null;
   return new Intl.NumberFormat("en-GB", { style: "currency", currency: "GBP" }).format(pence / 100);
 }
 
 function percent(value) {
-  if (!Number.isFinite(value)) return "UNKNOWN";
+  if (!Number.isFinite(value)) return null;
   const sign = value > 0 ? "+" : "";
   return `${sign}${value.toFixed(1)}%`;
 }
@@ -58,19 +58,62 @@ function signalKindFor(signal) {
   return signal?.kind || evidenceValue(signal, "signal_kind") || null;
 }
 
-function retailerSkuFor(signal) {
-  return signal?.retailerSku || evidenceValue(signal, "retailer_sku") || null;
-}
-
 function rrpKindFor(signal) {
   return evidenceValue(signal, "rrp_value_kind") || null;
 }
 
-function valueLabel(signal) {
+function stockLabel(value) {
+  const key = String(value || "").trim().toLowerCase();
+  if (key === "in_stock") return "In stock";
+  if (key === "low_stock") return "Low stock";
+  if (key === "preorder") return "Pre-order";
+  if (key === "coming_soon") return "Coming soon";
+  if (key === "out_of_stock") return "Out of stock";
+  return key ? key.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase()) : "Observed";
+}
+
+function causeLabel(value) {
+  const key = String(value || "").trim().toLowerCase();
+  const known = {
+    restock: "Restock detected",
+    availability_live: "Availability confirmed",
+    new_listing_live: "New live listing",
+    catalogue_new: "New catalogue listing",
+    catalogue_state_change: "Catalogue state changed",
+    retailer_preparation: "Retailer preparation detected",
+    queue: "Queue readiness changed",
+    security: "Security readiness changed",
+    sold_out: "Sold out detected",
+  };
+  return known[key] || (key ? key.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase()) : null);
+}
+
+function confidenceLabel(value) {
+  if (!Number.isFinite(value)) return "Not rated";
+  const score = Math.max(0, Math.min(1, value));
+  const band = score >= 0.85 ? "High" : score >= 0.65 ? "Moderate" : "Developing";
+  return `${band} · ${Math.round(score * 100)}%`;
+}
+
+function referenceMeta(signal) {
+  const kind = rrpKindFor(signal);
+  const rrpKnown = Number.isFinite(signal?.rrpPence);
+  if (!rrpKnown) return { kind, label: "Reference", valueLabel: null, comparator: "reference" };
+  if (kind === "source_market_msrp") return { kind, label: "Official source-market MSRP", valueLabel: "Value vs reference", comparator: "reference" };
+  if (kind === "source_market_component_reference") return { kind, label: "Source-market MSRP reference", valueLabel: "Value vs reference", comparator: "reference" };
+  if (kind === "component_reference") return { kind, label: "Component RRP reference", valueLabel: "Value vs reference", comparator: "reference" };
+  if (kind === "pack_reference") return { kind, label: "Pack RRP reference", valueLabel: "Value vs reference", comparator: "reference" };
+  return { kind, label: "Official RRP", valueLabel: "Value vs RRP", comparator: "RRP" };
+}
+
+function valueLabel(signal, comparator) {
   if (!Number.isFinite(signal?.markupPercent)) return null;
-  if (signal.markupPercent < -0.5) return `${percent(signal.markupPercent)} · BELOW RRP`;
-  if (Math.abs(signal.markupPercent) <= 0.5) return `${percent(signal.markupPercent)} · AT RRP`;
-  return `${percent(signal.markupPercent)} · ABOVE RRP`;
+  const value = percent(signal.markupPercent);
+  if (!value) return null;
+  const target = comparator === "RRP" ? "RRP" : "reference";
+  if (signal.markupPercent < -0.5) return `${value} · BELOW ${target.toUpperCase()}`;
+  if (Math.abs(signal.markupPercent) <= 0.5) return `${value} · AT ${target.toUpperCase()}`;
+  return `${value} · ABOVE ${target.toUpperCase()}`;
 }
 
 function descriptionFor(signal, alertClass) {
@@ -87,7 +130,7 @@ function descriptionFor(signal, alertClass) {
   if (signal.state === "whisper") return "New market listing/SKU movement detected. Useful market intelligence, but no live-stock claim is being made yet.";
   if (preparationEcho) return "Strong retailer preparation evidence detected. This listing appears to be getting ready, but FateDrop has not confirmed that it can be purchased yet.";
   if (signal.state === "echo") return "Market readiness activity detected. This is supporting context only; no live-stock claim is being made.";
-  if (signal.state === "manifested") return "Verified market stock is live. Check the price against RRP before buying.";
+  if (signal.state === "manifested") return "Verified market stock is live. Compare the price with FateDrop’s verified reference when available.";
   return "This market offer is no longer verified purchasable. Compare other available sellers before giving up.";
 }
 
@@ -152,47 +195,48 @@ export function buildDiscordSignalMessage(signal) {
   const familyLabel = FAMILY_LABEL[alertClass] || "FATEDROP";
   const productUrl = safeHttpUrl(signal.url || signal.target?.productUrl);
   const thumbnailUrl = safeHttpUrl(signal.imageUrl);
-  const confidence = Number.isFinite(signal.confidence) ? `${Math.round(signal.confidence * 100)}%` : "Unknown";
-  const retailerSku = retailerSkuFor(signal);
   const exactCause = signalKindFor(signal);
-  const rrpKind = rrpKindFor(signal);
+  const reference = referenceMeta(signal);
   const rrpReferenceBasis = evidenceValue(signal, "rrp_reference_basis");
   const priceQuality = signal.priceQuality || evidenceValue(signal, "price_quality");
   const rrpKnown = Number.isFinite(signal.rrpPence);
   const markupKnown = Number.isFinite(signal.markupPercent);
+  const price = money(signal.pricePence);
+  const postage = money(signal.postagePence);
+  const truePrice = money(signal.deliveredPricePence);
 
   const fields = [
-    { name: "Retailer", value: short(signal.retailerName || signal.retailerId || "Unknown", 1024), inline: true },
-    { name: "Price", value: money(signal.pricePence), inline: true },
-    { name: "Stock", value: short(signal.stockStatus || "Unknown", 1024), inline: true },
+    { name: "Retailer", value: short(signal.retailerName || signal.retailerId || "Not identified", 1024), inline: true },
+    { name: "Price", value: price || "Not yet available", inline: true },
+    { name: "Availability", value: stockLabel(signal.stockStatus), inline: true },
   ];
 
-  if (priceQuality === "placeholder") fields.push({ name: "Price quality", value: "PLACEHOLDER — excluded from deal/RRP calculations", inline: false });
-  if (retailerSku) fields.push({ name: "Retailer SKU", value: short(retailerSku, 1024), inline: true });
-  fields.push({
-    name: rrpKnown && (!rrpKind || rrpKind === "official") ? "Official RRP" : "RRP / reference",
-    value: rrpKnown ? money(signal.rrpPence) : "UNKNOWN — no verified RRP/reference",
-    inline: true,
-  });
-  fields.push({
-    name: alertClass === ALERT_CLASSES.MARKET_STOCK ? "Value vs RRP" : "Vs RRP",
-    value: markupKnown ? (valueLabel(signal) || percent(signal.markupPercent)) : "UNKNOWN — no verified RRP/reference",
-    inline: true,
-  });
-  if (rrpKnown && rrpKind && rrpKind !== "official" && rrpReferenceBasis) {
-    fields.push({ name: "Reference basis", value: short(rrpReferenceBasis, 1024), inline: false });
-  }
-  fields.push({ name: "Delivery", value: Number.isFinite(signal.postagePence) ? money(signal.postagePence) : "UNKNOWN", inline: true });
-  fields.push({ name: "True Price", value: Number.isFinite(signal.deliveredPricePence) ? money(signal.deliveredPricePence) : "UNKNOWN", inline: true });
-  if (exactCause) fields.push({ name: "Signal cause", value: short(exactCause.replaceAll("_", " "), 1024), inline: true });
-  fields.push({ name: "Signal confidence", value: confidence, inline: true });
+  if (priceQuality === "placeholder") fields.push({ name: "Price quality", value: "Placeholder · excluded from price comparisons", inline: false });
 
+  if (rrpKnown) {
+    fields.push({ name: reference.label, value: money(signal.rrpPence) || "Not yet verified", inline: true });
+    if (markupKnown && reference.valueLabel) {
+      fields.push({ name: reference.valueLabel, value: valueLabel(signal, reference.comparator) || "Not yet calculable", inline: true });
+    }
+    if (reference.kind && reference.kind !== "official" && rrpReferenceBasis) {
+      fields.push({ name: "Reference basis", value: short(rrpReferenceBasis, 1024), inline: false });
+    }
+  } else {
+    fields.push({ name: "Reference", value: "Not yet verified", inline: true });
+  }
+
+  fields.push({ name: "Delivery", value: Number.isFinite(signal.postagePence) ? (signal.postagePence === 0 ? "Free" : postage) : "Not yet known", inline: true });
+  if (Number.isFinite(signal.deliveredPricePence)) fields.push({ name: "True Price", value: truePrice, inline: true });
+  if (exactCause) fields.push({ name: "Cause", value: short(causeLabel(exactCause), 1024), inline: true });
+  fields.push({ name: "Confidence", value: confidenceLabel(signal.confidence), inline: true });
+
+  const productTitle = short(signal.title || "FateDrop signal", 256);
   const embed = {
-    title: short(`${style.companion} · ${style.label} · ${familyLabel} · ${signal.title || "FateDrop signal"}`, 256),
-    description: short(descriptionFor(signal, alertClass), 4096),
+    title: short(`${style.companion} · ${style.label} · ${familyLabel}`, 256),
+    description: short(`**${productTitle}**\n${descriptionFor(signal, alertClass)}`, 4096),
     color: style.colour,
     fields,
-    footer: { text: short(`${style.companion} · FateDrop Signal · ${familyLabel} · ${signal.id || "test"}`, 2048) },
+    footer: { text: short(`${style.companion} · FateDrop Signal · ${signal.id || "test"}`, 2048) },
     timestamp: new Date((signal.detectedAt || Math.floor(Date.now() / 1000)) * 1000).toISOString(),
   };
 

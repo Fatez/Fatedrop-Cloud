@@ -40,7 +40,8 @@ test("Primary Whisper is urgency-first early drop intelligence", () => {
   assert.match(message.embeds[0].title, /WHISPER · PRIMARY \/ RRP/);
   assert.match(message.embeds[0].description, /Primary\/RRP retailer/);
   assert.equal(message.components[0].components[0].label, "Inspect early signal");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Retailer SKU")?.value, "SKU-123");
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Retailer SKU"), false);
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Availability")?.value, "Coming soon");
 });
 
 test("Primary Echo is readiness intelligence and never claims stock", () => {
@@ -55,19 +56,24 @@ test("Primary Manifested is a direct buy-now alert", () => {
   assert.match(message.embeds[0].title, /MANIFESTED · PRIMARY \/ RRP/);
   assert.match(message.embeds[0].description, /live drop/i);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Official RRP")?.value, "£44.99");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Vs RRP")?.value, "0.0% · AT RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "0.0% · AT RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "Free");
   assert.equal(message.components[0].components[0].label, "Buy now");
 });
 
-test("Market Manifested is value-first and labels premium versus RRP", () => {
+test("Market Manifested is value-first and collector-facing", () => {
   const message = buildDiscordSignalMessage(marketSignal);
   assert.match(message.embeds[0].title, /MANIFESTED · MARKET \/ INDIE/);
-  assert.match(message.embeds[0].description, /Check the price against RRP/);
+  assert.match(message.embeds[0].description, /verified reference/i);
+  assert.match(message.embeds[0].description, /Test Booster Box/);
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Retailer")?.value, "Titan Cards");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Price")?.value, "£49.99");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Availability")?.value, "In stock");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+11.1% · ABOVE RRP");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "£5.00");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "True Price")?.value, "£54.99");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Cause")?.value, "Availability confirmed");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Confidence")?.value, "High · 98%");
   assert.equal(message.components[0].components[0].label, "View market listing");
   assert.deepEqual(message.allowed_mentions, { parse: [] });
 });
@@ -84,16 +90,17 @@ test("Vanished uses family-aware alternatives wording", () => {
   assert.equal(primary.components[0].components[0].label, "View product / alternatives");
 });
 
-test("Discord shows explicit UNKNOWN RRP truth instead of silently omitting the calculation", () => {
+test("Discord collapses unavailable pricing intelligence into intentional presentation", () => {
   const message = buildDiscordSignalMessage({ ...marketSignal, rrpPence: null, markupPercent: null, postagePence: null, deliveredPricePence: null });
   assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "RRP / reference")?.value, "UNKNOWN — no verified RRP/reference");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "UNKNOWN — no verified RRP/reference");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "UNKNOWN");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "True Price")?.value, "UNKNOWN");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Reference")?.value, "Not yet verified");
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Value vs RRP" || field.name === "Value vs reference"), false);
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "Not yet known");
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "True Price"), false);
+  assert.equal(message.embeds[0].fields.some((field) => String(field.value).includes("UNKNOWN")), false);
 });
 
-test("Discord labels derived verified pack value as an RRP reference rather than official RRP", () => {
+test("Discord labels derived verified pack value as a reference rather than official RRP", () => {
   const message = buildDiscordSignalMessage({
     ...marketSignal,
     pricePence: 999,
@@ -106,9 +113,31 @@ test("Discord labels derived verified pack value as an RRP reference rather than
     ],
   });
   assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "RRP / reference")?.value, "£4.29");
-  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs RRP")?.value, "+132.9% · ABOVE RRP");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Pack RRP reference")?.value, "£4.29");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Value vs reference")?.value, "+132.9% · ABOVE REFERENCE");
   assert.equal(message.embeds[0].fields.find((field) => field.name === "Reference basis")?.value, "Verified booster-pack RRP reference for this set");
+});
+
+test("Discord labels imported MSRP as source-market reference, never UK RRP", () => {
+  const message = buildDiscordSignalMessage({
+    ...marketSignal,
+    title: "Mega Dream - Japanese Booster Pack — Sealed",
+    pricePence: 1695,
+    rrpPence: 253,
+    markupPercent: ((1695 - 253) / 253) * 100,
+    postagePence: null,
+    deliveredPricePence: null,
+    kind: "restock",
+    evidence: [
+      { kind: "rrp_value_kind", value: "source_market_msrp" },
+      { kind: "rrp_reference_basis", value: "Official Japan MSRP ¥550 per booster pack; converted to GBP using FateDrop FX snapshot 2026-08-25. This is a source-market reference, not a UK RRP." },
+    ],
+  });
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Official source-market MSRP")?.value, "£2.53");
+  assert.match(message.embeds[0].fields.find((field) => field.name === "Reference basis")?.value || "", /¥550/);
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Delivery")?.value, "Not yet known");
+  assert.equal(message.embeds[0].fields.find((field) => field.name === "Cause")?.value, "Restock detected");
+  assert.equal(message.embeds[0].fields.some((field) => field.name === "Official RRP"), false);
 });
 
 test("Discord delivery reports a missing bot token before the generic enable flag", async () => {
