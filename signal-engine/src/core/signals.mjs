@@ -4,6 +4,7 @@ import { classifyRetailerPreparation, effectivePurchasable } from "./preparation
 import { PriceQuality } from "./price-quality.mjs";
 import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
+import { resolveSignalReference } from "./signal-reference.mjs";
 
 function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
   const price = preparation?.price ?? null;
@@ -127,6 +128,8 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   if (!state || !kind) return null;
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
   const commercialPricePence = preparation.price.canonicalPricePence;
+  const reference = resolveSignalReference(currentOffer, now);
+  const rrpPence = reference.rrpPence;
   const deliveredPricePence = currentOffer.postagePence == null || commercialPricePence == null
     ? null
     : commercialPricePence + currentOffer.postagePence;
@@ -153,10 +156,10 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     priceQuality: preparation.price.priceQuality,
     priceConfidence: preparation.price.priceConfidence,
     pricePence: commercialPricePence,
-    rrpPence: currentOffer.rrpPence ?? null,
+    rrpPence,
     postagePence: currentOffer.postagePence ?? null,
     deliveredPricePence,
-    markupPercent: markupPercent(commercialPricePence, currentOffer.rrpPence),
+    markupPercent: markupPercent(commercialPricePence, rrpPence),
     stockStatus: currentStatus,
     previousStockStatus: previousStatus,
     confidence: state === SignalState.ECHO ? preparation.lifecycleConfidence : (currentOffer.stockConfidence ?? 0.5),
@@ -170,7 +173,10 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productUrl: currentOffer.url,
       query: currentOffer.title,
     },
-    evidence: signalEvidence(currentOffer.evidence, {
+    evidence: signalEvidence([
+      ...(Array.isArray(currentOffer.evidence) ? currentOffer.evidence : []),
+      ...reference.evidence,
+    ], {
       kind,
       state,
       alertClass: policy.alertClass,
