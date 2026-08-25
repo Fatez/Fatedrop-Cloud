@@ -22,42 +22,49 @@ jobs:
             -H 'content-type: application/json' \
             --data '{"mode":"verdict","query":"Chaos Rising"}' \
             'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
-            > response.json
+            > verdict.json
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            'https://fatedrop-cloud-production.up.railway.app/api/catalogue?q=Chaos%20Rising&limit=100' \
+            > catalogue.json
           python - <<'PY'
           import json
           EXPECTED = '4c7036fea9ea98894f3a1230e716835ad4304863'
-          with open('response.json', encoding='utf-8') as fh:
-              data = json.load(fh)
-          assert data.get('success') is True, data
-          runtime = data.get('runtime') or {}
+          with open('verdict.json', encoding='utf-8') as fh:
+              verdict = json.load(fh)
+          with open('catalogue.json', encoding='utf-8') as fh:
+              catalogue = json.load(fh)
+          assert verdict.get('success') is True, verdict
+          assert catalogue.get('success') is True, catalogue
+          runtime = verdict.get('runtime') or {}
           sha = runtime.get('gitCommitSha')
           print('RUNTIME_GIT_SHA=' + str(sha))
           print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
-          groups = data.get('groups') or []
-          chaos = [g for g in groups if 'chaos rising' in str(g.get('title','')).lower()]
-          print('CHAOS_RISING_GROUPS=' + str(len(chaos)))
-          for group in chaos:
-              print('CHAOS_RISING_REFERENCE=' + json.dumps({
-                  'id': group.get('id'),
-                  'title': group.get('title'),
-                  'rrpKind': group.get('rrpKind'),
-                  'rrpGbp': group.get('rrpGbp'),
-                  'rrpReferenceBasis': group.get('rrpReferenceBasis'),
-                  'unitCount': group.get('unitCount'),
-                  'unitKind': group.get('unitKind'),
-                  'offers': [
-                      {
-                          'retailer': o.get('retailer'),
-                          'price': o.get('price'),
-                          'rrpGbp': o.get('rrpGbp'),
-                      }
-                      for o in (group.get('offers') or [])
-                  ],
-              }, sort_keys=True))
           if sha != EXPECTED:
               raise SystemExit(f'Railway not on expected SHA yet: {sha}')
-          matched = [g for g in chaos if abs(float(g.get('rrpGbp') or 0) - 151.99) < 0.01]
-          if not matched:
-              raise SystemExit('Chaos Rising £151.99 verified RRP not resolved by live runtime')
+
+          products = catalogue.get('products') or []
+          exact = [p for p in products
+                   if str(p.get('retailer') or '').lower() == 'double sleeved'
+                   and 'chaos rising' in str(p.get('title') or '').lower()
+                   and 'booster box' in str(p.get('title') or '').lower()]
+          print('DOUBLE_SLEEVED_CHAOS_BOX_MATCHES=' + str(len(exact)))
+          for product in exact:
+              print('CHAOS_RISING_CATALOGUE_REFERENCE=' + json.dumps({
+                  'id': product.get('id'),
+                  'title': product.get('title'),
+                  'retailer': product.get('retailer'),
+                  'price': product.get('price'),
+                  'availability': product.get('availability'),
+                  'rrpGbp': product.get('rrpGbp'),
+                  'rrpSource': product.get('rrpSource'),
+                  'rrpKind': product.get('rrpKind'),
+                  'rrpReferenceBasis': product.get('rrpReferenceBasis'),
+              }, sort_keys=True))
+          if not exact:
+              raise SystemExit('Exact Double Sleeved Chaos Rising booster box not found in live catalogue')
+          if not any(abs(float(p.get('rrpGbp') or 0) - 151.99) < 0.01 for p in exact):
+              raise SystemExit('Exact Double Sleeved Chaos Rising box did not resolve £151.99 verified RRP')
           print('CHAOS_RISING_RRP_PROOF=PASS')
           PY
