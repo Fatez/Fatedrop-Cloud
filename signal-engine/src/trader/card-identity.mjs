@@ -16,13 +16,16 @@ function requireText(value, field) {
 }
 
 function normaliseKeyPart(value, field) {
-  return requireText(value, field)
+  const normalized = requireText(value, field)
     .normalize('NFKC')
     .toLowerCase()
-    .replace(/\s+/g, ' ')
-    .replace(/[^a-z0-9._:+/ -]/g, '')
-    .trim()
     .replace(/\s+/g, '-');
+
+  if (!/^[a-z0-9._+/=-]+$/.test(normalized)) {
+    throw new TypeError(`${field} contains unsupported identity characters`);
+  }
+
+  return normalized;
 }
 
 export function makeCanonicalCardKey(input) {
@@ -74,6 +77,9 @@ export function normaliseSourceCardCandidate(candidate) {
   };
 
   const canonicalKey = makeCanonicalCardKey(identityInput);
+  const sourceVariantKey = candidate.sourceVariantKey
+    ? normaliseKeyPart(candidate.sourceVariantKey, 'sourceVariantKey')
+    : normaliseKeyPart(identityInput.variantCode, 'variantCode');
 
   return Object.freeze({
     fateCardId: makeFateCardId(canonicalKey),
@@ -81,6 +87,7 @@ export function normaliseSourceCardCandidate(candidate) {
     verificationStatus: 'staged',
     sourceName,
     sourceRecordId,
+    sourceVariantKey,
     sourceUrl: candidate.sourceUrl ? requireText(candidate.sourceUrl, 'sourceUrl') : null,
     sourceVersion: candidate.sourceVersion ? String(candidate.sourceVersion) : null,
     name,
