@@ -26,9 +26,8 @@ function evidenceKinds(evidence = []) {
   return new Set((Array.isArray(evidence) ? evidence : []).map((entry) => String(entry?.kind || "").trim()).filter(Boolean));
 }
 
-function evidenceValue(evidence = [], kind) {
-  const entry = (Array.isArray(evidence) ? evidence : []).find((item) => item?.kind === kind && item?.value != null);
-  return entry?.value ?? null;
+function evidenceEntry(evidence = [], kind) {
+  return (Array.isArray(evidence) ? evidence : []).find((item) => item?.kind === kind && item?.value != null) ?? null;
 }
 
 function hasStructuredCatalogueEvidence(kinds) {
@@ -72,8 +71,12 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const placeholderResolved = Boolean(previousOffer)
     && previousPrice.priceQuality === PriceQuality.PLACEHOLDER
     && price.priceQuality === PriceQuality.VALID;
-  const clusterId = evidenceValue(evidence, "retailer_preparation_cluster");
-  const clusterStrong = Boolean(clusterId);
+  const cluster = evidenceEntry(evidence, "retailer_preparation_cluster");
+  const clusterId = cluster?.value ?? null;
+  const clusterMember = Boolean(clusterId);
+  const clusterLeader = clusterMember && cluster?.clusterLeader === true;
+  const clusterStrong = clusterLeader;
+  const suppressStandaloneLifecycle = clusterMember && !clusterLeader;
   const metadataKinds = [...kinds].filter((kind) => PREPARATION_METADATA_EVIDENCE.has(kind));
   const notConfirmedPurchasable = !effectivePurchasable(currentOffer);
 
@@ -87,7 +90,8 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   score += Math.min(3, metadataKinds.length);
 
   const corroborated = repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
-  const echoEligible = notConfirmedPurchasable
+  const echoEligible = !suppressStandaloneLifecycle
+    && notConfirmedPurchasable
     && !purchaseVerified
     && identityValid
     && structuredCatalogue
@@ -98,6 +102,10 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
 
   return {
     echoEligible,
+    suppressStandaloneLifecycle,
+    clusterMember,
+    clusterLeader,
+    clusterId: clusterId == null ? null : String(clusterId),
     score,
     lifecycleConfidence,
     observationConfidence: Number.isFinite(currentOffer?.stockConfidence) ? currentOffer.stockConfidence : 0.5,
@@ -110,7 +118,8 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       { kind: "retailer_preparation_structured_catalogue", value: structuredCatalogue ? "present" : "absent", observedAt: now },
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
       ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
-      ...(clusterStrong ? [{ kind: "retailer_preparation_cluster", value: String(clusterId), observedAt: now }] : []),
+      ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
+      ...(suppressStandaloneLifecycle ? [{ kind: "retailer_preparation_cluster_member", value: String(clusterId), observedAt: now }] : []),
       ...metadataKinds.map((kind) => ({ kind: "retailer_preparation_metadata", value: kind, observedAt: now })),
     ],
   };
