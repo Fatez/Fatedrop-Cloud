@@ -74,7 +74,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const cluster = evidenceEntry(evidence, "retailer_preparation_cluster");
   const clusterId = cluster?.value ?? null;
   const clusterMember = Boolean(clusterId);
-  const clusterLeader = clusterMember && cluster?.clusterLeader === true;
+  const clusterLeader = clusterMember && (cluster?.clusterLeader === true || cluster?.leaderOfferId === currentOffer?.offerId);
   const clusterStrong = clusterLeader;
   const suppressStandaloneLifecycle = clusterMember && !clusterLeader;
   const metadataKinds = [...kinds].filter((kind) => PREPARATION_METADATA_EVIDENCE.has(kind));
