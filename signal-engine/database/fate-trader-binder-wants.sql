@@ -2,7 +2,7 @@
 -- Applied after fate-trader-collection.sql.
 --
 -- Ownership remains authoritative in fatedrop_collection_items. Binder rows add
--- trading intent and state only; they never mint or duplicate owned quantity.
+-- trading intent and state only. They never mint or duplicate owned quantity.
 
 CREATE TABLE IF NOT EXISTS fatedrop_trade_binders (
   id TEXT PRIMARY KEY,
@@ -80,7 +80,7 @@ CREATE INDEX IF NOT EXISTS fatedrop_want_constraints_trade_mode_idx
   ON fatedrop_want_constraints(local_trade_allowed, postal_trade_allowed);
 
 -- Append-only binder audit. collection_item_id is retained in payload via the
--- binder item and ownership history; state changes never silently overwrite the
+-- binder item and ownership history. State changes never silently overwrite the
 -- previous trading intent.
 CREATE TABLE IF NOT EXISTS fatedrop_trade_binder_events (
   id TEXT PRIMARY KEY,
