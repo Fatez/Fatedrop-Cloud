@@ -1,4 +1,5 @@
 import { env } from "../config/env.mjs";
+import { safeRetailerFetch } from "../security/outbound-url.mjs";
 import { currentRetailerScanSignal, retailerScanDeadlineError } from "./scan-deadline.mjs";
 
 const cache = new Map();
@@ -207,7 +208,7 @@ export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs, op
     }
     if (previous.etag) headers["if-none-match"] = previous.etag;
     if (previous.lastModified) headers["if-modified-since"] = previous.lastModified;
-    const response = await fetch(url, { headers, redirect: "follow", signal: controller.signal });
+    const response = await safeRetailerFetch(url, { headers, signal: controller.signal });
     if (response.status === 304 && previous.html) return { html: previous.html, status: 304, unchanged: true };
     assertAllowedResponse(response, "catalogue");
     const contentType = response.headers.get("content-type") || "";
@@ -243,7 +244,7 @@ export async function fetchStructuredJson(url) {
   const timer = setTimeout(() => controller.abort(), env.fetchTimeoutMs);
   try {
     throwScanAbort(linked.signal);
-    const response = await fetch(url, { headers: requestHeaders("application/json"), redirect: "follow", signal: controller.signal });
+    const response = await safeRetailerFetch(url, { headers: requestHeaders("application/json"), signal: controller.signal });
     assertAllowedResponse(response, "structured catalogue");
     const contentType = response.headers.get("content-type") || "";
     if (!contentType.includes("json") && !contentType.includes("text/plain")) throw new Error(`Unexpected structured catalogue content type: ${contentType}`);
