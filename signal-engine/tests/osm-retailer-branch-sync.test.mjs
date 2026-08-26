@@ -95,6 +95,25 @@ test("OSM sync persists only new provider IDs and exposes attribution and retail
   assert.match(result.truthRule, /never establishes Pokémon stock or Local Manifested/i);
 });
 
+test("OSM sync reports deferred branches when a cycle save cap is reached", async () => {
+  const saved = [];
+  const store = {
+    async listRetailerLocations() { return []; },
+    async upsertRetailerLocations(rows) { saved.push(...rows); return { saved: rows.length }; },
+  };
+  const result = await runOsmRetailerBranchSync({
+    store,
+    fetchImpl: async () => overpassResponse(),
+    saveLimit: 2,
+    now: Date.parse("2026-08-26T14:00:00Z"),
+  });
+  assert.equal(result.accepted, 4);
+  assert.equal(result.attempted, 2);
+  assert.equal(result.deferred, 2);
+  assert.equal(result.saved, 2);
+  assert.equal(saved.length, 2);
+});
+
 test("OSM provider failure is fail-closed and does not synthesize branches", async () => {
   const store = {
     async listRetailerLocations() { return []; },
