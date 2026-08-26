@@ -90,11 +90,16 @@ export function summarizeBetaRuntimeReadiness({ discord, hostedFateFind, signalN
   const eligibleFinds = numeric(hostedFateFind?.eligibleFinds);
   const webBaselineReady = eligibleFinds === 0 || numeric(hostedFateFind?.webReadyFinds) === eligibleFinds;
   const notificationQueueReady = hostedFateFind?.notificationReadiness?.ready !== false;
+  // The Cloud -> Web snapshot is now a telemetry-only mirror. If it has been
+  // deliberately configured, a stale/broken mirror is still a useful release
+  // warning; but absence of optional telemetry config must not make otherwise
+  // healthy canonical Cloud/App/Web contracts fail the beta infrastructure gate.
+  const websiteSnapshotReady = websiteSnapshot?.ready === true || websiteSnapshot?.configured === false;
   const infrastructureReady = Boolean(discord?.ready)
     && Boolean(hostedFateFind?.configured)
     && webBaselineReady
     && notificationQueueReady
-    && websiteSnapshot?.ready === true;
+    && websiteSnapshotReady;
   const hostedActivationReady = eligibleFinds === 0 || hostedFateFind?.enabled === true;
   const signalNetworkReady = signalNetwork?.ready === true;
   return {
