@@ -5,6 +5,10 @@ import {
   localStockCounts,
 } from "./local-stock-intelligence.mjs";
 import { persistMatchedRetailerLocations } from "./local-radar-branch-persistence.mjs";
+import {
+  listCanonicalRetailerLocationShops,
+  mergeCanonicalRetailerShops,
+} from "./canonical-retailer-locations.mjs";
 import { refreshSmythsLocalAvailability } from "./smyths-local-availability.mjs";
 
 const TCG_LABELS = Object.freeze({
@@ -369,6 +373,32 @@ export async function buildLocalRadar({
     ? await persistMatchedRetailerLocations(store, discoveredShops)
     : { status: "skipped", saved: 0, rejected: [], received: 0 };
 
+  let canonicalBranchResult = {
+    provider: "fatedrop_retailer_locations",
+    status: "skipped",
+    totalKnown: 0,
+    shops: [],
+  };
+  if (requested.has("shops")) {
+    try {
+      canonicalBranchResult = await listCanonicalRetailerLocationShops(store, {
+        origin,
+        postcode,
+        radiusMiles: safeRadius,
+        availableByRetailer,
+      });
+    } catch (error) {
+      canonicalBranchResult = {
+        provider: "fatedrop_retailer_locations",
+        status: "unavailable",
+        totalKnown: 0,
+        shops: [],
+        error: String(error?.message || error),
+      };
+    }
+  }
+  const radarShops = mergeCanonicalRetailerShops(discoveredShops, canonicalBranchResult.shops);
+
   let smythsSourceResult = {
     provider: "smyths_official_store_availability",
     status: "skipped",
@@ -380,7 +410,7 @@ export async function buildLocalRadar({
     try {
       smythsSourceResult = await smythsAvailabilityRefresh({
         store,
-        shops: discoveredShops,
+        shops: radarShops,
         latitude: origin.latitude,
         longitude: origin.longitude,
       });
@@ -408,7 +438,7 @@ export async function buildLocalRadar({
     }
   }
 
-  const shops = enrichShopsWithLocalStock(discoveredShops, localStockObservations)
+  const shops = enrichShopsWithLocalStock(radarShops, localStockObservations)
     .filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius);
   const stockCounts = localStockCounts(shops);
 
@@ -421,6 +451,12 @@ export async function buildLocalRadar({
       : null;
     return { ...event, itemType: "event", distanceMiles: distance };
   }).filter((event) => event.distanceMiles == null || event.distanceMiles <= safeRadius);
+
+  const branchIdentityStatus = canonicalBranchResult.status === "unavailable"
+    ? "unavailable"
+    : (canonicalBranchResult.totalKnown > 0 || branchIdentityResult.saved > 0)
+      ? "ok"
+      : branchIdentityResult.status;
 
   return {
     success: true,
@@ -439,8 +475,10 @@ export async function buildLocalRadar({
       shops: { provider: shopResult.provider, status: shopResult.status },
       branchIdentity: {
         provider: "fatedrop_retailer_locations",
-        status: branchIdentityResult.status,
+        status: branchIdentityStatus,
         saved: branchIdentityResult.saved,
+        known: canonicalBranchResult.totalKnown,
+        nearby: canonicalBranchResult.shops.length,
         rejected: branchIdentityResult.rejected.length,
       },
       smythsLocalStock: smythsSourceResult,
@@ -459,6 +497,7 @@ export async function buildLocalRadar({
     disclaimers: [
       "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
       "Matched connected retailer branches may be persisted as stable location identities; this does not verify branch stock.",
+      "Previously persisted canonical branches remain discoverable when a live location provider is unavailable; branch presence still does not verify stock.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
       "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
       "Smyths branch stock uses the retailer's ordinary public collection availability route only; protected or rate-limited responses fail closed and are not bypassed.",
