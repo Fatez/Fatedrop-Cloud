@@ -1,0 +1,190 @@
+name: Temp Local Radar curated intel patch v2
+
+on:
+  push:
+    branches:
+      - feat/local-radar-curated-intel-20260826
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/local-radar-curated-intel-20260826
+      - name: Patch Local Radar truth model
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('signal-engine/src/encounters/local-stock-store.mjs')
+          s = p.read_text()
+          old = '''  if (!LIFECYCLE.has(requestedKind)) throw new Error("Local stock observation requires canonical whisper/echo/manifested/vanished kind");
+  if (!retailerId) throw new Error("Local stock observation requires retailerId");
+  if (!locationId) throw new Error("Local stock observation requires locationId");
+  if (!sourceType) throw new Error("Local stock observation requires evidence.sourceType");
+
+  if (requestedKind === "manifested") {
+    if (!productIdentityId) throw new Error("Local Manifested requires canonical product identity");
+'''
+          if old in s:
+            s = s.replace(old, '''  const localIntel = evidence.localIntel === true || evidence.local_intel === true;
+  const scope = text(evidence.scope ?? evidence.localScope ?? evidence.local_scope)?.toLowerCase() || null;
+  const chainIntel = localIntel && scope === "retailer_chain";
+  if (!LIFECYCLE.has(requestedKind)) throw new Error("Local stock observation requires canonical whisper/echo/manifested/vanished kind");
+  if (!retailerId) throw new Error("Local stock observation requires retailerId");
+  if (!locationId && !chainIntel) throw new Error("Local stock observation requires locationId unless it is explicitly unconfirmed retailer-chain intel");
+  if (!sourceType) throw new Error("Local stock observation requires evidence.sourceType");
+  if (chainIntel && !["whisper", "echo"].includes(requestedKind)) throw new Error("Unconfirmed retailer-chain intel can only be Whisper or Echo");
+
+  if (requestedKind === "manifested") {
+    if (!locationId) throw new Error("Local Manifested requires an exact retailer location");
+    if (!productIdentityId) throw new Error("Local Manifested requires canonical product identity");
+''', 1)
+          old = '''  if (requestedKind === "vanished") {
+    if (!productIdentityId) throw new Error("Local Vanished requires canonical product identity");
+'''
+          if old in s:
+            s = s.replace(old, '''  if (requestedKind === "vanished") {
+    if (!locationId) throw new Error("Local Vanished requires an exact retailer location");
+    if (!productIdentityId) throw new Error("Local Vanished requires canonical product identity");
+''', 1)
+          old = '''      evidenceLevel,
+      sourceType,
+      ...(stockStatus ? { stockStatus } : {}),
+'''
+          if old in s:
+            s = s.replace(old, '''      evidenceLevel,
+      sourceType,
+      ...(chainIntel ? { localIntel: true, scope: "retailer_chain", advisory: true } : {}),
+      ...(stockStatus ? { stockStatus } : {}),
+''', 1)
+          old = '''      const { rows: locationRows } = await client.query("SELECT retailer_id FROM fatedrop_retailer_locations WHERE id=$1", [observation.locationId]);
+      if (!locationRows[0]) { rejected.push({ id: observation.id, reason: "Unknown retailer location" }); continue; }
+      if (locationRows[0].retailer_id !== observation.retailerId) { rejected.push({ id: observation.id, reason: "Retailer/location identity mismatch" }); continue; }
+      if (observation.productIdentityId) {
+'''
+          if old in s:
+            s = s.replace(old, '''      if (observation.locationId) {
+        const { rows: locationRows } = await client.query("SELECT retailer_id FROM fatedrop_retailer_locations WHERE id=$1", [observation.locationId]);
+        if (!locationRows[0]) { rejected.push({ id: observation.id, reason: "Unknown retailer location" }); continue; }
+        if (locationRows[0].retailer_id !== observation.retailerId) { rejected.push({ id: observation.id, reason: "Retailer/location identity mismatch" }); continue; }
+      } else {
+        const validChainIntel = ["whisper", "echo"].includes(observation.kind)
+          && observation.evidence?.localIntel === true
+          && observation.evidence?.scope === "retailer_chain";
+        if (!validChainIntel) { rejected.push({ id: observation.id, reason: "Branchless local intelligence must be explicitly advisory retailer-chain Whisper/Echo evidence" }); continue; }
+        const { rows: retailerRows } = await client.query("SELECT 1 FROM fatedrop_retailer_registry WHERE retailer_id=$1", [observation.retailerId]);
+        if (!retailerRows.length) { rejected.push({ id: observation.id, reason: "Unknown canonical retailer ID" }); continue; }
+      }
+      if (observation.productIdentityId) {
+''', 1)
+          p.write_text(s)
+
+          p = Path('signal-engine/src/encounters/local-stock-intelligence.mjs')
+          s = p.read_text()
+          s = s.replace('''  community_report: 30 * 60 * 1000,
+  official_store_social: 12 * 60 * 60 * 1000,
+''', '''  community_report: 30 * 60 * 1000,
+  curated_manual: 72 * 60 * 60 * 1000,
+  retailer_staff_report: 48 * 60 * 60 * 1000,
+  official_store_social: 12 * 60 * 60 * 1000,
+''', 1)
+          s = s.replace('''function asEpochMs(value) {
+  const parsed = number(value);
+  if (parsed == null) return null;
+  return parsed > 10_000_000_000 ? parsed : parsed * 1000;
+}
+''', '''function asEpochMs(value) {
+  const parsed = number(value);
+  if (parsed != null) return parsed > 10_000_000_000 ? parsed : parsed * 1000;
+  if (typeof value === "string") {
+    const parsedDate = Date.parse(value);
+    if (Number.isFinite(parsedDate)) return parsedDate;
+  }
+  return null;
+}
+''', 1)
+          s = s.replace('''    WHERE se.location_id IS NOT NULL
+      AND se.kind = ANY($1::text[])
+''', '''    WHERE (
+        se.location_id IS NOT NULL
+        OR (se.location_id IS NULL AND COALESCE(se.evidence_json->>'localIntel','false')='true' AND se.evidence_json->>'scope'='retailer_chain')
+      )
+      AND se.kind = ANY($1::text[])
+''', 1)
+          s = s.replace('''function sameBranch(shop, observation) {
+  if (shop.provider === observation.locationProvider && shop.providerPlaceId && observation.locationProviderId) {
+''', '''function sameBranch(shop, observation) {
+  if (!observation.locationId && observation.evidence?.localIntel === true && observation.evidence?.scope === "retailer_chain") {
+    return Boolean(shop.retailerId && observation.retailerId && shop.retailerId === observation.retailerId);
+  }
+  if (shop.provider === observation.locationProvider && shop.providerPlaceId && observation.locationProviderId) {
+''', 1)
+          s = s.replace('''      orphanVanished: item.orphanVanished,
+      value: item.value,
+    }));
+''', '''      orphanVanished: item.orphanVanished,
+      advisory: item.evidence?.advisory === true || item.evidence?.localIntel === true,
+      scope: text(item.evidence?.scope),
+      expectedFrom: text(item.evidence?.expectedFrom || item.evidence?.expected_from),
+      expectedTo: text(item.evidence?.expectedTo || item.evidence?.expected_to),
+      note: text(item.evidence?.note),
+      sourceLabel: text(item.evidence?.sourceLabel || item.evidence?.source_label),
+      value: item.value,
+    }));
+''', 1)
+          s = s.replace('''        orphanVanished: strongest.orphanVanished,
+        verifiedBranchStock: strongest.kind === "manifested"
+''', '''        orphanVanished: strongest.orphanVanished,
+        advisory: strongest.evidence?.advisory === true || strongest.evidence?.localIntel === true,
+        scope: text(strongest.evidence?.scope),
+        expectedFrom: text(strongest.evidence?.expectedFrom || strongest.evidence?.expected_from),
+        expectedTo: text(strongest.evidence?.expectedTo || strongest.evidence?.expected_to),
+        note: text(strongest.evidence?.note),
+        sourceLabel: text(strongest.evidence?.sourceLabel || strongest.evidence?.source_label),
+        verifiedBranchStock: strongest.kind === "manifested"
+''', 1)
+          p.write_text(s)
+
+          p = Path('signal-engine/src/encounters/local-radar.mjs')
+          s = p.read_text()
+          s = s.replace('''  const queries = [...new Set([
+    label ? `${label} trading card shop` : "trading card shop",
+    label ? `${label} TCG shop` : "TCG shop",
+    "collectible card game store",
+  ])];
+''', '''  const pokemonPhysicalRetailerQueries = (!tcg || String(tcg).toLowerCase() === "pokemon") ? [
+    "Pokemon cards Smyths Toys",
+    "Pokemon cards The Entertainer",
+    "Pokemon cards Tesco",
+    "Pokemon cards Argos",
+    "Pokemon cards Sainsburys",
+  ] : [];
+  const queries = [...new Set([
+    label ? `${label} trading card shop` : "trading card shop",
+    label ? `${label} TCG shop` : "TCG shop",
+    "collectible card game store",
+    ...pokemonPhysicalRetailerQueries,
+  ])];
+''', 1)
+          s = s.replace('''      "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
+      "Event details can change; check the organiser or ticket source before travelling.",
+''', '''      "Curated manual or community intelligence is advisory only: it may create a retailer-wide Incoming Watch, but never verified branch stock without exact official branch evidence.",
+      "Expected stock windows are estimates from their stated evidence and should be checked with the store before travelling.",
+      "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
+      "Event details can change; check the organiser or ticket source before travelling.",
+''', 1)
+          p.write_text(s)
+          PY
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add signal-engine/src/encounters/local-stock-store.mjs signal-engine/src/encounters/local-stock-intelligence.mjs signal-engine/src/encounters/local-radar.mjs
+          git commit -m "Apply curated Local Radar intel patch"
+          git push origin HEAD:feat/local-radar-curated-intel-20260826
