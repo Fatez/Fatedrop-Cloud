@@ -20,20 +20,30 @@ function explicitlyConfigured(name) {
   return Object.prototype.hasOwnProperty.call(process.env, name) && String(process.env[name] ?? "").trim() !== "";
 }
 
-export function defaultHostedFateFindEnabled({ railwayEnvironmentName = "", store = "file", databaseUrl = "" } = {}) {
+export function defaultProductionPostgresFeatureEnabled({ railwayEnvironmentName = "", store = "file", databaseUrl = "" } = {}) {
   return String(railwayEnvironmentName).trim().toLowerCase() === "production"
     && store === "postgres"
     && Boolean(String(databaseUrl || "").trim());
 }
 
+export function defaultHostedFateFindEnabled(options = {}) {
+  return defaultProductionPostgresFeatureEnabled(options);
+}
+
+export function defaultRetailerRegistryEnabled(options = {}) {
+  return defaultProductionPostgresFeatureEnabled(options);
+}
+
 const signalStore = process.env.FATEDROP_SIGNAL_STORE || "file";
 const databaseUrl = process.env.DATABASE_URL || "";
-const hostedFateFindExplicitlyConfigured = explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED");
-const hostedFateFindProductionDefault = defaultHostedFateFindEnabled({
+const productionPostgresDefaults = {
   railwayEnvironmentName: process.env.RAILWAY_ENVIRONMENT_NAME || "",
   store: signalStore,
   databaseUrl,
-});
+};
+const hostedFateFindExplicitlyConfigured = explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED");
+const hostedFateFindProductionDefault = defaultHostedFateFindEnabled(productionPostgresDefaults);
+const retailerRegistryProductionDefault = defaultRetailerRegistryEnabled(productionPostgresDefaults);
 
 const amazonCreatorsClientId = process.env.AMAZON_CREATORS_CLIENT_ID || "";
 const amazonCreatorsClientSecret = process.env.AMAZON_CREATORS_CLIENT_SECRET || "";
@@ -68,7 +78,7 @@ export const env = {
   store: signalStore,
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
   databaseUrl,
-  retailerRegistryEnabled: bool("FATEDROP_RETAILER_REGISTRY_ENABLED", false),
+  retailerRegistryEnabled: bool("FATEDROP_RETAILER_REGISTRY_ENABLED", retailerRegistryProductionDefault),
   scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
   scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
   scanConcurrency: Math.max(1, Math.min(4, int("FATEDROP_SCAN_CONCURRENCY", 2))),
