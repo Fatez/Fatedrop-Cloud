@@ -293,7 +293,13 @@ export async function listVerifiedCardsFromStore(store, {
     JOIN fatedrop_card_sets s ON s.id=c.set_id
     JOIN fatedrop_card_series ser ON ser.id=c.series_id
     JOIN fatedrop_tcgs t ON t.id=c.tcg_id
-    WHERE ${conditions.join(' AND ')} ORDER BY c.collector_number,c.variant_code LIMIT $${values.length}`, values);
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY
+      CASE WHEN c.collector_number ~ '^[0-9]+$' THEN 0 ELSE 1 END,
+      CASE WHEN c.collector_number ~ '^[0-9]+$' THEN c.collector_number::numeric END NULLS LAST,
+      LOWER(c.collector_number),
+      c.variant_code
+    LIMIT $${values.length}`, values);
   return rows.map(dbCard);
 }
 
