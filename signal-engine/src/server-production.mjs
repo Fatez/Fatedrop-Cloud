@@ -1,4 +1,5 @@
 import { env } from "./config/env.mjs";
+import { runAsdaBranchDensitySync } from "./encounters/asda-branch-density-sync.mjs";
 import { reconcileCuratedIncomingIntel } from "./encounters/curated-incoming-intel-reconcile.mjs";
 import { ensureCuratedRetailerBranchSeeds } from "./encounters/curated-retailer-branch-seeds.mjs";
 import { runCuratedRetailerBranchSync } from "./encounters/curated-retailer-branch-sync.mjs";
@@ -21,6 +22,8 @@ const CURATED_LOCAL_INTEL_INTERVAL_MS = 30 * 60 * 1000;
 const CURATED_LOCAL_INTEL_START_DELAY_MS = 90 * 1000;
 const TOTAL_CARDS_LOCAL_INTERVAL_MS = 5 * 60 * 1000;
 const TOTAL_CARDS_LOCAL_START_DELAY_MS = 120 * 1000;
+const ASDA_DENSITY_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const ASDA_DENSITY_START_DELAY_MS = 180 * 1000;
 const localBranchStore = createStore();
 let qualifyingRetailerCandidates = false;
 let syncingCuratedBranches = false;
@@ -28,6 +31,7 @@ let syncingLocalBranches = false;
 let syncingOsmBranches = false;
 let reconcilingCuratedLocalIntel = false;
 let reconcilingTotalCardsLocal = false;
+let syncingAsdaDensity = false;
 
 async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
@@ -177,6 +181,30 @@ async function reconcileTotalCardsLocal() {
   }
 }
 
+async function syncAsdaDensity() {
+  if (syncingAsdaDensity || !env.databaseUrl) return;
+  syncingAsdaDensity = true;
+  try {
+    const outcome = await runAsdaBranchDensitySync({ store: localBranchStore, limit: 600, concurrency: 8 });
+    console.log("[signal-engine] Local Radar ASDA density sync", {
+      provider: outcome.provider,
+      status: outcome.status,
+      discovered: outcome.discovered,
+      alreadyKnown: outcome.alreadyKnown,
+      attempted: outcome.attempted,
+      accepted: outcome.accepted,
+      saved: outcome.saved,
+      rejected: outcome.rejected,
+      concurrency: outcome.concurrency,
+      error: outcome.error || null,
+    });
+  } catch (error) {
+    console.error("[signal-engine] Local Radar ASDA density sync failed", { error: String(error?.message || error) });
+  } finally {
+    syncingAsdaDensity = false;
+  }
+}
+
 if (env.databaseUrl) {
   const qualificationTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
   qualificationTimer.unref();
@@ -201,4 +229,8 @@ if (env.databaseUrl) {
   const totalCardsLocalTimer = setTimeout(() => { void reconcileTotalCardsLocal(); }, TOTAL_CARDS_LOCAL_START_DELAY_MS);
   totalCardsLocalTimer.unref();
   setInterval(reconcileTotalCardsLocal, TOTAL_CARDS_LOCAL_INTERVAL_MS).unref();
+
+  const asdaDensityTimer = setTimeout(() => { void syncAsdaDensity(); }, ASDA_DENSITY_START_DELAY_MS);
+  asdaDensityTimer.unref();
+  setInterval(syncAsdaDensity, ASDA_DENSITY_INTERVAL_MS).unref();
 }
