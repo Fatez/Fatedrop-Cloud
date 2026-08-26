@@ -40,6 +40,8 @@ const VERIFIED_AVAILABILITY_STATES = new Set([
   "on_shelf",
 ]);
 
+export const EXPECTED_STOCK_DISCLAIMER = "Expected stock information is indicative only and is not guaranteed. Availability, delivery timing and quantities may vary by store. We recommend checking with the retailer before travelling.";
+
 function text(value) {
   const result = String(value ?? "").trim();
   return result || null;
@@ -321,6 +323,54 @@ function resolveCurrentProductObservations(branchObservations, now) {
   return resolved;
 }
 
+function expectedFields(item) {
+  return {
+    expectedFrom: text(item.evidence?.expectedFrom || item.evidence?.expected_from),
+    expectedTo: text(item.evidence?.expectedTo || item.evidence?.expected_to),
+    expectedLabel: text(item.evidence?.expectedLabel || item.evidence?.expected_label),
+  };
+}
+
+function isVerifiedBranchStock(item) {
+  return item.kind === "manifested"
+    && OFFICIAL_EVIDENCE_LEVELS.has(item.evidenceLevel)
+    && Boolean(item.productIdentityId)
+    && ["in_stock", "low_stock"].includes(item.localStockStatus);
+}
+
+function consumerLocalState(item) {
+  if (isVerifiedBranchStock(item)) return "confirmed";
+  const expected = expectedFields(item);
+  if (item.localStockStatus === "incoming_watch" && (expected.expectedFrom || expected.expectedTo || expected.expectedLabel)) return "expected";
+  return "unknown";
+}
+
+function localAvailabilityProjection(products) {
+  const confirmed = products.find((item) => item.localState === "confirmed") || null;
+  const expected = products.find((item) => item.localState === "expected") || null;
+  return {
+    status: confirmed ? "confirmed" : expected ? "expected" : "unknown",
+    expected: expected ? {
+      title: expected.title,
+      productIdentityId: expected.productIdentityId,
+      expectedFrom: expected.expectedFrom,
+      expectedTo: expected.expectedTo,
+      expectedLabel: expected.expectedLabel,
+      advisory: true,
+      sourceLabel: expected.sourceLabel,
+      sourceUrl: expected.sourceUrl,
+    } : null,
+    confirmed: confirmed ? {
+      title: confirmed.title,
+      productIdentityId: confirmed.productIdentityId,
+      observedAt: confirmed.observedAt,
+      sourceLabel: confirmed.sourceLabel,
+      sourceUrl: confirmed.sourceUrl,
+    } : null,
+    disclaimer: expected ? EXPECTED_STOCK_DISCLAIMER : null,
+  };
+}
+
 export function enrichShopsWithLocalStock(shops = [], observations = [], now = Date.now()) {
   const active = (observations || [])
     .map(normalizeObservation)
@@ -336,6 +386,12 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
         localStockStatus: shop.localStockStatus || "unknown",
         localStockEvidence: null,
         localStockProducts: [],
+        localAvailability: {
+          status: "unknown",
+          expected: null,
+          confirmed: null,
+          disclaimer: null,
+        },
       };
     }
 
@@ -344,31 +400,35 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       return rank || b.effectiveConfidence - a.effectiveConfidence || b.occurredAt - a.occurredAt;
     });
     const strongest = currentProducts[0];
-    const products = currentProducts.slice(0, 8).map((item) => ({
-      productIdentityId: item.productIdentityId,
-      title: item.productTitle || "Trading card product",
-      lifecycleState: item.kind,
-      status: item.localStockStatus,
-      observedAt: new Date(item.occurredAt).toISOString(),
-      expiresAt: new Date(item.expiresAt).toISOString(),
-      evidenceLevel: item.evidenceLevel,
-      confidence: item.effectiveConfidence,
-      sourceType: item.sourceType,
-      sourceUrl: item.sourceUrl,
-      freshnessAgeMinutes: item.freshnessAgeMinutes,
-      corroborationCount: item.corroborationCount,
-      sourceDiversityCount: item.sourceDiversityCount,
-      contradictionCount: item.contradictionCount,
-      orphanVanished: item.orphanVanished,
-      advisory: item.evidence?.advisory === true || item.evidence?.localIntel === true,
-      scope: text(item.evidence?.scope),
-      expectedFrom: text(item.evidence?.expectedFrom || item.evidence?.expected_from),
-      expectedTo: text(item.evidence?.expectedTo || item.evidence?.expected_to),
-      note: text(item.evidence?.note),
-      sourceLabel: text(item.evidence?.sourceLabel || item.evidence?.source_label),
-      value: item.value,
-    }));
+    const products = currentProducts.slice(0, 8).map((item) => {
+      const expected = expectedFields(item);
+      return {
+        productIdentityId: item.productIdentityId,
+        title: item.productTitle || "Trading card product",
+        lifecycleState: item.kind,
+        status: item.localStockStatus,
+        localState: consumerLocalState(item),
+        observedAt: new Date(item.occurredAt).toISOString(),
+        expiresAt: new Date(item.expiresAt).toISOString(),
+        evidenceLevel: item.evidenceLevel,
+        confidence: item.effectiveConfidence,
+        sourceType: item.sourceType,
+        sourceUrl: item.sourceUrl,
+        freshnessAgeMinutes: item.freshnessAgeMinutes,
+        corroborationCount: item.corroborationCount,
+        sourceDiversityCount: item.sourceDiversityCount,
+        contradictionCount: item.contradictionCount,
+        orphanVanished: item.orphanVanished,
+        advisory: item.evidence?.advisory === true || item.evidence?.localIntel === true,
+        scope: text(item.evidence?.scope),
+        ...expected,
+        note: text(item.evidence?.note),
+        sourceLabel: text(item.evidence?.sourceLabel || item.evidence?.source_label),
+        value: item.value,
+      };
+    });
 
+    const strongestExpected = expectedFields(strongest);
     return {
       ...shop,
       localStockStatus: strongest.localStockStatus,
@@ -387,16 +447,13 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
         orphanVanished: strongest.orphanVanished,
         advisory: strongest.evidence?.advisory === true || strongest.evidence?.localIntel === true,
         scope: text(strongest.evidence?.scope),
-        expectedFrom: text(strongest.evidence?.expectedFrom || strongest.evidence?.expected_from),
-        expectedTo: text(strongest.evidence?.expectedTo || strongest.evidence?.expected_to),
+        ...strongestExpected,
         note: text(strongest.evidence?.note),
         sourceLabel: text(strongest.evidence?.sourceLabel || strongest.evidence?.source_label),
-        verifiedBranchStock: strongest.kind === "manifested"
-          && OFFICIAL_EVIDENCE_LEVELS.has(strongest.evidenceLevel)
-          && Boolean(strongest.productIdentityId)
-          && ["in_stock", "low_stock"].includes(strongest.localStockStatus),
+        verifiedBranchStock: isVerifiedBranchStock(strongest),
       },
       localStockProducts: products,
+      localAvailability: localAvailabilityProjection(products),
     };
   });
 }
@@ -413,6 +470,8 @@ export function localStockCounts(shops = []) {
 export const LOCAL_STOCK_POLICY = Object.freeze({
   lifecycleStates: [...LOCAL_SIGNAL_KINDS],
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
+  consumerStates: ["expected", "confirmed", "unknown"],
+  expectedStockDisclaimer: EXPECTED_STOCK_DISCLAIMER,
   communityRule: "Community, manual or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock.",
   chainIntelRule: "Retailer-chain intel is advisory and may be overlaid onto nearby branches of that retailer only as an Incoming Watch until exact branch evidence exists.",
   identityRule: "Verified physical Manifested stock requires a canonical product identity and an exact branch match.",
