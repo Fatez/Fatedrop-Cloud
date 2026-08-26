@@ -16,6 +16,9 @@ const STORE_NAMES = [
 ];
 
 const BASE = 'https://www.smythstoys.com/uk/en-gb/storefinder/storedetails';
+const STORE_FINDER = 'https://www.smythstoys.com/uk/en-gb/storefinder';
+const USER_AGENT = 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const slug = (value) => value
   .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
   .toLowerCase().replace(/&/g, ' and ')
@@ -27,69 +30,102 @@ const overrides = new Map([
   ['Bangor (NI)','bangor-ni'],
   ['Derry/Londonderry','derry-londonderry'],
 ]);
-const headers = { accept:'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5', 'user-agent':'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)' };
-const postcodeRe = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
-const strip = (value='') => String(value)
-  .replace(/<script[\s\S]*?<\/script>/gi,' ')
-  .replace(/<style[\s\S]*?<\/style>/gi,' ')
-  .replace(/<[^>]+>/g,' ')
-  .replace(/&amp;/gi,'&').replace(/&nbsp;/gi,' ')
-  .replace(/\s+/g,' ').trim();
 
-async function fetchText(url, timeoutMs=20000) {
+function normalizePostcode(value) {
+  const compact = String(value || '').toUpperCase().replace(/\s+/g, '');
+  return compact.length >= 5 ? `${compact.slice(0, -3)} ${compact.slice(-3)}` : null;
+}
+
+async function geocodeBranch(branchName) {
+  const q = `Smyths Toys ${branchName}, United Kingdom`;
+  const url = new URL('https://nominatim.openstreetmap.org/search');
+  url.searchParams.set('q', q);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('addressdetails', '1');
+  url.searchParams.set('limit', '3');
+  url.searchParams.set('countrycodes', 'gb');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const response = await fetch(url, { redirect:'follow', signal:controller.signal, headers });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-  } finally { clearTimeout(timer); }
-}
-
-const rows = new Array(STORE_NAMES.length);
-let cursor = 0;
-async function worker() {
-  while (true) {
-    const index = cursor++;
-    if (index >= STORE_NAMES.length) return;
-    const name = STORE_NAMES[index];
-    const pageSlug = overrides.get(name) || slug(name);
-    const website = `${BASE}/${pageSlug}`;
-    try {
-      const html = await fetchText(website);
-      const text = strip(html);
-      const postcodeRaw = text.match(postcodeRe)?.[1]?.toUpperCase().replace(/\s+/g,'') || null;
-      const postcode = postcodeRaw ? `${postcodeRaw.slice(0,-3)} ${postcodeRaw.slice(-3)}` : null;
-      rows[index] = { retailerId:'smyths-uk', name:`Smyths Toys — ${name}`, branchName:name, provider:'smyths_official_snapshot', providerId:pageSlug, postcode, website, verification:'official_retailer_branch', sourceUrl:website };
-    } catch (error) {
-      rows[index] = { retailerId:'smyths-uk', name:`Smyths Toys — ${name}`, branchName:name, provider:'smyths_official_snapshot', providerId:pageSlug, postcode:null, website, verification:'official_retailer_branch', sourceUrl:website, error:String(error?.message || error) };
-    }
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { accept:'application/json', 'user-agent':USER_AGENT },
+    });
+    if (!response.ok) throw new Error(`Nominatim HTTP ${response.status}`);
+    const results = await response.json();
+    const candidates = Array.isArray(results) ? results : [];
+    const best = candidates.find((row) => /smyths/i.test(String(row?.display_name || ''))) || null;
+    if (!best) return null;
+    const latitude = Number(best.lat);
+    const longitude = Number(best.lon);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+    const postcode = normalizePostcode(best.address?.postcode);
+    return {
+      latitude,
+      longitude,
+      postcode,
+      address: String(best.display_name || '').trim() || null,
+      geocodeProvider: 'nominatim_openstreetmap_snapshot',
+      geocodeOsmType: best.osm_type || null,
+      geocodeOsmId: best.osm_id || null,
+      geocodeDisplayName: best.display_name || null,
+    };
+  } finally {
+    clearTimeout(timer);
   }
 }
-await Promise.all(Array.from({ length:10 }, () => worker()));
 
-const coordinates = new Map();
-const postcodes = [...new Set(rows.map((r)=>r.postcode).filter(Boolean))];
-for (let i=0;i<postcodes.length;i+=100) {
-  const batch = postcodes.slice(i,i+100);
-  const response = await fetch('https://api.postcodes.io/postcodes', {
-    method:'POST', headers:{'content-type':'application/json','user-agent':'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)'}, body:JSON.stringify({postcodes:batch}),
+const observedAt = new Date().toISOString();
+const rows = [];
+for (const branchName of STORE_NAMES) {
+  const pageSlug = overrides.get(branchName) || slug(branchName);
+  const website = `${BASE}/${pageSlug}`;
+  let geo = null;
+  let error = null;
+  try {
+    geo = await geocodeBranch(branchName);
+  } catch (err) {
+    error = String(err?.message || err);
+  }
+  rows.push({
+    retailerId:'smyths-uk',
+    name:`Smyths Toys — ${branchName}`,
+    branchName,
+    provider:'smyths_curated_snapshot',
+    providerId:pageSlug,
+    website,
+    verification:'curated_official_branch',
+    sourceUrl:website,
+    ...(geo || {}),
+    ...(error ? { error } : {}),
+    openingDetails:{
+      sourceType:'official_retailer_directory_snapshot',
+      sourceUrl:website,
+      sourceDirectoryUrl:STORE_FINDER,
+      sourceAttribution:'Smyths Toys official store finder; coordinates one-time geocoded from branch identity',
+      sourceObservedAt:observedAt,
+      ...(geo?.geocodeProvider ? { geocodeProvider:geo.geocodeProvider } : {}),
+      ...(geo?.geocodeOsmType ? { geocodeOsmType:geo.geocodeOsmType } : {}),
+      ...(geo?.geocodeOsmId ? { geocodeOsmId:geo.geocodeOsmId } : {}),
+      ...(geo?.geocodeDisplayName ? { geocodeDisplayName:geo.geocodeDisplayName } : {}),
+    },
   });
-  if (!response.ok) throw new Error(`postcodes.io HTTP ${response.status}`);
-  const payload = await response.json();
-  for (const item of payload?.result || []) {
-    if (item?.query && item?.result?.latitude != null && item?.result?.longitude != null) {
-      coordinates.set(String(item.query).toUpperCase(), { latitude:Number(item.result.latitude), longitude:Number(item.result.longitude) });
-    }
-  }
+  await sleep(1100);
 }
 
-const enriched = rows.map((row) => ({ ...row, ...(coordinates.get(String(row.postcode || '').toUpperCase()) || {}), openingDetails:{ sourceType:'official_retailer_directory_snapshot', sourceUrl:row.sourceUrl, sourceAttribution:'Smyths Toys official store finder', sourceObservedAt:new Date().toISOString() } }));
+const usable = rows.filter((row) => Number.isFinite(row.latitude) && Number.isFinite(row.longitude));
+const rejected = rows.filter((row) => !Number.isFinite(row.latitude) || !Number.isFinite(row.longitude));
 const summary = {
-  generatedAt:new Date().toISOString(), retailerId:'smyths-uk', sourceUrl:'https://www.smythstoys.com/uk/en-gb/storefinder', sourceType:'official_retailer_directory_snapshot',
-  total:enriched.length, withPostcode:enriched.filter((r)=>r.postcode).length, withCoordinates:enriched.filter((r)=>Number.isFinite(r.latitude)&&Number.isFinite(r.longitude)).length,
-  errors:enriched.filter((r)=>r.error).map((r)=>({branchName:r.branchName,error:r.error,website:r.website})), rows:enriched,
+  generatedAt:observedAt,
+  retailerId:'smyths-uk',
+  sourceUrl:STORE_FINDER,
+  sourceType:'official_retailer_directory_snapshot',
+  total:rows.length,
+  withPostcode:rows.filter((r)=>r.postcode).length,
+  withCoordinates:usable.length,
+  unresolved:rejected.map((r)=>({branchName:r.branchName,error:r.error || 'no trustworthy Smyths geocode match',website:r.website})),
+  rows,
 };
 await fs.writeFile('tmp/smyths-branches.generated.json', JSON.stringify(summary,null,2)+'\n');
-console.log('SMYTHS_SNAPSHOT_SUMMARY', JSON.stringify({total:summary.total,withPostcode:summary.withPostcode,withCoordinates:summary.withCoordinates,errors:summary.errors.length}));
-console.log('SMYTHS_SNAPSHOT_ERRORS', JSON.stringify(summary.errors));
+console.log('SMYTHS_SNAPSHOT_SUMMARY', JSON.stringify({total:summary.total,withPostcode:summary.withPostcode,withCoordinates:summary.withCoordinates,unresolved:summary.unresolved.length}));
+console.log('SMYTHS_SNAPSHOT_UNRESOLVED', JSON.stringify(summary.unresolved));
