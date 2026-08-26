@@ -6,11 +6,12 @@ on:
       - "signal-engine/**"
       - "collectors/pokemon-center-browser/**"
       - ".github/workflows/signal-engine-verify.yml"
-  # Feature branches intentionally run the same release gate as pull requests.
+  # Engineering branches intentionally run the same release gate as pull requests.
   push:
     branches:
       - main
       - "feat/**"
+      - "fix/**"
     paths:
       - "signal-engine/**"
       - "collectors/pokemon-center-browser/**"
