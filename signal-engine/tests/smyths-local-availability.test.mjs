@@ -92,6 +92,7 @@ test("verified Smyths mapping plus exact official branch availability can create
     shops: [shop],
     latitude: 51.58,
     longitude: 0.18,
+    minRefreshMs: 0,
     fetchImpl: async () => response(200, JSON.stringify({
       stores: [{ name: "Romford", postalCode: "RM1 3EE", stockLevelStatusCode: "INSTOCK", id: "romford" }],
     })),
@@ -113,6 +114,7 @@ test("official store result for a different branch is not attached fuzzily", asy
     shops: [shop],
     latitude: 51.58,
     longitude: 0.18,
+    minRefreshMs: 0,
     fetchImpl: async () => response(200, JSON.stringify({
       stores: [{ name: "Romford Retail Park", stockLevelStatusCode: "INSTOCK", id: "other-romford" }],
     })),
@@ -137,6 +139,7 @@ test("out-of-stock cannot create an orphan Vanished through the Smyths source", 
     shops: [shop],
     latitude: 51.58,
     longitude: 0.18,
+    minRefreshMs: 0,
     fetchImpl: async () => response(200, JSON.stringify({
       stores: [{ name: "Romford", postalCode: "RM1 3EE", stockLevelStatusCode: "OUTOFSTOCK", id: "romford" }],
     })),
