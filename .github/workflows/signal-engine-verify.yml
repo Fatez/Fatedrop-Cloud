@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   signal-engine:
@@ -53,3 +54,29 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Run collector tests
         run: npm test
+
+  local-radar-production-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read production Local Radar provider status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://fatedrop-cloud-production.up.railway.app/api/local-radar?lat=51.5074&lng=-0.1278&radiusMiles=10&types=shops&tcg=pokemon'
+          http_status="$(curl --silent --show-error --max-time 25 --output response.json --write-out '%{http_code}' "$url" || true)"
+          {
+            echo '### Disposable Local Radar production source probe'
+            echo
+            echo "HTTP: ${http_status}"
+            echo
+            echo '```json'
+            head -c 30000 response.json 2>/dev/null || true
+            echo
+            echo '```'
+          } > probe.md
+          gh pr comment "$PR_NUMBER" --body-file probe.md
+          test "$http_status" = '200'
