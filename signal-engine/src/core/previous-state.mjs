@@ -32,6 +32,7 @@ function dbOffer(row) {
     everAvailableAt: row.ever_available_at ? Number(row.ever_available_at) : null,
     firstSeenAt: Number(row.first_seen_at),
     lastSeenAt: Number(row.last_seen_at),
+    evidence: Array.isArray(row.observation_evidence) ? row.observation_evidence : [],
   };
 }
 
@@ -46,7 +47,18 @@ export async function preloadPreviousState(store, identities) {
       ? pool.query("SELECT * FROM fatedrop_products WHERE id = ANY($1::text[])", [productIds])
       : { rows: [] },
     offerIds.length
-      ? pool.query("SELECT * FROM fatedrop_retail_offers WHERE offer_id = ANY($1::text[])", [offerIds])
+      ? pool.query(`
+          SELECT o.*, latest.evidence AS observation_evidence
+          FROM fatedrop_retail_offers o
+          LEFT JOIN LATERAL (
+            SELECT evidence
+            FROM fatedrop_stock_observations observation
+            WHERE observation.offer_id = o.offer_id
+            ORDER BY observation.observed_at DESC
+            LIMIT 1
+          ) latest ON true
+          WHERE o.offer_id = ANY($1::text[])
+        `, [offerIds])
       : { rows: [] },
   ]);
 
