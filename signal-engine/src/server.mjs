@@ -6,11 +6,12 @@ import { scanAll, scanRetailer } from "./core/engine.mjs";
 import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
+import { listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { reconcileMissingDiscordDeliveries } from "./notifications/discord-reconcile.mjs";
-import { buildPublicRetailerDirectory } from "./retailers/public-directory.mjs";
+import { buildPublicRetailerDirectory, buildPublicRetailerProfile } from "./retailers/public-directory.mjs";
 import { loadRuntimeRetailers } from "./retailers/runtime.mjs";
 import { bootstrapAsmodeeRrp } from "./rrp/asmodee-bootstrap.mjs";
 import { createStore } from "./stores/index.mjs";
@@ -156,6 +157,37 @@ server.on("request", async (req, res) => {
         success: true,
         retailers: filtered,
         disclaimer: "Monitor health describes FateDrop evidence freshness and is not proof that a retailer currently has stock.",
+      }));
+      return;
+    }
+    const retailerProfileMatch = req.method === "GET" ? url.pathname.match(/^\/api\/retailers\/([^/]+)$/) : null;
+    if (retailerProfileMatch) {
+      const retailerId = decodeURIComponent(retailerProfileMatch[1]);
+      const retailer = retailers.find((item) => String(item.id) === retailerId) || null;
+      if (!retailer) {
+        res.writeHead(404, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+          "access-control-allow-origin": "*",
+        });
+        res.end(JSON.stringify({ success: false, error: "Retailer not found" }));
+        return;
+      }
+      const [healthRows, locations] = await Promise.all([
+        store.listRetailers(),
+        listCanonicalRetailerLocations(store, { retailerIds: [retailerId], limit: 2000 }),
+      ]);
+      const health = healthRows.find((item) => String(item.id) === retailerId) || null;
+      const profile = buildPublicRetailerProfile({ retailer, health, locations });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify({
+        success: true,
+        retailer: profile,
+        disclaimer: "Retailer locations describe known canonical branches only. Their presence does not prove physical stock; exact-branch availability remains Local Radar evidence.",
       }));
       return;
     }
