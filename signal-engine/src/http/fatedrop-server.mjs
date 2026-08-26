@@ -16,6 +16,7 @@ import {
   upsertEncountersIntoStore,
 } from "../encounters/store.mjs";
 import { normalizeInventoryBatch, normalizeVendorBatch } from "../encounters/vendors.mjs";
+import { createRateLimiter } from "../security/rate-limit.mjs";
 import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 import { handleFateTraderCatalogue, isFateTraderCataloguePath } from "../trader/catalogue/http.mjs";
 import { handleFateTraderCollection, isFateTraderCollectionPath } from "../trader/collection/http.mjs";
@@ -29,6 +30,21 @@ function json(res, status, body) {
     "access-control-allow-origin": "*",
   });
   res.end(JSON.stringify(body));
+}
+function rateLimited(res, decision) {
+  res.writeHead(429, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    "retry-after": String(decision.retryAfterSeconds),
+    "x-ratelimit-limit": String(decision.limit),
+    "x-ratelimit-remaining": String(decision.remaining),
+    "x-ratelimit-reset": String(Math.ceil(decision.resetAt / 1000)),
+  });
+  res.end(JSON.stringify({
+    error: "Too many requests",
+    code: "RATE_LIMITED",
+    retryAfterSeconds: decision.retryAfterSeconds,
+  }));
 }
 function parseCsv(value) { return value ? value.split(",").map((item) => item.trim()).filter(Boolean) : []; }
 function optionalNumber(params, name) { const raw=params.get(name); if(raw==null||raw.trim()==="")return null; const parsed=Number(raw); return Number.isFinite(parsed)?parsed:null; }
@@ -221,8 +237,11 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
   const server=createLegacyHttpServer({store});const legacyHandler=server.listeners("request")[0];server.removeAllListeners("request");
   const liveReadStore=createLiveOfferReadStore(store);
   const liveReadServer=createLegacyHttpServer({store:liveReadStore});const liveReadHandler=liveReadServer.listeners("request")[0];liveReadServer.removeAllListeners("request");
+  const checkRateLimit=createRateLimiter();
   server.on("request",async(req,res)=>{try{
     const url=new URL(req.url||"/",`http://${req.headers.host||"localhost"}`);
+    const rateLimit=checkRateLimit(req,url.pathname);
+    if(!rateLimit.allowed)return rateLimited(res,rateLimit);
     const isLiveRetailRead=(req.method==="GET"&&(url.pathname==="/api/catalogue"||url.pathname==="/api/true-price"))||(req.method==="POST"&&url.pathname==="/api/fatefind/matches");
     if(isLiveRetailRead){return liveReadHandler(req,res);}
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
