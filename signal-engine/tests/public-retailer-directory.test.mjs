@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPublicRetailerDirectory } from "../src/retailers/public-directory.mjs";
+import { buildPublicRetailerDirectory, buildPublicRetailerProfile } from "../src/retailers/public-directory.mjs";
 
 test("public retailer directory exposes identity, presence and effective monitoring truth without adapter internals", () => {
   const [profile] = buildPublicRetailerDirectory({
@@ -36,6 +36,8 @@ test("public retailer directory exposes identity, presence and effective monitor
   assert.equal(profile.physicalLocations, 2);
   assert.equal(profile.monitoring.healthy, true);
   assert.equal(profile.monitoring.productsSeen, 123);
+  assert.equal(profile.logoUrl, null);
+  assert.equal(profile.description, null);
   assert.equal("adapterType" in profile, false);
   assert.equal("catalogueUrls" in profile, false);
   assert.equal("lastError" in profile.monitoring, false);
@@ -67,11 +69,64 @@ test("known launch retailers can expose physical presence without inventing stor
   assert.equal(magic?.physicalLocations, null);
 });
 
-test("directory prefers independents and specialists ahead of national retailers", () => {
+test("directory is alphabetical and does not rank retailer classes", () => {
   const profiles = buildPublicRetailerDirectory({ retailers: [
-    { id: "national", name: "National", baseUrl: "https://national.example", retailerClass: "national" },
-    { id: "specialist", name: "Specialist", baseUrl: "https://specialist.example", retailerClass: "specialist" },
-    { id: "indie", name: "Indie", baseUrl: "https://indie.example", retailerClass: "independent" },
+    { id: "national", name: "Zulu National", baseUrl: "https://national.example", retailerClass: "national" },
+    { id: "specialist", name: "Beta Specialist", baseUrl: "https://specialist.example", retailerClass: "specialist" },
+    { id: "indie", name: "Alpha Indie", baseUrl: "https://indie.example", retailerClass: "independent" },
   ] });
   assert.deepEqual(profiles.map((profile) => profile.id), ["indie", "specialist", "national"]);
+});
+
+test("public retailer profile exposes canonical branch identity without branch stock claims or provider internals", () => {
+  const profile = buildPublicRetailerProfile({
+    retailer: {
+      id: "indie-one",
+      name: "Indie One",
+      baseUrl: "https://indie.example",
+      logoUrl: "https://indie.example/logo.png",
+      publicDescription: "A local TCG specialist.",
+      retailerClass: "independent",
+      tcgs: ["pokemon", "one_piece"],
+      online: true,
+    },
+    health: { id: "indie-one", healthy: true, stale: false },
+    locations: [{
+      id: "branch-1",
+      retailerId: "indie-one",
+      provider: "google_places",
+      providerId: "private-provider-key",
+      name: "Indie One Hertford",
+      address: "1 Example Street, Hertford",
+      postcode: "SG13 7AA",
+      latitude: 51.79,
+      longitude: -0.08,
+      website: "https://indie.example/hertford",
+      phone: "01234 567890",
+      openingDetails: { sourceAttribution: "internal provider detail" },
+      verification: "provider_discovered",
+    }],
+  });
+
+  assert.equal(profile.logoUrl, "https://indie.example/logo.png");
+  assert.equal(profile.description, "A local TCG specialist.");
+  assert.equal(profile.physicalStores, true);
+  assert.equal(profile.physicalLocations, 1);
+  assert.equal(profile.locations.length, 1);
+  assert.deepEqual(profile.locations[0], {
+    id: "branch-1",
+    retailerId: "indie-one",
+    name: "Indie One Hertford",
+    address: "1 Example Street, Hertford",
+    postcode: "SG13 7AA",
+    latitude: 51.79,
+    longitude: -0.08,
+    websiteUrl: "https://indie.example/hertford",
+    phone: "01234 567890",
+    verification: "provider_discovered",
+  });
+  assert.equal("provider" in profile.locations[0], false);
+  assert.equal("providerId" in profile.locations[0], false);
+  assert.equal("openingDetails" in profile.locations[0], false);
+  assert.equal("stockStatus" in profile.locations[0], false);
 });
