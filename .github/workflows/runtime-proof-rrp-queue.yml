@@ -1,0 +1,45 @@
+name: Probe FateDrop RRP Queue Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-proof-rrp-queue.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Wait for Railway to promote queue fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='08bab8e1b548d3f3b06e6c61fecf54ef9ed25772'
+          for attempt in 1 2 3 4 5 6 7 8; do
+            curl --fail --silent --show-error \
+              --connect-timeout 10 --max-time 20 \
+              -H 'accept: application/json' \
+              -H 'content-type: application/json' \
+              --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+              'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+              > response.json
+            actual=$(python - <<'PY'
+          import json
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          print(runtime.get('gitCommitSha') or '')
+          PY
+            )
+            echo "ATTEMPT=$attempt EXPECTED_GIT_SHA=$expected RUNTIME_GIT_SHA=$actual"
+            if [ "$actual" = "$expected" ]; then
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Railway did not promote expected merged main in proof window.' >&2
+          exit 1
