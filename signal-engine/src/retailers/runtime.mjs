@@ -65,7 +65,9 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
   const registry = new PostgresRetailerRegistry(databaseUrl);
   await ensureStaticRetailersInRegistry({ registry, staticRetailers: launch });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
-  const dynamic = monitored.map(retailerToRuntimeConfig);
+  const dynamic = monitored
+    .filter((retailer) => !byLaunchId.has(retailer.id))
+    .map(retailerToRuntimeConfig);
   const byId = new Map(launch.map((retailer) => [retailer.id, retailer]));
   for (const retailer of dynamic) byId.set(retailer.id, retailer);
   return [...byId.values()];
