@@ -13,6 +13,7 @@ export function retailerToAdapterConfig(input, { requireMonitored = true, allowU
   if (requireMonitored && retailer.state !== RETAILER_STATES.MONITORED) throw new Error(`${retailer.id} is not in monitored state`);
   const activeTcgs = retailer.monitoring.activeTcgs || [];
   if (activeTcgs.length !== 1) throw new Error(`${retailer.id} must have exactly one active TCG in runtime v1`);
+  const runtime = retailer.catalogue.runtime;
   const base = {
     id: retailer.id,
     name: retailer.name,
@@ -23,8 +24,8 @@ export function retailerToAdapterConfig(input, { requireMonitored = true, allowU
     delivery: retailer.delivery,
     monitoring: retailer.monitoring,
     catalogue: retailer.catalogue,
-    include: null,
-    exclude: null,
+    include: runtime.include ? compilePattern(runtime.include, "include") : null,
+    exclude: runtime.exclude ? compilePattern(runtime.exclude, "exclude") : null,
   };
   if ([ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE].includes(retailer.adapterType)) {
     if (!retailer.catalogue.feedUrl) throw new Error(`${retailer.id} structured feed URL is required`);
@@ -32,7 +33,6 @@ export function retailerToAdapterConfig(input, { requireMonitored = true, allowU
     return base;
   }
   if (retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
-    const runtime = retailer.catalogue.runtime;
     return {
       ...base,
       catalogueUrls: retailer.catalogue.urls,
@@ -44,8 +44,6 @@ export function retailerToAdapterConfig(input, { requireMonitored = true, allowU
       pageParam: runtime.pageParam || "page",
       maxPages: runtime.maxPages || 20,
       delayMs: runtime.delayMs || 1800,
-      include: runtime.include ? compilePattern(runtime.include, "include") : null,
-      exclude: runtime.exclude ? compilePattern(runtime.exclude, "exclude") : null,
     };
   }
   throw new Error(`${retailer.id} adapter ${retailer.adapterType} is not enabled for registry runtime`);

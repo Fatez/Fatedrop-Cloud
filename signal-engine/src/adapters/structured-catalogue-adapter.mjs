@@ -46,6 +46,7 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
     const pages = [];
     const maxPages = Math.max(1, Math.min(100, retailer.catalogue?.runtime?.maxPages || retailer.maxPages || 20));
     const delayMs = Math.max(250, retailer.catalogue?.runtime?.delayMs || retailer.delayMs || 900);
+    let complete = false;
 
     for (let page = 1; page <= maxPages; page += 1) {
       const pageUrl = shopifyPageUrl(retailer.catalogue.feedUrl, page);
@@ -53,12 +54,15 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
       const rawCount = Array.isArray(payload?.products) ? payload.products.length : 0;
       const products = filterProducts(normalizeShopifyProducts(payload, retailer), retailer);
       for (const product of products) found.set(product.retailerSku, product);
-      pages.push({ pageUrl, discovered: products.length, status });
-      if (rawCount === 0 || rawCount < 250) break;
+      pages.push({ pageUrl, discovered: products.length, rawCount, status });
+      if (rawCount === 0 || rawCount < 250) {
+        complete = true;
+        break;
+      }
       if (page < maxPages) await sleep(delayMs);
     }
 
-    return { products: [...found.values()], pages };
+    return { products: [...found.values()], pages, complete };
   }
 
   const { payload, status } = await fetchStructuredJson(retailer.catalogue.feedUrl);
@@ -69,5 +73,6 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
   return {
     products,
     pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, status }],
+    complete: true,
   };
 }

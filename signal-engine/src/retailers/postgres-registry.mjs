@@ -91,6 +91,24 @@ export class PostgresRetailerRegistry {
     return rows.map(fromRow);
   }
 
+  async latestMonitorRunTimes({ retailerIds = [], mode = null } = {}) {
+    if (!retailerIds.length) return new Map();
+    const pool = await this.pool();
+    const values = [retailerIds];
+    let modeFilter = "";
+    if (mode) {
+      values.push(mode);
+      modeFilter = `AND diagnostics->>'mode' = $${values.length}`;
+    }
+    const { rows } = await pool.query(`
+      SELECT DISTINCT ON (retailer_id) retailer_id, COALESCE(completed_at, started_at) AS observed_at
+      FROM fatedrop_retailer_monitor_runs
+      WHERE retailer_id = ANY($1) ${modeFilter}
+      ORDER BY retailer_id, COALESCE(completed_at, started_at) DESC
+    `, values);
+    return new Map(rows.map((row) => [row.retailer_id, Number(row.observed_at)]));
+  }
+
   async recordDiscoveryEvidence({ evidenceId, retailerId, sourceType, sourceUrl = null, observedAt = Math.floor(Date.now() / 1000), evidence = {} }) {
     const pool = await this.pool();
     await pool.query(`
