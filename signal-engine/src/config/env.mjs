@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -34,6 +35,11 @@ export function defaultRetailerRegistryEnabled(options = {}) {
   return defaultProductionPostgresFeatureEnabled(options);
 }
 
+export function resolveSignalApiToken(rawToken = "", fallbackFactory = () => crypto.randomBytes(32).toString("hex")) {
+  const configured = String(rawToken || "").trim();
+  return configured || fallbackFactory();
+}
+
 const signalStore = process.env.FATEDROP_SIGNAL_STORE || "file";
 const databaseUrl = process.env.DATABASE_URL || "";
 const productionPostgresDefaults = {
@@ -44,6 +50,8 @@ const productionPostgresDefaults = {
 const hostedFateFindExplicitlyConfigured = explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED");
 const hostedFateFindProductionDefault = defaultHostedFateFindEnabled(productionPostgresDefaults);
 const retailerRegistryProductionDefault = defaultRetailerRegistryEnabled(productionPostgresDefaults);
+const signalApiTokenConfigured = explicitlyConfigured("FATEDROP_SIGNAL_API_TOKEN");
+const signalApiToken = resolveSignalApiToken(process.env.FATEDROP_SIGNAL_API_TOKEN);
 
 const amazonCreatorsClientId = process.env.AMAZON_CREATORS_CLIENT_ID || "";
 const amazonCreatorsClientSecret = process.env.AMAZON_CREATORS_CLIENT_SECRET || "";
@@ -73,7 +81,8 @@ const discordConfigured = Boolean(
 
 export const env = {
   port: int("PORT", 8787),
-  apiToken: process.env.FATEDROP_SIGNAL_API_TOKEN || "",
+  apiToken: signalApiToken,
+  apiTokenConfigured: signalApiTokenConfigured,
   ingestSecret: process.env.FATEDROP_SIGNAL_INGEST_SECRET || "",
   store: signalStore,
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
