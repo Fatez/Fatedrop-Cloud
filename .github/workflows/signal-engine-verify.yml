@@ -36,48 +36,45 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Probe three official Toyshop/Tesco pages with production parser
+      - name: Expose official Toyshop/Tesco fetch status
         run: |
           node --input-type=module <<'NODE'
-          import {
-            crawlToyshopOfficialStoreGraph,
-            parseOfficialBranchPage,
-          } from './src/encounters/national-branch-directory-sync.mjs';
-
-          const seeds = [
+          const urls = [
             'https://www.thetoyshop.com/store/watford',
             'https://www.thetoyshop.com/store/birmingham',
             'https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra',
+            'https://www.thetoyshop.com/sitemap/media/Store-en-GBP',
           ];
-          const rows = await crawlToyshopOfficialStoreGraph({
-            seeds,
-            discoveryLimit: 3,
-            concurrency: 3,
-          });
-          const parsed = [];
-          for (const row of rows) {
+          const results = [];
+          for (const url of urls) {
             try {
-              const result = await parseOfficialBranchPage(row);
-              parsed.push({
-                url: row.url,
-                retailerId: row.retailerId,
-                htmlBytes: row.html?.length ?? 0,
-                location: result.location ? {
-                  retailerId: result.location.retailerId,
-                  provider: result.location.provider,
-                  name: result.location.name,
-                  postcode: result.location.postcode,
-                  latitude: result.location.latitude,
-                  longitude: result.location.longitude,
-                } : null,
-                reason: result.reason,
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), 12000);
+              const response = await fetch(url, {
+                redirect: 'follow',
+                signal: controller.signal,
+                headers: {
+                  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5',
+                  'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
+                },
+              });
+              clearTimeout(timer);
+              const body = await response.text();
+              results.push({
+                url,
+                status: response.status,
+                ok: response.ok,
+                finalUrl: response.url,
+                contentType: response.headers.get('content-type'),
+                bytes: body.length,
+                prefix: body.slice(0, 160).replace(/\s+/g, ' '),
               });
             } catch (error) {
-              parsed.push({ url: row.url, retailerId: row.retailerId, error: String(error?.message || error) });
+              results.push({ url, error: String(error?.message || error) });
             }
           }
-          console.log('LOCAL_RADAR_TOYSHOP_PARSER_DIAGNOSTIC');
-          console.log(JSON.stringify({ discovered: rows.length, parsed }, null, 2));
+          console.log('LOCAL_RADAR_TOYSHOP_HTTP_DIAGNOSTIC');
+          console.log(JSON.stringify(results, null, 2));
           NODE
 
   signal-engine:
