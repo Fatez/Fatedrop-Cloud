@@ -1,0 +1,41 @@
+name: Total Cards Runtime Fetch Proof
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/total-cards-runtime-fetch-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe-total-cards:
+    if: github.head_ref == 'ops/total-cards-runtime-fetch-proof-20260826'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe official Total Cards product page
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import { parseTotalCardsPhysicalAvailability } from './src/encounters/total-cards-local-availability.mjs';
+          const url='https://totalcards.net/products/pokemon-mega-evolution-perfect-order-booster-pack';
+          const variants=[
+            ['fatedrop',{'accept':'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5','user-agent':'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)'}],
+            ['browser',{'accept':'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8','user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/151.0.0.0 Safari/537.36'}],
+          ];
+          for (const [label,headers] of variants) {
+            const controller=new AbortController(); const timer=setTimeout(()=>controller.abort(),15000);
+            try {
+              const response=await fetch(url,{redirect:'follow',signal:controller.signal,headers});
+              const html=await response.text();
+              const parsed=parseTotalCardsPhysicalAvailability(html);
+              console.log('TOTAL_CARDS_FETCH_PROOF',JSON.stringify({label,status:response.status,ok:response.ok,bytes:html.length,finalUrl:response.url,parsed,hasPickupOnly:/Pickup Only/i.test(html),hasAvailableInStore:/Available to buy in-store/i.test(html),hasSoldOut:/Sold out/i.test(html),prefix:html.slice(0,160).replace(/\s+/g,' ')}));
+            } catch (error) {
+              console.log('TOTAL_CARDS_FETCH_PROOF',JSON.stringify({label,error:String(error?.message||error)}));
+            } finally { clearTimeout(timer); }
+          }
+          NODE
