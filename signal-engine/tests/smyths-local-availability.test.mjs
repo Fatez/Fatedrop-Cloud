@@ -107,6 +107,80 @@ test("verified Smyths mapping plus exact official branch availability can create
   assert.equal(store.saved()[0].evidence.stockStatus, "in_stock");
 });
 
+test("official Smyths response can establish an exact canonical branch without Google Places", async () => {
+  let locations = [];
+  let observations = [];
+  const store = {
+    async listVerifiedSmythsProductMappings() { return [mapping]; },
+    async upsertRetailerLocations(rows) {
+      locations = rows;
+      return { saved: rows.length };
+    },
+    async upsertLocalStockObservations(rows) {
+      observations = rows;
+      return { saved: rows.length, duplicates: 0 };
+    },
+  };
+  const result = await refreshSmythsLocalAvailability({
+    store,
+    shops: [],
+    latitude: 51.58,
+    longitude: 0.18,
+    minRefreshMs: 0,
+    fetchImpl: async () => response(200, JSON.stringify({
+      stores: [{
+        id: "romford-pos-001",
+        name: "Romford",
+        postalCode: "RM1 3EE",
+        geoPoint: { latitude: 51.58, longitude: 0.18 },
+        stockLevelStatusCode: "INSTOCK",
+      }],
+    })),
+  });
+
+  assert.equal(result.status, "ok");
+  assert.equal(result.branchesDiscovered, 1);
+  assert.equal(result.branchesPersisted, 1);
+  assert.equal(locations.length, 1);
+  assert.equal(locations[0].provider, "smyths_official_store_availability");
+  assert.equal(locations[0].providerId, "romford-pos-001");
+  assert.equal(locations[0].verification, "official_retailer_branch");
+  assert.equal(observations.length, 1);
+  assert.equal(observations[0].locationId, locations[0].id);
+  assert.equal(observations[0].kind, "manifested");
+  assert.equal(observations[0].evidence.branchIdentitySource, "smyths_official_store_availability");
+});
+
+test("official store result without an exact official identity and coordinates does not bootstrap a branch", async () => {
+  let locations = [];
+  let observations = [];
+  const store = {
+    async listVerifiedSmythsProductMappings() { return [mapping]; },
+    async upsertRetailerLocations(rows) {
+      locations = rows;
+      return { saved: rows.length };
+    },
+    async upsertLocalStockObservations(rows) {
+      observations = rows;
+      return { saved: rows.length, duplicates: 0 };
+    },
+  };
+  const result = await refreshSmythsLocalAvailability({
+    store,
+    shops: [],
+    latitude: 51.58,
+    longitude: 0.18,
+    minRefreshMs: 0,
+    fetchImpl: async () => response(200, JSON.stringify({
+      stores: [{ name: "Somewhere", stockLevelStatusCode: "INSTOCK" }],
+    })),
+  });
+  assert.equal(result.status, "ok");
+  assert.equal(result.branchesDiscovered, 0);
+  assert.deepEqual(locations, []);
+  assert.deepEqual(observations, []);
+});
+
 test("official store result for a different branch is not attached fuzzily", async () => {
   const store = manifestedStore();
   const result = await refreshSmythsLocalAvailability({
