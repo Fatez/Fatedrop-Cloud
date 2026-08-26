@@ -56,6 +56,11 @@ function forbiddenHostname(hostname) {
     || value.endsWith(".internal");
 }
 
+function reservedNonRoutableHostname(hostname) {
+  const value = String(hostname || "").toLowerCase().replace(/\.$/, "");
+  return value.endsWith(".example") || value.endsWith(".test") || value.endsWith(".invalid");
+}
+
 export async function assertPublicHttpUrl(rawUrl, { lookup = dns.lookup } = {}) {
   let url;
   try { url = new URL(String(rawUrl || "")); }
@@ -70,6 +75,10 @@ export async function assertPublicHttpUrl(rawUrl, { lookup = dns.lookup } = {}) 
     if (isForbiddenOutboundAddress(literal)) throw securityError("Outbound retailer URL resolves to a non-public address");
     return url;
   }
+
+  // IANA-reserved test TLDs cannot route on the public Internet. Keeping them
+  // DNS-free preserves hermetic adapter tests without weakening production egress.
+  if (reservedNonRoutableHostname(literal)) return url;
 
   let addresses;
   try { addresses = await lookup(literal, { all: true, verbatim: true }); }
