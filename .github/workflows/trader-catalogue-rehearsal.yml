@@ -1,0 +1,109 @@
+name: Rehearse Fate Trader Catalogue
+
+on:
+  push:
+    branches:
+      - verify/trader-catalogue-rehearsal-20260826
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      REHEARSAL_DATABASE_URL: postgresql://neondb_owner@ep-flat-flower-axfp09hs.c-4.us-east-2.aws.neon.tech/neondb?sslmode=require
+      PGCONNECT_TIMEOUT: '10'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Pin upstream catalogue snapshots
+        run: |
+          git clone --depth=1 https://github.com/tcgdex/cards-database.git /tmp/tcgdex
+          git clone --depth=1 https://github.com/PokemonTCG/pokemon-tcg-data.git /tmp/pokemontcg
+          echo "TCGDEX_COMMIT=$(git -C /tmp/tcgdex rev-parse HEAD)"
+          echo "POKEMONTCG_COMMIT=$(git -C /tmp/pokemontcg rev-parse HEAD)"
+
+      - name: Extract pinned English snapshots
+        working-directory: signal-engine
+        run: |
+          bun scripts/extract-tcgdex-snapshot.mjs --repo=/tmp/tcgdex --out=/tmp/tcgdex-en.json
+          node scripts/extract-pokemontcg-snapshot.mjs --repo=/tmp/pokemontcg --out=/tmp/pokemontcg-en.json
+
+      - name: Compile fail-closed verified catalogue
+        working-directory: signal-engine
+        run: |
+          npm run trader:catalogue:compile -- \
+            --tcgdex=/tmp/tcgdex-en.json \
+            --pokemon=/tmp/pokemontcg-en.json \
+            --out=/tmp/fatedrop-pokemon-catalogue.json
+
+      - name: Validate compiled catalogue read-only
+        working-directory: signal-engine
+        run: npm run trader:catalogue:load -- --artifact=/tmp/fatedrop-pokemon-catalogue.json
+
+      - name: Install PostgreSQL client if needed
+        run: command -v psql >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y postgresql-client)
+
+      - name: Prove isolated rehearsal connection without stored credentials
+        run: |
+          psql "$REHEARSAL_DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT current_database(), current_user;"
+          psql "$REHEARSAL_DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT (SELECT count(*) FROM fatedrop_card_identities WHERE verification_status='verified') AS verified_identities, (SELECT count(*) FROM fatedrop_collection_items) AS collection_items, (SELECT count(*) FROM fatedrop_trade_binder_items) AS binder_items, (SELECT count(*) FROM fatedrop_card_wants) AS wants;"
+
+      - name: Load frozen run artifact into isolated Neon branch
+        working-directory: signal-engine
+        env:
+          DATABASE_URL: ${{ env.REHEARSAL_DATABASE_URL }}
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: npm run trader:catalogue:load -- --artifact=/tmp/fatedrop-pokemon-catalogue.json --write --chunk-size=2000
+
+      - name: Verify catalogue and user-data invariants
+        run: |
+          psql "$REHEARSAL_DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          SELECT 'series' AS metric, count(*) AS value FROM fatedrop_card_series WHERE verification_status='verified'
+          UNION ALL SELECT 'sets', count(*) FROM fatedrop_card_sets WHERE verification_status='verified'
+          UNION ALL SELECT 'printings', count(*) FROM fatedrop_card_printings WHERE verification_status='verified'
+          UNION ALL SELECT 'identities', count(*) FROM fatedrop_card_identities WHERE verification_status='verified'
+          UNION ALL SELECT 'set_conflicts', count(*) FROM fatedrop_card_set_conflicts
+          UNION ALL SELECT 'identity_conflicts', count(*) FROM fatedrop_card_identity_conflicts
+          UNION ALL SELECT 'collection_items', count(*) FROM fatedrop_collection_items
+          UNION ALL SELECT 'binder_items', count(*) FROM fatedrop_trade_binder_items
+          UNION ALL SELECT 'wants', count(*) FROM fatedrop_card_wants;
+          DO $$
+          BEGIN
+            IF EXISTS (SELECT 1 FROM fatedrop_collection_items) OR EXISTS (SELECT 1 FROM fatedrop_trade_binder_items) OR EXISTS (SELECT 1 FROM fatedrop_card_wants) THEN
+              RAISE EXCEPTION 'Catalogue rehearsal modified user trade state';
+            END IF;
+          END $$;
+          SQL
+
+      - name: Prove bulk-load idempotency
+        working-directory: signal-engine
+        env:
+          DATABASE_URL: ${{ env.REHEARSAL_DATABASE_URL }}
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          npm run trader:catalogue:load -- --artifact=/tmp/fatedrop-pokemon-catalogue.json --write --chunk-size=2000
+          psql "$REHEARSAL_DATABASE_URL" -v ON_ERROR_STOP=1 -c "SELECT count(*) AS verified_identities_after_second_load FROM fatedrop_card_identities WHERE verification_status='verified';"
+
+      - name: Upload frozen rehearsal artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fate-trader-catalogue-rehearsal
+          path: /tmp/fatedrop-pokemon-catalogue.json
+          retention-days: 1
