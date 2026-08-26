@@ -11,11 +11,11 @@ const products = [
 ];
 
 const offers = [
-  { offerId: "offer-etb", productId: "etb", title: products[0].title, stockStatus: "in_stock", pricePence: 5999 },
-  { offerId: "offer-bundle", productId: "bundle", title: products[2].title, stockStatus: "in_stock", pricePence: 16695 },
-  { offerId: "offer-pack", productId: "pack-alias", title: products[3].title, stockStatus: "preorder", pricePence: 499 },
-  { offerId: "offer-unknown", productId: "unknown", title: products[4].title, stockStatus: "low_stock", pricePence: 1200 },
-  { offerId: "offer-sold", productId: "etb", title: products[0].title, stockStatus: "out_of_stock", pricePence: 4999 },
+  { offerId: "offer-etb", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "in_stock", pricePence: 5999 },
+  { offerId: "offer-bundle", productId: "bundle", retailerId: "retailer-live", title: products[2].title, stockStatus: "in_stock", pricePence: 16695 },
+  { offerId: "offer-pack", productId: "pack-alias", retailerId: "retailer-live", title: products[3].title, stockStatus: "preorder", pricePence: 499 },
+  { offerId: "offer-unknown", productId: "unknown", retailerId: "retailer-live", title: products[4].title, stockStatus: "low_stock", pricePence: 1200 },
+  { offerId: "offer-sold", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "out_of_stock", pricePence: 4999 },
 ];
 
 test("effective RRP coverage measures the same official/reference resolver users actually receive", () => {
@@ -32,16 +32,39 @@ test("effective RRP coverage measures the same official/reference resolver users
   assert.equal(result.byProductType.other.coveragePercent, 50);
 });
 
-test("effective coverage loader remains read-only and bounded to the public API catalogue windows", async () => {
+test("effective coverage loader measures only fresh healthy retailer evidence", async () => {
   const calls = [];
+  const staleOffer = { ...offers[0], offerId: "offer-stale", retailerId: "retailer-stale" };
   const store = {
-    async listOffers(options) { calls.push(["offers", options]); return offers; },
+    async listOffers(options) { calls.push(["offers", options]); return [...offers, staleOffer]; },
     async listProducts(options) { calls.push(["products", options]); return products; },
+    async listRetailers() {
+      calls.push(["retailers"]);
+      return [
+        { id: "retailer-live", healthy: true, stale: false },
+        { id: "retailer-stale", healthy: true, stale: true },
+      ];
+    },
   };
   const result = await loadEffectiveRrpCoverage(store);
   assert.equal(result.available, true);
+  assert.equal(result.evidenceScope, "fresh_healthy_retailers");
+  assert.equal(result.liveOffers, 4);
   assert.equal(result.coveragePercent, 75);
-  assert.deepEqual(calls, [["offers", { limit: 10_000 }], ["products", { limit: 5_000 }]]);
+  assert.deepEqual(calls, [["offers", { limit: 10_000 }], ["retailers"], ["products", { limit: 5_000 }]]);
+});
+
+test("effective coverage fails closed when retailer health cannot be read", async () => {
+  const store = {
+    async listOffers() { return offers; },
+    async listProducts() { return products; },
+    async listRetailers() { throw new Error("health unavailable"); },
+  };
+  const result = await loadEffectiveRrpCoverage(store);
+  assert.equal(result.available, true);
+  assert.equal(result.evidenceScope, "fresh_healthy_retailers");
+  assert.equal(result.liveOffers, 0);
+  assert.equal(result.resolvedOffers, 0);
 });
 
 test("effective coverage exposes aggregate counts only, not product or retailer details", () => {

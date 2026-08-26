@@ -1,5 +1,6 @@
 import { classifyRrpApplicability } from "../core/rrp-applicability.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
+import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 
 const PURCHASABLE = new Set(["in_stock", "low_stock", "preorder"]);
 const KINDS = Object.freeze(["official", "component_reference", "pack_reference"]);
@@ -109,15 +110,16 @@ export function buildEffectiveRrpCoverage({ offers = [], products = [] } = {}) {
 }
 
 export async function loadEffectiveRrpCoverage(store) {
-  if (!store || typeof store.listOffers !== "function" || typeof store.listProducts !== "function") {
+  if (!store || typeof store.listOffers !== "function" || typeof store.listProducts !== "function" || typeof store.listRetailers !== "function") {
     return { available: false, reason: "catalogue_store_unavailable" };
   }
   try {
+    const liveStore = createLiveOfferReadStore(store);
     const [offers, products] = await Promise.all([
-      store.listOffers({ limit: 10_000 }),
-      store.listProducts({ limit: 5_000 }),
+      liveStore.listOffers({ limit: 10_000 }),
+      liveStore.listProducts({ limit: 5_000 }),
     ]);
-    return { available: true, ...buildEffectiveRrpCoverage({ offers, products }) };
+    return { available: true, evidenceScope: "fresh_healthy_retailers", ...buildEffectiveRrpCoverage({ offers, products }) };
   } catch {
     return { available: false, reason: "coverage_query_failed" };
   }
