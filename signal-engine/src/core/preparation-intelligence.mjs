@@ -9,6 +9,10 @@ const VERIFIED_PURCHASE_EVIDENCE = new Set([
   "purchase_path_verified",
 ]);
 
+const VERIFIED_OFFICIAL_LISTING_EVIDENCE = new Set([
+  "official_retailer_product_page",
+]);
+
 const PREPARATION_METADATA_EVIDENCE = new Set([
   "stock_object_present",
   "inventory_metadata",
@@ -64,6 +68,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
   const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
+  const officialListingVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => kinds.has(kind));
   const structuredCatalogue = hasStructuredCatalogueEvidence(kinds);
   const identityValid = Boolean(currentOffer?.retailerId && currentOffer?.retailerSku && currentOffer?.title && currentOffer?.url);
   const repeated = repeatedObservationThresholdCrossed(previousOffer, now, repeatedAfterSeconds)
@@ -83,13 +88,17 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   let score = 0;
   if (identityValid) score += 1;
   if (structuredCatalogue) score += 1;
+  if (officialListingVerified) score += 3;
   if (price.priceQuality === PriceQuality.PLACEHOLDER) score += 2;
   if (repeated) score += 2;
   if (placeholderResolved) score += 3;
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  const corroborated = repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
+  // An official retailer product page is itself strong retailer-side readiness
+  // evidence. It can create an Echo immediately, but never proves purchasability.
+  // Manifested still requires the independent purchase-availability boundary.
+  const corroborated = officialListingVerified || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
   const echoEligible = !suppressStandaloneLifecycle
     && notConfirmedPurchasable
     && !purchaseVerified
@@ -116,6 +125,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       { kind: "retailer_preparation_score", value: String(score), observedAt: now },
       { kind: "retailer_preparation_identity", value: identityValid ? "valid" : "incomplete", observedAt: now },
       { kind: "retailer_preparation_structured_catalogue", value: structuredCatalogue ? "present" : "absent", observedAt: now },
+      ...(officialListingVerified ? [{ kind: "retailer_preparation_official_listing", value: "verified_official_product_page", observedAt: now }] : []),
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
       ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
