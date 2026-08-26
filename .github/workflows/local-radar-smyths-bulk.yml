@@ -1,0 +1,32 @@
+name: Local Radar Smyths Bulk Snapshot
+
+on:
+  pull_request:
+    paths:
+      - "signal-engine/tmp/generate-smyths-curated-seeds.mjs"
+      - ".github/workflows/local-radar-smyths-bulk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  generate-smyths-snapshot:
+    if: github.head_ref == 'ops/local-radar-smyths-bulk-geocode-20260826'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/local-radar-smyths-bulk-geocode-20260826
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generate strict Smyths branch snapshot
+        working-directory: signal-engine
+        run: node tmp/generate-smyths-curated-seeds.mjs
+      - name: Commit generated snapshot
+        run: |
+          git config user.name "FateDrop Ops"
+          git config user.email "ops@fatedrop.co.uk"
+          git add signal-engine/tmp/smyths-curated-seeds.generated.mjs signal-engine/tmp/smyths-curated-seeds.report.json
+          git commit -m "Ops: generate strict Smyths branch snapshot" || exit 0
+          git push origin HEAD:ops/local-radar-smyths-bulk-geocode-20260826
