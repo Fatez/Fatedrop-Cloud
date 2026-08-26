@@ -2,7 +2,7 @@ import { env } from "../config/env.mjs";
 import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } from "./registry.mjs";
 
 const SEALED_PRODUCT = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|tech sticker|mini portfolio|first partner|ultra premium/i;
-const NON_PRODUCT = /\bsingle\b|code card|sleeve|binder only|playmat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
+const NON_PRODUCT = /\bsingle\b|code card|sleeve|\bbinder\b|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
 
 function tgcCollectables(enabled) {
   return {
@@ -46,7 +46,7 @@ function travellingManUk(enabled) {
     },
     officialRrpSource: false,
     include: SEALED_PRODUCT,
-    exclude: /\bsingle\b|code card|sleeve|binder|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b|portfolio|deck box/i,
+    exclude: /\bsingle\b|code card|sleeve|\bbinder\b|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b|portfolio|deck box/i,
   };
 }
 
