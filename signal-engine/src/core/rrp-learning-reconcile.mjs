@@ -3,13 +3,66 @@ import { rrpAliasSignature, rrpLearningId } from "./rrp-learning.mjs";
 import { recordVerifiedRrpAlias } from "../stores/rrp-learning-store.mjs";
 
 const DEFAULT_LIMIT = 100;
+const ESCALATION_OCCURRENCES = 10;
 
 function unique(values = []) { return [...new Set(values.filter(Boolean))]; }
 function conflictReason(reason = "") { return /conflict/i.test(String(reason)); }
 
+function reconciliationDisposition(reason = "") {
+  const value = String(reason || "verified_rrp_unavailable");
+  if (conflictReason(value)) {
+    return {
+      classification: "authority_conflict",
+      nextAction: "hold_fail_closed_until_authority_conflict_is_resolved",
+    };
+  }
+  if (value === "no_authoritative_candidate" || value === "registry_unavailable") {
+    return {
+      classification: "authority_gap",
+      nextAction: "await_or_refresh_authoritative_rrp_source",
+    };
+  }
+  if (value === "no_exact_identity_match" || value === "identity_bucket_unavailable" || value === "reference_identity_too_weak") {
+    return {
+      classification: "identity_gap",
+      nextAction: "review_verified_identity_or_safe_alias_evidence",
+    };
+  }
+  if (value === "no_verified_pack_reference") {
+    return {
+      classification: "component_authority_gap",
+      nextAction: "await_verified_equivalent_pack_reference",
+    };
+  }
+  return {
+    classification: "unresolved_reference",
+    nextAction: "retry_after_authority_or_identity_evidence_changes",
+  };
+}
+
+async function recordUnresolvedDisposition(pool, row, result, now) {
+  const reason = String(result?.reason || row.failure_reason || "verified_rrp_unavailable");
+  const disposition = reconciliationDisposition(reason);
+  const occurrenceCount = Number(row.occurrence_count || 0);
+  const escalated = occurrenceCount >= ESCALATION_OCCURRENCES;
+  await pool.query(`
+    UPDATE fatedrop_rrp_resolution_queue
+    SET failure_reason=$1,
+        evidence_json=evidence_json || $2::jsonb
+    WHERE id=$3
+  `, [reason, JSON.stringify({
+    reconciled_at: now,
+    reconciliation_class: disposition.classification,
+    next_action: disposition.nextAction,
+    escalated,
+    escalation_threshold: ESCALATION_OCCURRENCES,
+  }), row.id]);
+  return { ...disposition, escalated };
+}
+
 export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, now = Math.floor(Date.now() / 1000) } = {}) {
   if (!store?.pool || typeof store.listProducts !== "function") {
-    return { enabled: false, checked: 0, resolved: 0, conflicts: 0, remaining: null };
+    return { enabled: false, checked: 0, resolved: 0, conflicts: 0, escalated: 0, remaining: null };
   }
   const pool = await store.pool();
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || DEFAULT_LIMIT));
@@ -26,6 +79,7 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   const context = buildRrpValueContext(products);
   let resolved = 0;
   let conflicts = 0;
+  let escalated = 0;
 
   for (const row of rows) {
     const result = resolveRrpValue({
@@ -68,6 +122,9 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
       continue;
     }
 
+    const disposition = await recordUnresolvedDisposition(pool, row, result, now);
+    if (disposition.escalated) escalated += 1;
+
     if (conflictReason(result?.reason)) {
       await pool.query(`
         UPDATE fatedrop_rrp_resolution_queue
@@ -85,6 +142,7 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
     checked: rows.length,
     resolved,
     conflicts,
+    escalated,
     remaining: Number(countRows[0]?.remaining || 0),
   };
 }
