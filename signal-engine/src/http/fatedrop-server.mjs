@@ -94,7 +94,7 @@ function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
       localStock:{provider:"fatedrop_signal_events",status:"location_unresolved"},
       events:{provider:"fatedrop_encounters",status:"location_unresolved"},
     },
-    shops:[],events:[],counts:{shops:0,events:0,localInStockBranches:0,localLowStockBranches:0,incomingWatchBranches:0},
+    shops:[],events:[],counts:{shops:0,events:0},
     disclaimers:[
       "The supplied location could not be resolved, so FateDrop did not label any shop or event as nearby.",
       "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
