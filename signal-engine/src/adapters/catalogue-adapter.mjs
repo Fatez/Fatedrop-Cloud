@@ -52,7 +52,9 @@ export async function scanRetailerCatalogue(retailer) {
     let lastFallbackSize = -1;
     for (let page = 1; page <= retailer.maxPages; page += 1) {
       const pageUrl = withPage(rootUrl, retailer.pageParam, page);
-      const response = await fetchCataloguePage(pageUrl, retailer.fetchTimeoutMs);
+      const response = await fetchCataloguePage(pageUrl, retailer.fetchTimeoutMs, {
+        stencilTemplate: retailer.catalogue?.stencilTemplate,
+      });
       const products = extractCatalogueProducts({ html: response.html, pageUrl, retailer })
         .filter((item) => !retailer.include || retailer.include.test(`${item.title} ${item.url}`))
         .filter((item) => !retailer.exclude || !retailer.exclude.test(`${item.title} ${item.url}`));
