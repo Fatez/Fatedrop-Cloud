@@ -36,44 +36,55 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Expose official Toyshop/Tesco fetch status
+      - name: Diagnose current OSM Overpass fallback
         run: |
           node --input-type=module <<'NODE'
-          const urls = [
-            'https://www.thetoyshop.com/store/watford',
-            'https://www.thetoyshop.com/store/birmingham',
-            'https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra',
-            'https://www.thetoyshop.com/sitemap/media/Store-en-GBP',
+          import { buildKnownChainOverpassQuery } from './src/encounters/osm-retailer-branch-sync.mjs';
+
+          const endpoint = 'https://overpass-api.de/api/interpreter';
+          const smallQuery = `[out:json][timeout:20];(nwr["brand"~"^(Tesco|Argos|The Entertainer|Smyths Toys.*)$",i](around:25000,51.5074,-0.1278);nwr["name"~"^(Tesco|Tesco Extra|Tesco Superstore|Argos.*|The Entertainer.*|Smyths Toys.*)$",i](around:25000,51.5074,-0.1278););out center tags 100;`;
+          const queries = [
+            ['small_london', smallQuery, 30000],
+            ['current_national', buildKnownChainOverpassQuery(), 80000],
           ];
           const results = [];
-          for (const url of urls) {
+
+          for (const [label, query, timeoutMs] of queries) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            const started = Date.now();
             try {
-              const controller = new AbortController();
-              const timer = setTimeout(() => controller.abort(), 12000);
-              const response = await fetch(url, {
+              const response = await fetch(endpoint, {
+                method: 'POST',
                 redirect: 'follow',
                 signal: controller.signal,
                 headers: {
-                  accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5',
+                  accept: 'application/json',
+                  'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
                   'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
                 },
+                body: new URLSearchParams({ data: query }).toString(),
               });
-              clearTimeout(timer);
               const body = await response.text();
+              let elementCount = null;
+              try { elementCount = JSON.parse(body)?.elements?.length ?? null; } catch {}
               results.push({
-                url,
+                label,
                 status: response.status,
                 ok: response.ok,
-                finalUrl: response.url,
+                elapsedMs: Date.now() - started,
                 contentType: response.headers.get('content-type'),
                 bytes: body.length,
-                prefix: body.slice(0, 160).replace(/\s+/g, ' '),
+                elementCount,
+                prefix: body.slice(0, 220).replace(/\s+/g, ' '),
               });
             } catch (error) {
-              results.push({ url, error: String(error?.message || error) });
+              results.push({ label, elapsedMs: Date.now() - started, error: String(error?.name || '') + ': ' + String(error?.message || error) });
+            } finally {
+              clearTimeout(timer);
             }
           }
-          console.log('LOCAL_RADAR_TOYSHOP_HTTP_DIAGNOSTIC');
+          console.log('LOCAL_RADAR_OVERPASS_DIAGNOSTIC');
           console.log(JSON.stringify(results, null, 2));
           NODE
 
