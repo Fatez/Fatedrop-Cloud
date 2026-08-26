@@ -16,7 +16,7 @@ export function classifyRrpApplicability({ title = "", productType = "other" } =
     return { eligible: false, reason: "digital_code" };
   }
 
-  if (/\b(?:japanese|japan import|japanese import|korean|korea import|korean version|simplified chinese|traditional chinese|chinese simplified|chinese import)\b/.test(text)) {
+  if (/\b(?:japanese|japan|japan import|japanese import|jp|jpn|korean|korea|korea import|korean version|kr|kor|chinese|china|simplified chinese|traditional chinese|chinese simplified|chinese import|cn|chs|cht)\b/.test(text)) {
     return { eligible: false, reason: "non_uk_import" };
   }
 
