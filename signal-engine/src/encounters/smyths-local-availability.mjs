@@ -10,6 +10,7 @@ const SMYTHS_ORIGIN = "https://www.smythstoys.com";
 const IN_STOCK = new Set(["instock", "in_stock", "available", "collection_available", "on_shelf"]);
 const LOW_STOCK = new Set(["lowstock", "low_stock", "limitedstock", "limited_stock"]);
 const OUT_OF_STOCK = new Set(["outofstock", "out_of_stock", "unavailable", "soldout", "sold_out"]);
+const SOURCE_GATE = new Map();
 
 function text(value) {
   const result = String(value ?? "").trim();
@@ -212,6 +213,13 @@ function statusFromStore(record = {}) {
   );
 }
 
+function gateKey(lat, lng, mappings) {
+  const latitudeBucket = Math.round(lat * 100) / 100;
+  const longitudeBucket = Math.round(lng * 100) / 100;
+  const products = mappings.map((mapping) => mapping.productCode).sort().join(",");
+  return `${latitudeBucket}|${longitudeBucket}|${products}`;
+}
+
 export async function refreshSmythsLocalAvailability({
   store,
   shops = [],
@@ -220,6 +228,8 @@ export async function refreshSmythsLocalAvailability({
   fetchImpl = fetch,
   timeoutMs = 4500,
   maxProducts = 3,
+  minRefreshMs = 60_000,
+  protectionCooldownMs = 15 * 60_000,
 } = {}) {
   const lat = number(latitude);
   const lng = number(longitude);
@@ -233,11 +243,31 @@ export async function refreshSmythsLocalAvailability({
     return { provider: "smyths_official_store_availability", status: "unconfigured", productsChecked: 0, observationsSaved: 0, rejected: 0 };
   }
 
+  const limit = Math.max(1, Math.min(10, Number(maxProducts) || 3));
+  const selectedMappings = mappings.slice(0, limit);
+  const key = gateKey(lat, lng, selectedMappings);
+  const now = Date.now();
+  const gate = SOURCE_GATE.get(key) || { lastAttemptAt: 0, blockedUntil: 0, lastStatus: null };
+  if (gate.blockedUntil > now) {
+    return {
+      provider: "smyths_official_store_availability",
+      status: "cooldown",
+      cooldownReason: gate.lastStatus,
+      cooldownUntil: new Date(gate.blockedUntil).toISOString(),
+      productsChecked: 0,
+      observationsSaved: 0,
+      rejected: 0,
+    };
+  }
+  if (Number(minRefreshMs) > 0 && now - gate.lastAttemptAt < Number(minRefreshMs)) {
+    return { provider: "smyths_official_store_availability", status: "cached", productsChecked: 0, observationsSaved: 0, rejected: 0 };
+  }
+  SOURCE_GATE.set(key, { ...gate, lastAttemptAt: now });
+
   const selectedStore = branches[0].branchKey || null;
   const observations = [];
   const sourceStates = [];
-  const limit = Math.max(1, Math.min(10, Number(maxProducts) || 3));
-  for (const mapping of mappings.slice(0, limit)) {
+  for (const mapping of selectedMappings) {
     const response = await fetchSmythsStoreAvailability({
       productCode: mapping.productCode,
       latitude: lat,
@@ -283,10 +313,16 @@ export async function refreshSmythsLocalAvailability({
     persistResult = await upsertLocalStockObservationsIntoStore(store, normalized.observations);
   }
   const sourceOk = sourceStates.some((state) => state === "ok");
-  const sourceBlocked = sourceStates.some((state) => ["protected", "rate_limited"].includes(state));
+  const sourceBlocked = sourceStates.find((state) => ["protected", "rate_limited"].includes(state)) || null;
+  const finalStatus = sourceOk ? "ok" : (sourceBlocked || "unavailable");
+  SOURCE_GATE.set(key, {
+    lastAttemptAt: now,
+    blockedUntil: sourceBlocked ? now + Math.max(60_000, Number(protectionCooldownMs) || 15 * 60_000) : 0,
+    lastStatus: finalStatus,
+  });
   return {
     provider: "smyths_official_store_availability",
-    status: sourceOk ? "ok" : (sourceBlocked ? "protected" : "unavailable"),
+    status: finalStatus,
     productsChecked: sourceStates.length,
     observationsSaved: Number(persistResult?.saved || 0),
     duplicates: Number(persistResult?.duplicates || 0),
@@ -300,6 +336,8 @@ export const SMYTHS_LOCAL_SOURCE_POLICY = Object.freeze({
   identifierNamespace: IDENTIFIER_NAMESPACE,
   requestMode: "ordinary_public_request_only",
   retries: 0,
+  minimumRefreshMs: 60_000,
+  protectionCooldownMs: 15 * 60_000,
   protections: "fail_closed_no_bypass",
   manifested: "verified identifier + exact branch + official collection availability only",
   vanished: "existing Local Radar persistence still requires prior Manifested history",
