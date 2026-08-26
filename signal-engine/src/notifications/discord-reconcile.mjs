@@ -11,6 +11,17 @@ const DEFAULT_MAX_RECOVERY_AGE_SECONDS = Object.freeze({
   manifested: 5 * 60,
   vanished: 15 * 60,
 });
+// A canonical signal with no delivery attempt at all is a different failure class
+// from a provider failure. It may have been persisted immediately before a hard
+// scan deadline, process restart or deployment. Keep these obligations alive
+// longer, but only while the signal remains the latest lifecycle event for its
+// offer (the SQL candidate query suppresses superseded events).
+const DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS = Object.freeze({
+  whisper: 20 * 60,
+  echo: 60 * 60,
+  manifested: 15 * 60,
+  vanished: 30 * 60,
+});
 const RETRYABLE_SKIPPED_DETAILS = new Set(["missing_bot_token", "missing_lifecycle_channel_id"]);
 const LOCK_NAME = "fatedrop:discord-delivery-reconcile";
 
@@ -55,6 +66,10 @@ function retryableAttempt(attempt) {
   return attempt.result === "skipped" && RETRYABLE_SKIPPED_DETAILS.has(attempt.detail);
 }
 
+function boundedAge(value, fallback, safeGrace) {
+  return Math.max(safeGrace, Number(value) || fallback);
+}
+
 export function discordRecoveryDecision({
   signal,
   lastAttempt = null,
@@ -62,6 +77,7 @@ export function discordRecoveryDecision({
   graceSeconds = DEFAULT_GRACE_SECONDS,
   retryDelaySeconds = DEFAULT_RETRY_DELAY_SECONDS,
   maxAgeByState = DEFAULT_MAX_RECOVERY_AGE_SECONDS,
+  orphanMaxAgeByState = DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS,
 } = {}) {
   const state = String(signal?.state || "").toLowerCase();
   if (!LIFECYCLE_STATES.includes(state)) return { recover: false, reason: "unsupported_state" };
@@ -70,9 +86,27 @@ export function discordRecoveryDecision({
 
   const ageSeconds = Math.max(0, now - detectedAt);
   const safeGrace = Math.max(30, Math.min(10 * 60, Math.trunc(graceSeconds)));
-  const maxAgeSeconds = Math.max(safeGrace, Number(maxAgeByState?.[state]) || DEFAULT_MAX_RECOVERY_AGE_SECONDS[state]);
+  const normalMaxAgeSeconds = boundedAge(
+    maxAgeByState?.[state],
+    DEFAULT_MAX_RECOVERY_AGE_SECONDS[state],
+    safeGrace,
+  );
+  const orphanMaxAgeSeconds = boundedAge(
+    orphanMaxAgeByState?.[state],
+    DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS[state],
+    safeGrace,
+  );
+  const maxAgeSeconds = lastAttempt ? normalMaxAgeSeconds : orphanMaxAgeSeconds;
+
   if (ageSeconds < safeGrace) return { recover: false, reason: "initial_delivery_grace", ageSeconds, maxAgeSeconds };
-  if (ageSeconds > maxAgeSeconds) return { recover: false, reason: "stale", ageSeconds, maxAgeSeconds };
+  if (ageSeconds > maxAgeSeconds) {
+    return {
+      recover: false,
+      reason: lastAttempt ? "stale" : "orphan_stale",
+      ageSeconds,
+      maxAgeSeconds,
+    };
+  }
 
   if (!lastAttempt) return { recover: true, reason: "no_attempt", ageSeconds, maxAgeSeconds };
   if (lastAttempt.result === "sent") return { recover: false, reason: "already_sent", ageSeconds, maxAgeSeconds };
@@ -92,6 +126,7 @@ export async function reconcileMissingDiscordDeliveries({
   graceSeconds = DEFAULT_GRACE_SECONDS,
   retryDelaySeconds = DEFAULT_RETRY_DELAY_SECONDS,
   maxAgeByState = DEFAULT_MAX_RECOVERY_AGE_SECONDS,
+  orphanMaxAgeByState = DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS,
   limit = DEFAULT_BATCH_LIMIT,
 } = {}) {
   if (!store || typeof store.pool !== "function") {
@@ -115,10 +150,13 @@ export async function reconcileMissingDiscordDeliveries({
     const safeGrace = Math.max(30, Math.min(10 * 60, Math.trunc(graceSeconds)));
     const safeRetryDelay = Math.max(60, Math.min(30 * 60, Math.trunc(retryDelaySeconds)));
     const safeLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
-    const maximumRecoveryAge = Math.max(...LIFECYCLE_STATES.map((state) => Number(maxAgeByState?.[state]) || DEFAULT_MAX_RECOVERY_AGE_SECONDS[state]));
+    const maximumRecoveryAge = Math.max(
+      ...LIFECYCLE_STATES.map((state) => Number(maxAgeByState?.[state]) || DEFAULT_MAX_RECOVERY_AGE_SECONDS[state]),
+      ...LIFECYCLE_STATES.map((state) => Number(orphanMaxAgeByState?.[state]) || DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS[state]),
+    );
     const oldest = Math.max(0, now - maximumRecoveryAge);
     const newest = Math.max(0, now - safeGrace);
-    const candidateLimit = Math.min(400, safeLimit * 4);
+    const candidateLimit = Math.min(800, Math.max(200, safeLimit * 8));
 
     const { rows } = await client.query(
       `SELECT s.*,
@@ -143,7 +181,27 @@ export async function reconcileMissingDiscordDeliveries({
              AND delivered.channel='discord'
              AND delivered.result='sent'
          )
-       ORDER BY s.detected_at ASC, s.id ASC
+         AND NOT EXISTS (
+           SELECT 1
+           FROM fatedrop_signals newer
+           WHERE newer.id <> s.id
+             AND newer.retailer_id = s.retailer_id
+             AND newer.state = ANY($3)
+             AND newer.detected_at > s.detected_at
+             AND (
+               (s.offer_id IS NOT NULL AND newer.offer_id = s.offer_id)
+               OR (
+                 s.offer_id IS NULL
+                 AND s.product_id IS NOT NULL
+                 AND newer.offer_id IS NULL
+                 AND newer.product_id = s.product_id
+               )
+             )
+         )
+       ORDER BY
+         CASE WHEN last_attempt.result IS NULL THEN 0 ELSE 1 END ASC,
+         s.detected_at ASC,
+         s.id ASC
        LIMIT $4`,
       [oldest, newest, LIFECYCLE_STATES, candidateLimit],
     );
@@ -157,6 +215,7 @@ export async function reconcileMissingDiscordDeliveries({
         graceSeconds: safeGrace,
         retryDelaySeconds: safeRetryDelay,
         maxAgeByState,
+        orphanMaxAgeByState,
       }).recover)
       .slice(0, safeLimit);
 
