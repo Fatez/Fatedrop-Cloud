@@ -134,7 +134,7 @@ async function knownOsmProviderIds(store) {
     const rows = await store.listRetailerLocations({ limit: 20000 });
     return new Set((rows || [])
       .filter((row) => row.provider === "openstreetmap")
-      .map((row) => String(row.providerId ?? row.provider_id || ""))
+      .map((row) => String((row.providerId ?? row.provider_id) || ""))
       .filter(Boolean));
   }
   if (typeof store?.pool !== "function") return new Set();
@@ -193,7 +193,8 @@ export async function runOsmRetailerBranchSync({
   const normalized = normalizeOverpassBranchElements(elements, { now });
   const known = await knownOsmProviderIds(store).catch(() => new Set());
   const maxSave = Math.min(2000, Math.max(1, Number(saveLimit) || DEFAULT_SAVE_LIMIT));
-  const pending = normalized.locations.filter((row) => !known.has(row.providerId)).slice(0, maxSave);
+  const notKnown = normalized.locations.filter((row) => !known.has(row.providerId));
+  const pending = notKnown.slice(0, maxSave);
   const batch = normalizeRetailerLocationBatch(pending);
   let saved = 0;
   let persistenceRejected = [];
@@ -208,6 +209,7 @@ export async function runOsmRetailerBranchSync({
         discovered: elements.length,
         accepted: normalized.locations.length,
         attempted: pending.length,
+        deferred: Math.max(0, notKnown.length - pending.length),
         saved: 0,
         rejected: normalized.rejected.length + batch.rejected.length,
         error: String(error?.message || error),
@@ -225,8 +227,9 @@ export async function runOsmRetailerBranchSync({
     status: "ok",
     discovered: elements.length,
     accepted: normalized.locations.length,
-    alreadyKnown: normalized.locations.length - pending.length,
+    alreadyKnown: normalized.locations.length - notKnown.length,
     attempted: pending.length,
+    deferred: Math.max(0, notKnown.length - pending.length),
     saved,
     rejected: normalized.rejected.length + persistenceRejected.length,
     countsByRetailer,
