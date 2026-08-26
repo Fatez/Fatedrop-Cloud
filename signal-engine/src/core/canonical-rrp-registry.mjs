@@ -12,23 +12,31 @@ function normalizeRrpAliasInput(input = {}) {
   const title = String(source.title || "");
   const tcg = String(source.tcg || "pokemon").trim().toLowerCase();
 
+  // Keep retailer naming aliases local to RRP resolution. This preserves the raw
+  // catalogue title/evidence while allowing verified official identities to be
+  // reused safely across common retailer wording differences.
+  let normalizedTitle = title;
+  if (tcg === "pokemon") {
+    normalizedTitle = normalizedTitle
+      .replace(/\bSWSH\b/gi, " Sword & Shield ")
+      .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   // Retailers frequently publish the same Pokemon expansion using a set code or
   // series prefix while the official catalogue uses the long expansion name.
   // Keep these aliases local to RRP identity resolution so catalogue titles and
   // evidence remain untouched. Add only verified aliases; never fuzzy-match them.
-  if (tcg === "pokemon" && /\bchaos[\s-]+rising\b/i.test(title)) {
-    return {
-      ...source,
-      title: title
-        .replace(/\bME\s*0?4\b/gi, " ")
-        .replace(/\bMega\s+Evolution(?:\s+4)?\b/gi, " ")
-        .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    };
+  if (tcg === "pokemon" && /\bchaos[\s-]+rising\b/i.test(normalizedTitle)) {
+    normalizedTitle = normalizedTitle
+      .replace(/\bME\s*0?4\b/gi, " ")
+      .replace(/\bMega\s+Evolution(?:\s+4)?\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
-  return source;
+  return normalizedTitle === title ? source : { ...source, title: normalizedTitle };
 }
 
 function bucketFor(input = {}) {
