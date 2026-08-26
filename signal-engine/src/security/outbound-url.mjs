@@ -12,17 +12,16 @@ function securityError(message) {
 function forbiddenIpv4(address) {
   const parts = String(address).split(".").map(Number);
   if (parts.length !== 4 || parts.some((value) => !Number.isInteger(value) || value < 0 || value > 255)) return true;
-  const [a, b] = parts;
+  const [a, b, c] = parts;
   if (a === 0 || a === 10 || a === 127) return true;
   if (a === 100 && b >= 64 && b <= 127) return true;
   if (a === 169 && b === 254) return true;
   if (a === 172 && b >= 16 && b <= 31) return true;
   if (a === 192 && b === 168) return true;
-  if (a === 192 && b === 0) return true;
-  if (a === 192 && b === 0 && parts[2] === 2) return true;
+  if (a === 192 && b === 0 && (c === 0 || c === 2)) return true;
   if (a === 198 && (b === 18 || b === 19)) return true;
-  if (a === 198 && b === 51 && parts[2] === 100) return true;
-  if (a === 203 && b === 0 && parts[2] === 113) return true;
+  if (a === 198 && b === 51 && c === 100) return true;
+  if (a === 203 && b === 0 && c === 113) return true;
   if (a >= 224) return true;
   return false;
 }
@@ -42,9 +41,10 @@ function forbiddenIpv6(address) {
 }
 
 export function isForbiddenOutboundAddress(address) {
-  const version = net.isIP(String(address).replace(/^\[|\]$/g, ""));
-  if (version === 4) return forbiddenIpv4(address);
-  if (version === 6) return forbiddenIpv6(address);
+  const value = String(address).replace(/^\[|\]$/g, "");
+  const version = net.isIP(value);
+  if (version === 4) return forbiddenIpv4(value);
+  if (version === 6) return forbiddenIpv6(value);
   return true;
 }
 
@@ -61,7 +61,7 @@ export async function assertPublicHttpUrl(rawUrl, { lookup = dns.lookup } = {}) 
   try { url = new URL(String(rawUrl || "")); }
   catch { throw securityError("Outbound retailer URL is invalid"); }
 
-  if (!['http:', 'https:'].includes(url.protocol)) throw securityError("Outbound retailer URL protocol is not allowed");
+  if (!["http:", "https:"].includes(url.protocol)) throw securityError("Outbound retailer URL protocol is not allowed");
   if (url.username || url.password) throw securityError("Outbound retailer URL credentials are not allowed");
   if (!url.hostname || forbiddenHostname(url.hostname)) throw securityError("Outbound retailer URL host is not allowed");
 
