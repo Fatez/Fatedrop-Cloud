@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { reconcileProductDiscoveryWatch } from "./core/discovery-watch-reconcile.mjs";
@@ -26,12 +27,37 @@ const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
 const DISCORD_DELIVERY_RECONCILE_INTERVAL_MS = 60 * 1000;
 const DISCOVERY_WATCH_RECONCILE_INTERVAL_MS = 60 * 1000;
 const FATEFIND_PREFLIGHT_CACHE_MS = 60 * 1000;
+const PRIVATE_DIAGNOSTIC_PATHS = new Set([
+  "/api/status",
+  "/api/discord-route-health",
+  "/api/beta-readiness",
+  "/api/website-snapshot-health",
+  "/api/fatefind-evaluator-preflight",
+  "/api/signal-health",
+]);
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
   registryEnabled: env.retailerRegistryEnabled,
   databaseUrl: env.databaseUrl,
 });
+
+function bearerToken(req) {
+  const authorization = String(req?.headers?.authorization || "");
+  return authorization.match(/^Bearer\s+([^\s]+)$/i)?.[1] || "";
+}
+
+function constantTimeEqual(left, right) {
+  const leftBytes = Buffer.from(String(left || ""));
+  const rightBytes = Buffer.from(String(right || ""));
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function diagnosticAuthorized(req) {
+  if (!env.apiToken) return false;
+  const provided = bearerToken(req);
+  return Boolean(provided) && constantTimeEqual(provided, env.apiToken);
+}
 
 let fateFindPreflightCache = null;
 let fateFindPreflightCachedAt = 0;
@@ -58,6 +84,14 @@ server.removeAllListeners("request");
 server.on("request", async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (PRIVATE_DIAGNOSTIC_PATHS.has(url.pathname) && !diagnosticAuthorized(req)) {
+      res.writeHead(401, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
     if (req.method === "GET" && url.pathname === "/api/discord-route-health") {
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
