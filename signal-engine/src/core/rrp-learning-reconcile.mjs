@@ -93,28 +93,35 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   }
   const pool = await store.pool();
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-  const [{ rows }, products] = await Promise.all([
-    pool.query(`
-      SELECT *
-      FROM fatedrop_rrp_resolution_queue
-      WHERE status IN ('open','candidate')
-      ORDER BY occurrence_count DESC, last_seen_at DESC
-      LIMIT $1
-    `, [safeLimit]),
-    store.listProducts({ limit: 5000 }),
-  ]);
+  const products = await store.listProducts({ limit: 5000 });
   const context = buildRrpValueContext(products);
   const fingerprint = authorityFingerprint(products);
+
+  // Exclude already-escalated rows at the database selection boundary when neither
+  // the authoritative RRP graph nor resolver rules have changed. Filtering only in
+  // the JS loop would let those rows occupy the LIMIT forever and starve the rest
+  // of the queue. COALESCE is intentional: legacy rows have no self-heal metadata.
+  const { rows } = await pool.query(`
+    SELECT *
+    FROM fatedrop_rrp_resolution_queue
+    WHERE status IN ('open','candidate')
+      AND NOT (
+        COALESCE(evidence_json->>'escalated','false')='true'
+        AND COALESCE(evidence_json->>'authority_fingerprint','')=$2
+        AND COALESCE(evidence_json->>'reconciler_rules_version','')=$3
+      )
+    ORDER BY occurrence_count DESC, last_seen_at DESC
+    LIMIT $1
+  `, [safeLimit, fingerprint, RECONCILER_RULES_VERSION]);
+
   let resolved = 0;
   let conflicts = 0;
   let escalated = 0;
   let deferred = 0;
 
   for (const row of rows) {
-    // Once a repeatedly unresolved row has been classified, do not keep running
-    // the exact same deterministic resolver against the exact same authority graph.
-    // A new authority snapshot or a new resolver rules version automatically wakes
-    // it up. This keeps self-healing event-driven instead of timer-driven thrashing.
+    // Keep a second defensive gate in case a non-Postgres test/store path supplies
+    // a row that the SQL boundary would normally have filtered.
     if (canDeferEscalatedRow(row, fingerprint)) {
       deferred += 1;
       continue;
