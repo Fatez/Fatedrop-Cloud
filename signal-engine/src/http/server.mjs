@@ -2,6 +2,7 @@ import http from "node:http";
 import { env } from "../config/env.mjs";
 import { retailers } from "../config/retailers.mjs";
 import { resolveRetailerDelivery } from "../core/delivery-policies.mjs";
+import { ingestRetailerDiscoveryObservations } from "../core/discovery-intake.mjs";
 import { ingestRetailerProducts, scanAll } from "../core/engine.mjs";
 import { compareGroups, rankGroups } from "../core/fate-verdict.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
@@ -454,6 +455,17 @@ export function createHttpServer({ store }) {
         const results = await scanAll({ retailers: selected, store });
         const website = await publishWebsiteSnapshot({ store });
         return json(res, 200, { results, website });
+      }
+      if (req.method === "POST" && url.pathname === "/internal/discovery-observations") {
+        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
+        const body = await readBody(req);
+        const retailer = retailers.find((item) => item.id === body.retailerId);
+        if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
+        const observations = Array.isArray(body.observations) ? body.observations : [];
+        if (!observations.length) return json(res, 400, { error: "observations must be a non-empty array" });
+        const result = await ingestRetailerDiscoveryObservations({ retailer, store, observations });
+        const website = await publishWebsiteSnapshot({ store });
+        return json(res, 200, { result, website });
       }
       if (req.method === "POST" && url.pathname === "/internal/ingest") {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
