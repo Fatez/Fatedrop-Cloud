@@ -122,6 +122,56 @@ function unwrapStencilHtml(text, template) {
   throw new Error(`Stencil catalogue response did not include requested template: ${template}`);
 }
 
+function visibleTextFromHtml(html) {
+  return String(html || "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--([\s\S]*?)-->/g, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isLikelyRetailerChallengeShell(html) {
+  const raw = String(html || "");
+  if (!raw || raw.length > 12_000) return false;
+  const lower = raw.toLowerCase();
+  const visible = visibleTextFromHtml(raw);
+  const hasIframeBootstrap = lower.includes("document.createelement(\"iframe\")")
+    || lower.includes("document.createelement('iframe')")
+    || /<iframe\b/i.test(raw);
+  const hasScriptBootstrap = /<script\b[^>]*(?:src=|>)/i.test(raw);
+  const explicitChallenge = [
+    "captcha",
+    "access denied",
+    "verify you are human",
+    "checking your browser",
+    "bot detection",
+    "challenge-platform",
+  ].some((marker) => lower.includes(marker));
+
+  if (explicitChallenge && raw.length < 12_000) return true;
+  if (!hasIframeBootstrap || !hasScriptBootstrap) return false;
+
+  // A normal retailer page can contain scripts/iframes. The fail-closed signature
+  // requires a tiny shell with effectively no shopper-visible content or links.
+  const anchors = (raw.match(/<a\b/gi) || []).length;
+  const forms = (raw.match(/<form\b/gi) || []).length;
+  const images = (raw.match(/<img\b/gi) || []).length;
+  const productHints = (raw.match(/product|price|basket|cart|stock/gi) || []).length;
+  return visible.length < 80 && anchors === 0 && forms === 0 && images === 0 && productHints === 0;
+}
+
+function assertNoChallengeShell(html, kind) {
+  if (!isLikelyRetailerChallengeShell(html)) return;
+  throw accessError(
+    `Retailer returned a protected ${kind} challenge shell with HTTP 200; adapter paused rather than treating the shell as an empty catalogue or attempting a bypass.`,
+    ACCESS_BLOCK_COOLDOWN_MS,
+    "retailer_access_challenge",
+  );
+}
+
 export function retailerHostCooldownStatus(url, now = Date.now()) {
   const host = hostFor(url);
   const state = host ? hostCooldowns.get(host) : null;
@@ -168,6 +218,7 @@ export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs, op
     }
     const text = await response.text();
     const html = template && isJson ? unwrapStencilHtml(text, template) : text;
+    assertNoChallengeShell(html, "catalogue");
     cache.set(cacheKey, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
     return { html, status: response.status, unchanged: false };
   } catch (error) {
