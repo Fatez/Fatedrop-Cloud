@@ -27,6 +27,52 @@ function tgcCollectables(enabled) {
   };
 }
 
+function travellingManUk(enabled) {
+  return {
+    id: "travelling-man-uk",
+    name: "Travelling Man UK",
+    tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.SPECIALIST,
+    adapterType: ADAPTER_TYPES.SHOPIFY,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
+    enabled,
+    baseUrl: "https://travellingman.com/",
+    catalogue: {
+      feedUrl: "https://travellingman.com/collections/pokemon-tcg/products.json?limit=250",
+      feedApproved: true,
+      runtime: { maxPages: 4, delayMs: 900 },
+    },
+    officialRrpSource: false,
+    include: SEALED_PRODUCT,
+    exclude: /\bsingle\b|code card|sleeve|binder|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b|portfolio|deck box/i,
+  };
+}
+
+function theTcgShopUk(enabled) {
+  return {
+    id: "the-tcg-shop-uk",
+    name: "The TCG Shop",
+    tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.SPECIALIST,
+    adapterType: ADAPTER_TYPES.SHOPIFY,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
+    enabled,
+    baseUrl: "https://www.thetcgshop.co.uk/",
+    catalogue: {
+      feedUrl: "https://www.thetcgshop.co.uk/collections/pokemon/products.json?limit=250",
+      feedApproved: true,
+      runtime: { maxPages: 2, delayMs: 900 },
+    },
+    officialRrpSource: false,
+    include: SEALED_PRODUCT,
+    exclude: NON_PRODUCT,
+  };
+}
+
 function amazonUk({ enabled, marketplace }) {
   return {
     id: "amazon-uk",
@@ -91,5 +137,9 @@ export function buildAdditionalLaunchRetailers({
 }
 
 export function additionalLaunchRetailers() {
-  return buildAdditionalLaunchRetailers();
+  return [
+    ...buildAdditionalLaunchRetailers(),
+    travellingManUk(Boolean(env.retailers.travellingManUk)),
+    theTcgShopUk(Boolean(env.retailers.theTcgShopUk)),
+  ].filter((retailer) => retailer.enabled);
 }
