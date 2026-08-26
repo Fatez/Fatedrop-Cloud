@@ -1,6 +1,7 @@
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { scanAll, scanRetailer } from "./core/engine.mjs";
+import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
@@ -18,6 +19,7 @@ import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const RRP_LEARNING_RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
 const DISCORD_DELIVERY_RECONCILE_INTERVAL_MS = 60 * 1000;
@@ -130,6 +132,7 @@ server.on("request", async (req, res) => {
 });
 let scanning = false;
 let refreshingAuthoritativeRrp = false;
+let reconcilingRrpLearning = false;
 let checkingDiscordRoutes = false;
 let checkingBetaReadiness = false;
 let reconcilingDiscordDeliveries = false;
@@ -201,12 +204,28 @@ async function scheduledScan() {
   } finally { scanning = false; }
 }
 
+async function reconcileRrpLearning() {
+  if (reconcilingRrpLearning) return;
+  reconcilingRrpLearning = true;
+  try {
+    const outcome = await reconcileRrpLearningQueue({ store, limit: 100 });
+    if (outcome.enabled && (outcome.resolved > 0 || outcome.conflicts > 0)) {
+      console.log("[signal-engine] RRP learning reconciliation", outcome);
+    }
+  } catch (error) {
+    console.error("[signal-engine] RRP learning reconciliation failed", { error: String(error?.message || error) });
+  } finally {
+    reconcilingRrpLearning = false;
+  }
+}
+
 async function refreshAuthoritativeRrp() {
   if (refreshingAuthoritativeRrp) return;
   refreshingAuthoritativeRrp = true;
   try {
     const outcome = await bootstrapAsmodeeRrp({ store, databaseUrl: env.databaseUrl });
     console.log("[signal-engine] Asmodee RRP authority refresh", outcome);
+    await reconcileRrpLearning();
   } catch (error) {
     console.error("[signal-engine] Asmodee RRP authority refresh failed", { error: String(error?.message || error) });
   } finally {
@@ -269,6 +288,7 @@ async function refreshDiscordRoutes() {
 server.listen(env.port, () => {
   console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
   void refreshAuthoritativeRrp();
+  void reconcileRrpLearning();
   void refreshDiscordRoutes();
   void refreshBetaReadiness();
   void reconcileDiscordDeliveries();
@@ -276,6 +296,7 @@ server.listen(env.port, () => {
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
 setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
+setInterval(reconcileRrpLearning, RRP_LEARNING_RECONCILE_INTERVAL_MS).unref();
 setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
 setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
 setInterval(reconcileDiscordDeliveries, DISCORD_DELIVERY_RECONCILE_INTERVAL_MS).unref();
