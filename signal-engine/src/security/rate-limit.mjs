@@ -21,14 +21,17 @@ function firstHeaderValue(value) {
 }
 
 export function clientRateLimitKey(req) {
+  const cloudflareIp = String(firstHeaderValue(req?.headers?.["cf-connecting-ip"]) || "").trim();
+  if (cloudflareIp) return `ip:${cloudflareIp}`;
+
+  const realIp = String(firstHeaderValue(req?.headers?.["x-real-ip"]) || "").trim();
+  if (realIp) return `ip:${realIp}`;
+
   const forwarded = String(firstHeaderValue(req?.headers?.["x-forwarded-for"]) || "")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
   if (forwarded.length) return `ip:${forwarded.at(-1)}`;
-
-  const realIp = String(firstHeaderValue(req?.headers?.["x-real-ip"]) || "").trim();
-  if (realIp) return `ip:${realIp}`;
 
   const remote = String(req?.socket?.remoteAddress || "unknown").trim() || "unknown";
   return `ip:${remote}`;
