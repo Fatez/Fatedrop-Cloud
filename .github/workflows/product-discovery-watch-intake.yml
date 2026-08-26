@@ -1,0 +1,84 @@
+name: Forward Product Discovery Watch Evidence
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  forward:
+    if: >-
+      github.event.issue.user.login == 'Fatez' &&
+      startsWith(github.event.issue.title, '[FATEDROP DISCOVERY WATCH]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validate structured evidence issue
+        shell: bash
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          body = json.loads(os.environ['ISSUE_BODY'])
+          assert body.get('retailerId') == 'pokemon-center-uk', body
+          observations = body.get('observations')
+          assert isinstance(observations, list) and len(observations) == 1, body
+          observation = observations[0]
+          url = str(observation.get('canonicalUrl') or '')
+          assert url.startswith('https://www.pokemoncenter.com/en-gb/product/'), url
+          assert observation.get('discoveryObservation') is True, observation
+          # Producer evidence may describe what it saw, but may never submit a lifecycle state.
+          assert 'state' not in observation and 'lifecycle' not in observation, observation
+          with open('payload.json', 'w', encoding='utf-8') as fh:
+              json.dump(body, fh, separators=(',', ':'))
+          PY
+
+      - name: Request GitHub OIDC identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error \
+            -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=fatedrop-discovery-intake")"
+          token="$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$response")"
+          printf '%s' "$token" > oidc-token.txt
+
+      - name: Submit evidence to canonical FateDrop Cloud intake
+        id: submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(cat oidc-token.txt)"
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${token}" \
+            -H 'content-type: application/json' \
+            --data-binary @payload.json \
+            'https://fatedrop-cloud-production.up.railway.app/internal/github-discovery-observations' \
+            > response.json
+          python - <<'PY'
+          import json
+          data = json.load(open('response.json', encoding='utf-8'))
+          assert data.get('success') is True, data
+          result = data.get('result') or {}
+          print('signalsCreated=' + str(result.get('signalsCreated')))
+          print('deduplicatedSignals=' + str(result.get('deduplicatedSignals')))
+          print('signalIds=' + ','.join(result.get('signalIds') or []))
+          print('states=' + ','.join(result.get('states') or []))
+          PY
+
+      - name: Close processed evidence issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue close "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --reason completed
