@@ -1,6 +1,7 @@
 import { additionalLaunchRetailers } from "./additional-launch-retailers.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES, RRP_AUTHORITY, normalizeRetailerCandidate } from "./registry.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
+import { ensureStaticRetailersInRegistry } from "./static-registry-sync.mjs";
 
 function compilePattern(value, field) {
   if (!value) throw new Error(`${field} is required for generic HTML runtime`);
@@ -62,8 +63,11 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
   if (!registryEnabled) return launch;
   if (!databaseUrl) throw new Error("Retailer registry runtime requires DATABASE_URL");
   const registry = new PostgresRetailerRegistry(databaseUrl);
+  await ensureStaticRetailersInRegistry({ registry, staticRetailers: launch });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
-  const dynamic = monitored.map(retailerToRuntimeConfig);
+  const dynamic = monitored
+    .filter((retailer) => !byLaunchId.has(retailer.id))
+    .map(retailerToRuntimeConfig);
   const byId = new Map(launch.map((retailer) => [retailer.id, retailer]));
   for (const retailer of dynamic) byId.set(retailer.id, retailer);
   return [...byId.values()];

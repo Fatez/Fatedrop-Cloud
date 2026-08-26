@@ -91,6 +91,7 @@ function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
     locationResolution:location,
     providers:{
       shops:{provider:"google_places",status:"location_unresolved"},
+      localStock:{provider:"fatedrop_signal_events",status:"location_unresolved"},
       events:{provider:"fatedrop_encounters",status:"location_unresolved"},
     },
     shops:[],events:[],counts:{shops:0,events:0},
@@ -98,6 +99,8 @@ function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
       "The supplied location could not be resolved, so FateDrop did not label any shop or event as nearby.",
       "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
+      "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
+      "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",
     ],
   };
@@ -138,7 +141,12 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     if(location.requested&&!location.origin){
       return json(res,200,emptyRadarResult({types:requestedTypes,tcg,radiusMiles,from,to,location:location.resolution}));
     }
-    const radarStore = { listOffers:(options)=>store.listOffers(options), listEncounters:(options)=>listEncountersFromStore(store,options) };
+    const radarStore = {
+      listOffers:(options)=>store.listOffers(options),
+      listEncounters:(options)=>listEncountersFromStore(store,options),
+      ...(typeof store.listLocalStockObservations==="function"?{listLocalStockObservations:(options)=>store.listLocalStockObservations(options)}:{}),
+      ...(typeof store.pool==="function"?{pool:()=>store.pool()}:{}),
+    };
     const result = await buildLocalRadar({
       store:radarStore,retailers,placesApiKey:env.encounters.googlePlacesApiKey,placesSearch,
       latitude:location.origin?.latitude??null,longitude:location.origin?.longitude??null,postcode:location.resolution?.postcode||url.searchParams.get("postcode")||null,
@@ -148,7 +156,7 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     const response={
       ...result,
       events,
-      counts:{shops:result.shops.length,events:events.length},
+      counts:{...(result.counts||{}),shops:result.shops.length,events:events.length},
       locationResolution:location.resolution,
       disclaimers:[
         ...(result.disclaimers||[]),
