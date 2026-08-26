@@ -39,12 +39,12 @@ function storeWith(observations) {
   };
 }
 
-test("official branch evidence can produce verified local in-stock", async () => {
+test("official branch Manifested evidence can produce verified local in-stock", async () => {
   const now = Date.now();
   const data = await buildLocalRadar({
     store: storeWith([{
       id: "evt-official",
-      kind: "local_in_stock",
+      kind: "manifested",
       retailerId: "smyths-uk",
       locationId: "loc-romford",
       locationName: "Smyths Toys Superstores Romford",
@@ -56,6 +56,8 @@ test("official branch evidence can produce verified local in-stock", async () =>
         confidence: 0.99,
         sourceType: "retailer_store_availability",
         sourceUrl: "https://www.smythstoys.com/uk/en-gb/",
+        stockStatus: "in_stock",
+        availabilityVerified: true,
       },
     }]),
     retailers,
@@ -68,17 +70,18 @@ test("official branch evidence can produce verified local in-stock", async () =>
   assert.equal(data.shops.length, 1);
   assert.equal(data.shops[0].retailerId, "smyths-uk", "national-chain aliases should resolve to the canonical retailer");
   assert.equal(data.shops[0].localStockStatus, "in_stock");
+  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "manifested");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, true);
   assert.equal(data.shops[0].localStockProducts[0].title, "Test Elite Trainer Box");
   assert.equal(data.counts.localInStockBranches, 1);
   assert.equal(data.counts.incomingWatchBranches, 0);
 });
 
-test("community evidence is downgraded to incoming watch instead of fake branch stock", async () => {
+test("community evidence cannot create verified Manifested branch stock", async () => {
   const data = await buildLocalRadar({
     store: storeWith([{
       id: "evt-community",
-      kind: "local_in_stock",
+      kind: "manifested",
       retailerId: "smyths-uk",
       locationId: "loc-romford",
       locationName: "Smyths Toys Superstores Romford",
@@ -89,6 +92,8 @@ test("community evidence is downgraded to incoming watch instead of fake branch 
         evidenceLevel: "community_report",
         confidence: 0.72,
         sourceType: "community_sighting",
+        stockStatus: "in_stock",
+        availabilityVerified: true,
       },
     }]),
     retailers,
@@ -104,12 +109,12 @@ test("community evidence is downgraded to incoming watch instead of fake branch 
   assert.equal(data.counts.incomingWatchBranches, 1);
 });
 
-test("stale physical stock expires instead of lingering as current stock", async () => {
+test("stale physical Manifested stock expires instead of lingering as current stock", async () => {
   const sixHoursAgo = Date.now() - 6 * 60 * 60 * 1000;
   const data = await buildLocalRadar({
     store: storeWith([{
       id: "evt-stale",
-      kind: "local_in_stock",
+      kind: "manifested",
       retailerId: "smyths-uk",
       locationId: "loc-romford",
       locationName: "Smyths Toys Superstores Romford",
@@ -120,6 +125,8 @@ test("stale physical stock expires instead of lingering as current stock", async
         evidenceLevel: "official_branch",
         confidence: 0.99,
         sourceType: "retailer_store_availability",
+        stockStatus: "in_stock",
+        availabilityVerified: true,
       },
     }]),
     retailers,
@@ -135,11 +142,11 @@ test("stale physical stock expires instead of lingering as current stock", async
   assert.equal(data.counts.localInStockBranches, 0);
 });
 
-test("preparation evidence remains an incoming watch and never becomes manifested by naming alone", async () => {
+test("Echo preparation evidence remains an incoming watch and never becomes Manifested by naming alone", async () => {
   const data = await buildLocalRadar({
     store: storeWith([{
-      id: "evt-incoming",
-      kind: "local_incoming",
+      id: "evt-echo",
+      kind: "echo",
       retailerId: "smyths-uk",
       locationId: "loc-romford",
       locationName: "Smyths Toys Superstores Romford",
@@ -160,27 +167,28 @@ test("preparation evidence remains an incoming watch and never becomes manifeste
   });
 
   assert.equal(data.shops[0].localStockStatus, "incoming_watch");
+  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "echo");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
 });
 
-test("newer contradictory evidence wins over an older in-stock observation", async () => {
+test("newer Vanished evidence wins over an older Manifested observation", async () => {
   const now = Date.now();
   const data = await buildLocalRadar({
     store: storeWith([
       {
-        id: "evt-old-in",
-        kind: "local_in_stock",
+        id: "evt-old-manifested",
+        kind: "manifested",
         retailerId: "smyths-uk",
         locationId: "loc-romford",
         locationName: "Smyths Toys Superstores Romford",
         occurredAt: now - 10 * 60 * 1000,
         productIdentityId: "pokemon:test-etb",
         productTitle: "Test Elite Trainer Box",
-        evidence: { evidenceLevel: "official_branch", confidence: 0.95, sourceType: "retailer_store_availability" },
+        evidence: { evidenceLevel: "official_branch", confidence: 0.95, sourceType: "retailer_store_availability", stockStatus: "in_stock", availabilityVerified: true },
       },
       {
-        id: "evt-new-out",
-        kind: "local_out_of_stock",
+        id: "evt-new-vanished",
+        kind: "vanished",
         retailerId: "smyths-uk",
         locationId: "loc-romford",
         locationName: "Smyths Toys Superstores Romford",
@@ -198,23 +206,48 @@ test("newer contradictory evidence wins over an older in-stock observation", asy
   });
 
   assert.equal(data.shops[0].localStockProducts.length, 1, "duplicate observations for one product collapse to one current state");
+  assert.equal(data.shops[0].localStockProducts[0].lifecycleState, "vanished");
   assert.equal(data.shops[0].localStockProducts[0].status, "out_of_stock");
   assert.equal(data.shops[0].localStockProducts[0].contradictionCount, 1);
   assert.notEqual(data.shops[0].localStockStatus, "in_stock");
 });
 
-test("official branch availability without canonical product identity cannot become verified stock", async () => {
+test("orphan Vanished never claims disappearance without prior Manifested history", async () => {
+  const data = await buildLocalRadar({
+    store: storeWith([{
+      id: "evt-orphan-vanished",
+      kind: "vanished",
+      retailerId: "smyths-uk",
+      locationId: "loc-romford",
+      locationName: "Smyths Toys Superstores Romford",
+      occurredAt: Date.now(),
+      productIdentityId: "pokemon:test-etb",
+      productTitle: "Test Elite Trainer Box",
+      evidence: { evidenceLevel: "official_branch", confidence: 0.95, sourceType: "retailer_store_availability" },
+    }]),
+    retailers,
+    placesSearch,
+    latitude: 51.58,
+    longitude: 0.18,
+    types: ["shops"],
+  });
+
+  assert.equal(data.shops[0].localStockProducts[0].status, "unknown");
+  assert.equal(data.shops[0].localStockProducts[0].orphanVanished, true);
+});
+
+test("official branch Manifested availability without canonical product identity cannot become verified stock", async () => {
   const data = await buildLocalRadar({
     store: storeWith([{
       id: "evt-unresolved-product",
-      kind: "local_in_stock",
+      kind: "manifested",
       retailerId: "smyths-uk",
       locationId: "loc-romford",
       locationName: "Smyths Toys Superstores Romford",
       occurredAt: Date.now(),
       productIdentityId: null,
       productTitle: "Unknown Pokemon Box Name",
-      evidence: { evidenceLevel: "official_branch", confidence: 0.99, sourceType: "retailer_store_availability" },
+      evidence: { evidenceLevel: "official_branch", confidence: 0.99, sourceType: "retailer_store_availability", stockStatus: "in_stock", availabilityVerified: true },
     }]),
     retailers,
     placesSearch,
