@@ -103,82 +103,6 @@ function snapshotSignal(signal) {
   };
 }
 
-function rrpReferenceProduct(product) {
-  if (!product?.id || !product?.canonicalKey || !product?.title || product.officialRrpPence == null || !product.rrpSource) return null;
-  return {
-    id: product.id,
-    canonicalKey: product.canonicalKey,
-    title: product.title,
-    productType: product.productType ?? null,
-    tcg: product.tcg || "pokemon",
-    officialRrpPence: product.officialRrpPence,
-    rrpSource: product.rrpSource,
-    rrpObservedAt: product.rrpObservedAt ?? null,
-  };
-}
-
-async function networkOpportunity(store, signal) {
-  const [product, offer] = await Promise.all([
-    signal.productId ? store.getProduct(signal.productId) : null,
-    signal.offerId ? store.getOffer(signal.offerId) : null,
-  ]);
-  if (!product || !offer || !LIFECYCLE_STATES.has(signal?.state)) return null;
-  const context = pricingContext({
-    ...signal,
-    pricePence: signal.pricePence ?? offer.pricePence,
-    rrpPence: signal.rrpPence ?? product.officialRrpPence,
-    postagePence: signal.postagePence ?? offer.postagePence,
-  });
-  return {
-    retailer: {
-      id: offer.retailerId,
-      name: offer.retailerName,
-    },
-    product: {
-      id: product.id,
-      canonicalKey: product.canonicalKey,
-      title: product.title,
-      productType: product.productType,
-      tcg: product.tcg || "pokemon",
-      officialRrpPence: product.officialRrpPence ?? null,
-      rrpSource: product.rrpSource ?? null,
-      rrpObservedAt: product.rrpObservedAt ?? null,
-    },
-    offer: {
-      offerId: offer.offerId,
-      productId: offer.productId,
-      retailerId: offer.retailerId,
-      retailerName: offer.retailerName,
-      retailerSku: offer.retailerSku,
-      title: offer.title,
-      url: offer.url,
-      imageUrl: offer.imageUrl,
-      pricePence: offer.pricePence,
-      postagePence: offer.postagePence,
-      deliveredPricePence: context.deliveredPricePence,
-      officialRrpPence: context.rrpPence,
-      markupPercent: context.markupPercent,
-      rrpPosition: context.rrpPosition,
-      stockStatus: offer.stockStatus,
-      stockQuantity: offer.stockQuantity,
-      firstSeenAt: offer.firstSeenAt,
-      lastSeenAt: offer.lastSeenAt,
-    },
-    signal: {
-      id: signal.id,
-      state: signal.state,
-      kind: signalKind(signal),
-      alertClass: alertClass(signal),
-      detectedAt: signal.detectedAt,
-      reason: signal.reason ?? null,
-      confidence: signal.confidence ?? null,
-      retailerSku: signal.retailerSku || evidenceValue(signal, "retailer_sku") || offer.retailerSku || null,
-      retailerUrl: signal.url || offer.url || null,
-      evidence: signal.evidence ?? [],
-    },
-  };
-}
-
 export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, fetchImpl = fetch } = {}) {
   if (!configured()) {
     const outcome = { published: false, reason: "not_configured" };
@@ -192,11 +116,10 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
   }
 
   const measuredAt = Math.floor(Date.now() / 1000);
-  const [stats, signals, retailers, products, deliveryReport] = await Promise.all([
+  const [stats, signals, retailers, deliveryReport] = await Promise.all([
     store.stats(),
     store.listSignals({ since: measuredAt - 86_400, limit: 100 }),
     store.listRetailers(),
-    typeof store.listProducts === "function" ? store.listProducts({ limit: 2000 }) : [],
     buildSignalDeliveryReport(store, { since: measuredAt - 86_400, until: measuredAt + 1 }),
   ]);
 
@@ -205,8 +128,6 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
     .sort((a, b) => b.detectedAt - a.detectedAt)
     .slice(0, 100);
   const recentSignals = relevantSignals.map(snapshotSignal).filter(Boolean);
-  const opportunities = (await Promise.all(relevantSignals.map((signal) => networkOpportunity(store, signal).catch(() => null)))).filter(Boolean);
-  const rrpReferenceProducts = products.map(rrpReferenceProduct).filter(Boolean).slice(0, 2000);
 
   const healthyMonitors = retailers.filter((retailer) => retailer.healthy).length;
   const sourceEventId = `signal-engine:${measuredAt}:${recentSignals[0]?.id || "no-signals"}`;
@@ -214,6 +135,7 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
     sourceEventId,
     source,
     measuredAt,
+    snapshotMode: "telemetry_only",
     metrics: {
       whisper: stats.whisper24h ?? null,
       manifested: stats.manifested24h ?? null,
@@ -227,8 +149,11 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       ...flattenSignalDeliveryMetrics(deliveryReport),
     },
     recentSignals,
-    rrpReferenceProducts,
-    opportunities,
+    // Historical receiver fields stay present as empty arrays for backwards
+    // compatibility. Cloud is now the catalogue/True Price/FateMatch authority;
+    // the periodic Web bridge must not replay a second product/offer catalogue.
+    rrpReferenceProducts: [],
+    opportunities: [],
     upcomingEvents: [],
   };
 
@@ -260,10 +185,11 @@ export async function publishWebsiteSnapshot({ store, source = DEFAULT_SOURCE, f
       measuredAt,
       signals: recentSignals.length,
       delivery: deliveryReport.available ? deliveryReport.totals : null,
-      rrpReferenceProducts: rrpReferenceProducts.length,
-      rrpReferenceProcessed: result.rrpReferenceProcessed ?? 0,
-      opportunities: opportunities.length,
-      fateMatchesTriggered: result.fateMatchesTriggered ?? 0,
+      snapshotMode: "telemetry_only",
+      rrpReferenceProducts: 0,
+      rrpReferenceProcessed: 0,
+      opportunities: 0,
+      fateMatchesTriggered: 0,
     };
     recordWebsiteSnapshotOutcome(outcome, { attemptedAt: measuredAt });
     return outcome;
