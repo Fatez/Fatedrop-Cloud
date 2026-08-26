@@ -21,6 +21,69 @@ permissions:
   contents: read
 
 jobs:
+  local-radar-branch-sync-diagnostic:
+    if: github.event_name == 'pull_request' && github.head_ref == 'ops/local-radar-branch-sync-proof-20260826'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Install Signal Engine dependencies
+        run: npm ci
+      - name: Probe bounded official branch sync using production code
+        run: |
+          node --input-type=module <<'NODE'
+          import { runNationalBranchDirectorySync } from './src/encounters/national-branch-directory-sync.mjs';
+
+          const persisted = [];
+          const store = {
+            async listRetailerLocations() { return []; },
+            async upsertRetailerLocations(locations) {
+              persisted.push(...locations);
+              return { saved: locations.length };
+            },
+          };
+
+          const outcome = await runNationalBranchDirectorySync({
+            store,
+            branchFetchLimit: 12,
+            toyshopFallbackSeeds: [
+              'https://www.thetoyshop.com/store/watford',
+              'https://www.thetoyshop.com/store/birmingham',
+              'https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra',
+            ],
+            toyshopFallbackDiscoveryLimit: 12,
+            toyshopFallbackConcurrency: 4,
+          });
+
+          console.log('LOCAL_RADAR_BRANCH_SYNC_DIAGNOSTIC');
+          console.log(JSON.stringify({
+            status: outcome.status,
+            sources: outcome.sources,
+            discovered: outcome.discovered,
+            attempted: outcome.attempted,
+            accepted: outcome.accepted,
+            saved: outcome.saved,
+            rejected: outcome.rejected,
+            rejectionSamples: outcome.rejectionSamples,
+            persisted: persisted.map((row) => ({
+              retailerId: row.retailerId,
+              provider: row.provider,
+              name: row.name,
+              postcode: row.postcode,
+              latitude: row.latitude,
+              longitude: row.longitude,
+              providerId: row.providerId,
+            })),
+          }, null, 2));
+          NODE
+
   signal-engine:
     runs-on: ubuntu-latest
     defaults:
