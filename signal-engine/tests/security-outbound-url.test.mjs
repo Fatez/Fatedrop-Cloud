@@ -18,16 +18,19 @@ test("private, loopback, link-local and reserved addresses are blocked", () => {
     "fc00::1",
     "fe80::1",
     "2001:db8::1",
+    "::ffff:127.0.0.1",
+    "::ffff:7f00:1",
   ]) {
     assert.equal(isForbiddenOutboundAddress(address), true, address);
   }
   assert.equal(isForbiddenOutboundAddress("93.184.216.34"), false);
 });
 
-test("outbound retailer URLs reject local hosts and credentials", async () => {
+test("outbound retailer URLs reject local hosts, mapped loopback and credentials", async () => {
   await assert.rejects(assertPublicHttpUrl("http://localhost/admin", { lookup: publicLookup }), /host is not allowed/);
   await assert.rejects(assertPublicHttpUrl("http://127.0.0.1/admin", { lookup: publicLookup }), /non-public address/);
   await assert.rejects(assertPublicHttpUrl("http://169.254.169.254/latest/meta-data", { lookup: publicLookup }), /non-public address/);
+  await assert.rejects(assertPublicHttpUrl("http://[::ffff:7f00:1]/admin", { lookup: publicLookup }), /non-public address/);
   await assert.rejects(assertPublicHttpUrl("https://user:pass@example.com/catalogue", { lookup: publicLookup }), /credentials are not allowed/);
   await assert.rejects(assertPublicHttpUrl("file:///etc/passwd", { lookup: publicLookup }), /protocol is not allowed/);
 });

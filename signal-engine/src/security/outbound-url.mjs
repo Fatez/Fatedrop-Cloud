@@ -33,10 +33,11 @@ function forbiddenIpv6(address) {
   if (/^fe[89ab]/.test(normalized)) return true;
   if (normalized.startsWith("ff")) return true;
   if (normalized.startsWith("2001:db8:")) return true;
-  if (normalized.startsWith("::ffff:")) {
-    const mapped = normalized.slice("::ffff:".length);
-    if (net.isIP(mapped) === 4) return forbiddenIpv4(mapped);
-  }
+  // URL parsing canonicalizes IPv4-mapped IPv6 literals such as
+  // ::ffff:127.0.0.1 into hexadecimal forms such as ::ffff:7f00:1.
+  // Reject the mapped-address class completely so textual normalization
+  // cannot turn a private/loopback IPv4 target into an allowed IPv6 literal.
+  if (normalized.startsWith("::ffff:")) return true;
   return false;
 }
 
