@@ -67,6 +67,7 @@ test("curated official incoming evidence becomes branch-specific advisory Echo o
     assert.equal(row.productIdentityId, null, "styles-vary incoming evidence must not guess a canonical product variant");
     assert.equal(row.evidence.advisory, true);
     assert.equal(row.evidence.scope, "exact_branch_advisory");
+    assert.equal(row.evidence.evidenceLevel, "inventory_preparation");
     assert.equal(row.evidence.sourceType, "official_retailer_page");
     assert.equal(row.evidence.availabilityVerified, false);
     assert.equal(row.evidence.expectedLabel, "Expected 28 August");
