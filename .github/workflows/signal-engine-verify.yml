@@ -17,7 +17,7 @@ on:
       - ".github/workflows/signal-engine-verify.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   local-radar-branch-sync-diagnostic:
@@ -28,6 +28,8 @@ jobs:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ops/local-radar-branch-sync-proof-20260826
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,50 +37,103 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Verify Total Cards sources from cloud runner
+      - name: Snapshot official Smyths UK branches
         run: |
           node --input-type=module <<'NODE'
-          const urls = [
-            'https://totalcards.net/pages/we-buy-any-cards',
-            'https://totalcards.net/products/pokemon-mega-evolution-perfect-order-booster-pack',
-            'https://api.postcodes.io/postcodes/DL5%206BF',
-          ];
-          const results = [];
-          for (const url of urls) {
+          import fs from 'node:fs/promises';
+
+          const BASE = 'https://www.smythstoys.com';
+          const finderUrl = `${BASE}/uk/en-gb/storefinder`;
+          const headers = {
+            accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.5',
+            'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
+          };
+          const postcodeRe = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
+          const titleRe = /<title[^>]*>([\s\S]*?)<\/title>/i;
+          const strip = (value='') => String(value)
+            .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&amp;/gi, '&').replace(/&nbsp;/gi, ' ')
+            .replace(/\s+/g, ' ').trim();
+          const fetchText = async (url, timeoutMs=20000) => {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 15000);
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
             try {
-              const response = await fetch(url, {
-                redirect: 'follow',
-                signal: controller.signal,
-                headers: {
-                  accept: 'text/html,application/json;q=0.9,*/*;q=0.5',
-                  'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
-                },
-              });
-              const body = await response.text();
-              results.push({
-                url,
-                status: response.status,
-                ok: response.ok,
-                finalUrl: response.url,
-                bytes: body.length,
-                hasGamingCentre: /Total Cards Gaming Centre/i.test(body),
-                hasPostcode: /DL5\s*6BF/i.test(body),
-                hasPickupOnly: /Pickup Only/i.test(body),
-                hasAvailableInStore: /Available to buy in-store/i.test(body),
-                hasSoldOut: /Sold out/i.test(body),
-                prefix: body.slice(0, 120).replace(/\s+/g, ' '),
-              });
-            } catch (error) {
-              results.push({ url, error: `${error?.name || ''}: ${error?.message || error}` });
-            } finally {
-              clearTimeout(timer);
+              const response = await fetch(url, { redirect:'follow', signal:controller.signal, headers });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              return await response.text();
+            } finally { clearTimeout(timer); }
+          };
+
+          const finderHtml = await fetchText(finderUrl);
+          const linkMatches = [...finderHtml.matchAll(/href=["']([^"']*\/uk\/en-gb\/storefinder\/storedetails\/[^"'#?]+)["']/gi)];
+          const urls = [...new Set(linkMatches.map((m) => new URL(m[1], BASE).toString().replace(/\/$/, '')))];
+          if (urls.length < 100) throw new Error(`Expected >=100 Smyths branch links, found ${urls.length}`);
+
+          const rows = new Array(urls.length);
+          let cursor = 0;
+          const worker = async () => {
+            while (true) {
+              const index = cursor++;
+              if (index >= urls.length) return;
+              const url = urls[index];
+              const slug = decodeURIComponent(url.split('/').pop() || 'unknown');
+              try {
+                const html = await fetchText(url);
+                const text = strip(html);
+                const postcode = text.match(postcodeRe)?.[1]?.toUpperCase().replace(/\s+/g, '') || null;
+                const normalizedPostcode = postcode ? `${postcode.slice(0, -3)} ${postcode.slice(-3)}` : null;
+                const rawTitle = strip(html.match(titleRe)?.[1] || '');
+                const name = rawTitle.replace(/\s*\|\s*Smyths Toys.*$/i, '').trim() || slug.replace(/-/g, ' ');
+                rows[index] = { retailerId:'smyths-uk', name, slug, postcode: normalizedPostcode, website:url, source:'smyths_official_storefinder' };
+              } catch (error) {
+                rows[index] = { retailerId:'smyths-uk', name:slug.replace(/-/g,' '), slug, postcode:null, website:url, source:'smyths_official_storefinder', error:String(error?.message || error) };
+              }
+            }
+          };
+          await Promise.all(Array.from({ length: 10 }, () => worker()));
+
+          const validPostcodes = [...new Set(rows.map((r) => r.postcode).filter(Boolean))];
+          const coordinates = new Map();
+          for (let i = 0; i < validPostcodes.length; i += 100) {
+            const batch = validPostcodes.slice(i, i + 100);
+            const response = await fetch('https://api.postcodes.io/postcodes', {
+              method:'POST',
+              headers:{ 'content-type':'application/json', 'user-agent':'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)' },
+              body:JSON.stringify({ postcodes: batch }),
+            });
+            if (!response.ok) throw new Error(`postcodes.io bulk lookup HTTP ${response.status}`);
+            const payload = await response.json();
+            for (const item of payload?.result || []) {
+              if (item?.query && item?.result?.latitude != null && item?.result?.longitude != null) {
+                coordinates.set(String(item.query).toUpperCase(), { latitude:Number(item.result.latitude), longitude:Number(item.result.longitude) });
+              }
             }
           }
-          console.log('LOCAL_RADAR_TOTAL_CARDS_FETCH_DIAGNOSTIC');
-          console.log(JSON.stringify(results, null, 2));
+
+          const enriched = rows.map((row) => ({ ...row, ...(coordinates.get(String(row.postcode || '').toUpperCase()) || {}) }));
+          const summary = {
+            generatedAt: new Date().toISOString(),
+            retailerId: 'smyths-uk',
+            sourceUrl: finderUrl,
+            sourceType: 'official_retailer_directory_snapshot',
+            total: enriched.length,
+            withPostcode: enriched.filter((r) => r.postcode).length,
+            withCoordinates: enriched.filter((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude)).length,
+            rows: enriched,
+          };
+          await fs.mkdir('tmp', { recursive:true });
+          await fs.writeFile('tmp/smyths-branches.generated.json', JSON.stringify(summary, null, 2) + '\n');
+          console.log('SMYTHS_SNAPSHOT_SUMMARY', JSON.stringify({ total:summary.total, withPostcode:summary.withPostcode, withCoordinates:summary.withCoordinates, errors:enriched.filter((r)=>r.error).length }));
           NODE
+      - name: Commit generated Smyths snapshot to diagnostic branch
+        run: |
+          git config user.name "FateDrop Ops"
+          git config user.email "ops@fatedrop.co.uk"
+          git add signal-engine/tmp/smyths-branches.generated.json
+          git commit -m "Ops: generate Smyths branch snapshot" || exit 0
+          git push origin HEAD:ops/local-radar-branch-sync-proof-20260826
 
   signal-engine:
     runs-on: ubuntu-latest
