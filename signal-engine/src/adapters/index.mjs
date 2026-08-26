@@ -3,28 +3,27 @@ import { scanRetailerCatalogue } from "./catalogue-adapter.mjs";
 import { scanStructuredCatalogue } from "./structured-catalogue-adapter.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 
+export function retailerScannerKind(retailer) {
+  if ([ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE].includes(retailer?.adapterType)) {
+    return "structured";
+  }
+
+  if (!retailer?.adapterType || retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
+    // A bounded retailer/category catalogue is authoritative for runtime routing
+    // whenever one is explicitly configured. Sitemap crawling is fallback-only.
+    if (Array.isArray(retailer.catalogueUrls) && retailer.catalogueUrls.length > 0) return "generic";
+    if (retailer.catalogue?.sitemapUrl) return "sitemap";
+    return "generic";
+  }
+
+  if (retailer?.catalogue?.sitemapUrl) return "sitemap";
+  return "unsupported";
+}
+
 export async function scanRetailerSource(retailer, options = {}) {
-  if ([ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE].includes(retailer.adapterType)) {
-    return scanStructuredCatalogue(retailer, options);
-  }
-
-  if (!retailer.adapterType || retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
-    // Prefer a bounded retailer/category catalogue when one is explicitly
-    // configured. Sitemap crawling is a fallback for retailers without a
-    // usable category surface; it must not silently turn a bounded scan into
-    // hundreds of individual product-page requests.
-    if (Array.isArray(retailer.catalogueUrls) && retailer.catalogueUrls.length > 0) {
-      return scanRetailerCatalogue(retailer);
-    }
-    if (retailer.catalogue?.sitemapUrl) {
-      return scanBigCommerceSitemapCatalogue(retailer);
-    }
-    return scanRetailerCatalogue(retailer);
-  }
-
-  if (retailer.catalogue?.sitemapUrl) {
-    return scanBigCommerceSitemapCatalogue(retailer);
-  }
-
+  const scanner = retailerScannerKind(retailer);
+  if (scanner === "structured") return scanStructuredCatalogue(retailer, options);
+  if (scanner === "generic") return scanRetailerCatalogue(retailer);
+  if (scanner === "sitemap") return scanBigCommerceSitemapCatalogue(retailer);
   throw new Error(`No automatic scanner is enabled for adapter type: ${retailer.adapterType}`);
 }
