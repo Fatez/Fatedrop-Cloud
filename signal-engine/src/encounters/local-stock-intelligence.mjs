@@ -1,3 +1,5 @@
+import { calculateOfferIntelligence } from "../core/price-intelligence.mjs";
+
 const LOCAL_SIGNAL_KINDS = new Set([
   "whisper",
   "echo",
@@ -78,6 +80,10 @@ function evidenceStockStatus(evidence = {}) {
   return text(evidence.stockStatus || evidence.stock_status || evidence.availability)?.toLowerCase() || null;
 }
 
+function evidencePricePence(evidence = {}) {
+  return number(evidence.itemPricePence ?? evidence.item_price_pence ?? evidence.pricePence ?? evidence.price_pence);
+}
+
 function ttlForEvidence({ kind, level, source }) {
   return EVIDENCE_TTL_MS[source]
     || EVIDENCE_TTL_MS[level]
@@ -134,6 +140,27 @@ function effectiveConfidence(item, now) {
   return Math.max(0, Math.min(1, base * decayFactor));
 }
 
+function valueIntelligence(item) {
+  const intelligence = calculateOfferIntelligence({
+    pricePence: item.pricePence,
+    postagePence: null,
+    officialRrpPence: item.officialRrpPence,
+    rrpSource: item.rrpSource,
+    rrpObservedAt: item.rrpObservedAt,
+    retailerId: item.retailerId,
+    evidence: [{ kind: item.sourceType || item.evidenceLevel || "local_stock_observation" }],
+  });
+  return {
+    priceKnown: intelligence.priceKnown,
+    rawObservedPricePence: intelligence.rawObservedPricePence,
+    itemPricePence: intelligence.canonicalPricePence,
+    priceQuality: intelligence.priceQuality,
+    priceConfidence: intelligence.priceConfidence,
+    rrp: intelligence.rrp,
+    itemVsRrp: intelligence.itemVsRrp,
+  };
+}
+
 function normalizeObservation(row = {}) {
   const occurredAt = asEpochMs(row.occurredAt ?? row.occurred_at) || Date.now();
   const evidence = row.evidence && typeof row.evidence === "object"
@@ -160,6 +187,10 @@ function normalizeObservation(row = {}) {
     sourceType: source,
     sourceUrl: text(evidence.sourceUrl || evidence.source_url),
     stockStatus: evidenceStockStatus(evidence),
+    pricePence: evidencePricePence(evidence),
+    officialRrpPence: number(row.officialRrpPence ?? row.product_official_rrp_pence),
+    rrpSource: text(row.rrpSource ?? row.rrp_source),
+    rrpObservedAt: asEpochMs(row.rrpObservedAt ?? row.rrp_verified_at),
   };
   const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at)
     || asEpochMs(row.expiresAt ?? row.expires_at)
@@ -186,6 +217,9 @@ export async function listLocalStockObservationsFromStore(store, { sinceMs = Dat
       se.kind,
       se.product_identity_id,
       pi.title AS product_title,
+      pi.official_rrp_pence AS product_official_rrp_pence,
+      pi.rrp_source,
+      pi.rrp_verified_at,
       se.retailer_id,
       se.location_id,
       se.occurred_at,
@@ -266,6 +300,7 @@ function resolveCurrentProductObservations(branchObservations, now) {
       contradictionCount: contradictions.length,
       orphanVanished,
       freshnessAgeMinutes: Math.max(0, Math.round((now - latest.occurredAt) / 60_000)),
+      value: valueIntelligence(latest),
     });
   }
   return resolved;
@@ -310,6 +345,7 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       sourceDiversityCount: item.sourceDiversityCount,
       contradictionCount: item.contradictionCount,
       orphanVanished: item.orphanVanished,
+      value: item.value,
     }));
 
     return {
@@ -352,6 +388,7 @@ export const LOCAL_STOCK_POLICY = Object.freeze({
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
   communityRule: "Community or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock in this phase.",
   identityRule: "Verified physical Manifested stock requires a canonical product identity and an exact branch match.",
+  rrpRule: "Local Radar uses the shared canonical RRP and price-intelligence engine; retailer selling price is never learned as RRP.",
   vanishedRule: "A branch Vanished state is only accepted when a previously verified Manifested observation exists for that branch and product.",
   contradictionRule: "Recent contradictory availability evidence reduces confidence and can force the current state to unknown.",
   manifestedTtlMinutes: DEFAULT_TTL_MS.manifested / 60_000,
