@@ -99,3 +99,50 @@ test("conflicting canonical RRP evidence does not contaminate a retailer offer",
   assert.equal(saved.offers[0].rrpPence, null);
   assert.equal(saved.signals[0].markupPercent, null);
 });
+
+test("SWSH retailer abbreviation resolves the verified Silver Tempest booster-box RRP", async () => {
+  let saved = null;
+  const store = {
+    isBaselineComplete: async () => true,
+    listProducts: async () => [{
+      id: "verified-silver-tempest-box",
+      canonicalKey: "booster_box:sword and shield silver tempest booster display box 36 packs",
+      title: "Pokémon TCG: Sword & Shield-Silver Tempest Booster Display Box (36 Packs)",
+      productType: "booster_box",
+      tcg: "pokemon",
+      officialRrpPence: 13499,
+      rrpSource: "pokemon-center-uk",
+      rrpObservedAt: 1_787_313_615,
+      firstSeenAt: 1_787_313_615,
+      updatedAt: 1_787_313_615,
+    }],
+    getProduct: async () => null,
+    getOffer: async () => null,
+    saveScan: async (payload) => { saved = payload; },
+  };
+
+  const result = await processRetailerProducts({
+    retailer: { id: "magic-madhouse", name: "Magic Madhouse", tcg: "pokemon", delivery: { known: true, standardPence: 0 } },
+    store,
+    source: "external",
+    dispatchNotifications: false,
+    now: 1_800_000_000,
+    rawProducts: [{
+      retailerSku: "1 piece",
+      title: "SWSH Silver Tempest Booster Box",
+      productType: "booster_box",
+      url: "https://magicmadhouse.co.uk/pokemon-swsh-silver-tempest-booster-box",
+      pricePence: 59995,
+      postagePence: 0,
+      stockStatus: "in_stock",
+      stockConfidence: 0.98,
+    }],
+  });
+
+  assert.equal(result.rrpInherited, 1);
+  assert.equal(saved.products[0].officialRrpPence, 13499);
+  assert.equal(saved.products[0].rrpSource, "pokemon-center-uk");
+  assert.equal(saved.offers[0].rrpPence, 13499);
+  assert.equal(saved.signals[0].rrpPence, 13499);
+  assert.equal(saved.signals[0].markupPercent, 344.4);
+});
