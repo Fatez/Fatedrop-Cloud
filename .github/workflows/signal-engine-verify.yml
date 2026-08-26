@@ -36,52 +36,48 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Probe bounded official branch sync using production code
+      - name: Probe three official Toyshop/Tesco pages with production parser
         run: |
           node --input-type=module <<'NODE'
-          import { runNationalBranchDirectorySync } from './src/encounters/national-branch-directory-sync.mjs';
+          import {
+            crawlToyshopOfficialStoreGraph,
+            parseOfficialBranchPage,
+          } from './src/encounters/national-branch-directory-sync.mjs';
 
-          const persisted = [];
-          const store = {
-            async listRetailerLocations() { return []; },
-            async upsertRetailerLocations(locations) {
-              persisted.push(...locations);
-              return { saved: locations.length };
-            },
-          };
-
-          const outcome = await runNationalBranchDirectorySync({
-            store,
-            branchFetchLimit: 12,
-            toyshopFallbackSeeds: [
-              'https://www.thetoyshop.com/store/watford',
-              'https://www.thetoyshop.com/store/birmingham',
-              'https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra',
-            ],
-            toyshopFallbackDiscoveryLimit: 12,
-            toyshopFallbackConcurrency: 4,
+          const seeds = [
+            'https://www.thetoyshop.com/store/watford',
+            'https://www.thetoyshop.com/store/birmingham',
+            'https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra',
+          ];
+          const rows = await crawlToyshopOfficialStoreGraph({
+            seeds,
+            discoveryLimit: 3,
+            concurrency: 3,
           });
-
-          console.log('LOCAL_RADAR_BRANCH_SYNC_DIAGNOSTIC');
-          console.log(JSON.stringify({
-            status: outcome.status,
-            sources: outcome.sources,
-            discovered: outcome.discovered,
-            attempted: outcome.attempted,
-            accepted: outcome.accepted,
-            saved: outcome.saved,
-            rejected: outcome.rejected,
-            rejectionSamples: outcome.rejectionSamples,
-            persisted: persisted.map((row) => ({
-              retailerId: row.retailerId,
-              provider: row.provider,
-              name: row.name,
-              postcode: row.postcode,
-              latitude: row.latitude,
-              longitude: row.longitude,
-              providerId: row.providerId,
-            })),
-          }, null, 2));
+          const parsed = [];
+          for (const row of rows) {
+            try {
+              const result = await parseOfficialBranchPage(row);
+              parsed.push({
+                url: row.url,
+                retailerId: row.retailerId,
+                htmlBytes: row.html?.length ?? 0,
+                location: result.location ? {
+                  retailerId: result.location.retailerId,
+                  provider: result.location.provider,
+                  name: result.location.name,
+                  postcode: result.location.postcode,
+                  latitude: result.location.latitude,
+                  longitude: result.location.longitude,
+                } : null,
+                reason: result.reason,
+              });
+            } catch (error) {
+              parsed.push({ url: row.url, retailerId: row.retailerId, error: String(error?.message || error) });
+            }
+          }
+          console.log('LOCAL_RADAR_TOYSHOP_PARSER_DIAGNOSTIC');
+          console.log(JSON.stringify({ discovered: rows.length, parsed }, null, 2));
           NODE
 
   signal-engine:
