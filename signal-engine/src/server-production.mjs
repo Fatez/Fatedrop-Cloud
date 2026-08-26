@@ -1,6 +1,7 @@
 import { env } from "./config/env.mjs";
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
+import { reconcileTotalCardsPhysicalAvailability } from "./encounters/total-cards-local-availability.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
 import { createStore } from "./stores/index.mjs";
 import "./server.mjs";
@@ -11,10 +12,13 @@ const LOCAL_BRANCH_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const LOCAL_BRANCH_SYNC_START_DELAY_MS = 20 * 1000;
 const OSM_BRANCH_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const OSM_BRANCH_SYNC_START_DELAY_MS = 45 * 1000;
+const TOTAL_CARDS_LOCAL_INTERVAL_MS = 5 * 60 * 1000;
+const TOTAL_CARDS_LOCAL_START_DELAY_MS = 120 * 1000;
 const localBranchStore = createStore();
 let qualifyingRetailerCandidates = false;
 let syncingLocalBranches = false;
 let syncingOsmBranches = false;
+let reconcilingTotalCardsLocal = false;
 
 async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
@@ -91,6 +95,30 @@ async function syncOsmRetailerBranches() {
   }
 }
 
+async function reconcileTotalCardsLocal() {
+  if (reconcilingTotalCardsLocal || !env.databaseUrl) return;
+  reconcilingTotalCardsLocal = true;
+  try {
+    const outcome = await reconcileTotalCardsPhysicalAvailability({ store: localBranchStore });
+    console.log("[signal-engine] Local Radar Total Cards physical availability", {
+      status: outcome.status,
+      branchSaved: outcome.branchSaved,
+      branchId: outcome.branchId || null,
+      checked: outcome.checked,
+      accepted: outcome.accepted || 0,
+      saved: outcome.saved,
+      duplicates: outcome.duplicates,
+      rejected: outcome.rejected?.length || 0,
+      results: outcome.results || [],
+      error: outcome.error || null,
+    });
+  } catch (error) {
+    console.error("[signal-engine] Local Radar Total Cards physical availability failed", { error: String(error?.message || error) });
+  } finally {
+    reconcilingTotalCardsLocal = false;
+  }
+}
+
 if (env.databaseUrl) {
   const qualificationTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
   qualificationTimer.unref();
@@ -103,4 +131,8 @@ if (env.databaseUrl) {
   const osmBranchTimer = setTimeout(() => { void syncOsmRetailerBranches(); }, OSM_BRANCH_SYNC_START_DELAY_MS);
   osmBranchTimer.unref();
   setInterval(syncOsmRetailerBranches, OSM_BRANCH_SYNC_INTERVAL_MS).unref();
+
+  const totalCardsLocalTimer = setTimeout(() => { void reconcileTotalCardsLocal(); }, TOTAL_CARDS_LOCAL_START_DELAY_MS);
+  totalCardsLocalTimer.unref();
+  setInterval(reconcileTotalCardsLocal, TOTAL_CARDS_LOCAL_INTERVAL_MS).unref();
 }
