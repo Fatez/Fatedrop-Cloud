@@ -8,11 +8,39 @@ test("classifies obvious merchandise and accessories away from collector TCG pro
   assert.equal(classifyProductAlert({ title: "Pokémon Card Sleeves", productType: "accessory" }).category, "ACCESSORY");
 });
 
+test("collection-box metadata cannot promote obvious merchandise into sealed TCG alerts", () => {
+  const cases = [
+    ["Pokemon - Sleeping Eevee - Blind Box", "BLIND_BOX"],
+    ["Pokemon - Shining Debut - 3D Fridge Magnet - Blind Box", "BLIND_BOX"],
+    ["Dragon Type Pokémon Fundamentals Fold-Over Backpack", "BAG"],
+    ["Pokémon Center × Van Gogh Museum: Pokémon Inspired by Paintings Journal", "STATIONERY"],
+  ];
+  for (const [title, subcategory] of cases) {
+    const result = classifyProductAlert({ title, productType: "collection_box" });
+    assert.equal(result.category, "MERCHANDISE", title);
+    assert.equal(result.subcategory, subcategory, title);
+    assert.equal(isBetaAlertEligible({ title, productType: "collection_box" }), false, title);
+  }
+});
+
 test("keeps sealed products even when their bundle includes an accessory", () => {
   const result = classifyProductAlert({ title: "Pokémon TCG Special Collection - Pin & 4 Booster Packs", productType: "collection_box" });
   assert.equal(result.category, "SEALED_TCG");
   assert.equal(result.subcategory, "COLLECTION");
   assert.ok(result.confidence >= 0.9);
+});
+
+test("keeps real sealed collection formats despite words also used by accessories or merchandise", () => {
+  const cases = [
+    "Pokémon TCG: Scarlet & Violet-151 Binder Collection",
+    "Pokémon TCG: Scarlet & Violet-Prismatic Evolutions Poster Collection",
+    "Pokémon TCG: Scarlet & Violet-Prismatic Evolutions Tech Sticker Collection",
+    "Pokémon TCG: Crown Zenith Premium Figure Collection",
+    "Pokémon TCG: Sword & Shield-Lost Origin Sleeved Booster Pack (10 Cards)",
+  ];
+  for (const title of cases) {
+    assert.equal(classifyProductAlert({ title, productType: "collection_box" }).category, "SEALED_TCG", title);
+  }
 });
 
 test("recognises sealed, single-card and unknown listings independently", () => {
