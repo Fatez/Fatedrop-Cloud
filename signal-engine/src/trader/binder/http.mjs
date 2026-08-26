@@ -2,6 +2,7 @@ import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import { resolveFateTraderSessionUser } from '../auth.mjs';
 import { makeFateTcgId } from '../card-identity.mjs';
 import { listExactWantsFromStore } from '../collection/store.mjs';
+import { handleFateTraderMatching } from '../matching/http.mjs';
 import {
   addTradeBinderItem,
   getTradeBinder,
@@ -53,7 +54,8 @@ export function isFateTraderBinderPath(pathname) {
     || pathname === '/v1/trader/binder/items'
     || /^\/v1\/trader\/binder\/items\/[^/]+$/.test(pathname)
     || pathname === '/v1/trader/wants'
-    || /^\/v1\/trader\/wants\/[^/]+$/.test(pathname);
+    || /^\/v1\/trader\/wants\/[^/]+$/.test(pathname)
+    || pathname === '/v1/trader/finder';
 }
 
 export async function handleFateTraderBinder(req, res, {
@@ -63,6 +65,11 @@ export async function handleFateTraderBinder(req, res, {
 } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
   if (!isFateTraderBinderPath(url.pathname)) return false;
+
+  if (url.pathname === '/v1/trader/finder') {
+    return handleFateTraderMatching(req, res, { store, flags, resolveUser });
+  }
+
   if (!flags.enabled || !flags.catalogueEnabled || !flags.collectionEnabled || !flags.binderEnabled) {
     fail(res, 404, 'NOT_FOUND', 'Fate Trader resource not found.');
     return true;
