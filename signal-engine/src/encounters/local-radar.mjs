@@ -1,4 +1,9 @@
 import crypto from "node:crypto";
+import {
+  enrichShopsWithLocalStock,
+  listLocalStockObservationsFromStore,
+  localStockCounts,
+} from "./local-stock-intelligence.mjs";
 
 const TCG_LABELS = Object.freeze({
   pokemon: "Pokemon",
@@ -177,12 +182,28 @@ function hostname(value) {
   catch { return null; }
 }
 
+function retailerNameMatches(placeName, retailer) {
+  const place = slug(placeName);
+  const canonical = slug(retailer?.name || "");
+  if (!place || !canonical) return false;
+  if (place === canonical) return true;
+  const aliases = Array.isArray(retailer?.localRadarAliases) ? retailer.localRadarAliases.map(slug) : [];
+  if (aliases.includes(place)) return true;
+  const nationalAliases = {
+    "smyths-uk": ["smyths toys", "smyths toys superstores", "smyths"],
+    "entertainer-uk": ["the entertainer", "entertainer"],
+    "tesco-uk": ["tesco", "tesco extra", "tesco superstore"],
+    "argos-uk": ["argos", "argos in sainsburys", "argos inside sainsburys"],
+  };
+  const known = nationalAliases[retailer?.id] || [];
+  return known.some((alias) => place === alias || place.startsWith(`${alias} `));
+}
+
 function exactRetailerMatch(place, retailers = []) {
   const placeHost = hostname(place.websiteUrl);
-  const placeName = slug(place.name);
   const matches = retailers.filter((retailer) => {
     const retailerHost = hostname(retailer.baseUrl);
-    return (placeHost && retailerHost && placeHost === retailerHost) || (placeName && placeName === slug(retailer.name));
+    return (placeHost && retailerHost && placeHost === retailerHost) || retailerNameMatches(place.name, retailer);
   });
   return matches.length === 1 ? matches[0] : null;
 }
@@ -315,7 +336,19 @@ export async function buildLocalRadar({
     availableByRetailer.set(offer.retailerId, (availableByRetailer.get(offer.retailerId) || 0) + 1);
   }
 
-  const shops = shopResult.shops.map((shop) => {
+  let localStockObservations = [];
+  let localStockProviderStatus = "unconfigured";
+  if (requested.has("shops")) {
+    try {
+      localStockObservations = await listLocalStockObservationsFromStore(store);
+      localStockProviderStatus = localStockObservations.length ? "ok" : "empty";
+    } catch {
+      localStockObservations = [];
+      localStockProviderStatus = "unavailable";
+    }
+  }
+
+  const discoveredShops = shopResult.shops.map((shop) => {
     const retailer = exactRetailerMatch(shop, retailers);
     const distance = origin && shop.latitude != null && shop.longitude != null
       ? distanceMiles(origin, shop)
@@ -330,7 +363,10 @@ export async function buildLocalRadar({
         ? { availableOffers: availableByRetailer.get(retailer.id) || 0, scope: "online-catalogue-not-branch-stock" }
         : null,
     };
-  }).filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius);
+  });
+  const shops = enrichShopsWithLocalStock(discoveredShops, localStockObservations)
+    .filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius);
+  const stockCounts = localStockCounts(shops);
 
   const rawEvents = requested.has("events") && typeof store?.listEncounters === "function"
     ? await store.listEncounters({ from, to, tcgs: tcg ? [tcg] : [], limit: 1000 })
@@ -357,14 +393,23 @@ export async function buildLocalRadar({
     },
     providers: {
       shops: { provider: shopResult.provider, status: shopResult.status },
+      localStock: { provider: "fatedrop_signal_events", status: requested.has("shops") ? localStockProviderStatus : "skipped" },
       events: { provider: "fatedrop_encounters", status: typeof store?.listEncounters === "function" ? "ok" : "unconfigured" },
     },
     shops,
     events,
-    counts: { shops: shops.length, events: events.length },
+    counts: {
+      shops: shops.length,
+      events: events.length,
+      localInStockBranches: stockCounts.inStock,
+      localLowStockBranches: stockCounts.lowStock,
+      incomingWatchBranches: stockCounts.incomingWatch,
+    },
     disclaimers: [
       "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
+      "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
+      "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",
     ],
   };
