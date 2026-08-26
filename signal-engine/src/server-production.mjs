@@ -3,11 +3,11 @@ import { runCandidateQualificationCycle } from "./retailers/candidate-qualificat
 import "./server.mjs";
 
 const RETAILER_QUALIFICATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const RETAILER_QUALIFICATION_START_DELAY_MS = 45 * 1000;
+const RETAILER_QUALIFICATION_START_DELAY_MS = 10 * 1000;
 let qualifyingRetailerCandidates = false;
 
 async function qualifyRetailerCandidates() {
-  if (qualifyingRetailerCandidates || !env.retailerRegistryEnabled || !env.databaseUrl) return;
+  if (qualifyingRetailerCandidates || !env.databaseUrl) return;
   qualifyingRetailerCandidates = true;
   try {
     const outcome = await runCandidateQualificationCycle({ databaseUrl: env.databaseUrl });
@@ -34,7 +34,7 @@ async function qualifyRetailerCandidates() {
   }
 }
 
-if (env.retailerRegistryEnabled && env.databaseUrl) {
+if (env.databaseUrl) {
   const startupTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
   startupTimer.unref();
   setInterval(qualifyRetailerCandidates, RETAILER_QUALIFICATION_INTERVAL_MS).unref();
