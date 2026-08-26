@@ -32,11 +32,11 @@ export function summariseDryRun({ retailer, products = [], pages = [], previousC
 }
 
 export async function dryRunRetailer(input, { previousCompleteCount = null, scanSource = scanRetailerSource } = {}) {
-  const retailer = retailerToAdapterConfig(input, { requireMonitored: false });
-  const { products, pages } = await scanSource(retailer);
+  const retailer = retailerToAdapterConfig(input, { requireMonitored: false, allowUnapprovedFeed: true });
+  const { products, pages } = await scanSource(retailer, { allowUnapprovedFeed: true });
   return {
     retailer,
     diagnostics: summariseDryRun({ retailer, products, pages, previousCompleteCount }),
-    note: "Dry run only. No product, offer, signal, health or registry state is written.",
+    note: "Dry run only. Unapproved structured feeds may be inspected here, but no product, offer, signal, health, approval or registry state is written.",
   };
 }

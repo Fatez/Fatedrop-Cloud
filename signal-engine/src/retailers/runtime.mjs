@@ -8,7 +8,7 @@ function compilePattern(value, field) {
   try { return new RegExp(String(value), "i"); } catch { throw new Error(`${field} is not a valid regular expression`); }
 }
 
-export function retailerToAdapterConfig(input, { requireMonitored = true } = {}) {
+export function retailerToAdapterConfig(input, { requireMonitored = true, allowUnapprovedFeed = false } = {}) {
   const retailer = normalizeRetailerCandidate(input);
   if (requireMonitored && retailer.state !== RETAILER_STATES.MONITORED) throw new Error(`${retailer.id} is not in monitored state`);
   const activeTcgs = retailer.monitoring.activeTcgs || [];
@@ -27,7 +27,8 @@ export function retailerToAdapterConfig(input, { requireMonitored = true } = {})
     exclude: null,
   };
   if ([ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE].includes(retailer.adapterType)) {
-    if (!retailer.catalogue.feedUrl || retailer.catalogue.feedApproved !== true) throw new Error(`${retailer.id} structured feed is not approved`);
+    if (!retailer.catalogue.feedUrl) throw new Error(`${retailer.id} structured feed URL is required`);
+    if (retailer.catalogue.feedApproved !== true && allowUnapprovedFeed !== true) throw new Error(`${retailer.id} structured feed is not approved`);
     return base;
   }
   if (retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
@@ -51,7 +52,7 @@ export function retailerToAdapterConfig(input, { requireMonitored = true } = {})
 }
 
 export function retailerToRuntimeConfig(input) {
-  return retailerToAdapterConfig(input, { requireMonitored: true });
+  return retailerToAdapterConfig(input, { requireMonitored: true, allowUnapprovedFeed: false });
 }
 
 export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabled = false, databaseUrl = "" } = {}) {
