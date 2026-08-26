@@ -21,12 +21,33 @@ const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
 const DISCORD_DELIVERY_RECONCILE_INTERVAL_MS = 60 * 1000;
+const FATEFIND_PREFLIGHT_CACHE_MS = 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
   staticRetailers,
   registryEnabled: env.retailerRegistryEnabled,
   databaseUrl: env.databaseUrl,
 });
+
+let fateFindPreflightCache = null;
+let fateFindPreflightCachedAt = 0;
+let fateFindPreflightInFlight = null;
+async function cachedFateFindEvaluatorPreflight() {
+  const now = Date.now();
+  if (fateFindPreflightCache && now - fateFindPreflightCachedAt < FATEFIND_PREFLIGHT_CACHE_MS) {
+    return fateFindPreflightCache;
+  }
+  if (fateFindPreflightInFlight) return fateFindPreflightInFlight;
+  fateFindPreflightInFlight = buildFateFindEvaluatorPreflight(store)
+    .then((summary) => {
+      fateFindPreflightCache = summary;
+      fateFindPreflightCachedAt = Date.now();
+      return summary;
+    })
+    .finally(() => { fateFindPreflightInFlight = null; });
+  return fateFindPreflightInFlight;
+}
+
 const server = createFateDropHttpServer({ store, retailers });
 const applicationHandler = server.listeners("request")[0];
 server.removeAllListeners("request");
@@ -61,7 +82,7 @@ server.on("request", async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/fatefind-evaluator-preflight") {
-      const summary = await buildFateFindEvaluatorPreflight(store);
+      const summary = await cachedFateFindEvaluatorPreflight();
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
