@@ -1,5 +1,11 @@
 import { env } from "../config/env.mjs";
 import { buildLocalRadar, distanceMiles, normalizeEncounterBatch } from "../encounters/local-radar.mjs";
+import {
+  normalizeLocalStockObservationBatch,
+  normalizeRetailerLocationBatch,
+  upsertLocalStockObservationsIntoStore,
+  upsertRetailerLocationsIntoStore,
+} from "../encounters/local-stock-store.mjs";
 import { lookupUkPostcode, lookupUkPostcodes } from "../encounters/postcode.mjs";
 import {
   listEncounterInventoryFromStore,
@@ -166,6 +172,24 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     return json(res,200,response);
   }
 
+  if(req.method==="POST"&&url.pathname==="/internal/local-radar/locations"){
+    if(!authorized(req))return json(res,401,{error:"Unauthorized"});
+    const body=await readBody(req);
+    const normalized=normalizeRetailerLocationBatch(body.locations||[]);
+    if(!normalized.locations.length)return json(res,400,{error:"No valid retailer locations supplied",received:normalized.received,rejected:normalized.rejected});
+    const persisted=await upsertRetailerLocationsIntoStore(store,normalized.locations);
+    return json(res,200,{success:true,received:normalized.received,accepted:normalized.accepted,rejected:normalized.rejected,persisted});
+  }
+
+  if(req.method==="POST"&&url.pathname==="/internal/local-radar/observations"){
+    if(!authorized(req))return json(res,401,{error:"Unauthorized"});
+    const body=await readBody(req);
+    const normalized=normalizeLocalStockObservationBatch(body.observations||[]);
+    if(!normalized.observations.length)return json(res,400,{error:"No valid local stock observations supplied",received:normalized.received,rejected:normalized.rejected});
+    const persisted=await upsertLocalStockObservationsIntoStore(store,normalized.observations);
+    return json(res,200,{success:true,received:normalized.received,accepted:normalized.accepted,rejected:[...normalized.rejected,...(persisted.rejected||[])],persisted:{saved:persisted.saved||0,duplicates:persisted.duplicates||0}});
+  }
+
   if(req.method==="POST"&&url.pathname==="/internal/encounters"){
     if(!authorized(req))return json(res,401,{error:"Unauthorized"});
     const body=await readBody(req);const normalized=normalizeEncounterBatch(body.events||[]);
@@ -204,7 +228,7 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
     if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     if(isFateTraderBinderPath(url.pathname)){await handleFateTraderBinder(req,res,{store});return;}
-    const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
+    const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/local-radar/locations"||url.pathname==="/internal/local-radar/observations"||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
     if(isEncounterRoute){await handleFateEncounters(req,res,{store:liveReadStore,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);
   }catch(error){return json(res,500,{error:"FateDrop route error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
