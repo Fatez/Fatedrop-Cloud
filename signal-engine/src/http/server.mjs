@@ -24,6 +24,7 @@ function json(res, status, body) {
 
 function unauthorized(res) { json(res, 401, { error: "Unauthorized" }); }
 function tokenFrom(req) { const auth = req.headers.authorization || ""; return auth.startsWith("Bearer ") ? auth.slice(7) : ""; }
+function authorizedApi(req) { return Boolean(env.apiToken) && tokenFrom(req) === env.apiToken; }
 function parseCsv(value) { return value ? value.split(",").map((x) => x.trim()).filter(Boolean) : []; }
 async function readBody(req) { let raw = ""; for await (const chunk of req) { raw += chunk; if (raw.length > 1_000_000) throw new Error("Body too large"); } return raw ? JSON.parse(raw) : {}; }
 function pounds(pence) { return Number.isFinite(pence) ? pence / 100 : undefined; }
@@ -408,20 +409,20 @@ export function createHttpServer({ store }) {
         return json(res, 200, { success: true, count: signals.length, generatedAt: new Date().toISOString(), signals });
       }
       if (req.method === "GET" && url.pathname === "/v1/network") {
-        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        if (!authorizedApi(req)) return unauthorized(res);
         return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), stats: await store.stats(), retailers: await store.listRetailers() });
       }
       if (req.method === "GET" && url.pathname === "/v1/retailers") {
-        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        if (!authorizedApi(req)) return unauthorized(res);
         return json(res, 200, { retailers: await store.listRetailers() });
       }
       if (req.method === "GET" && url.pathname === "/v1/network/history") {
-        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        if (!authorizedApi(req)) return unauthorized(res);
         const limit = Math.max(1, Math.min(180, Number.parseInt(url.searchParams.get("limit") || "30", 10)));
         return json(res, 200, { snapshots: await store.listNetworkSnapshots(limit) });
       }
       if (req.method === "GET" && url.pathname === "/v1/signals") {
-        if (env.apiToken && tokenFrom(req) !== env.apiToken) return unauthorized(res);
+        if (!authorizedApi(req)) return unauthorized(res);
         const limit = Math.max(1, Math.min(250, Number.parseInt(url.searchParams.get("limit") || "100", 10)));
         const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
         const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit });
