@@ -55,3 +55,35 @@ test("reconciler never promotes component references into product aliases", asyn
   assert.equal(result.resolved, 0);
   assert.equal(result.remaining, 1);
 });
+
+test("already-escalated rows on the same authority fingerprint are filtered before LIMIT", async () => {
+  let selection = null;
+  const pool = {
+    async query(sql, params = []) {
+      if (/SELECT \*/.test(sql) && /rrp_resolution_queue/.test(sql)) {
+        selection = { sql, params };
+        return { rows: [] };
+      }
+      if (/count\(\*\)/.test(sql)) return { rows: [{ remaining: 2640 }] };
+      return { rows: [] };
+    },
+  };
+  const store = {
+    async pool() { return pool; },
+    async listProducts() {
+      return [{
+        id: "authority-1", title: "Pokemon TCG Example Booster Box", productType: "booster_box",
+        officialRrpPence: 15199, rrpSource: "pokemon-center-uk", rrpObservedAt: 123,
+      }];
+    },
+  };
+
+  await reconcileRrpLearningQueue({ store, limit: 100, now: 300 });
+  assert.ok(selection);
+  assert.match(selection.sql, /COALESCE\(evidence_json->>'escalated','false'\)='true'/);
+  assert.match(selection.sql, /authority_fingerprint/);
+  assert.match(selection.sql, /reconciler_rules_version/);
+  assert.equal(selection.params[0], 100);
+  assert.match(selection.params[1], /^rrp-self-heal-v2:/);
+  assert.equal(selection.params[2], "rrp-self-heal-v2");
+});
