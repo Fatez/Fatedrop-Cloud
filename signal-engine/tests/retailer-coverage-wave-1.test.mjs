@@ -12,7 +12,7 @@ test('coverage wave includes Travelling Man and The TCG Shop as approved Pokémo
   assert.equal(travellingMan.catalogue.feedUrl, 'https://travellingman.com/collections/pokemon-tcg/products.json?limit=250');
   assert.equal(travellingMan.tcg, 'pokemon');
   assert.match('Pokemon TCG Destined Rivals Booster Pack', travellingMan.include);
-  assert.doesNotMatch('Pokemon TCG 9-Pocket Portfolio', travellingMan.exclude);
+  assert.match('Pokemon TCG 9-Pocket Portfolio', travellingMan.exclude);
 
   const tcgShop = retailers.get('the-tcg-shop-uk');
   assert.ok(tcgShop);
