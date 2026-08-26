@@ -71,7 +71,7 @@ jobs:
           if jq -e . response.json >/dev/null 2>&1; then
             places="$(jq -r '.providers.shops.status // "missing"' response.json)"
             branch="$(jq -r '(.providers.branchIdentity.status // "missing") + ":saved=" + ((.providers.branchIdentity.saved // 0)|tostring)' response.json)"
-            smyths="$(jq -r '(.providers.smythsLocalStock.status // "missing") + ":branches=" + ((.providers.smythsLocalStock.branchesDiscovered // 0)|tostring) + ":obs=" + ((.providers.smythsLocalStock.observationsSaved // 0)|tostring)' response.json)"
+            smyths="$(jq -r '(.providers.smythsLocalStock.status // "missing") + ":reason=" + (.providers.smythsLocalStock.cooldownReason // "none") + ":branches=" + ((.providers.smythsLocalStock.branchesDiscovered // 0)|tostring) + ":obs=" + ((.providers.smythsLocalStock.observationsSaved // 0)|tostring)' response.json)"
             localstock="$(jq -r '.providers.localStock.status // "missing"' response.json)"
             counts="$(jq -r '"shops=" + ((.counts.shops // 0)|tostring) + ":in=" + ((.counts.localInStockBranches // 0)|tostring) + ":incoming=" + ((.counts.incomingWatchBranches // 0)|tostring)' response.json)"
           else
