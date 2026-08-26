@@ -2,11 +2,13 @@ import {
   normalizeLocalStockObservationBatch,
   normalizeRetailerLocation,
   upsertLocalStockObservationsIntoStore,
+  upsertRetailerLocationsIntoStore,
 } from "./local-stock-store.mjs";
 
 const RETAILER_ID = "smyths-uk";
 const IDENTIFIER_NAMESPACE = "smyths-uk:product_ref";
 const SMYTHS_ORIGIN = "https://www.smythstoys.com";
+const OFFICIAL_BRANCH_PROVIDER = "smyths_official_store_availability";
 const IN_STOCK = new Set(["instock", "in_stock", "available", "collection_available", "on_shelf"]);
 const LOW_STOCK = new Set(["lowstock", "low_stock", "limitedstock", "limited_stock"]);
 const OUT_OF_STOCK = new Set(["outofstock", "out_of_stock", "unavailable", "soldout", "sold_out"]);
@@ -58,6 +60,80 @@ function officialStorePostcode(record = {}) {
     ?? record.address?.formattedAddress
     ?? record.formattedAddress,
   );
+}
+
+function officialStoreId(record = {}) {
+  return text(record.id ?? record.storeId ?? record.pointOfServiceId ?? record.pointOfServiceName);
+}
+
+function officialStoreCoordinates(record = {}) {
+  const latitude = number(
+    record.geoPoint?.latitude
+    ?? record.geoPoint?.lat
+    ?? record.location?.latitude
+    ?? record.location?.lat
+    ?? record.coordinates?.latitude
+    ?? record.coordinates?.lat
+    ?? record.address?.latitude
+    ?? record.latitude,
+  );
+  const longitude = number(
+    record.geoPoint?.longitude
+    ?? record.geoPoint?.lng
+    ?? record.location?.longitude
+    ?? record.location?.lng
+    ?? record.coordinates?.longitude
+    ?? record.coordinates?.lng
+    ?? record.address?.longitude
+    ?? record.longitude,
+  );
+  return Number.isFinite(latitude) && Number.isFinite(longitude) ? { latitude, longitude } : null;
+}
+
+function officialStoreAddress(record = {}) {
+  return text(
+    record.formattedAddress
+    ?? record.address?.formattedAddress
+    ?? record.address?.line1
+    ?? record.address?.streetAddress
+    ?? record.address?.town,
+  );
+}
+
+function officialBranchFromStore(record = {}) {
+  const name = officialStoreName(record);
+  const officialId = officialStoreId(record);
+  const postcode = officialStorePostcode(record);
+  const coordinates = officialStoreCoordinates(record);
+  if (!name || !coordinates) return null;
+
+  // Prefer the retailer's own immutable store/POS identifier. If that field is not
+  // present, only accept a deterministic compound identity when both branch name
+  // and postcode are present. Never create a branch from a fuzzy name alone.
+  const providerId = officialId || (postcode ? `${smythsBranchKey(name)}|${postcode}` : null);
+  if (!providerId) return null;
+
+  try {
+    const location = normalizeRetailerLocation({
+      retailerId: RETAILER_ID,
+      provider: OFFICIAL_BRANCH_PROVIDER,
+      providerId,
+      name,
+      address: officialStoreAddress(record),
+      postcode,
+      latitude: coordinates.latitude,
+      longitude: coordinates.longitude,
+      websiteUrl: SMYTHS_ORIGIN,
+      verification: "official_retailer_branch",
+    });
+    return {
+      ...location,
+      branchKey: smythsBranchKey(location.name),
+      postcodeKey: postcodeFrom(location.postcode || location.address),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function normalizeSmythsStockStatus(value) {
@@ -192,6 +268,11 @@ function canonicalSmythsBranches(shops = []) {
 }
 
 function exactBranchForOfficialStore(record, branches) {
+  const officialId = officialStoreId(record);
+  if (officialId) {
+    const idMatches = branches.filter((branch) => branch.provider === OFFICIAL_BRANCH_PROVIDER && branch.providerId === officialId);
+    if (idMatches.length === 1) return idMatches[0];
+  }
   const postcode = officialStorePostcode(record);
   if (postcode) {
     const postcodeMatches = branches.filter((branch) => branch.postcodeKey === postcode);
@@ -220,6 +301,26 @@ function gateKey(lat, lng, mappings) {
   return `${latitudeBucket}|${longitudeBucket}|${products}`;
 }
 
+function canPersistLocations(store) {
+  return typeof store?.upsertRetailerLocations === "function" || typeof store?.pool === "function";
+}
+
+async function persistOfficialBranches(store, branches = []) {
+  if (!branches.length || !canPersistLocations(store)) return { saved: 0, status: branches.length ? "unconfigured" : "empty" };
+  try {
+    const result = await upsertRetailerLocationsIntoStore(store, branches);
+    return { saved: Number(result?.saved || 0), status: "ok" };
+  } catch (error) {
+    return { saved: 0, status: "unavailable", error: String(error?.message || error) };
+  }
+}
+
+function mergeBranches(current = [], additions = []) {
+  const byId = new Map(current.map((branch) => [branch.id, branch]));
+  for (const branch of additions) byId.set(branch.id, branch);
+  return [...byId.values()];
+}
+
 export async function refreshSmythsLocalAvailability({
   store,
   shops = [],
@@ -233,14 +334,14 @@ export async function refreshSmythsLocalAvailability({
 } = {}) {
   const lat = number(latitude);
   const lng = number(longitude);
-  const branches = canonicalSmythsBranches(shops);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !branches.length) {
-    return { provider: "smyths_official_store_availability", status: "not_applicable", productsChecked: 0, observationsSaved: 0, rejected: 0 };
+  let branches = canonicalSmythsBranches(shops);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { provider: OFFICIAL_BRANCH_PROVIDER, status: "not_applicable", productsChecked: 0, observationsSaved: 0, branchesDiscovered: 0, branchesPersisted: 0, rejected: 0 };
   }
 
   const mappings = (await listVerifiedMappings(store)).filter((mapping) => text(mapping.productIdentityId) && text(mapping.productCode));
   if (!mappings.length) {
-    return { provider: "smyths_official_store_availability", status: "unconfigured", productsChecked: 0, observationsSaved: 0, rejected: 0 };
+    return { provider: OFFICIAL_BRANCH_PROVIDER, status: "unconfigured", productsChecked: 0, observationsSaved: 0, branchesDiscovered: 0, branchesPersisted: 0, rejected: 0 };
   }
 
   const limit = Math.max(1, Math.min(10, Number(maxProducts) || 3));
@@ -250,23 +351,33 @@ export async function refreshSmythsLocalAvailability({
   const gate = SOURCE_GATE.get(key) || { lastAttemptAt: 0, blockedUntil: 0, lastStatus: null };
   if (gate.blockedUntil > now) {
     return {
-      provider: "smyths_official_store_availability",
+      provider: OFFICIAL_BRANCH_PROVIDER,
       status: "cooldown",
       cooldownReason: gate.lastStatus,
       cooldownUntil: new Date(gate.blockedUntil).toISOString(),
       productsChecked: 0,
       observationsSaved: 0,
+      branchesDiscovered: 0,
+      branchesPersisted: 0,
       rejected: 0,
     };
   }
   if (Number(minRefreshMs) > 0 && now - gate.lastAttemptAt < Number(minRefreshMs)) {
-    return { provider: "smyths_official_store_availability", status: "cached", productsChecked: 0, observationsSaved: 0, rejected: 0 };
+    return { provider: OFFICIAL_BRANCH_PROVIDER, status: "cached", productsChecked: 0, observationsSaved: 0, branchesDiscovered: 0, branchesPersisted: 0, rejected: 0 };
   }
   SOURCE_GATE.set(key, { ...gate, lastAttemptAt: now });
 
-  const selectedStore = branches[0].branchKey || null;
+  // Google Places remains useful for broad shop discovery, but it is not a
+  // prerequisite for Smyths physical-stock intelligence. The official retailer
+  // response can establish its own exact branch identity when it supplies an
+  // immutable store/POS ID plus coordinates (or name+postcode plus coordinates).
+  const selectedStore = branches[0]?.branchKey || null;
   const observations = [];
   const sourceStates = [];
+  const officialBranchesById = new Map();
+  let branchesPersisted = 0;
+  let branchPersistenceStatus = "empty";
+
   for (const mapping of selectedMappings) {
     const response = await fetchSmythsStoreAvailability({
       productCode: mapping.productCode,
@@ -278,6 +389,20 @@ export async function refreshSmythsLocalAvailability({
     });
     sourceStates.push(response.status);
     if (response.status !== "ok") continue;
+
+    const discoveredThisResponse = [];
+    for (const officialStore of response.stores) {
+      const officialBranch = officialBranchFromStore(officialStore);
+      if (!officialBranch || officialBranchesById.has(officialBranch.id)) continue;
+      officialBranchesById.set(officialBranch.id, officialBranch);
+      discoveredThisResponse.push(officialBranch);
+    }
+    if (discoveredThisResponse.length) {
+      branches = mergeBranches(branches, discoveredThisResponse);
+      const persisted = await persistOfficialBranches(store, discoveredThisResponse);
+      branchesPersisted += persisted.saved;
+      branchPersistenceStatus = persisted.status;
+    }
 
     for (const officialStore of response.stores) {
       const branch = exactBranchForOfficialStore(officialStore, branches);
@@ -295,13 +420,14 @@ export async function refreshSmythsLocalAvailability({
           evidenceLevel: "official_collection",
           confidence: stockStatus === "low_stock" ? 0.96 : 0.99,
           sourceType: "retailer_store_availability",
-          sourceId: `smyths-store-pickup:${mapping.productCode}:${text(officialStore.id ?? officialStore.storeId ?? officialStore.name) || branch.branchKey}`,
+          sourceId: `smyths-store-pickup:${mapping.productCode}:${officialStoreId(officialStore) || branch.providerId || branch.branchKey}`,
           sourceUrl: mapping.sourceUrl || response.url,
           stockStatus,
           availabilityVerified: stockStatus !== "out_of_stock",
           rawProductTitle: mapping.productTitle,
           retailerSku: mapping.productCode,
           officialBranchName: officialStoreName(officialStore),
+          branchIdentitySource: branch.provider,
         },
       });
     }
@@ -321,11 +447,14 @@ export async function refreshSmythsLocalAvailability({
     lastStatus: finalStatus,
   });
   return {
-    provider: "smyths_official_store_availability",
+    provider: OFFICIAL_BRANCH_PROVIDER,
     status: finalStatus,
     productsChecked: sourceStates.length,
     observationsSaved: Number(persistResult?.saved || 0),
     duplicates: Number(persistResult?.duplicates || 0),
+    branchesDiscovered: officialBranchesById.size,
+    branchesPersisted,
+    branchPersistenceStatus,
     rejected: normalized.rejected.length + (Array.isArray(persistResult?.rejected) ? persistResult.rejected.length : 0),
     sourceStates,
   };
@@ -339,6 +468,7 @@ export const SMYTHS_LOCAL_SOURCE_POLICY = Object.freeze({
   minimumRefreshMs: 60_000,
   protectionCooldownMs: 15 * 60_000,
   protections: "fail_closed_no_bypass",
+  branchIdentity: "official store/POS ID plus coordinates, or exact name+postcode plus coordinates; Google Places is optional discovery evidence",
   manifested: "verified identifier + exact branch + official collection availability only",
   vanished: "existing Local Radar persistence still requires prior Manifested history",
 });
