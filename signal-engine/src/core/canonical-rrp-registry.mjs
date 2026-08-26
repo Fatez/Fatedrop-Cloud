@@ -7,6 +7,30 @@ function authoritative(product = {}) {
     && product.rrpSource.trim().length > 0;
 }
 
+function normalizeThreePackPromoBlister(source, title) {
+  const patterns = [
+    /^(.*?)\b3\s*[- ]?pack\s+blister(?:\s+pack)?\s*[-:–—]?\s*([a-z0-9][a-z0-9' -]*)$/i,
+    /^(.*?)\btriple\s+blister\s*[-:–—]?\s*([a-z0-9][a-z0-9' -]*)$/i,
+    /^(.*?)\b3\s*[- ]?pack\s+booster\s*[-:–—]\s*([a-z0-9][a-z0-9' -]*)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = String(title || "").match(pattern);
+    if (!match) continue;
+    const prefix = String(match[1] || "").trim().replace(/[-:–—]+$/, "").trim();
+    const promo = String(match[2] || "")
+      .replace(/\bpromo(?:\s+card)?\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!prefix || !promo) continue;
+    return {
+      ...source,
+      title: `${prefix} 3 Booster Packs & ${promo} Promo Card`,
+      productType: "booster_pack",
+    };
+  }
+  return source;
+}
+
 function normalizeRrpAliasInput(input = {}) {
   const source = typeof input === "string" ? { title: input } : (input || {});
   const title = String(source.title || "");
@@ -15,9 +39,10 @@ function normalizeRrpAliasInput(input = {}) {
   // Keep retailer naming aliases local to RRP resolution. This preserves the raw
   // catalogue title/evidence while allowing verified official identities to be
   // reused safely across common retailer wording differences.
-  let normalizedTitle = title;
+  let normalized = { ...source, title };
   if (tcg === "pokemon") {
-    normalizedTitle = normalizedTitle
+    normalized = normalizeThreePackPromoBlister(normalized, normalized.title);
+    normalized.title = String(normalized.title || "")
       .replace(/\bSWSH\b/gi, " Sword & Shield ")
       .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")
       .replace(/\s+/g, " ")
@@ -28,15 +53,24 @@ function normalizeRrpAliasInput(input = {}) {
   // series prefix while the official catalogue uses the long expansion name.
   // Keep these aliases local to RRP identity resolution so catalogue titles and
   // evidence remain untouched. Add only verified aliases; never fuzzy-match them.
-  if (tcg === "pokemon" && /\bchaos[\s-]+rising\b/i.test(normalizedTitle)) {
-    normalizedTitle = normalizedTitle
+  if (tcg === "pokemon" && /\bchaos[\s-]+rising\b/i.test(normalized.title)) {
+    normalized.title = normalized.title
       .replace(/\bME\s*0?4\b/gi, " ")
+      .replace(/\bME\b(?=\s+Chaos[\s-]+Rising\b)/gi, " ")
       .replace(/\bMega\s+Evolution(?:\s+4)?\b/gi, " ")
       .replace(/\s+/g, " ")
       .trim();
   }
 
-  return normalizedTitle === title ? source : { ...source, title: normalizedTitle };
+  if (tcg === "pokemon" && /\bascended[\s-]+heroes\b/i.test(normalized.title)) {
+    normalized.title = normalized.title
+      .replace(/\bME\b(?=\s+Ascended[\s-]+Heroes\b)/gi, " ")
+      .replace(/\bMega\s+Evolution(?:\s+2(?:\.5)?)?\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  return normalized;
 }
 
 function bucketFor(input = {}) {
