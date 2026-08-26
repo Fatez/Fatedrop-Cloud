@@ -18,6 +18,16 @@ const DEFAULT_TTL_MS = Object.freeze({
   local_out_of_stock: 2 * 60 * 60 * 1000,
 });
 
+const EVIDENCE_TTL_MS = Object.freeze({
+  official_branch: 2 * 60 * 60 * 1000,
+  official_collection: 90 * 60 * 1000,
+  official_retailer_app: 90 * 60 * 1000,
+  verified_shelf_sighting: 45 * 60 * 1000,
+  community_report: 30 * 60 * 1000,
+  official_store_social: 12 * 60 * 60 * 1000,
+  inventory_preparation: 24 * 60 * 60 * 1000,
+});
+
 function text(value) {
   const result = String(value ?? "").trim();
   return result || null;
@@ -43,12 +53,6 @@ function asEpochMs(value) {
   return parsed > 10_000_000_000 ? parsed : parsed * 1000;
 }
 
-function ttlFor(observation) {
-  const explicit = asEpochMs(observation?.expiresAt);
-  if (explicit != null) return Math.max(0, explicit - observation.occurredAt);
-  return DEFAULT_TTL_MS[observation?.kind] || 2 * 60 * 60 * 1000;
-}
-
 function evidenceLevel(evidence = {}) {
   return text(evidence.evidenceLevel || evidence.level || evidence.scope)?.toLowerCase() || "unknown";
 }
@@ -58,18 +62,53 @@ function confidence(evidence = {}) {
   return value == null ? null : Math.max(0, Math.min(1, value));
 }
 
+function sourceType(evidence = {}) {
+  return text(evidence.sourceType || evidence.source_type)?.toLowerCase() || null;
+}
+
+function ttlForEvidence({ kind, level, source }) {
+  return EVIDENCE_TTL_MS[source]
+    || EVIDENCE_TTL_MS[level]
+    || DEFAULT_TTL_MS[kind]
+    || 2 * 60 * 60 * 1000;
+}
+
 function statusFromObservation(observation) {
-  const level = evidenceLevel(observation.evidence);
-  const official = OFFICIAL_EVIDENCE_LEVELS.has(level);
-  if (observation.kind === "local_in_stock") return official ? "in_stock" : "incoming_watch";
-  if (observation.kind === "local_low_stock") return official ? "low_stock" : "incoming_watch";
-  if (observation.kind === "local_out_of_stock") return official ? "out_of_stock" : "unknown";
+  const official = OFFICIAL_EVIDENCE_LEVELS.has(observation.evidenceLevel);
+  const canonicalIdentityKnown = Boolean(observation.productIdentityId);
+  if (observation.kind === "local_in_stock") return official && canonicalIdentityKnown ? "in_stock" : "incoming_watch";
+  if (observation.kind === "local_low_stock") return official && canonicalIdentityKnown ? "low_stock" : "incoming_watch";
+  if (observation.kind === "local_out_of_stock") return official && canonicalIdentityKnown ? "out_of_stock" : "unknown";
   if (observation.kind === "local_incoming") return "incoming_watch";
   return "unknown";
 }
 
 function statusRank(status) {
   return ({ in_stock: 5, low_stock: 4, incoming_watch: 3, out_of_stock: 2, unknown: 1 })[status] || 0;
+}
+
+function availabilityClass(status) {
+  if (["in_stock", "low_stock"].includes(status)) return "available";
+  if (status === "out_of_stock") return "unavailable";
+  if (status === "incoming_watch") return "preparation";
+  return "unknown";
+}
+
+function defaultConfidence(item) {
+  if (item.evidenceLevel === "official_branch") return 0.92;
+  if (["official_collection", "official_retailer_app"].includes(item.evidenceLevel)) return 0.88;
+  if (item.evidenceLevel === "verified_shelf_sighting") return 0.82;
+  if (item.evidenceLevel === "community_report") return 0.5;
+  return item.kind === "local_incoming" ? 0.58 : 0.45;
+}
+
+function effectiveConfidence(item, now) {
+  const base = item.confidence ?? defaultConfidence(item);
+  const ttl = Math.max(1, item.expiresAt - item.occurredAt);
+  const age = Math.max(0, now - item.occurredAt);
+  const ageRatio = Math.min(1, age / ttl);
+  const decayFactor = Math.max(0.25, 1 - (ageRatio * 0.75));
+  return Math.max(0, Math.min(1, base * decayFactor));
 }
 
 function normalizeObservation(row = {}) {
@@ -79,6 +118,8 @@ function normalizeObservation(row = {}) {
     : row.evidence_json && typeof row.evidence_json === "object"
       ? row.evidence_json
       : {};
+  const level = evidenceLevel(evidence);
+  const source = sourceType(evidence);
   const observation = {
     id: text(row.id),
     kind: text(row.kind)?.toLowerCase() || "unknown",
@@ -89,19 +130,19 @@ function normalizeObservation(row = {}) {
     locationProvider: text(row.locationProvider ?? row.location_provider),
     locationProviderId: text(row.locationProviderId ?? row.location_provider_id),
     locationName: text(row.locationName ?? row.location_name),
-    latitude: number(row.latitude),
-    longitude: number(row.longitude),
     occurredAt,
     evidence,
+    evidenceLevel: level,
+    confidence: confidence(evidence),
+    sourceType: source,
+    sourceUrl: text(evidence.sourceUrl || evidence.source_url),
   };
-  const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at);
+  const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at)
+    || asEpochMs(row.expiresAt ?? row.expires_at)
+    || occurredAt + ttlForEvidence({ kind: observation.kind, level, source });
   return {
     ...observation,
-    expiresAt: expiresAt || occurredAt + (DEFAULT_TTL_MS[observation.kind] || 2 * 60 * 60 * 1000),
-    evidenceLevel: evidenceLevel(evidence),
-    confidence: confidence(evidence),
-    sourceType: text(evidence.sourceType || evidence.source_type),
-    sourceUrl: text(evidence.sourceUrl || evidence.source_url),
+    expiresAt,
     localStockStatus: statusFromObservation(observation),
   };
 }
@@ -146,27 +187,75 @@ function sameBranch(shop, observation) {
   if (shop.provider === observation.locationProvider && shop.providerPlaceId && observation.locationProviderId) {
     return String(shop.providerPlaceId) === String(observation.locationProviderId);
   }
-  if (shop.retailerId && observation.retailerId && shop.retailerId !== observation.retailerId) return false;
-  if (shop.retailerId && observation.retailerId && shop.retailerId === observation.retailerId) {
-    if (shop.name && observation.locationName && slug(shop.name) === slug(observation.locationName)) return true;
-    if ([shop.latitude, shop.longitude, observation.latitude, observation.longitude].every(Number.isFinite)) {
-      const dLat = Math.abs(shop.latitude - observation.latitude);
-      const dLng = Math.abs(shop.longitude - observation.longitude);
-      return dLat <= 0.004 && dLng <= 0.007;
-    }
+  if (!shop.retailerId || !observation.retailerId || shop.retailerId !== observation.retailerId) return false;
+  return Boolean(shop.name && observation.locationName && slug(shop.name) === slug(observation.locationName));
+}
+
+function productKey(item) {
+  if (item.productIdentityId) return `id:${item.productIdentityId}`;
+  if (item.productTitle) return `title:${slug(item.productTitle)}`;
+  return item.id ? `event:${item.id}` : null;
+}
+
+function sourceKey(item) {
+  return item.sourceUrl || `${item.evidenceLevel}:${item.sourceType || "unknown"}`;
+}
+
+function resolveCurrentProductObservations(branchObservations, now) {
+  const groups = new Map();
+  for (const item of branchObservations) {
+    const key = productKey(item);
+    if (!key) continue;
+    const rows = groups.get(key) || [];
+    rows.push(item);
+    groups.set(key, rows);
   }
-  return false;
+
+  const resolved = [];
+  for (const rows of groups.values()) {
+    rows.sort((a, b) => b.occurredAt - a.occurredAt);
+    const latest = rows[0];
+    const latestClass = availabilityClass(latest.localStockStatus);
+    const contradictionWindowMs = Math.min(30 * 60 * 1000, Math.max(1, latest.expiresAt - latest.occurredAt));
+    const relevant = rows.filter((item) => latest.occurredAt - item.occurredAt <= contradictionWindowMs);
+    const contradictions = relevant.filter((item) => {
+      const currentClass = availabilityClass(item.localStockStatus);
+      return ["available", "unavailable"].includes(latestClass)
+        && ["available", "unavailable"].includes(currentClass)
+        && currentClass !== latestClass;
+    });
+    const corroborating = relevant.filter((item) => availabilityClass(item.localStockStatus) === latestClass);
+    const sourceDiversity = new Set(corroborating.map(sourceKey).filter(Boolean));
+    const contradictionPenalty = Math.min(0.4, contradictions.length * 0.15);
+    const corroborationBoost = Math.min(0.12, Math.max(0, sourceDiversity.size - 1) * 0.04);
+    const rawEffective = effectiveConfidence(latest, now);
+    const adjustedConfidence = Math.max(0, Math.min(1, rawEffective - contradictionPenalty + corroborationBoost));
+    const conflictForcesUnknown = ["available", "unavailable"].includes(latestClass)
+      && contradictions.length > 0
+      && adjustedConfidence < 0.55;
+    resolved.push({
+      ...latest,
+      localStockStatus: conflictForcesUnknown ? "unknown" : latest.localStockStatus,
+      effectiveConfidence: adjustedConfidence,
+      corroborationCount: corroborating.length,
+      sourceDiversityCount: sourceDiversity.size,
+      contradictionCount: contradictions.length,
+      freshnessAgeMinutes: Math.max(0, Math.round((now - latest.occurredAt) / 60_000)),
+    });
+  }
+  return resolved;
 }
 
 export function enrichShopsWithLocalStock(shops = [], observations = [], now = Date.now()) {
   const active = (observations || [])
-    .map((item) => item.localStockStatus ? item : normalizeObservation(item))
+    .map(normalizeObservation)
     .filter((item) => LOCAL_SIGNAL_KINDS.has(item.kind))
-    .filter((item) => item.occurredAt + ttlFor(item) > now && item.expiresAt > now);
+    .filter((item) => item.expiresAt > now);
 
   return (shops || []).map((shop) => {
     const branchObservations = active.filter((item) => sameBranch(shop, item));
-    if (!branchObservations.length) {
+    const currentProducts = resolveCurrentProductObservations(branchObservations, now);
+    if (!currentProducts.length) {
       return {
         ...shop,
         localStockStatus: shop.localStockStatus || "unknown",
@@ -175,40 +264,43 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       };
     }
 
-    branchObservations.sort((a, b) => {
+    currentProducts.sort((a, b) => {
       const rank = statusRank(b.localStockStatus) - statusRank(a.localStockStatus);
-      return rank || b.occurredAt - a.occurredAt;
+      return rank || b.effectiveConfidence - a.effectiveConfidence || b.occurredAt - a.occurredAt;
     });
-    const strongest = branchObservations[0];
-    const products = [];
-    const seen = new Set();
-    for (const item of branchObservations) {
-      const key = item.productIdentityId || item.productTitle || item.id;
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      products.push({
-        productIdentityId: item.productIdentityId,
-        title: item.productTitle || "Trading card product",
-        status: item.localStockStatus,
-        observedAt: new Date(item.occurredAt).toISOString(),
-        evidenceLevel: item.evidenceLevel,
-        confidence: item.confidence,
-        sourceType: item.sourceType,
-        sourceUrl: item.sourceUrl,
-      });
-      if (products.length >= 8) break;
-    }
+    const strongest = currentProducts[0];
+    const products = currentProducts.slice(0, 8).map((item) => ({
+      productIdentityId: item.productIdentityId,
+      title: item.productTitle || "Trading card product",
+      status: item.localStockStatus,
+      observedAt: new Date(item.occurredAt).toISOString(),
+      expiresAt: new Date(item.expiresAt).toISOString(),
+      evidenceLevel: item.evidenceLevel,
+      confidence: item.effectiveConfidence,
+      sourceType: item.sourceType,
+      sourceUrl: item.sourceUrl,
+      freshnessAgeMinutes: item.freshnessAgeMinutes,
+      corroborationCount: item.corroborationCount,
+      sourceDiversityCount: item.sourceDiversityCount,
+      contradictionCount: item.contradictionCount,
+    }));
 
     return {
       ...shop,
       localStockStatus: strongest.localStockStatus,
       localStockEvidence: {
         evidenceLevel: strongest.evidenceLevel,
-        confidence: strongest.confidence,
+        confidence: strongest.effectiveConfidence,
         sourceType: strongest.sourceType,
         sourceUrl: strongest.sourceUrl,
         observedAt: new Date(strongest.occurredAt).toISOString(),
+        expiresAt: new Date(strongest.expiresAt).toISOString(),
+        freshnessAgeMinutes: strongest.freshnessAgeMinutes,
+        corroborationCount: strongest.corroborationCount,
+        sourceDiversityCount: strongest.sourceDiversityCount,
+        contradictionCount: strongest.contradictionCount,
         verifiedBranchStock: OFFICIAL_EVIDENCE_LEVELS.has(strongest.evidenceLevel)
+          && Boolean(strongest.productIdentityId)
           && ["in_stock", "low_stock", "out_of_stock"].includes(strongest.localStockStatus),
       },
       localStockProducts: products,
@@ -228,7 +320,10 @@ export function localStockCounts(shops = []) {
 export const LOCAL_STOCK_POLICY = Object.freeze({
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
   communityRule: "Community or social evidence may create an incoming watch but never a verified in-stock claim.",
+  identityRule: "Verified physical stock requires a canonical product identity and an exact branch match.",
+  contradictionRule: "Recent contradictory availability evidence reduces confidence and can force the current state to unknown.",
   liveStockTtlMinutes: DEFAULT_TTL_MS.local_in_stock / 60_000,
   lowStockTtlMinutes: DEFAULT_TTL_MS.local_low_stock / 60_000,
+  shelfSightingTtlMinutes: EVIDENCE_TTL_MS.verified_shelf_sighting / 60_000,
   incomingWatchTtlHours: DEFAULT_TTL_MS.local_incoming / 3_600_000,
 });
