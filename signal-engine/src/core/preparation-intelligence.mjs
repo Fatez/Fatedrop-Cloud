@@ -54,10 +54,18 @@ export function hasVerifiedPurchaseEvidence(evidence = []) {
 }
 
 export function effectivePurchasable(offer) {
-  if (!offer || !isPurchasable(offer.stockStatus)) return false;
+  if (!offer) return false;
+  const purchaseVerified = hasVerifiedPurchaseEvidence(offer.evidence);
+
+  // PREORDER is a commercial lifecycle state only when a real purchase path is
+  // independently verified. Retailer copy such as "Preorder" or a future
+  // release date remains preparation evidence and can never Manifest by itself.
+  if (offer.stockStatus === "preorder") return purchaseVerified;
+  if (!isPurchasable(offer.stockStatus)) return false;
+
   const price = classifyObservedPrice({ pricePence: offer.pricePence, retailerId: offer.retailerId, evidence: offer.evidence });
   if (price.priceQuality === PriceQuality.PLACEHOLDER || price.priceQuality === PriceQuality.INVALID) {
-    return hasVerifiedPurchaseEvidence(offer.evidence);
+    return purchaseVerified;
   }
   return true;
 }
