@@ -1,8 +1,8 @@
 const LOCAL_SIGNAL_KINDS = new Set([
-  "local_incoming",
-  "local_in_stock",
-  "local_low_stock",
-  "local_out_of_stock",
+  "whisper",
+  "echo",
+  "manifested",
+  "vanished",
 ]);
 
 const OFFICIAL_EVIDENCE_LEVELS = new Set([
@@ -12,10 +12,10 @@ const OFFICIAL_EVIDENCE_LEVELS = new Set([
 ]);
 
 const DEFAULT_TTL_MS = Object.freeze({
-  local_incoming: 24 * 60 * 60 * 1000,
-  local_in_stock: 2 * 60 * 60 * 1000,
-  local_low_stock: 90 * 60 * 1000,
-  local_out_of_stock: 2 * 60 * 60 * 1000,
+  whisper: 12 * 60 * 60 * 1000,
+  echo: 24 * 60 * 60 * 1000,
+  manifested: 2 * 60 * 60 * 1000,
+  vanished: 2 * 60 * 60 * 1000,
 });
 
 const EVIDENCE_TTL_MS = Object.freeze({
@@ -27,6 +27,14 @@ const EVIDENCE_TTL_MS = Object.freeze({
   official_store_social: 12 * 60 * 60 * 1000,
   inventory_preparation: 24 * 60 * 60 * 1000,
 });
+
+const VERIFIED_AVAILABILITY_STATES = new Set([
+  "in_stock",
+  "low_stock",
+  "available",
+  "collection_available",
+  "on_shelf",
+]);
 
 function text(value) {
   const result = String(value ?? "").trim();
@@ -66,6 +74,10 @@ function sourceType(evidence = {}) {
   return text(evidence.sourceType || evidence.source_type)?.toLowerCase() || null;
 }
 
+function evidenceStockStatus(evidence = {}) {
+  return text(evidence.stockStatus || evidence.stock_status || evidence.availability)?.toLowerCase() || null;
+}
+
 function ttlForEvidence({ kind, level, source }) {
   return EVIDENCE_TTL_MS[source]
     || EVIDENCE_TTL_MS[level]
@@ -73,13 +85,22 @@ function ttlForEvidence({ kind, level, source }) {
     || 2 * 60 * 60 * 1000;
 }
 
+function hasVerifiedAvailabilityEvidence(observation) {
+  return observation.evidence?.availabilityVerified === true
+    || VERIFIED_AVAILABILITY_STATES.has(observation.stockStatus);
+}
+
 function statusFromObservation(observation) {
+  if (["whisper", "echo"].includes(observation.kind)) return "incoming_watch";
   const official = OFFICIAL_EVIDENCE_LEVELS.has(observation.evidenceLevel);
   const canonicalIdentityKnown = Boolean(observation.productIdentityId);
-  if (observation.kind === "local_in_stock") return official && canonicalIdentityKnown ? "in_stock" : "incoming_watch";
-  if (observation.kind === "local_low_stock") return official && canonicalIdentityKnown ? "low_stock" : "incoming_watch";
-  if (observation.kind === "local_out_of_stock") return official && canonicalIdentityKnown ? "out_of_stock" : "unknown";
-  if (observation.kind === "local_incoming") return "incoming_watch";
+  if (observation.kind === "manifested") {
+    if (!official || !canonicalIdentityKnown || !hasVerifiedAvailabilityEvidence(observation)) return "incoming_watch";
+    return observation.stockStatus === "low_stock" ? "low_stock" : "in_stock";
+  }
+  if (observation.kind === "vanished") {
+    return official && canonicalIdentityKnown ? "out_of_stock" : "unknown";
+  }
   return "unknown";
 }
 
@@ -99,7 +120,9 @@ function defaultConfidence(item) {
   if (["official_collection", "official_retailer_app"].includes(item.evidenceLevel)) return 0.88;
   if (item.evidenceLevel === "verified_shelf_sighting") return 0.82;
   if (item.evidenceLevel === "community_report") return 0.5;
-  return item.kind === "local_incoming" ? 0.58 : 0.45;
+  if (item.kind === "echo") return 0.62;
+  if (item.kind === "whisper") return 0.48;
+  return 0.45;
 }
 
 function effectiveConfidence(item, now) {
@@ -136,6 +159,7 @@ function normalizeObservation(row = {}) {
     confidence: confidence(evidence),
     sourceType: source,
     sourceUrl: text(evidence.sourceUrl || evidence.source_url),
+    stockStatus: evidenceStockStatus(evidence),
   };
   const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at)
     || asEpochMs(row.expiresAt ?? row.expires_at)
@@ -168,9 +192,7 @@ export async function listLocalStockObservationsFromStore(store, { sinceMs = Dat
       se.evidence_json,
       rl.provider AS location_provider,
       rl.provider_id AS location_provider_id,
-      rl.name AS location_name,
-      rl.latitude,
-      rl.longitude
+      rl.name AS location_name
     FROM fatedrop_signal_events se
     LEFT JOIN fatedrop_retailer_locations rl ON rl.id = se.location_id
     LEFT JOIN fatedrop_product_identities pi ON pi.id = se.product_identity_id
@@ -215,7 +237,9 @@ function resolveCurrentProductObservations(branchObservations, now) {
   for (const rows of groups.values()) {
     rows.sort((a, b) => b.occurredAt - a.occurredAt);
     const latest = rows[0];
-    const latestClass = availabilityClass(latest.localStockStatus);
+    const hadEarlierManifested = rows.some((item) => item.kind === "manifested" && item.occurredAt < latest.occurredAt && ["in_stock", "low_stock"].includes(item.localStockStatus));
+    const orphanVanished = latest.kind === "vanished" && !hadEarlierManifested;
+    const latestClass = availabilityClass(orphanVanished ? "unknown" : latest.localStockStatus);
     const contradictionWindowMs = Math.min(30 * 60 * 1000, Math.max(1, latest.expiresAt - latest.occurredAt));
     const relevant = rows.filter((item) => latest.occurredAt - item.occurredAt <= contradictionWindowMs);
     const contradictions = relevant.filter((item) => {
@@ -235,11 +259,12 @@ function resolveCurrentProductObservations(branchObservations, now) {
       && adjustedConfidence < 0.55;
     resolved.push({
       ...latest,
-      localStockStatus: conflictForcesUnknown ? "unknown" : latest.localStockStatus,
+      localStockStatus: orphanVanished || conflictForcesUnknown ? "unknown" : latest.localStockStatus,
       effectiveConfidence: adjustedConfidence,
       corroborationCount: corroborating.length,
       sourceDiversityCount: sourceDiversity.size,
       contradictionCount: contradictions.length,
+      orphanVanished,
       freshnessAgeMinutes: Math.max(0, Math.round((now - latest.occurredAt) / 60_000)),
     });
   }
@@ -272,6 +297,7 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
     const products = currentProducts.slice(0, 8).map((item) => ({
       productIdentityId: item.productIdentityId,
       title: item.productTitle || "Trading card product",
+      lifecycleState: item.kind,
       status: item.localStockStatus,
       observedAt: new Date(item.occurredAt).toISOString(),
       expiresAt: new Date(item.expiresAt).toISOString(),
@@ -283,12 +309,14 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       corroborationCount: item.corroborationCount,
       sourceDiversityCount: item.sourceDiversityCount,
       contradictionCount: item.contradictionCount,
+      orphanVanished: item.orphanVanished,
     }));
 
     return {
       ...shop,
       localStockStatus: strongest.localStockStatus,
       localStockEvidence: {
+        lifecycleState: strongest.kind,
         evidenceLevel: strongest.evidenceLevel,
         confidence: strongest.effectiveConfidence,
         sourceType: strongest.sourceType,
@@ -299,9 +327,11 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
         corroborationCount: strongest.corroborationCount,
         sourceDiversityCount: strongest.sourceDiversityCount,
         contradictionCount: strongest.contradictionCount,
-        verifiedBranchStock: OFFICIAL_EVIDENCE_LEVELS.has(strongest.evidenceLevel)
+        orphanVanished: strongest.orphanVanished,
+        verifiedBranchStock: strongest.kind === "manifested"
+          && OFFICIAL_EVIDENCE_LEVELS.has(strongest.evidenceLevel)
           && Boolean(strongest.productIdentityId)
-          && ["in_stock", "low_stock", "out_of_stock"].includes(strongest.localStockStatus),
+          && ["in_stock", "low_stock"].includes(strongest.localStockStatus),
       },
       localStockProducts: products,
     };
@@ -318,12 +348,13 @@ export function localStockCounts(shops = []) {
 }
 
 export const LOCAL_STOCK_POLICY = Object.freeze({
+  lifecycleStates: [...LOCAL_SIGNAL_KINDS],
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
-  communityRule: "Community or social evidence may create an incoming watch but never a verified in-stock claim.",
-  identityRule: "Verified physical stock requires a canonical product identity and an exact branch match.",
+  communityRule: "Community or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock in this phase.",
+  identityRule: "Verified physical Manifested stock requires a canonical product identity and an exact branch match.",
+  vanishedRule: "A branch Vanished state is only accepted when a previously verified Manifested observation exists for that branch and product.",
   contradictionRule: "Recent contradictory availability evidence reduces confidence and can force the current state to unknown.",
-  liveStockTtlMinutes: DEFAULT_TTL_MS.local_in_stock / 60_000,
-  lowStockTtlMinutes: DEFAULT_TTL_MS.local_low_stock / 60_000,
+  manifestedTtlMinutes: DEFAULT_TTL_MS.manifested / 60_000,
   shelfSightingTtlMinutes: EVIDENCE_TTL_MS.verified_shelf_sighting / 60_000,
-  incomingWatchTtlHours: DEFAULT_TTL_MS.local_incoming / 3_600_000,
+  echoTtlHours: DEFAULT_TTL_MS.echo / 3_600_000,
 });
