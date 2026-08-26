@@ -6,7 +6,7 @@ import { geocodeUkPostcode } from "./national-branch-directory-sync.mjs";
 
 const PROVIDER = "entertainer_official_curated_seed";
 const RETAILER_ID = "entertainer-uk";
-const VERIFIED_AT = "2026-08-26T18:30:00+01:00";
+const VERIFIED_AT = "2026-08-26T19:30:00+01:00";
 
 // Narrow bridge for the current real expected-stock proof only.
 // Every row was individually checked against The Entertainer's official store pages/index.
