@@ -3,6 +3,10 @@ import { ALERT_CLASSES, signalCapabilities } from "../core/signal-policy.mjs";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const DISCORD_SIGNAL_STATES = new Set(["whisper", "echo", "manifested", "vanished"]);
+const DEFAULT_RATE_LIMIT_RETRIES = 5;
+const DEFAULT_RATE_LIMIT_WAIT_MS = 1_000;
+const MAX_RATE_LIMIT_WAIT_MS = 15_000;
+const RATE_LIMIT_SAFETY_MS = 100;
 
 const STATE_STYLE = Object.freeze({
   whisper: { publicStage: "Whisper", label: "WHISPER", colour: 0x67e8f9, companion: "Oru" },
@@ -159,6 +163,26 @@ async function reportDeliveryAttempt(callback, attempt) {
   }
 }
 
+function numericSecondsToMs(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  return Math.round(seconds * 1000);
+}
+
+export function discordRateLimitWaitMs(response, body = "") {
+  let fromBody = null;
+  try {
+    const parsed = typeof body === "string" && body.trim() ? JSON.parse(body) : null;
+    fromBody = numericSecondsToMs(parsed?.retry_after);
+  } catch {
+    fromBody = null;
+  }
+  const fromResetAfter = numericSecondsToMs(response?.headers?.get?.("x-ratelimit-reset-after"));
+  const fromRetryAfter = numericSecondsToMs(response?.headers?.get?.("retry-after"));
+  const raw = fromBody ?? fromResetAfter ?? fromRetryAfter ?? DEFAULT_RATE_LIMIT_WAIT_MS;
+  return Math.max(0, Math.min(MAX_RATE_LIMIT_WAIT_MS, raw));
+}
+
 export function publicDiscordStage(signalOrState) {
   const state = typeof signalOrState === "string" ? signalOrState : signalOrState?.state;
   return STATE_STYLE[state]?.publicStage || null;
@@ -252,6 +276,9 @@ export function buildDiscordSignalMessage(signal) {
 
 export async function sendDiscordSignal(signal, {
   fetchImpl = fetch,
+  sleepImpl = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  maxRateLimitRetries = DEFAULT_RATE_LIMIT_RETRIES,
+  rateLimitSafetyMs = RATE_LIMIT_SAFETY_MS,
   enabled = env.discord.enabled,
   botToken = null,
   botTokens = env.discord.botTokens,
@@ -267,19 +294,38 @@ export async function sendDiscordSignal(signal, {
   if (!resolvedChannelId) return { sent: false, reason: "missing_lifecycle_channel_id" };
   if (!enabled) return { sent: false, reason: "disabled" };
 
-  const response = await fetchImpl(`${DISCORD_API}/channels/${resolvedChannelId}/messages`, {
+  const endpoint = `${DISCORD_API}/channels/${resolvedChannelId}/messages`;
+  const request = {
     method: "POST",
     headers: { Authorization: `Bot ${resolvedBotToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(buildDiscordSignalMessage(signal)),
-  });
+  };
+  const retryLimit = Math.max(0, Math.min(10, Number(maxRateLimitRetries) || 0));
+  const safetyMs = Math.max(0, Math.min(1_000, Number(rateLimitSafetyMs) || 0));
+  let rateLimitRetries = 0;
 
-  if (!response.ok) {
+  while (true) {
+    const response = await fetchImpl(endpoint, request);
+    if (response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      return {
+        sent: true,
+        messageId: payload.id ?? null,
+        channelId: resolvedChannelId,
+        companion: companionForSignal(signal.state),
+        rateLimitRetries,
+      };
+    }
+
     const body = await response.text().catch(() => "");
+    if (response.status === 429 && rateLimitRetries < retryLimit) {
+      const waitMs = discordRateLimitWaitMs(response, body) + safetyMs;
+      rateLimitRetries += 1;
+      await sleepImpl(waitMs);
+      continue;
+    }
     throw new Error(`Discord delivery failed (${response.status})${body ? `: ${short(body, 300)}` : ""}`);
   }
-
-  const payload = await response.json().catch(() => ({}));
-  return { sent: true, messageId: payload.id ?? null, channelId: resolvedChannelId, companion: companionForSignal(signal.state) };
 }
 
 export async function dispatchDiscordSignals(signals, options = {}) {
@@ -300,7 +346,8 @@ export async function dispatchDiscordSignals(signals, options = {}) {
       const result = await sendDiscordSignal(signal, options);
       if (result.sent) {
         summary.sent += 1;
-        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "sent", providerMessageId: result.messageId ?? null, detail: result.channelId ? `channel_id:${result.channelId}` : null });
+        const details = [result.channelId ? `channel_id:${result.channelId}` : null, result.rateLimitRetries > 0 ? `rate_limit_retries:${result.rateLimitRetries}` : null].filter(Boolean);
+        await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "sent", providerMessageId: result.messageId ?? null, detail: details.length ? details.join(";") : null });
       } else {
         summary.skipped += 1;
         await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal.id, channel: "discord", attemptedAt, result: "skipped", providerMessageId: null, detail: result.reason || "not_sent" });
