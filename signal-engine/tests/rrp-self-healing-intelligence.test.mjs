@@ -72,7 +72,7 @@ test("series shorthand never lets a standard ETB inherit a Pokemon Center exclus
   }
 });
 
-test("repeated unresolved rows are classified and escalated instead of silently retried forever", async () => {
+test("repeated unresolved rows are classified once then deferred until authority or rules change", async () => {
   const updates = [];
   const queue = {
     id: "q-authority-gap",
@@ -84,12 +84,17 @@ test("repeated unresolved rows are classified and escalated instead of silently 
     failure_reason: "no_authoritative_candidate",
     language_code: null,
     region_code: null,
+    evidence_json: {},
   };
   const pool = {
     async query(sql, params = []) {
       if (/SELECT \*/.test(sql) && /rrp_resolution_queue/.test(sql)) return { rows: [queue] };
       if (/UPDATE fatedrop_rrp_resolution_queue/.test(sql)) {
         updates.push({ sql, params });
+        if (params[0] === "no_authoritative_candidate") {
+          queue.failure_reason = params[0];
+          queue.evidence_json = { ...queue.evidence_json, ...JSON.parse(params[1]) };
+        }
         return { rows: [] };
       }
       if (/count\(\*\)/.test(sql)) return { rows: [{ remaining: 1 }] };
@@ -101,13 +106,22 @@ test("repeated unresolved rows are classified and escalated instead of silently 
     async listProducts() { return []; },
   };
 
-  const result = await reconcileRrpLearningQueue({ store, now: 1_787_737_000 });
-  assert.equal(result.resolved, 0);
-  assert.equal(result.escalated, 1);
+  const first = await reconcileRrpLearningQueue({ store, now: 1_787_737_000 });
+  assert.equal(first.resolved, 0);
+  assert.equal(first.escalated, 1);
+  assert.equal(first.deferred, 0);
   const disposition = updates.find(({ params }) => params[0] === "no_authoritative_candidate");
   assert.ok(disposition);
   const evidence = JSON.parse(disposition.params[1]);
   assert.equal(evidence.reconciliation_class, "authority_gap");
   assert.equal(evidence.escalated, true);
   assert.equal(evidence.next_action, "await_or_refresh_authoritative_rrp_source");
+  assert.match(evidence.authority_fingerprint, /^rrp-self-heal-v2:/);
+
+  const updateCount = updates.length;
+  const second = await reconcileRrpLearningQueue({ store, now: 1_787_738_000 });
+  assert.equal(second.resolved, 0);
+  assert.equal(second.escalated, 0);
+  assert.equal(second.deferred, 1);
+  assert.equal(updates.length, updateCount);
 });
