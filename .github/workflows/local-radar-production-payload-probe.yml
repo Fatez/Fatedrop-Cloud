@@ -1,0 +1,49 @@
+name: Local Radar Production Payload Probe
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/local-radar-production-payload-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe-local-radar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe Watford Expected and Newton Aycliffe Confirmed payloads
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const base = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['watford', { lat: '51.654122', lng: '-0.392836', radiusMiles: '5', types: 'shops', tcg: 'pokemon' }],
+            ['newton-aycliffe', { lat: '54.600869', lng: '-1.568872', radiusMiles: '5', types: 'shops', tcg: 'pokemon' }],
+          ];
+          for (const [label, params] of probes) {
+            const url = new URL(base);
+            for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+            const response = await fetch(url, { headers: { accept: 'application/json' } });
+            const body = await response.json();
+            const relevant = (body.shops || []).filter((shop) =>
+              /entertainer|total cards|asda/i.test(`${shop.name || ''} ${shop.retailerId || ''}`)
+            ).map((shop) => ({
+              name: shop.name,
+              retailerId: shop.retailerId,
+              postcode: shop.postcode,
+              distanceMiles: shop.distanceMiles,
+              localStockStatus: shop.localStockStatus,
+              localAvailability: shop.localAvailability,
+              localStockProducts: shop.localStockProducts,
+            }));
+            console.log('LOCAL_RADAR_PRODUCTION_PROBE', JSON.stringify({
+              label,
+              status: response.status,
+              success: body.success,
+              counts: body.counts,
+              relevant,
+              disclaimers: body.disclaimers,
+            }));
+          }
+          NODE
