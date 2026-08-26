@@ -131,6 +131,8 @@ export const env = {
     gatheringGames: bool("FATEDROP_RETAILER_GATHERING_GAMES", true),
     zatuGames: bool("FATEDROP_RETAILER_ZATU_GAMES", true),
     tgcCollectables: bool("FATEDROP_RETAILER_TGC_COLLECTABLES", true),
+    travellingManUk: bool("FATEDROP_RETAILER_TRAVELLING_MAN_UK", true),
+    theTcgShopUk: bool("FATEDROP_RETAILER_THE_TCG_SHOP_UK", true),
     amazonUk: bool("FATEDROP_RETAILER_AMAZON_UK", false),
   },
 };

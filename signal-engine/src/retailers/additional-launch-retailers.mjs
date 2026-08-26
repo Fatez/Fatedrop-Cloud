@@ -2,7 +2,7 @@ import { env } from "../config/env.mjs";
 import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } from "./registry.mjs";
 
 const SEALED_PRODUCT = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|tech sticker|mini portfolio|first partner|ultra premium/i;
-const NON_PRODUCT = /\bsingle\b|code card|sleeve|binder only|playmat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
+const NON_PRODUCT = /\bsingle\b|code card|sleeve|\bbinder\b|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
 
 function tgcCollectables(enabled) {
   return {
@@ -20,6 +20,52 @@ function tgcCollectables(enabled) {
       feedUrl: "https://collect.thegamecollection.net/collections/pokemon/products.json?limit=250",
       feedApproved: true,
       runtime: { maxPages: 4, delayMs: 1200 },
+    },
+    officialRrpSource: false,
+    include: SEALED_PRODUCT,
+    exclude: NON_PRODUCT,
+  };
+}
+
+function travellingManUk(enabled) {
+  return {
+    id: "travelling-man-uk",
+    name: "Travelling Man UK",
+    tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.SPECIALIST,
+    adapterType: ADAPTER_TYPES.SHOPIFY,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
+    enabled,
+    baseUrl: "https://travellingman.com/",
+    catalogue: {
+      feedUrl: "https://travellingman.com/collections/pokemon-tcg/products.json?limit=250",
+      feedApproved: true,
+      runtime: { maxPages: 4, delayMs: 900 },
+    },
+    officialRrpSource: false,
+    include: SEALED_PRODUCT,
+    exclude: /\bsingle\b|code card|sleeve|\bbinder\b|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b|portfolio|deck box/i,
+  };
+}
+
+function theTcgShopUk(enabled) {
+  return {
+    id: "the-tcg-shop-uk",
+    name: "The TCG Shop",
+    tcg: "pokemon",
+    tcgs: ["pokemon"],
+    retailerClass: RETAILER_CLASSES.SPECIALIST,
+    adapterType: ADAPTER_TYPES.SHOPIFY,
+    verification: VERIFICATION_STATES.PENDING,
+    rrpAuthority: RRP_AUTHORITY.RETAILER_REFERENCE,
+    enabled,
+    baseUrl: "https://www.thetcgshop.co.uk/",
+    catalogue: {
+      feedUrl: "https://www.thetcgshop.co.uk/collections/pokemon/products.json?limit=250",
+      feedApproved: true,
+      runtime: { maxPages: 2, delayMs: 900 },
     },
     officialRrpSource: false,
     include: SEALED_PRODUCT,
@@ -91,5 +137,9 @@ export function buildAdditionalLaunchRetailers({
 }
 
 export function additionalLaunchRetailers() {
-  return buildAdditionalLaunchRetailers();
+  return [
+    ...buildAdditionalLaunchRetailers(),
+    travellingManUk(Boolean(env.retailers.travellingManUk)),
+    theTcgShopUk(Boolean(env.retailers.theTcgShopUk)),
+  ].filter((retailer) => retailer.enabled);
 }
