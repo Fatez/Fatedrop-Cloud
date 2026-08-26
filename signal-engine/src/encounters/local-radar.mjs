@@ -5,6 +5,7 @@ import {
   localStockCounts,
 } from "./local-stock-intelligence.mjs";
 import { persistMatchedRetailerLocations } from "./local-radar-branch-persistence.mjs";
+import { refreshSmythsLocalAvailability } from "./smyths-local-availability.mjs";
 
 const TCG_LABELS = Object.freeze({
   pokemon: "Pokemon",
@@ -298,6 +299,7 @@ export async function buildLocalRadar({
   retailers = [],
   placesApiKey = "",
   placesSearch = searchGoogleTcgShops,
+  smythsAvailabilityRefresh = refreshSmythsLocalAvailability,
   latitude = null,
   longitude = null,
   postcode = null,
@@ -337,18 +339,6 @@ export async function buildLocalRadar({
     availableByRetailer.set(offer.retailerId, (availableByRetailer.get(offer.retailerId) || 0) + 1);
   }
 
-  let localStockObservations = [];
-  let localStockProviderStatus = "unconfigured";
-  if (requested.has("shops")) {
-    try {
-      localStockObservations = await listLocalStockObservationsFromStore(store);
-      localStockProviderStatus = localStockObservations.length ? "ok" : "empty";
-    } catch {
-      localStockObservations = [];
-      localStockProviderStatus = "unavailable";
-    }
-  }
-
   const discoveredShops = shopResult.shops.map((shop) => {
     const retailer = exactRetailerMatch(shop, retailers);
     const distance = origin && shop.latitude != null && shop.longitude != null
@@ -365,9 +355,50 @@ export async function buildLocalRadar({
         : null,
     };
   });
+
   const branchIdentityResult = requested.has("shops")
     ? await persistMatchedRetailerLocations(store, discoveredShops)
     : { status: "skipped", saved: 0, rejected: [], received: 0 };
+
+  let smythsSourceResult = {
+    provider: "smyths_official_store_availability",
+    status: "skipped",
+    productsChecked: 0,
+    observationsSaved: 0,
+    rejected: 0,
+  };
+  if (requested.has("shops") && origin && typeof smythsAvailabilityRefresh === "function") {
+    try {
+      smythsSourceResult = await smythsAvailabilityRefresh({
+        store,
+        shops: discoveredShops,
+        latitude: origin.latitude,
+        longitude: origin.longitude,
+      });
+    } catch (error) {
+      smythsSourceResult = {
+        provider: "smyths_official_store_availability",
+        status: "unavailable",
+        productsChecked: 0,
+        observationsSaved: 0,
+        rejected: 0,
+        error: String(error?.message || error),
+      };
+    }
+  }
+
+  let localStockObservations = [];
+  let localStockProviderStatus = "unconfigured";
+  if (requested.has("shops")) {
+    try {
+      localStockObservations = await listLocalStockObservationsFromStore(store);
+      localStockProviderStatus = localStockObservations.length ? "ok" : "empty";
+    } catch {
+      localStockObservations = [];
+      localStockProviderStatus = "unavailable";
+    }
+  }
+
   const shops = enrichShopsWithLocalStock(discoveredShops, localStockObservations)
     .filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius);
   const stockCounts = localStockCounts(shops);
@@ -403,6 +434,7 @@ export async function buildLocalRadar({
         saved: branchIdentityResult.saved,
         rejected: branchIdentityResult.rejected.length,
       },
+      smythsLocalStock: smythsSourceResult,
       localStock: { provider: "fatedrop_signal_events", status: requested.has("shops") ? localStockProviderStatus : "skipped" },
       events: { provider: "fatedrop_encounters", status: typeof store?.listEncounters === "function" ? "ok" : "unconfigured" },
     },
@@ -420,6 +452,7 @@ export async function buildLocalRadar({
       "Matched connected retailer branches may be persisted as stable location identities; this does not verify branch stock.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
       "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
+      "Smyths branch stock uses the retailer's ordinary public collection availability route only; protected or rate-limited responses fail closed and are not bypassed.",
       "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",
     ],
