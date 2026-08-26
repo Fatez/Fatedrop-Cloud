@@ -37,7 +37,7 @@ jobs:
           TOY_FILE="$(mktemp)"
           TOY_HTTP="$(curl --silent --show-error --max-time 20 -L -o "$TOY_FILE" -w '%{http_code}' 'https://www.thetoyshop.com/sitemap/media/Store-en-GBP' || true)"
           TOY_BYTES="$(wc -c < "$TOY_FILE" | tr -d ' ')"
-          TOY_LOCS="$(grep -o '<loc>' "$TOY_FILE" | wc -l | tr -d ' ')"
+          TOY_LOCS="$( (grep -o '<loc>' "$TOY_FILE" || true) | wc -l | tr -d ' ')"
           ARGOS_FILE="$(mktemp)"
           ARGOS_HTTP="$(curl --silent --show-error --max-time 20 -L -o "$ARGOS_FILE" -w '%{http_code}' 'https://www.argos.co.uk/stores/' || true)"
           ARGOS_BYTES="$(wc -c < "$ARGOS_FILE" | tr -d ' ')"
