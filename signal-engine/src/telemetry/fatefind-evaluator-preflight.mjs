@@ -78,11 +78,17 @@ export async function buildFateFindEvaluatorPreflight(store, {
   const totalEligibleFinds = Number(findRows[0]?.total_eligible || 0);
   const finds = findRows.map(rowToFind);
 
+  // Preflight must use the same live-evidence boundary as the real hosted
+  // evaluator. Preserved last-good offers remain in storage for history, but
+  // stale or unhealthy retailer evidence must not inflate "would match".
   const { rows: offerRows } = await pool.query(`
     SELECT o.*, count(*) OVER()::int AS total_available
     FROM fatedrop_retail_offers o
-    WHERE stock_status IN ('in_stock','low_stock','preorder')
-    ORDER BY last_seen_at DESC LIMIT $1
+    JOIN fatedrop_retailer_health rh ON rh.retailer_id=o.retailer_id
+      AND rh.healthy=true
+      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+    WHERE o.stock_status IN ('in_stock','low_stock','preorder')
+    ORDER BY o.last_seen_at DESC LIMIT $1
   `, [safeMaxOffers]);
   const totalPurchasableOffers = Number(offerRows[0]?.total_available || 0);
   const offers = offerRows.map(rowToOffer);
