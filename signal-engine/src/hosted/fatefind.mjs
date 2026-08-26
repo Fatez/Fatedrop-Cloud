@@ -1,6 +1,9 @@
 import crypto from "node:crypto";
 import { PriceQuality, classifyObservedPrice } from "../core/price-quality.mjs";
 
+export const HOSTED_OFFER_FRESHNESS_SECONDS = 1800;
+export const HOSTED_MIN_STOCK_CONFIDENCE = 0.9;
+
 function normalized(value = "") {
   return String(value).normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -33,6 +36,30 @@ function percentAboveRrp(pricePence, rrpPence) {
 
 function purchasable(status) {
   return status === "in_stock" || status === "low_stock" || status === "preorder";
+}
+
+export function offerObservationTrust(offer, {
+  now = Math.floor(Date.now() / 1000),
+  maxAgeSeconds = HOSTED_OFFER_FRESHNESS_SECONDS,
+  minStockConfidence = HOSTED_MIN_STOCK_CONFIDENCE,
+} = {}) {
+  const observedAt = Number(offer?.lastSeenAt);
+  if (!Number.isFinite(observedAt) || observedAt <= 0) {
+    return { eligible: false, reason: "observation-time-unknown", ageSeconds: null, stockConfidence: null };
+  }
+  const rawAge = Number(now) - observedAt;
+  if (!Number.isFinite(rawAge) || rawAge < -300) {
+    return { eligible: false, reason: "observation-time-invalid", ageSeconds: rawAge, stockConfidence: null };
+  }
+  const ageSeconds = Math.max(0, rawAge);
+  if (ageSeconds > maxAgeSeconds) {
+    return { eligible: false, reason: "observation-stale", ageSeconds, stockConfidence: Number.isFinite(offer?.stockConfidence) ? offer.stockConfidence : null };
+  }
+  const stockConfidence = Number.isFinite(offer?.stockConfidence) ? Number(offer.stockConfidence) : null;
+  if (stockConfidence !== null && stockConfidence < minStockConfidence) {
+    return { eligible: false, reason: "stock-confidence-low", ageSeconds, stockConfidence };
+  }
+  return { eligible: true, reason: "fresh-trusted-observation", ageSeconds, stockConfidence };
 }
 
 function parseMinuteOfDay(value) {
@@ -175,7 +202,19 @@ function rowToFind(row) {
 }
 
 function rowToOffer(row) {
-  return { offerId: row.offer_id, productId: row.product_id, retailerId: row.retailer_id, retailerName: row.retailer_name, title: row.title, url: row.url, pricePence: row.price_pence == null ? null : Number(row.price_pence), postagePence: row.postage_pence == null ? null : Number(row.postage_pence), stockStatus: row.stock_status, lastSeenAt: Number(row.last_seen_at) };
+  return {
+    offerId: row.offer_id,
+    productId: row.product_id,
+    retailerId: row.retailer_id,
+    retailerName: row.retailer_name,
+    title: row.title,
+    url: row.url,
+    pricePence: row.price_pence == null ? null : Number(row.price_pence),
+    postagePence: row.postage_pence == null ? null : Number(row.postage_pence),
+    stockStatus: row.stock_status,
+    stockConfidence: row.stock_confidence == null ? null : Number(row.stock_confidence),
+    lastSeenAt: Number(row.last_seen_at),
+  };
 }
 
 function rowToProduct(row) {
@@ -198,8 +237,10 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
     FROM fatedrop_retail_offers ro
     JOIN fatedrop_retailer_health rh ON rh.retailer_id=ro.retailer_id
       AND rh.healthy=true
-      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - ${HOSTED_OFFER_FRESHNESS_SECONDS}
     WHERE ro.stock_status IN ('in_stock','low_stock','preorder')
+      AND ro.last_seen_at >= EXTRACT(EPOCH FROM NOW())::bigint - ${HOSTED_OFFER_FRESHNESS_SECONDS}
+      AND (ro.stock_confidence IS NULL OR ro.stock_confidence >= ${HOSTED_MIN_STOCK_CONFIDENCE})
     ORDER BY ro.last_seen_at DESC
     LIMIT 10000
   `);
@@ -212,6 +253,8 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
     const find = rowToFind(findRow);
     for (const rawOffer of offerRows) {
       const offer = rowToOffer(rawOffer);
+      const trust = offerObservationTrust(offer, { now });
+      if (!trust.eligible) continue;
       const product = products.get(offer.productId);
       const title = product?.title || offer.title || "Matched product";
       evaluated += 1;
