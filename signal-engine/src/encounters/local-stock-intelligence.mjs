@@ -26,6 +26,8 @@ const EVIDENCE_TTL_MS = Object.freeze({
   official_retailer_app: 90 * 60 * 1000,
   verified_shelf_sighting: 45 * 60 * 1000,
   community_report: 30 * 60 * 1000,
+  curated_manual: 72 * 60 * 60 * 1000,
+  retailer_staff_report: 48 * 60 * 60 * 1000,
   official_store_social: 12 * 60 * 60 * 1000,
   inventory_preparation: 24 * 60 * 60 * 1000,
 });
@@ -59,8 +61,12 @@ function slug(value = "") {
 
 function asEpochMs(value) {
   const parsed = number(value);
-  if (parsed == null) return null;
-  return parsed > 10_000_000_000 ? parsed : parsed * 1000;
+  if (parsed != null) return parsed > 10_000_000_000 ? parsed : parsed * 1000;
+  if (typeof value === "string") {
+    const parsedDate = Date.parse(value);
+    if (Number.isFinite(parsedDate)) return parsedDate;
+  }
+  return null;
 }
 
 function evidenceLevel(evidence = {}) {
@@ -125,6 +131,9 @@ function defaultConfidence(item) {
   if (item.evidenceLevel === "official_branch") return 0.92;
   if (["official_collection", "official_retailer_app"].includes(item.evidenceLevel)) return 0.88;
   if (item.evidenceLevel === "verified_shelf_sighting") return 0.82;
+  if (item.sourceType === "official_store_social") return 0.68;
+  if (item.sourceType === "retailer_staff_report") return 0.58;
+  if (item.sourceType === "curated_manual") return 0.48;
   if (item.evidenceLevel === "community_report") return 0.5;
   if (item.kind === "echo") return 0.62;
   if (item.kind === "whisper") return 0.48;
@@ -174,7 +183,7 @@ function normalizeObservation(row = {}) {
     id: text(row.id),
     kind: text(row.kind)?.toLowerCase() || "unknown",
     productIdentityId: text(row.productIdentityId ?? row.product_identity_id),
-    productTitle: text(row.productTitle ?? row.product_title ?? evidence.productTitle ?? evidence.title),
+    productTitle: text(row.productTitle ?? row.product_title ?? evidence.productTitle ?? evidence.rawProductTitle ?? evidence.raw_product_title ?? evidence.title),
     retailerId: text(row.retailerId ?? row.retailer_id),
     locationId: text(row.locationId ?? row.location_id),
     locationProvider: text(row.locationProvider ?? row.location_provider),
@@ -202,7 +211,7 @@ function normalizeObservation(row = {}) {
   };
 }
 
-export async function listLocalStockObservationsFromStore(store, { sinceMs = Date.now() - 24 * 60 * 60 * 1000, limit = 2000 } = {}) {
+export async function listLocalStockObservationsFromStore(store, { sinceMs = Date.now() - 7 * 24 * 60 * 60 * 1000, limit = 2000 } = {}) {
   if (typeof store?.listLocalStockObservations === "function") {
     const rows = await store.listLocalStockObservations({ sinceMs, limit });
     return (rows || []).map(normalizeObservation).filter((item) => LOCAL_SIGNAL_KINDS.has(item.kind));
@@ -230,7 +239,10 @@ export async function listLocalStockObservationsFromStore(store, { sinceMs = Dat
     FROM fatedrop_signal_events se
     LEFT JOIN fatedrop_retailer_locations rl ON rl.id = se.location_id
     LEFT JOIN fatedrop_product_identities pi ON pi.id = se.product_identity_id
-    WHERE se.location_id IS NOT NULL
+    WHERE (
+        se.location_id IS NOT NULL
+        OR (se.location_id IS NULL AND COALESCE(se.evidence_json->>'localIntel','false')='true' AND se.evidence_json->>'scope'='retailer_chain')
+      )
       AND se.kind = ANY($1::text[])
       AND se.occurred_at >= $2
     ORDER BY se.occurred_at DESC
@@ -240,6 +252,9 @@ export async function listLocalStockObservationsFromStore(store, { sinceMs = Dat
 }
 
 function sameBranch(shop, observation) {
+  if (!observation.locationId && observation.evidence?.localIntel === true && observation.evidence?.scope === "retailer_chain") {
+    return Boolean(shop.retailerId && observation.retailerId && shop.retailerId === observation.retailerId);
+  }
   if (shop.provider === observation.locationProvider && shop.providerPlaceId && observation.locationProviderId) {
     return String(shop.providerPlaceId) === String(observation.locationProviderId);
   }
@@ -345,6 +360,12 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       sourceDiversityCount: item.sourceDiversityCount,
       contradictionCount: item.contradictionCount,
       orphanVanished: item.orphanVanished,
+      advisory: item.evidence?.advisory === true || item.evidence?.localIntel === true,
+      scope: text(item.evidence?.scope),
+      expectedFrom: text(item.evidence?.expectedFrom || item.evidence?.expected_from),
+      expectedTo: text(item.evidence?.expectedTo || item.evidence?.expected_to),
+      note: text(item.evidence?.note),
+      sourceLabel: text(item.evidence?.sourceLabel || item.evidence?.source_label),
       value: item.value,
     }));
 
@@ -364,6 +385,12 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
         sourceDiversityCount: strongest.sourceDiversityCount,
         contradictionCount: strongest.contradictionCount,
         orphanVanished: strongest.orphanVanished,
+        advisory: strongest.evidence?.advisory === true || strongest.evidence?.localIntel === true,
+        scope: text(strongest.evidence?.scope),
+        expectedFrom: text(strongest.evidence?.expectedFrom || strongest.evidence?.expected_from),
+        expectedTo: text(strongest.evidence?.expectedTo || strongest.evidence?.expected_to),
+        note: text(strongest.evidence?.note),
+        sourceLabel: text(strongest.evidence?.sourceLabel || strongest.evidence?.source_label),
         verifiedBranchStock: strongest.kind === "manifested"
           && OFFICIAL_EVIDENCE_LEVELS.has(strongest.evidenceLevel)
           && Boolean(strongest.productIdentityId)
@@ -386,7 +413,8 @@ export function localStockCounts(shops = []) {
 export const LOCAL_STOCK_POLICY = Object.freeze({
   lifecycleStates: [...LOCAL_SIGNAL_KINDS],
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
-  communityRule: "Community or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock in this phase.",
+  communityRule: "Community, manual or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock.",
+  chainIntelRule: "Retailer-chain intel is advisory and may be overlaid onto nearby branches of that retailer only as an Incoming Watch until exact branch evidence exists.",
   identityRule: "Verified physical Manifested stock requires a canonical product identity and an exact branch match.",
   rrpRule: "Local Radar uses the shared canonical RRP and price-intelligence engine; retailer selling price is never learned as RRP.",
   vanishedRule: "A branch Vanished state is only accepted when a previously verified Manifested observation exists for that branch and product.",
