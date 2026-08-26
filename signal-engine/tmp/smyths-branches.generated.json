@@ -1,2272 +1,2945 @@
 {
-  "generatedAt": "2026-08-26T18:43:53.610Z",
+  "generatedAt": "2026-08-26T18:48:33.284Z",
   "retailerId": "smyths-uk",
   "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
   "sourceType": "official_retailer_directory_snapshot",
   "total": 133,
-  "withPostcode": 0,
-  "withCoordinates": 0,
-  "errors": [],
+  "withPostcode": 1,
+  "withCoordinates": 1,
+  "unresolved": [
+    {
+      "branchName": "Biggleswade",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/biggleswade"
+    },
+    {
+      "branchName": "Chelmsford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chelmsford"
+    },
+    {
+      "branchName": "Colchester",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colchester"
+    },
+    {
+      "branchName": "Harlow",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/harlow"
+    },
+    {
+      "branchName": "Ipswich",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ipswich"
+    },
+    {
+      "branchName": "Luton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/luton"
+    },
+    {
+      "branchName": "Norwich",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/norwich"
+    },
+    {
+      "branchName": "Peterborough",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/peterborough"
+    },
+    {
+      "branchName": "Rayleigh Weir",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rayleigh-weir"
+    },
+    {
+      "branchName": "Stevenage",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stevenage"
+    },
+    {
+      "branchName": "Ashford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ashford"
+    },
+    {
+      "branchName": "Aylesbury Broadfields",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aylesbury-broadfields"
+    },
+    {
+      "branchName": "Basingstoke",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/basingstoke"
+    },
+    {
+      "branchName": "Crawley",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crawley"
+    },
+    {
+      "branchName": "Eastbourne",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/eastbourne"
+    },
+    {
+      "branchName": "Farnborough",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/farnborough"
+    },
+    {
+      "branchName": "Gillingham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gillingham"
+    },
+    {
+      "branchName": "Hedge End",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hedge-end"
+    },
+    {
+      "branchName": "Maidstone",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/maidstone"
+    },
+    {
+      "branchName": "Milton Keynes",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/milton-keynes"
+    },
+    {
+      "branchName": "Portsmouth",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/portsmouth"
+    },
+    {
+      "branchName": "Reading",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/reading"
+    },
+    {
+      "branchName": "Slough",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/slough"
+    },
+    {
+      "branchName": "Southampton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/southampton"
+    },
+    {
+      "branchName": "Staines",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staines"
+    },
+    {
+      "branchName": "Thanet",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thanet"
+    },
+    {
+      "branchName": "Barrow-in-Furness",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barrow-in-furness"
+    },
+    {
+      "branchName": "Blackburn",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackburn"
+    },
+    {
+      "branchName": "Blackpool",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackpool"
+    },
+    {
+      "branchName": "Bolton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bolton"
+    },
+    {
+      "branchName": "Bromborough",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bromborough"
+    },
+    {
+      "branchName": "Bury",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bury"
+    },
+    {
+      "branchName": "Carlisle",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/carlisle"
+    },
+    {
+      "branchName": "Liverpool Croxteth",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-croxteth"
+    },
+    {
+      "branchName": "Liverpool Edge Lane",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-edge-lane"
+    },
+    {
+      "branchName": "Liverpool Speke",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-speke"
+    },
+    {
+      "branchName": "Oldham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldham"
+    },
+    {
+      "branchName": "Preston",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/preston"
+    },
+    {
+      "branchName": "Salford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/salford"
+    },
+    {
+      "branchName": "Stockport",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockport"
+    },
+    {
+      "branchName": "Warrington",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/warrington"
+    },
+    {
+      "branchName": "Wigan",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wigan"
+    },
+    {
+      "branchName": "Cardiff East",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-east"
+    },
+    {
+      "branchName": "Cardiff Leckwith",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-leckwith"
+    },
+    {
+      "branchName": "Llandudno",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llandudno"
+    },
+    {
+      "branchName": "Llanelli",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llanelli"
+    },
+    {
+      "branchName": "Newport",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newport"
+    },
+    {
+      "branchName": "Swansea",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swansea"
+    },
+    {
+      "branchName": "Wrexham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wrexham"
+    },
+    {
+      "branchName": "Beckton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/beckton"
+    },
+    {
+      "branchName": "Charlton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/charlton"
+    },
+    {
+      "branchName": "Colliers Wood",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colliers-wood"
+    },
+    {
+      "branchName": "Crayford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crayford"
+    },
+    {
+      "branchName": "Croydon",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/croydon"
+    },
+    {
+      "branchName": "Enfield",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/enfield"
+    },
+    {
+      "branchName": "Friern Barnet",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/friern-barnet"
+    },
+    {
+      "branchName": "Greenford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/greenford"
+    },
+    {
+      "branchName": "Loughton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/loughton"
+    },
+    {
+      "branchName": "Old Kent Road",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/old-kent-road"
+    },
+    {
+      "branchName": "Romford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/romford"
+    },
+    {
+      "branchName": "Staples Corner / Brent Cross",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staples-corner-brent-cross"
+    },
+    {
+      "branchName": "Thurrock",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thurrock"
+    },
+    {
+      "branchName": "Uxbridge",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/uxbridge"
+    },
+    {
+      "branchName": "Watford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/watford"
+    },
+    {
+      "branchName": "Barnsley",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barnsley"
+    },
+    {
+      "branchName": "Bradford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bradford"
+    },
+    {
+      "branchName": "Doncaster",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/doncaster"
+    },
+    {
+      "branchName": "Grimsby",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/grimsby"
+    },
+    {
+      "branchName": "Hull",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hull"
+    },
+    {
+      "branchName": "Leeds Birstall",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-birstall"
+    },
+    {
+      "branchName": "Leeds Crown Point",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-crown-point"
+    },
+    {
+      "branchName": "Leeds Kirkstall",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-kirkstall"
+    },
+    {
+      "branchName": "Rotherham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rotherham"
+    },
+    {
+      "branchName": "Sheffield Drakehouse",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-drakehouse"
+    },
+    {
+      "branchName": "Sheffield Meadowhall",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-meadowhall"
+    },
+    {
+      "branchName": "Wakefield",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wakefield"
+    },
+    {
+      "branchName": "York Monks Cross",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/york-monks-cross"
+    },
+    {
+      "branchName": "Darlington",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/darlington"
+    },
+    {
+      "branchName": "Durham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/durham"
+    },
+    {
+      "branchName": "Metro Centre",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/metro-centre"
+    },
+    {
+      "branchName": "Stockton-on-Tees",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockton-on-tees"
+    },
+    {
+      "branchName": "Sunderland",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sunderland"
+    },
+    {
+      "branchName": "Team Valley",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/team-valley"
+    },
+    {
+      "branchName": "Wallsend",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wallsend"
+    },
+    {
+      "branchName": "Aberdeen",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aberdeen"
+    },
+    {
+      "branchName": "Clydebank",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/clydebank"
+    },
+    {
+      "branchName": "Dundee",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/dundee"
+    },
+    {
+      "branchName": "Edinburgh",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/edinburgh"
+    },
+    {
+      "branchName": "Falkirk",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/falkirk"
+    },
+    {
+      "branchName": "Glasgow",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/glasgow"
+    },
+    {
+      "branchName": "Inverness",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/inverness"
+    },
+    {
+      "branchName": "Kilmarnock",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kilmarnock"
+    },
+    {
+      "branchName": "Linwood Paisley",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/linwood-paisley"
+    },
+    {
+      "branchName": "Livingston",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/livingston"
+    },
+    {
+      "branchName": "Castlevale",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/castlevale"
+    },
+    {
+      "branchName": "Coventry Airport Park",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-airport-park"
+    },
+    {
+      "branchName": "Coventry Arena Park",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-arena-park"
+    },
+    {
+      "branchName": "Kidderminster",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kidderminster"
+    },
+    {
+      "branchName": "Longbridge",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longbridge"
+    },
+    {
+      "branchName": "Longton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longton"
+    },
+    {
+      "branchName": "Merry Hill",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/merry-hill"
+    },
+    {
+      "branchName": "Oldbury",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldbury"
+    },
+    {
+      "branchName": "Solihull",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/solihull"
+    },
+    {
+      "branchName": "Tamworth",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/tamworth"
+    },
+    {
+      "branchName": "Telford",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/telford"
+    },
+    {
+      "branchName": "Walsall",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/walsall"
+    },
+    {
+      "branchName": "Wolverhampton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wolverhampton"
+    },
+    {
+      "branchName": "Ballymena",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ballymena"
+    },
+    {
+      "branchName": "Bangor (NI)",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bangor-ni"
+    },
+    {
+      "branchName": "Boucher Road",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/boucher-road"
+    },
+    {
+      "branchName": "Derry/Londonderry",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derry-londonderry"
+    },
+    {
+      "branchName": "Forestside",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/forestside"
+    },
+    {
+      "branchName": "Newry",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newry"
+    },
+    {
+      "branchName": "Newtownabbey",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newtownabbey"
+    },
+    {
+      "branchName": "Chesterfield",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chesterfield"
+    },
+    {
+      "branchName": "Derby",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derby"
+    },
+    {
+      "branchName": "Leicester",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leicester"
+    },
+    {
+      "branchName": "Lincoln",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/lincoln"
+    },
+    {
+      "branchName": "Mansfield",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/mansfield"
+    },
+    {
+      "branchName": "Northampton",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/northampton"
+    },
+    {
+      "branchName": "Nottingham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/nottingham"
+    },
+    {
+      "branchName": "Bournemouth",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bournemouth"
+    },
+    {
+      "branchName": "Bristol Avonmeads",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-avonmeads"
+    },
+    {
+      "branchName": "Bristol Cribbs Causeway",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-cribbs-causeway"
+    },
+    {
+      "branchName": "Bristol Longwell Green",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-longwell-green"
+    },
+    {
+      "branchName": "Cheltenham",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cheltenham"
+    },
+    {
+      "branchName": "Exeter",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/exeter"
+    },
+    {
+      "branchName": "Gloucester",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gloucester"
+    },
+    {
+      "branchName": "Plymouth",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/plymouth"
+    },
+    {
+      "branchName": "Poole",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/poole"
+    },
+    {
+      "branchName": "Swindon",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swindon"
+    },
+    {
+      "branchName": "Weston-super-Mare",
+      "error": "no trustworthy Smyths geocode match",
+      "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/weston-super-mare"
+    }
+  ],
   "rows": [
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Biggleswade",
       "branchName": "Biggleswade",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "biggleswade",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/biggleswade",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/biggleswade",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/biggleswade",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Chelmsford",
       "branchName": "Chelmsford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "chelmsford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chelmsford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chelmsford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chelmsford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Colchester",
       "branchName": "Colchester",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "colchester",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colchester",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colchester",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colchester",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Harlow",
       "branchName": "Harlow",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "harlow",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/harlow",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/harlow",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/harlow",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Ipswich",
       "branchName": "Ipswich",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "ipswich",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ipswich",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ipswich",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ipswich",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Luton",
       "branchName": "Luton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "luton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/luton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/luton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/luton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Norwich",
       "branchName": "Norwich",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "norwich",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/norwich",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/norwich",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/norwich",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Peterborough",
       "branchName": "Peterborough",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "peterborough",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/peterborough",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/peterborough",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/peterborough",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Rayleigh Weir",
       "branchName": "Rayleigh Weir",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "rayleigh-weir",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rayleigh-weir",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rayleigh-weir",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rayleigh-weir",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Stevenage",
       "branchName": "Stevenage",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "stevenage",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stevenage",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stevenage",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stevenage",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Ashford",
       "branchName": "Ashford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "ashford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ashford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ashford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ashford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Aylesbury Broadfields",
       "branchName": "Aylesbury Broadfields",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "aylesbury-broadfields",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aylesbury-broadfields",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aylesbury-broadfields",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aylesbury-broadfields",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Basingstoke",
       "branchName": "Basingstoke",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "basingstoke",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/basingstoke",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/basingstoke",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/basingstoke",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Crawley",
       "branchName": "Crawley",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "crawley",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crawley",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crawley",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crawley",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Eastbourne",
       "branchName": "Eastbourne",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "eastbourne",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/eastbourne",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/eastbourne",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/eastbourne",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Farnborough",
       "branchName": "Farnborough",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "farnborough",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/farnborough",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/farnborough",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/farnborough",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Gillingham",
       "branchName": "Gillingham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "gillingham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gillingham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gillingham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gillingham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Hedge End",
       "branchName": "Hedge End",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "hedge-end",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hedge-end",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hedge-end",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hedge-end",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Maidstone",
       "branchName": "Maidstone",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "maidstone",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/maidstone",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/maidstone",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/maidstone",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Milton Keynes",
       "branchName": "Milton Keynes",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "milton-keynes",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/milton-keynes",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/milton-keynes",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/milton-keynes",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Portsmouth",
       "branchName": "Portsmouth",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "portsmouth",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/portsmouth",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/portsmouth",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/portsmouth",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Reading",
       "branchName": "Reading",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "reading",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/reading",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/reading",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/reading",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Slough",
       "branchName": "Slough",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "slough",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/slough",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/slough",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/slough",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Southampton",
       "branchName": "Southampton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "southampton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/southampton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/southampton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/southampton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Staines",
       "branchName": "Staines",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "staines",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staines",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staines",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staines",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Thanet",
       "branchName": "Thanet",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "thanet",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thanet",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thanet",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thanet",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Barrow-in-Furness",
       "branchName": "Barrow-in-Furness",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "barrow-in-furness",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barrow-in-furness",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barrow-in-furness",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barrow-in-furness",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Blackburn",
       "branchName": "Blackburn",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "blackburn",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackburn",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackburn",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackburn",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Blackpool",
       "branchName": "Blackpool",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "blackpool",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackpool",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackpool",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/blackpool",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bolton",
       "branchName": "Bolton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bolton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bolton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bolton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bolton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bromborough",
       "branchName": "Bromborough",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bromborough",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bromborough",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bromborough",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bromborough",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bury",
       "branchName": "Bury",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bury",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bury",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bury",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bury",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Carlisle",
       "branchName": "Carlisle",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "carlisle",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/carlisle",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/carlisle",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/carlisle",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Liverpool Croxteth",
       "branchName": "Liverpool Croxteth",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "liverpool-croxteth",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-croxteth",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-croxteth",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-croxteth",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Liverpool Edge Lane",
       "branchName": "Liverpool Edge Lane",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "liverpool-edge-lane",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-edge-lane",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-edge-lane",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-edge-lane",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Liverpool Speke",
       "branchName": "Liverpool Speke",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "liverpool-speke",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-speke",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-speke",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/liverpool-speke",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Oldham",
       "branchName": "Oldham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "oldham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Preston",
       "branchName": "Preston",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "preston",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/preston",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/preston",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/preston",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Salford",
       "branchName": "Salford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "salford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/salford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/salford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/salford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — St. Helens",
       "branchName": "St. Helens",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "st-helens",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/st-helens",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/st-helens",
+      "latitude": 53.4445487,
+      "longitude": -2.7343599,
+      "postcode": "WA9 1JF",
+      "address": "Smyths Toys Superstores St Helens, 2, Milverny Way, Ravenhead Retail Park, Ravenhead, St Helens, Liverpool City Region, England, WA9 1JF, United Kingdom",
+      "geocodeProvider": "nominatim_openstreetmap_snapshot",
+      "geocodeOsmType": "way",
+      "geocodeOsmId": 326817341,
+      "geocodeDisplayName": "Smyths Toys Superstores St Helens, 2, Milverny Way, Ravenhead Retail Park, Ravenhead, St Helens, Liverpool City Region, England, WA9 1JF, United Kingdom",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/st-helens",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z",
+        "geocodeProvider": "nominatim_openstreetmap_snapshot",
+        "geocodeOsmType": "way",
+        "geocodeOsmId": 326817341,
+        "geocodeDisplayName": "Smyths Toys Superstores St Helens, 2, Milverny Way, Ravenhead Retail Park, Ravenhead, St Helens, Liverpool City Region, England, WA9 1JF, United Kingdom"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Stockport",
       "branchName": "Stockport",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "stockport",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockport",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockport",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockport",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Warrington",
       "branchName": "Warrington",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "warrington",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/warrington",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/warrington",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/warrington",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Wigan",
       "branchName": "Wigan",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "wigan",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wigan",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wigan",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wigan",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Cardiff East",
       "branchName": "Cardiff East",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "cardiff-east",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-east",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-east",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-east",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Cardiff Leckwith",
       "branchName": "Cardiff Leckwith",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "cardiff-leckwith",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-leckwith",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-leckwith",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cardiff-leckwith",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Llandudno",
       "branchName": "Llandudno",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "llandudno",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llandudno",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llandudno",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llandudno",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Llanelli",
       "branchName": "Llanelli",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "llanelli",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llanelli",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llanelli",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/llanelli",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Newport",
       "branchName": "Newport",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "newport",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newport",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newport",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newport",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Swansea",
       "branchName": "Swansea",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "swansea",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swansea",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swansea",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swansea",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Wrexham",
       "branchName": "Wrexham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "wrexham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wrexham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wrexham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wrexham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Beckton",
       "branchName": "Beckton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "beckton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/beckton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/beckton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/beckton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Charlton",
       "branchName": "Charlton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "charlton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/charlton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/charlton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/charlton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Colliers Wood",
       "branchName": "Colliers Wood",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "colliers-wood",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colliers-wood",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colliers-wood",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/colliers-wood",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Crayford",
       "branchName": "Crayford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "crayford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crayford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crayford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/crayford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Croydon",
       "branchName": "Croydon",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "croydon",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/croydon",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/croydon",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/croydon",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Enfield",
       "branchName": "Enfield",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "enfield",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/enfield",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/enfield",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/enfield",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Friern Barnet",
       "branchName": "Friern Barnet",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "friern-barnet",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/friern-barnet",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/friern-barnet",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/friern-barnet",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Greenford",
       "branchName": "Greenford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "greenford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/greenford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/greenford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/greenford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Loughton",
       "branchName": "Loughton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "loughton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/loughton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/loughton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/loughton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Old Kent Road",
       "branchName": "Old Kent Road",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "old-kent-road",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/old-kent-road",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/old-kent-road",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/old-kent-road",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Romford",
       "branchName": "Romford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "romford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/romford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/romford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/romford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Staples Corner / Brent Cross",
       "branchName": "Staples Corner / Brent Cross",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "staples-corner-brent-cross",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staples-corner-brent-cross",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staples-corner-brent-cross",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/staples-corner-brent-cross",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Thurrock",
       "branchName": "Thurrock",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "thurrock",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thurrock",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thurrock",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/thurrock",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Uxbridge",
       "branchName": "Uxbridge",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "uxbridge",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/uxbridge",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/uxbridge",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/uxbridge",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Watford",
       "branchName": "Watford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "watford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/watford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/watford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/watford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Barnsley",
       "branchName": "Barnsley",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "barnsley",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barnsley",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barnsley",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/barnsley",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bradford",
       "branchName": "Bradford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bradford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bradford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bradford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bradford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Doncaster",
       "branchName": "Doncaster",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "doncaster",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/doncaster",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/doncaster",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/doncaster",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Grimsby",
       "branchName": "Grimsby",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "grimsby",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/grimsby",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/grimsby",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/grimsby",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Hull",
       "branchName": "Hull",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "hull",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hull",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hull",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/hull",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Leeds Birstall",
       "branchName": "Leeds Birstall",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "leeds-birstall",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-birstall",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-birstall",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-birstall",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Leeds Crown Point",
       "branchName": "Leeds Crown Point",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "leeds-crown-point",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-crown-point",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-crown-point",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-crown-point",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Leeds Kirkstall",
       "branchName": "Leeds Kirkstall",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "leeds-kirkstall",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-kirkstall",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-kirkstall",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leeds-kirkstall",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Rotherham",
       "branchName": "Rotherham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "rotherham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rotherham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rotherham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/rotherham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Sheffield Drakehouse",
       "branchName": "Sheffield Drakehouse",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "sheffield-drakehouse",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-drakehouse",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-drakehouse",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-drakehouse",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Sheffield Meadowhall",
       "branchName": "Sheffield Meadowhall",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "sheffield-meadowhall",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-meadowhall",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-meadowhall",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sheffield-meadowhall",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Wakefield",
       "branchName": "Wakefield",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "wakefield",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wakefield",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wakefield",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wakefield",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — York Monks Cross",
       "branchName": "York Monks Cross",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "york-monks-cross",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/york-monks-cross",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/york-monks-cross",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/york-monks-cross",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Darlington",
       "branchName": "Darlington",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "darlington",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/darlington",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/darlington",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/darlington",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Durham",
       "branchName": "Durham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "durham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/durham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/durham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/durham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Metro Centre",
       "branchName": "Metro Centre",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "metro-centre",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/metro-centre",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/metro-centre",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/metro-centre",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Stockton-on-Tees",
       "branchName": "Stockton-on-Tees",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "stockton-on-tees",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockton-on-tees",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockton-on-tees",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/stockton-on-tees",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Sunderland",
       "branchName": "Sunderland",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "sunderland",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sunderland",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sunderland",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/sunderland",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Team Valley",
       "branchName": "Team Valley",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "team-valley",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/team-valley",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/team-valley",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/team-valley",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Wallsend",
       "branchName": "Wallsend",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "wallsend",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wallsend",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wallsend",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wallsend",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Aberdeen",
       "branchName": "Aberdeen",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "aberdeen",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aberdeen",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aberdeen",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/aberdeen",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Clydebank",
       "branchName": "Clydebank",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "clydebank",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/clydebank",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/clydebank",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/clydebank",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Dundee",
       "branchName": "Dundee",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "dundee",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/dundee",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/dundee",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/dundee",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Edinburgh",
       "branchName": "Edinburgh",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "edinburgh",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/edinburgh",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/edinburgh",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/edinburgh",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Falkirk",
       "branchName": "Falkirk",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "falkirk",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/falkirk",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/falkirk",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/falkirk",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Glasgow",
       "branchName": "Glasgow",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "glasgow",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/glasgow",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/glasgow",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/glasgow",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Inverness",
       "branchName": "Inverness",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "inverness",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/inverness",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/inverness",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/inverness",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Kilmarnock",
       "branchName": "Kilmarnock",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "kilmarnock",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kilmarnock",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kilmarnock",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kilmarnock",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Linwood Paisley",
       "branchName": "Linwood Paisley",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "linwood-paisley",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/linwood-paisley",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/linwood-paisley",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/linwood-paisley",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Livingston",
       "branchName": "Livingston",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "livingston",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/livingston",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/livingston",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/livingston",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Castlevale",
       "branchName": "Castlevale",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "castlevale",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/castlevale",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/castlevale",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/castlevale",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Coventry Airport Park",
       "branchName": "Coventry Airport Park",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "coventry-airport-park",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-airport-park",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-airport-park",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-airport-park",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Coventry Arena Park",
       "branchName": "Coventry Arena Park",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "coventry-arena-park",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-arena-park",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-arena-park",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/coventry-arena-park",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Kidderminster",
       "branchName": "Kidderminster",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "kidderminster",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kidderminster",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kidderminster",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/kidderminster",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Longbridge",
       "branchName": "Longbridge",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "longbridge",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longbridge",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longbridge",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longbridge",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Longton",
       "branchName": "Longton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "longton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/longton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Merry Hill",
       "branchName": "Merry Hill",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "merry-hill",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/merry-hill",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/merry-hill",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/merry-hill",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Oldbury",
       "branchName": "Oldbury",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "oldbury",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldbury",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldbury",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/oldbury",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Solihull",
       "branchName": "Solihull",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "solihull",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/solihull",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/solihull",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/solihull",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Tamworth",
       "branchName": "Tamworth",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "tamworth",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/tamworth",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/tamworth",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/tamworth",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Telford",
       "branchName": "Telford",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "telford",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/telford",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/telford",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/telford",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Walsall",
       "branchName": "Walsall",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "walsall",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/walsall",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/walsall",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/walsall",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Wolverhampton",
       "branchName": "Wolverhampton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "wolverhampton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wolverhampton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wolverhampton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/wolverhampton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Ballymena",
       "branchName": "Ballymena",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "ballymena",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ballymena",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ballymena",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/ballymena",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bangor (NI)",
       "branchName": "Bangor (NI)",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bangor-ni",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bangor-ni",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bangor-ni",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bangor-ni",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Boucher Road",
       "branchName": "Boucher Road",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "boucher-road",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/boucher-road",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/boucher-road",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/boucher-road",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Derry/Londonderry",
       "branchName": "Derry/Londonderry",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "derry-londonderry",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derry-londonderry",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derry-londonderry",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derry-londonderry",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Forestside",
       "branchName": "Forestside",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "forestside",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/forestside",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/forestside",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/forestside",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Newry",
       "branchName": "Newry",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "newry",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newry",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newry",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newry",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Newtownabbey",
       "branchName": "Newtownabbey",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "newtownabbey",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newtownabbey",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newtownabbey",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/newtownabbey",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Chesterfield",
       "branchName": "Chesterfield",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "chesterfield",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chesterfield",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chesterfield",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/chesterfield",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Derby",
       "branchName": "Derby",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "derby",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derby",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derby",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/derby",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Leicester",
       "branchName": "Leicester",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "leicester",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leicester",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leicester",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/leicester",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Lincoln",
       "branchName": "Lincoln",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "lincoln",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/lincoln",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/lincoln",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/lincoln",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Mansfield",
       "branchName": "Mansfield",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "mansfield",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/mansfield",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/mansfield",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/mansfield",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Northampton",
       "branchName": "Northampton",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "northampton",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/northampton",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/northampton",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/northampton",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Nottingham",
       "branchName": "Nottingham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "nottingham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/nottingham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/nottingham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/nottingham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bournemouth",
       "branchName": "Bournemouth",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bournemouth",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bournemouth",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bournemouth",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bournemouth",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bristol Avonmeads",
       "branchName": "Bristol Avonmeads",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bristol-avonmeads",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-avonmeads",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-avonmeads",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-avonmeads",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bristol Cribbs Causeway",
       "branchName": "Bristol Cribbs Causeway",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bristol-cribbs-causeway",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-cribbs-causeway",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-cribbs-causeway",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-cribbs-causeway",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Bristol Longwell Green",
       "branchName": "Bristol Longwell Green",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "bristol-longwell-green",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-longwell-green",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-longwell-green",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/bristol-longwell-green",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Cheltenham",
       "branchName": "Cheltenham",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "cheltenham",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cheltenham",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cheltenham",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/cheltenham",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Exeter",
       "branchName": "Exeter",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "exeter",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/exeter",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/exeter",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/exeter",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Gloucester",
       "branchName": "Gloucester",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "gloucester",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gloucester",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gloucester",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/gloucester",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Plymouth",
       "branchName": "Plymouth",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "plymouth",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/plymouth",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/plymouth",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/plymouth",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Poole",
       "branchName": "Poole",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "poole",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/poole",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/poole",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/poole",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Swindon",
       "branchName": "Swindon",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "swindon",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swindon",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swindon",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/swindon",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     },
     {
       "retailerId": "smyths-uk",
       "name": "Smyths Toys — Weston-super-Mare",
       "branchName": "Weston-super-Mare",
-      "provider": "smyths_official_snapshot",
+      "provider": "smyths_curated_snapshot",
       "providerId": "weston-super-mare",
-      "postcode": null,
       "website": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/weston-super-mare",
-      "verification": "official_retailer_branch",
+      "verification": "curated_official_branch",
       "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/weston-super-mare",
       "openingDetails": {
         "sourceType": "official_retailer_directory_snapshot",
         "sourceUrl": "https://www.smythstoys.com/uk/en-gb/storefinder/storedetails/weston-super-mare",
-        "sourceAttribution": "Smyths Toys official store finder",
-        "sourceObservedAt": "2026-08-26T18:43:53.610Z"
+        "sourceDirectoryUrl": "https://www.smythstoys.com/uk/en-gb/storefinder",
+        "sourceAttribution": "Smyths Toys official store finder; coordinates one-time geocoded from branch identity",
+        "sourceObservedAt": "2026-08-26T18:48:33.284Z"
       }
     }
   ]
