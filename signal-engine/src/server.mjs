@@ -1,12 +1,14 @@
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
 import { reconcileProductDiscoveryWatch } from "./core/discovery-watch-reconcile.mjs";
+import { ingestRetailerDiscoveryObservations } from "./core/discovery-intake.mjs";
 import { scanAll, scanRetailer } from "./core/engine.mjs";
 import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
+import { bearerToken, verifyGithubActionsOidc } from "./http/github-oidc.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { reconcileMissingDiscordDeliveries } from "./notifications/discord-reconcile.mjs";
 import { buildPublicRetailerDirectory } from "./retailers/public-directory.mjs";
@@ -33,6 +35,23 @@ const retailers = await loadRuntimeRetailers({
   databaseUrl: env.databaseUrl,
 });
 
+async function readJsonBody(req) {
+  let raw = "";
+  for await (const chunk of req) {
+    raw += chunk;
+    if (raw.length > 1_000_000) throw new Error("Body too large");
+  }
+  return raw ? JSON.parse(raw) : {};
+}
+
+function sendJson(res, status, body) {
+  res.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  res.end(JSON.stringify(body));
+}
+
 let fateFindPreflightCache = null;
 let fateFindPreflightCachedAt = 0;
 let fateFindPreflightInFlight = null;
@@ -58,6 +77,37 @@ server.removeAllListeners("request");
 server.on("request", async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+    if (req.method === "POST" && url.pathname === "/internal/github-discovery-observations") {
+      const auth = await verifyGithubActionsOidc(bearerToken(req));
+      if (!auth.authorized) return sendJson(res, 401, { error: "Unauthorized discovery producer", reason: auth.reason });
+      const body = await readJsonBody(req);
+      if (body.retailerId !== "pokemon-center-uk") return sendJson(res, 400, { error: "GitHub Drop Watch is restricted to Pokémon Center UK" });
+      const retailer = retailers.find((item) => item.id === body.retailerId);
+      if (!retailer) return sendJson(res, 400, { error: "Unknown or disabled retailer" });
+      const observations = Array.isArray(body.observations) ? body.observations : [];
+      if (!observations.length) return sendJson(res, 400, { error: "observations must be a non-empty array" });
+      const result = await ingestRetailerDiscoveryObservations({
+        retailer,
+        store,
+        observations,
+        dispatchNotifications: true,
+      });
+      const website = result.signalsCreated > 0 ? await publishWebsiteSnapshot({ store }) : { published: false, reason: "no_new_canonical_signal" };
+      if (result.signalsCreated > 0) await refreshBetaRuntimeReadiness({ store }).catch(() => null);
+      return sendJson(res, 200, {
+        success: true,
+        producer: "github_actions_oidc",
+        runId: auth.claims?.runId || null,
+        result: {
+          signalsCreated: result.signalsCreated || 0,
+          deduplicatedSignals: result.deduplicatedSignals || 0,
+          signalIds: (result.signals || []).map((signal) => signal.id),
+          states: (result.signals || []).map((signal) => signal.state),
+          discord: result.discord,
+        },
+        website,
+      });
+    }
     if (req.method === "GET" && url.pathname === "/api/discord-route-health") {
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
