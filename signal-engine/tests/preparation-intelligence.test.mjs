@@ -91,7 +91,7 @@ test("quiet-baseline family activation can be confirmed on the next observation 
   assert.equal(repeated.clusters.length, 0);
 });
 
-test("first sentinel observation stays Whisper while repeated corroborated preparation becomes Echo", () => {
+test("first weak sentinel observation stays Whisper while repeated corroborated preparation becomes Echo", () => {
   const first = deriveSignal({ previousOffer: null, currentOffer: offer("out_of_stock"), now: 100 });
   assert.equal(first.state, "whisper");
   assert.equal(first.pricePence, null);
@@ -104,6 +104,32 @@ test("first sentinel observation stays Whisper while repeated corroborated prepa
   assert.equal(second.pricePence, null);
   assert.ok(second.evidence.some((entry) => entry.kind === "price_quality" && entry.value === "placeholder"));
   assert.ok(second.evidence.some((entry) => entry.kind === "retailer_preparation_repeated"));
+});
+
+test("a verified official retailer product page is immediate Echo evidence even before stock is verified", () => {
+  const current = offer("out_of_stock", {
+    pricePence: 4999,
+    evidence: [
+      { kind: "official_retailer_product_page", value: "https://example.test/delta-reign-etb" },
+    ],
+  });
+  const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
+  assert.equal(signal.state, "echo");
+  assert.equal(signal.kind, "retailer_preparation");
+  assert.ok(signal.evidence.some((entry) => entry.kind === "retailer_preparation_official_listing"));
+});
+
+test("official preorder metadata remains Echo until purchase availability is independently verified", () => {
+  const current = offer("preorder", {
+    pricePence: 4999,
+    evidence: [
+      { kind: "official_retailer_product_page", value: "https://example.test/delta-reign-etb" },
+      { kind: "preorder_metadata", value: "official_catalogue_preorder" },
+    ],
+  });
+  const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
+  assert.equal(signal.state, "echo");
+  assert.notEqual(signal.state, "manifested");
 });
 
 test("cluster leader creates the representative Echo", () => {
