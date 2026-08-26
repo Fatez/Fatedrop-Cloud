@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - main
+      - "feat/**"
     paths:
       - "signal-engine/**"
       - "collectors/pokemon-center-browser/**"
