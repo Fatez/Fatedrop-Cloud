@@ -20,6 +20,24 @@ const outbox = (overrides = {}) => ({
   ...overrides,
 });
 
+test("hosted dispatcher only claims FateMatch outbox rows, leaving lifecycle push to its canonical worker", async () => {
+  const candidate = outbox();
+  const queries = [];
+  const pool = {
+    async query(sql) {
+      queries.push(sql);
+      if (sql.startsWith("SELECT * FROM fatedrop_notification_outbox")) return { rows: [candidate] };
+      if (sql.startsWith("UPDATE fatedrop_notification_outbox SET state='sending'")) return { rows: [] };
+      throw new Error(`unexpected query: ${sql}`);
+    },
+  };
+
+  const result = await dispatchNotificationOutbox(pool, { now: 100, fetchImpl: async () => { throw new Error("must not fetch"); } });
+  assert.deepEqual(result, { attempted: 0, sent: 0, failed: 0, suppressed: 0 });
+  assert.match(queries[0], /event_type='fate_match'/);
+  assert.match(queries[1], /event_type='fate_match'/);
+});
+
 test("dispatch skips delivery when another worker already claimed the outbox row", async () => {
   const candidate = outbox();
   const queries = [];
