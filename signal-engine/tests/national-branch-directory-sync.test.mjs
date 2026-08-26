@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  crawlToyshopOfficialStoreGraph,
   discoverToyshopBranchUrls,
   parseOfficialBranchPage,
   runNationalBranchDirectorySync,
@@ -22,9 +23,10 @@ const TOYSHOP_SITEMAP = `<?xml version="1.0"?><urlset>
   <url><loc>https://www.thetoyshop.com/pokemon</loc></url>
 </urlset>`;
 
-function storePage({ name, street, town, postcode, lat = null, lng = null, type = "Store" }) {
+function storePage({ name, street, town, postcode, lat = null, lng = null, type = "Store", links = [] }) {
   const geo = lat == null ? "" : `,"geo":{"@type":"GeoCoordinates","latitude":${lat},"longitude":${lng}}`;
-  return `<html><head><title>${name}</title><script type="application/ld+json">{"@type":"${type}","name":"${name}","address":{"@type":"PostalAddress","streetAddress":"${street}","addressLocality":"${town}","postalCode":"${postcode}"}${geo}}</script></head><body><h1>${name}</h1><p>${street}, ${town} ${postcode}</p></body></html>`;
+  const anchors = links.map((href) => `<a href="${href}">More store details</a>`).join("");
+  return `<html><head><title>${name}</title><script type="application/ld+json">{"@type":"${type}","name":"${name}","address":{"@type":"PostalAddress","streetAddress":"${street}","addressLocality":"${town}","postalCode":"${postcode}"}${geo}}</script></head><body><h1>${name}</h1><p>${street}, ${town} ${postcode}</p>${anchors}</body></html>`;
 }
 
 function createFetch() {
@@ -71,6 +73,67 @@ test("official Toyshop sitemap classifies Entertainer stores and Tesco stockists
   ]);
 });
 
+test("official Toyshop store graph is a bounded failover when the store sitemap is unavailable", async () => {
+  const calls = [];
+  const pages = new Map([
+    ["https://www.thetoyshop.com/store/watford", storePage({
+      name: "The Entertainer Watford", street: "83-97 High Street", town: "Watford", postcode: "WD17 2UB", lat: 51.655, lng: -0.396,
+      links: ["/store/uxbridge", "/store/tesco-watford-extra", "https://example.com/store/not-ours", "/pokemon"],
+    })],
+    ["https://www.thetoyshop.com/store/uxbridge", storePage({
+      name: "The Entertainer Uxbridge", street: "The Chimes", town: "Uxbridge", postcode: "UB8 1LJ", lat: 51.546, lng: -0.478,
+      links: ["/store/watford"],
+    })],
+    ["https://www.thetoyshop.com/store/tesco-watford-extra", storePage({
+      name: "Tesco Watford Extra", street: "Lower High Street", town: "Watford", postcode: "WD17 2BD", lat: 51.648, lng: -0.391,
+      links: ["/store/watford"],
+    })],
+  ]);
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    calls.push(target);
+    if (target === "https://www.thetoyshop.com/sitemap/media/Store-en-GBP") return response("unavailable", { status: 503 });
+    if (pages.has(target)) return response(pages.get(target));
+    throw new Error(`Unexpected fallback fetch ${target}`);
+  };
+
+  const rows = await discoverToyshopBranchUrls({
+    fetchImpl,
+    fallbackSeeds: ["https://www.thetoyshop.com/store/watford"],
+    fallbackDiscoveryLimit: 10,
+  });
+  assert.equal(rows.length, 3);
+  assert.deepEqual(new Set(rows.map((row) => row.retailerId)), new Set(["entertainer-uk", "tesco-uk"]));
+  assert.equal(rows.every((row) => row.discoveryProvider === "official_store_graph"), true);
+  assert.equal(rows.every((row) => typeof row.html === "string" && row.html.length > 0), true);
+  assert.equal(calls.some((url) => url.includes("example.com")), false, "fallback must never leave the official retailer host");
+});
+
+test("official Toyshop store graph obeys its request cap instead of crawling without bounds", async () => {
+  let calls = 0;
+  const fetchImpl = async (url) => {
+    calls += 1;
+    const slug = new URL(String(url)).pathname.split("/").pop();
+    const next = Number(slug.replace("store-", "")) + 1;
+    return response(storePage({
+      name: `The Entertainer ${slug}`,
+      street: "1 High Street",
+      town: "Town",
+      postcode: "AA1 1AA",
+      lat: 51,
+      lng: -1,
+      links: [`/store/store-${next}`],
+    }));
+  };
+  const rows = await crawlToyshopOfficialStoreGraph({
+    fetchImpl,
+    seeds: ["https://www.thetoyshop.com/store/store-1"],
+    discoveryLimit: 4,
+  });
+  assert.equal(calls, 4);
+  assert.equal(rows.length, 4);
+});
+
 test("official branch page uses exact branch identity and postcode geocoding without creating stock truth", async () => {
   const { fetchImpl } = createFetch();
   const parsed = await parseOfficialBranchPage({
@@ -85,6 +148,49 @@ test("official branch page uses exact branch identity and postcode geocoding wit
   assert.equal(parsed.location.verification, "official_retailer_branch");
   assert.equal("stockStatus" in parsed.location, false);
   assert.equal("lifecycleState" in parsed.location, false);
+});
+
+test("national branch sync reuses fallback page evidence and saves official Entertainer and Tesco branches without stock claims", async () => {
+  const branchCalls = new Map();
+  const pages = new Map([
+    ["https://www.thetoyshop.com/store/watford", storePage({
+      name: "The Entertainer Watford", street: "83-97 High Street", town: "Watford", postcode: "WD17 2UB", lat: 51.655, lng: -0.396,
+      links: ["/store/tesco-watford-extra"],
+    })],
+    ["https://www.thetoyshop.com/store/tesco-watford-extra", storePage({
+      name: "Tesco Watford Extra", street: "Lower High Street", town: "Watford", postcode: "WD17 2BD", lat: 51.648, lng: -0.391,
+    })],
+  ]);
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    if (target === "https://www.thetoyshop.com/sitemap/media/Store-en-GBP") return response("gone", { status: 404 });
+    if (target === "https://storelocator.asda.com/directory") return response("unavailable", { status: 503 });
+    if (pages.has(target)) {
+      branchCalls.set(target, (branchCalls.get(target) || 0) + 1);
+      return response(pages.get(target));
+    }
+    throw new Error(`Unexpected fetch ${target}`);
+  };
+  const savedLocations = [];
+  const store = {
+    async listRetailerLocations() { return []; },
+    async upsertRetailerLocations(rows) { savedLocations.push(...rows); return { saved: rows.length }; },
+  };
+  const result = await runNationalBranchDirectorySync({
+    store,
+    fetchImpl,
+    branchFetchLimit: 20,
+    toyshopFallbackSeeds: ["https://www.thetoyshop.com/store/watford"],
+    toyshopFallbackDiscoveryLimit: 10,
+  });
+  assert.equal(result.status, "ok");
+  assert.equal(result.saved, 2);
+  assert.deepEqual(new Set(savedLocations.map((row) => row.retailerId)), new Set(["entertainer-uk", "tesco-uk"]));
+  assert.equal(savedLocations.every((row) => row.verification === "official_retailer_branch"), true);
+  assert.equal(savedLocations.every((row) => row.openingDetails?.discoveryProvider === "official_store_graph"), true);
+  assert.equal(savedLocations.every((row) => !("stockStatus" in row)), true);
+  assert.equal([...branchCalls.values()].every((count) => count === 1), true, "fallback HTML should be reused instead of fetching the same branch twice");
+  assert.match(result.truthRule, /never establishes Pokémon stock or Local Manifested/i);
 });
 
 test("national branch sync saves easy-win official branches and excludes ASDA petrol-only formats", async () => {
