@@ -1,5 +1,6 @@
 import { env } from "./config/env.mjs";
 import { retailers as staticRetailers } from "./config/retailers.mjs";
+import { reconcileProductDiscoveryWatch } from "./core/discovery-watch-reconcile.mjs";
 import { scanAll, scanRetailer } from "./core/engine.mjs";
 import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
@@ -23,6 +24,7 @@ const RRP_LEARNING_RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
 const DISCORD_ROUTE_HEALTH_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const BETA_READINESS_INTERVAL_MS = 5 * 60 * 1000;
 const DISCORD_DELIVERY_RECONCILE_INTERVAL_MS = 60 * 1000;
+const DISCOVERY_WATCH_RECONCILE_INTERVAL_MS = 60 * 1000;
 const FATEFIND_PREFLIGHT_CACHE_MS = 60 * 1000;
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
@@ -136,6 +138,7 @@ let reconcilingRrpLearning = false;
 let checkingDiscordRoutes = false;
 let checkingBetaReadiness = false;
 let reconcilingDiscordDeliveries = false;
+let reconcilingDiscoveryWatch = false;
 
 async function scheduledScan() {
   if (scanning) return;
@@ -269,6 +272,27 @@ async function reconcileDiscordDeliveries() {
   }
 }
 
+async function reconcileDiscoveryWatchEvidence() {
+  if (reconcilingDiscoveryWatch) return;
+  reconcilingDiscoveryWatch = true;
+  try {
+    const outcome = await reconcileProductDiscoveryWatch({ store, retailers });
+    if (outcome.signalsCreated > 0) {
+      await publishWebsiteSnapshot({ store });
+      await refreshBetaRuntimeReadiness({ store }).catch(() => null);
+    }
+    if (outcome.examined > 0 || outcome.failed > 0 || outcome.retried > 0) {
+      console.log("[signal-engine] product discovery watch reconciliation", outcome);
+    }
+  } catch (error) {
+    console.error("[signal-engine] product discovery watch reconciliation failed", {
+      error: String(error?.message || error),
+    });
+  } finally {
+    reconcilingDiscoveryWatch = false;
+  }
+}
+
 async function refreshDiscordRoutes() {
   if (checkingDiscordRoutes) return;
   checkingDiscordRoutes = true;
@@ -292,6 +316,7 @@ server.listen(env.port, () => {
   void refreshDiscordRoutes();
   void refreshBetaReadiness();
   void reconcileDiscordDeliveries();
+  void reconcileDiscoveryWatchEvidence();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
@@ -300,3 +325,4 @@ setInterval(reconcileRrpLearning, RRP_LEARNING_RECONCILE_INTERVAL_MS).unref();
 setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
 setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
 setInterval(reconcileDiscordDeliveries, DISCORD_DELIVERY_RECONCILE_INTERVAL_MS).unref();
+setInterval(reconcileDiscoveryWatchEvidence, DISCOVERY_WATCH_RECONCILE_INTERVAL_MS).unref();
