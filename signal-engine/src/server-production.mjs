@@ -1,4 +1,5 @@
 import { env } from "./config/env.mjs";
+import { reconcileCuratedIncomingIntel } from "./encounters/curated-incoming-intel-reconcile.mjs";
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
@@ -11,10 +12,13 @@ const LOCAL_BRANCH_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const LOCAL_BRANCH_SYNC_START_DELAY_MS = 20 * 1000;
 const OSM_BRANCH_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const OSM_BRANCH_SYNC_START_DELAY_MS = 45 * 1000;
+const CURATED_LOCAL_INTEL_INTERVAL_MS = 30 * 60 * 1000;
+const CURATED_LOCAL_INTEL_START_DELAY_MS = 90 * 1000;
 const localBranchStore = createStore();
 let qualifyingRetailerCandidates = false;
 let syncingLocalBranches = false;
 let syncingOsmBranches = false;
+let reconcilingCuratedLocalIntel = false;
 
 async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
@@ -91,6 +95,28 @@ async function syncOsmRetailerBranches() {
   }
 }
 
+async function reconcileCuratedLocalIntel() {
+  if (reconcilingCuratedLocalIntel || !env.databaseUrl) return;
+  reconcilingCuratedLocalIntel = true;
+  try {
+    const outcome = await reconcileCuratedIncomingIntel({ store: localBranchStore });
+    console.log("[signal-engine] Local Radar curated expected-stock reconciliation", {
+      status: outcome.status,
+      configuredEntries: outcome.configuredEntries,
+      activeEntries: outcome.activeEntries,
+      matchedBranches: outcome.matchedBranches,
+      saved: outcome.saved,
+      duplicates: outcome.duplicates,
+      rejected: outcome.rejected.length,
+      unmatchedTargets: outcome.unmatchedTargets.length,
+    });
+  } catch (error) {
+    console.error("[signal-engine] Local Radar curated expected-stock reconciliation failed", { error: String(error?.message || error) });
+  } finally {
+    reconcilingCuratedLocalIntel = false;
+  }
+}
+
 if (env.databaseUrl) {
   const qualificationTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
   qualificationTimer.unref();
@@ -103,4 +129,8 @@ if (env.databaseUrl) {
   const osmBranchTimer = setTimeout(() => { void syncOsmRetailerBranches(); }, OSM_BRANCH_SYNC_START_DELAY_MS);
   osmBranchTimer.unref();
   setInterval(syncOsmRetailerBranches, OSM_BRANCH_SYNC_INTERVAL_MS).unref();
+
+  const curatedLocalIntelTimer = setTimeout(() => { void reconcileCuratedLocalIntel(); }, CURATED_LOCAL_INTEL_START_DELAY_MS);
+  curatedLocalIntelTimer.unref();
+  setInterval(reconcileCuratedLocalIntel, CURATED_LOCAL_INTEL_INTERVAL_MS).unref();
 }
