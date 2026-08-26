@@ -12,6 +12,7 @@ import { deriveSignal } from "./signals.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
 import { preloadPreviousState } from "./previous-state.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
+import { rememberUnresolvedRrp, rememberVerifiedRrpAlias, resolveRememberedRrpAlias } from "./rrp-learning-runtime.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -105,6 +106,7 @@ function rrpEvidence(evidence, resolvedValue) {
   if (resolvedValue.kind) extra.push({ kind: "rrp_value_kind", value: String(resolvedValue.kind) });
   if (resolvedValue.rrpSource) extra.push({ kind: "rrp_value_source", value: String(resolvedValue.rrpSource) });
   if (resolvedValue.referenceBasis) extra.push({ kind: "rrp_reference_basis", value: String(resolvedValue.referenceBasis) });
+  if (resolvedValue.learnedAlias === true) extra.push({ kind: "rrp_learning_disposition", value: "resolved_from_memory" });
   return [...base, ...extra];
 }
 
@@ -137,6 +139,30 @@ function shouldPersistObservation(previousOffer, currentOffer) {
     || previousOffer.stockQuantity !== currentOffer.stockQuantity;
 }
 
+async function persistRrpLearningActions(store, actions) {
+  let unknownsQueued = 0;
+  let aliasesLearned = 0;
+  for (const action of actions) {
+    try {
+      if (action.type === "unresolved") {
+        const recorded = await rememberUnresolvedRrp(action.payload);
+        if (recorded) unknownsQueued += 1;
+      } else if (action.type === "verified_alias") {
+        const recorded = await rememberVerifiedRrpAlias(action.payload);
+        if (recorded) aliasesLearned += 1;
+      }
+    } catch (error) {
+      console.error("[rrp-learning] persistence failed", {
+        type: action.type,
+        retailerId: action.payload?.retailer?.id,
+        title: action.payload?.offer?.title,
+        error: String(error?.message || error),
+      });
+    }
+  }
+  return { unknownsQueued, aliasesLearned };
+}
+
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
@@ -146,7 +172,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const offers = [];
   const observations = [];
   const signals = [];
+  const rrpLearningActions = [];
   let rrpInherited = 0;
+  let rrpResolvedFromMemory = 0;
 
   const prepared = rawProducts.map((rawInput) => {
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
@@ -204,15 +232,47 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       firstSeenAt: previousProduct?.firstSeenAt ?? now,
       updatedAt: now,
     };
-    const resolvedRrpValue = resolveRrpValue({
-      title: raw.title,
+
+    const learningOffer = {
+      offerId,
+      productId,
       productType: raw.productType,
-      tcg: retailer.tcg || "pokemon",
+      retailerId: retailer.id,
+      retailerSku: raw.retailerSku,
+      title: raw.title,
+      gtin: raw.gtin ?? null,
       language: raw.language,
       region: raw.region,
-      edition: raw.edition,
-      linkedProduct: product,
-    }, rrpContext);
+      tcg: retailer.tcg || "pokemon",
+    };
+    const rememberedAlias = officialRrpPence == null
+      ? await resolveRememberedRrpAlias({ store, product, offer: learningOffer })
+      : null;
+    if (rememberedAlias) rrpResolvedFromMemory += 1;
+
+    const resolvedRrpValue = rememberedAlias
+      ? {
+        resolved: true,
+        kind: rememberedAlias.kind || "official",
+        rrpPence: rememberedAlias.rrpPence,
+        rrpSource: rememberedAlias.source,
+        rrpObservedAt: rememberedAlias.observedAt,
+        unitCount: 1,
+        unitKind: raw.productType || "product",
+        unitRrpPence: rememberedAlias.rrpPence,
+        referenceBasis: rememberedAlias.basis,
+        matchedProductIds: rememberedAlias.alias?.canonical_product_identity_id ? [rememberedAlias.alias.canonical_product_identity_id] : [],
+        learnedAlias: true,
+      }
+      : resolveRrpValue({
+        title: raw.title,
+        productType: raw.productType,
+        tcg: retailer.tcg || "pokemon",
+        language: raw.language,
+        region: raw.region,
+        edition: raw.edition,
+        linkedProduct: product,
+      }, rrpContext);
     const offerRrpPence = resolvedRrpValue.resolved ? resolvedRrpValue.rrpPence : officialRrpPence;
     const previousOffer = previousState
       ? previousState.offers.get(offerId) ?? null
@@ -239,6 +299,46 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       firstSeenAt: previousOffer?.firstSeenAt ?? now,
       lastSeenAt: now,
     };
+
+    if (!resolvedRrpValue.resolved) {
+      rrpLearningActions.push({
+        type: "unresolved",
+        payload: {
+          store,
+          product,
+          offer: { ...learningOffer, ...offer, language: raw.language, region: raw.region },
+          retailer,
+          observedAt: now,
+          failureReason: resolvedRrpValue.reason || "no_verified_rrp_reference",
+        },
+      });
+    } else if (!rememberedAlias && resolvedRrpValue.kind === "official") {
+      const matchedProductIds = [...new Set(resolvedRrpValue.matchedProductIds || [])];
+      const canonicalProductIdentityId = matchedProductIds.length === 1 ? matchedProductIds[0] : null;
+      if (canonicalProductIdentityId && canonicalProductIdentityId !== product.id) {
+        rrpLearningActions.push({
+          type: "verified_alias",
+          payload: {
+            store,
+            product,
+            offer: { ...learningOffer, ...offer },
+            retailer,
+            verifiedAt: now,
+            resolution: {
+              canonicalProductIdentityId,
+              confidence: 1,
+              resolutionKind: "verified_wording",
+              source: resolvedRrpValue.rrpSource || "rrp-resolver",
+              evidence: {
+                reference_basis: resolvedRrpValue.referenceBasis || null,
+                rrp_pence: resolvedRrpValue.rrpPence,
+              },
+            },
+          },
+        });
+      }
+    }
+
     if (!offer.everAvailableAt && effectivePurchasable(offer)) offer.everAvailableAt = now;
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
     const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
@@ -251,9 +351,10 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const completedAt = Math.floor(Date.now() / 1000);
   const uniqueProducts = dedupeCanonicalProducts(products);
   await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  const rrpLearning = await persistRrpLearningActions(store, rrpLearningActions);
 
   const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, signals, discord };
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, signals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
@@ -289,7 +390,7 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
       productsObserved: result?.productsSeen ?? 0,
       catalogueComplete: status === "success",
       failureCode: result?.skipReason ?? null,
-      diagnostics: { source: "external", signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0 },
+      diagnostics: { source: "external", signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0, rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0, rrpLearning: result?.rrpLearning ?? null },
     });
     return result;
   } catch (error) {
@@ -377,7 +478,7 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
       catalogueComplete: status === "success",
       failureCode: result?.skipReason || (result?.error ? "scan_failed" : null),
       failureDetail: result?.error || null,
-      diagnostics: { signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0 },
+      diagnostics: { signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0, rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0, rrpLearning: result?.rrpLearning ?? null },
     });
     return result;
   } catch (error) {
