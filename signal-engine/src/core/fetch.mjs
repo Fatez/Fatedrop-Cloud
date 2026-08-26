@@ -93,6 +93,35 @@ function throwScanAbort(signal) {
   throw retailerScanDeadlineError(null, env.scanDeadlineMs);
 }
 
+function stencilTemplate(options = {}) {
+  const value = options?.stencilTemplate;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function catalogueCacheKey(url, template) {
+  return template ? `${url}::stencil:${template}` : url;
+}
+
+function unwrapStencilHtml(text, template) {
+  let payload;
+  try { payload = JSON.parse(text); }
+  catch { throw new Error("Stencil catalogue returned invalid JSON"); }
+
+  if (typeof payload === "string") return payload;
+  const content = payload?.content ?? payload;
+  if (typeof content === "string") return content;
+  if (!content || typeof content !== "object") throw new Error("Stencil catalogue returned no renderable content");
+
+  const candidates = [template, `components/${template}`];
+  for (const key of candidates) {
+    if (typeof content[key] === "string") return content[key];
+  }
+
+  const strings = Object.values(content).filter((value) => typeof value === "string");
+  if (strings.length === 1) return strings[0];
+  throw new Error(`Stencil catalogue response did not include requested template: ${template}`);
+}
+
 export function retailerHostCooldownStatus(url, now = Date.now()) {
   const host = hostFor(url);
   const state = host ? hostCooldowns.get(host) : null;
@@ -104,25 +133,42 @@ export function clearRetailerHostCooldownsForTest() {
   hostCooldowns.clear();
 }
 
-export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs) {
+export async function fetchCataloguePage(url, timeoutMs = env.fetchTimeoutMs, options = {}) {
   assertHostNotCoolingDown(url);
-  const previous = cache.get(url) || {};
+  const template = stencilTemplate(options);
+  const cacheKey = catalogueCacheKey(url, template);
+  const previous = cache.get(cacheKey) || {};
   const requestTimeoutMs = boundedTimeoutMs(timeoutMs);
   const controller = new AbortController();
   const linked = linkRetailerScanAbort(controller);
   const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
   try {
     throwScanAbort(linked.signal);
-    const headers = requestHeaders("text/html,application/xhtml+xml");
+    const headers = requestHeaders(template ? "text/html,application/xhtml+xml,application/json" : "text/html,application/xhtml+xml");
+    if (template) {
+      // BigCommerce Stencil storefronts use this first-party partial-render contract
+      // for faceted/category refreshes. It keeps a catalogue scan bounded to the
+      // configured category instead of falling back to sitemap/product fan-out.
+      headers["stencil-config"] = "{}";
+      headers["stencil-options"] = JSON.stringify({ render_with: template });
+      headers["x-requested-with"] = "stencil-utils";
+      headers["x-xsrf-token"] = "";
+      headers["content-type"] = "application/x-www-form-urlencoded; charset=UTF-8";
+    }
     if (previous.etag) headers["if-none-match"] = previous.etag;
     if (previous.lastModified) headers["if-modified-since"] = previous.lastModified;
     const response = await fetch(url, { headers, redirect: "follow", signal: controller.signal });
     if (response.status === 304 && previous.html) return { html: previous.html, status: 304, unchanged: true };
     assertAllowedResponse(response, "catalogue");
     const contentType = response.headers.get("content-type") || "";
-    if (!contentType.includes("text/html")) throw new Error(`Unexpected catalogue content type: ${contentType}`);
-    const html = await response.text();
-    cache.set(url, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
+    const isJson = contentType.includes("json");
+    const isHtml = contentType.includes("text/html") || contentType.includes("application/xhtml+xml");
+    if ((!template && !isHtml) || (template && !isHtml && !isJson)) {
+      throw new Error(`Unexpected catalogue content type: ${contentType}`);
+    }
+    const text = await response.text();
+    const html = template && isJson ? unwrapStencilHtml(text, template) : text;
+    cache.set(cacheKey, { html, etag: response.headers.get("etag"), lastModified: response.headers.get("last-modified") });
     return { html, status: response.status, unchanged: false };
   } catch (error) {
     throwScanAbort(linked.signal);
