@@ -234,7 +234,6 @@ function locationId(location = {}) {
 
 function observationFor({ candidate, resolved, location, availability, kind, now }) {
   const productIdentityId = text(resolved.product_id ?? resolved.productIdentityId);
-  const offerId = text(resolved.offer_id ?? resolved.offerId);
   const sourceUrl = normalizeUrl(resolved.offer_url ?? resolved.offerUrl ?? candidate.productUrl) || candidate.productUrl;
   const title = text(resolved.offer_title ?? resolved.offerTitle ?? resolved.product_title ?? resolved.productTitle ?? candidate.expectedTitle);
   const rrpPence = Number(resolved.official_rrp_pence ?? resolved.officialRrpPence);
@@ -242,7 +241,10 @@ function observationFor({ candidate, resolved, location, availability, kind, now
   return {
     kind,
     productIdentityId,
-    offerId,
+    // Local physical truth is keyed by canonical product + retailer + exact branch + source evidence.
+    // fatedrop_signal_events.offer_id still references legacy fatedrop_offers, while this resolver reads
+    // fatedrop_retail_offers. Do not attach an incompatible online offer FK to a physical observation.
+    offerId: null,
     retailerId: TOTAL_CARDS_RETAILER_ID,
     locationId: locationId(location),
     occurredAt: now,

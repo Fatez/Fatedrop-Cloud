@@ -119,7 +119,8 @@ test("exact official in-store evidence creates Local Manifested while online sto
   assert.equal(event.retailerId, "total-cards");
   assert.equal(event.locationId, LOCATION.id);
   assert.equal(event.productIdentityId, RESOLVED.product_id);
-  assert.equal(event.offerId, RESOLVED.offer_id);
+  assert.equal(event.offerId, null, "local physical evidence must not attach a fatedrop_retail_offers ID to the legacy fatedrop_offers foreign key");
+  assert.equal(event.evidence.sourceUrl, CANDIDATE.productUrl, "official product URL remains the physical evidence source even without an online offer FK");
   assert.equal(event.evidence.evidenceLevel, "official_collection");
   assert.equal(event.evidence.availabilityVerified, true);
   assert.equal(event.evidence.stockStatus, "collection_available");
