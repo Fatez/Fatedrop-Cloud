@@ -5,6 +5,19 @@ import {
 
 const UK_POSTCODE_RE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
 const DEFAULT_BRANCH_FETCH_LIMIT = 250;
+const DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT = 120;
+const TOYSHOP_HOST = "www.thetoyshop.com";
+
+export const TOYSHOP_STORE_FALLBACK_SEEDS = Object.freeze([
+  "https://www.thetoyshop.com/store/watford",
+  "https://www.thetoyshop.com/store/birmingham",
+  "https://www.thetoyshop.com/store/arndale",
+  "https://www.thetoyshop.com/store/cardiff",
+  "https://www.thetoyshop.com/store/st-enoch",
+  "https://www.thetoyshop.com/store/aberdeen",
+  "https://www.thetoyshop.com/store/antrim",
+  "https://www.thetoyshop.com/store/tesco-newcastle-upon-tyne-extra",
+]);
 
 function text(value) {
   const result = String(value ?? "").trim();
@@ -137,7 +150,9 @@ export async function geocodeUkPostcode(postcode, { fetchImpl = fetch } = {}) {
 }
 
 function classifyToyshopStore(url) {
-  const pathname = new URL(url).pathname.toLowerCase();
+  const parsed = new URL(url);
+  if (parsed.hostname.toLowerCase() !== TOYSHOP_HOST) return null;
+  const pathname = parsed.pathname.toLowerCase();
   if (!pathname.startsWith("/store/")) return null;
   if (pathname.startsWith("/store/tesco-")) {
     return { retailerId: "tesco-uk", provider: "entertainer_official_stockist" };
@@ -145,11 +160,79 @@ function classifyToyshopStore(url) {
   return { retailerId: "entertainer-uk", provider: "entertainer_official_directory" };
 }
 
-export async function discoverToyshopBranchUrls({ fetchImpl = fetch } = {}) {
-  const xml = await fetchText("https://www.thetoyshop.com/sitemap/media/Store-en-GBP", { fetchImpl });
-  return extractSitemapUrls(xml)
-    .map((url) => ({ url, ...classifyToyshopStore(url) }))
-    .filter((row) => row.retailerId);
+function canonicalToyshopStoreUrl(value) {
+  try {
+    const url = new URL(value);
+    if (url.hostname.toLowerCase() !== TOYSHOP_HOST || !url.pathname.toLowerCase().startsWith("/store/")) return null;
+    url.protocol = "https:";
+    url.hostname = TOYSHOP_HOST;
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export async function crawlToyshopOfficialStoreGraph({
+  fetchImpl = fetch,
+  seeds = TOYSHOP_STORE_FALLBACK_SEEDS,
+  discoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
+} = {}) {
+  const maxPages = Math.min(250, Math.max(1, Number(discoveryLimit) || DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT));
+  const queue = [];
+  const queued = new Set();
+  const visited = new Set();
+  const rows = new Map();
+
+  const enqueue = (candidate) => {
+    const url = canonicalToyshopStoreUrl(candidate);
+    if (!url || queued.has(url) || visited.has(url)) return;
+    if (!classifyToyshopStore(url)) return;
+    queued.add(url);
+    queue.push(url);
+  };
+  for (const seed of Array.isArray(seeds) ? seeds : []) enqueue(seed);
+
+  while (queue.length && visited.size < maxPages) {
+    const url = queue.shift();
+    queued.delete(url);
+    if (!url || visited.has(url)) continue;
+    visited.add(url);
+    let html;
+    try {
+      html = await fetchText(url, { fetchImpl });
+    } catch {
+      continue;
+    }
+    const identity = classifyToyshopStore(url);
+    if (identity) rows.set(url, { url, ...identity, html, discoveryProvider: "official_store_graph" });
+    for (const link of extractLinks(html, url)) enqueue(link);
+  }
+
+  return [...rows.values()];
+}
+
+export async function discoverToyshopBranchUrls({
+  fetchImpl = fetch,
+  fallbackSeeds = TOYSHOP_STORE_FALLBACK_SEEDS,
+  fallbackDiscoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
+} = {}) {
+  try {
+    const xml = await fetchText("https://www.thetoyshop.com/sitemap/media/Store-en-GBP", { fetchImpl });
+    const sitemapRows = extractSitemapUrls(xml)
+      .map((url) => ({ url: canonicalToyshopStoreUrl(url) }))
+      .filter((row) => row.url)
+      .map((row) => ({ url: row.url, ...classifyToyshopStore(row.url), discoveryProvider: "official_store_sitemap" }))
+      .filter((row) => row.retailerId);
+    if (sitemapRows.length) return sitemapRows;
+  } catch {}
+
+  return crawlToyshopOfficialStoreGraph({
+    fetchImpl,
+    seeds: fallbackSeeds,
+    discoveryLimit: fallbackDiscoveryLimit,
+  });
 }
 
 function asdaPathDepth(url) {
@@ -202,7 +285,7 @@ function asdaEligible(html, name) {
 }
 
 export async function parseOfficialBranchPage(row, { fetchImpl = fetch } = {}) {
-  const html = await fetchText(row.url, { fetchImpl });
+  const html = text(row?.html) ? String(row.html) : await fetchText(row.url, { fetchImpl });
   const structured = structuredLocation(html);
   const pageText = stripTags(html);
   const postcode = structured?.postcode || normalizePostcode(pageText);
@@ -226,14 +309,22 @@ export async function parseOfficialBranchPage(row, { fetchImpl = fetch } = {}) {
     location: {
       retailerId: row.retailerId,
       provider: row.provider,
-      providerId: identityUrl.toString(),
+      providerId: identityUrl.toString().replace(/\/$/, ""),
       name,
       address: structured?.address,
       postcode,
       latitude,
       longitude,
-      websiteUrl: identityUrl.toString(),
+      websiteUrl: identityUrl.toString().replace(/\/$/, ""),
       phone: structured?.phone,
+      openingDetails: {
+        sourceType: "official_retailer_branch_page",
+        sourceUrl: identityUrl.toString().replace(/\/$/, ""),
+        sourceAttribution: row.retailerId === "tesco-uk"
+          ? "The Entertainer official Tesco stockist directory"
+          : "The Entertainer official store directory",
+        discoveryProvider: text(row.discoveryProvider) || null,
+      },
       verification: "official_retailer_branch",
       updatedAt: Date.now(),
     },
@@ -252,18 +343,21 @@ export async function runNationalBranchDirectorySync({
   store,
   fetchImpl = fetch,
   branchFetchLimit = DEFAULT_BRANCH_FETCH_LIMIT,
+  toyshopFallbackSeeds = TOYSHOP_STORE_FALLBACK_SEEDS,
+  toyshopFallbackDiscoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
 } = {}) {
   if (!store) throw new Error("National branch directory sync requires a store");
   const sourceResults = [];
   const discovered = [];
-  for (const [source, discover] of [
-    ["toyshop_official_store_sitemap", discoverToyshopBranchUrls],
-    ["asda_official_directory", discoverAsdaBranchUrls],
+  for (const [source, discover, options] of [
+    ["toyshop_official_store_directory", discoverToyshopBranchUrls, { fallbackSeeds: toyshopFallbackSeeds, fallbackDiscoveryLimit: toyshopFallbackDiscoveryLimit }],
+    ["asda_official_directory", discoverAsdaBranchUrls, {}],
   ]) {
     try {
-      const rows = await discover({ fetchImpl });
+      const rows = await discover({ fetchImpl, ...options });
       discovered.push(...rows);
-      sourceResults.push({ source, status: "ok", discovered: rows.length });
+      const discoveryProviders = [...new Set(rows.map((row) => text(row.discoveryProvider)).filter(Boolean))];
+      sourceResults.push({ source, status: "ok", discovered: rows.length, discoveryProviders });
     } catch (error) {
       sourceResults.push({ source, status: "unavailable", discovered: 0, error: String(error?.message || error) });
     }
@@ -274,7 +368,7 @@ export async function runNationalBranchDirectorySync({
   const providers = new Set([...unique.values()].map((row) => row.provider));
   const known = await knownProviderIds(store, providers).catch(() => new Set());
   const pending = [...unique.values()]
-    .filter((row) => !known.has(`${row.provider}|${new URL(row.url).toString()}`))
+    .filter((row) => !known.has(`${row.provider}|${new URL(row.url).toString().replace(/\/$/, "")}`))
     .slice(0, Math.max(1, Number(branchFetchLimit) || DEFAULT_BRANCH_FETCH_LIMIT));
 
   const accepted = [];
