@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 const LIFECYCLE = new Set(["whisper", "echo", "manifested", "vanished"]);
 const OFFICIAL_EVIDENCE_LEVELS = new Set(["official_branch", "official_collection", "official_retailer_app"]);
 const VERIFIED_AVAILABILITY = new Set(["in_stock", "low_stock", "available", "collection_available", "on_shelf"]);
+const CHAIN_ECHO_SOURCES = new Set(["retailer_staff_report", "official_store_social", "retailer_submission", "authorised_feed"]);
 
 function text(value) {
   const result = String(value ?? "").trim();
@@ -31,6 +32,14 @@ function epochSeconds(value = Date.now()) {
   const parsed = number(value);
   if (parsed == null) throw new Error("Observation requires a valid occurredAt");
   return Math.floor(parsed > 10_000_000_000 ? parsed / 1000 : parsed);
+}
+
+function optionalIso(value, label) {
+  const raw = text(value);
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) throw new Error(`${label} must be a valid date/time`);
+  return new Date(parsed).toISOString();
 }
 
 function httpUrl(value) {
@@ -89,12 +98,26 @@ export function normalizeLocalStockObservation(record = {}) {
   const sourceType = text(evidence.sourceType ?? evidence.source_type)?.toLowerCase();
   const sourceId = text(evidence.sourceId ?? evidence.source_id ?? evidence.sourceUrl ?? evidence.source_url) || "source-unknown";
   const stockStatus = text(evidence.stockStatus ?? evidence.stock_status ?? evidence.availability)?.toLowerCase();
+  const localIntel = evidence.localIntel === true || evidence.local_intel === true;
+  const scope = text(evidence.scope ?? evidence.localScope ?? evidence.local_scope)?.toLowerCase() || null;
+  const chainIntel = localIntel && scope === "retailer_chain";
+  const expectedFrom = optionalIso(evidence.expectedFrom ?? evidence.expected_from, "Local intel expectedFrom");
+  const expectedTo = optionalIso(evidence.expectedTo ?? evidence.expected_to, "Local intel expectedTo");
+  if (expectedFrom && expectedTo && Date.parse(expectedTo) < Date.parse(expectedFrom)) {
+    throw new Error("Local intel expectedTo cannot be before expectedFrom");
+  }
+
   if (!LIFECYCLE.has(requestedKind)) throw new Error("Local stock observation requires canonical whisper/echo/manifested/vanished kind");
   if (!retailerId) throw new Error("Local stock observation requires retailerId");
-  if (!locationId) throw new Error("Local stock observation requires locationId");
+  if (!locationId && !chainIntel) throw new Error("Local stock observation requires locationId unless it is explicitly unconfirmed retailer-chain intel");
   if (!sourceType) throw new Error("Local stock observation requires evidence.sourceType");
+  if (chainIntel && !["whisper", "echo"].includes(requestedKind)) throw new Error("Unconfirmed retailer-chain intel can only be Whisper or Echo");
+  if (chainIntel && requestedKind === "echo" && !CHAIN_ECHO_SOURCES.has(sourceType)) {
+    throw new Error("Retailer-chain Echo requires retailer staff, official store social, retailer submission or authorised feed evidence");
+  }
 
   if (requestedKind === "manifested") {
+    if (!locationId) throw new Error("Local Manifested requires an exact retailer location");
     if (!productIdentityId) throw new Error("Local Manifested requires canonical product identity");
     if (!OFFICIAL_EVIDENCE_LEVELS.has(evidenceLevel)) throw new Error("Local Manifested requires official branch/collection/app evidence");
     if (evidence.availabilityVerified !== true && !VERIFIED_AVAILABILITY.has(stockStatus)) {
@@ -102,6 +125,7 @@ export function normalizeLocalStockObservation(record = {}) {
     }
   }
   if (requestedKind === "vanished") {
+    if (!locationId) throw new Error("Local Vanished requires an exact retailer location");
     if (!productIdentityId) throw new Error("Local Vanished requires canonical product identity");
     if (!OFFICIAL_EVIDENCE_LEVELS.has(evidenceLevel)) throw new Error("Local Vanished requires official branch/collection/app evidence");
   }
@@ -109,8 +133,15 @@ export function normalizeLocalStockObservation(record = {}) {
   const bucket = Math.floor(occurredAt / 60);
   const rawTitle = text(evidence.rawProductTitle ?? evidence.raw_product_title ?? evidence.productTitle ?? evidence.title);
   const productKey = productIdentityId || `unresolved:${slug(rawTitle || "unknown-product")}`;
+  const inferredExpiry = !evidence.expiresAt && !evidence.expires_at && chainIntel
+    ? expectedTo
+      ? new Date(Date.parse(expectedTo) + 12 * 60 * 60 * 1000).toISOString()
+      : expectedFrom
+        ? new Date(Date.parse(expectedFrom) + 24 * 60 * 60 * 1000).toISOString()
+        : null
+    : null;
   return {
-    id: text(record.id) || hash("lse", `${requestedKind}|${retailerId}|${locationId}|${productKey}|${sourceType}|${sourceId}|${bucket}`),
+    id: text(record.id) || hash("lse", `${requestedKind}|${retailerId}|${locationId || "retailer-chain"}|${productKey}|${sourceType}|${sourceId}|${bucket}`),
     kind: requestedKind,
     productIdentityId,
     offerId: text(record.offerId ?? record.offer_id),
@@ -121,6 +152,10 @@ export function normalizeLocalStockObservation(record = {}) {
       ...evidence,
       evidenceLevel,
       sourceType,
+      ...(chainIntel ? { localIntel: true, scope: "retailer_chain", advisory: true } : {}),
+      ...(expectedFrom ? { expectedFrom } : {}),
+      ...(expectedTo ? { expectedTo } : {}),
+      ...(inferredExpiry ? { expiresAt: inferredExpiry } : {}),
       ...(stockStatus ? { stockStatus } : {}),
       ...(rawTitle ? { rawProductTitle: rawTitle } : {}),
     },
@@ -247,9 +282,18 @@ export async function upsertLocalStockObservationsIntoStore(store, observations 
   try {
     await client.query("BEGIN");
     for (const observation of observations) {
-      const { rows: locationRows } = await client.query("SELECT retailer_id FROM fatedrop_retailer_locations WHERE id=$1", [observation.locationId]);
-      if (!locationRows[0]) { rejected.push({ id: observation.id, reason: "Unknown retailer location" }); continue; }
-      if (locationRows[0].retailer_id !== observation.retailerId) { rejected.push({ id: observation.id, reason: "Retailer/location identity mismatch" }); continue; }
+      if (observation.locationId) {
+        const { rows: locationRows } = await client.query("SELECT retailer_id FROM fatedrop_retailer_locations WHERE id=$1", [observation.locationId]);
+        if (!locationRows[0]) { rejected.push({ id: observation.id, reason: "Unknown retailer location" }); continue; }
+        if (locationRows[0].retailer_id !== observation.retailerId) { rejected.push({ id: observation.id, reason: "Retailer/location identity mismatch" }); continue; }
+      } else {
+        const validChainIntel = ["whisper", "echo"].includes(observation.kind)
+          && observation.evidence?.localIntel === true
+          && observation.evidence?.scope === "retailer_chain";
+        if (!validChainIntel) { rejected.push({ id: observation.id, reason: "Branchless local intelligence must be explicitly advisory retailer-chain Whisper/Echo evidence" }); continue; }
+        const { rows: retailerRows } = await client.query("SELECT 1 FROM fatedrop_retailer_registry WHERE retailer_id=$1", [observation.retailerId]);
+        if (!retailerRows.length) { rejected.push({ id: observation.id, reason: "Unknown canonical retailer ID" }); continue; }
+      }
       if (observation.productIdentityId) {
         const { rows: productRows } = await client.query("SELECT 1 FROM fatedrop_product_identities WHERE id=$1", [observation.productIdentityId]);
         if (!productRows.length) { rejected.push({ id: observation.id, reason: "Unknown canonical product identity" }); continue; }
