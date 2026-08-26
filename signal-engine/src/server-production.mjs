@@ -1,10 +1,16 @@
 import { env } from "./config/env.mjs";
+import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
+import { createStore } from "./stores/index.mjs";
 import "./server.mjs";
 
 const RETAILER_QUALIFICATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const RETAILER_QUALIFICATION_START_DELAY_MS = 10 * 1000;
+const LOCAL_BRANCH_SYNC_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const LOCAL_BRANCH_SYNC_START_DELAY_MS = 20 * 1000;
+const localBranchStore = createStore();
 let qualifyingRetailerCandidates = false;
+let syncingLocalBranches = false;
 
 async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
@@ -34,8 +40,35 @@ async function qualifyRetailerCandidates() {
   }
 }
 
+async function syncLocalRetailerBranches() {
+  if (syncingLocalBranches || !env.databaseUrl) return;
+  syncingLocalBranches = true;
+  try {
+    const outcome = await runNationalBranchDirectorySync({ store: localBranchStore, branchFetchLimit: 250 });
+    console.log("[signal-engine] Local Radar national branch directory sync", {
+      status: outcome.status,
+      discovered: outcome.discovered,
+      alreadyKnown: outcome.alreadyKnown,
+      attempted: outcome.attempted,
+      accepted: outcome.accepted,
+      saved: outcome.saved,
+      rejected: outcome.rejected,
+      sources: outcome.sources,
+    });
+  } catch (error) {
+    console.error("[signal-engine] Local Radar national branch directory sync failed", { error: String(error?.message || error) });
+  }
+  finally {
+    syncingLocalBranches = false;
+  }
+}
+
 if (env.databaseUrl) {
-  const startupTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
-  startupTimer.unref();
+  const qualificationTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
+  qualificationTimer.unref();
   setInterval(qualifyRetailerCandidates, RETAILER_QUALIFICATION_INTERVAL_MS).unref();
+
+  const localBranchTimer = setTimeout(() => { void syncLocalRetailerBranches(); }, LOCAL_BRANCH_SYNC_START_DELAY_MS);
+  localBranchTimer.unref();
+  setInterval(syncLocalRetailerBranches, LOCAL_BRANCH_SYNC_INTERVAL_MS).unref();
 }
