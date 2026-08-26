@@ -1,5 +1,6 @@
 import { env } from "./config/env.mjs";
 import { reconcileCuratedIncomingIntel } from "./encounters/curated-incoming-intel-reconcile.mjs";
+import { ensureCuratedRetailerBranchSeeds } from "./encounters/curated-retailer-branch-seeds.mjs";
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
@@ -99,9 +100,14 @@ async function reconcileCuratedLocalIntel() {
   if (reconcilingCuratedLocalIntel || !env.databaseUrl) return;
   reconcilingCuratedLocalIntel = true;
   try {
+    const branches = await ensureCuratedRetailerBranchSeeds({ store: localBranchStore });
     const outcome = await reconcileCuratedIncomingIntel({ store: localBranchStore });
     console.log("[signal-engine] Local Radar curated expected-stock reconciliation", {
       status: outcome.status,
+      branchSeedsConfigured: branches.configured,
+      branchSeedsAlreadyKnown: branches.alreadyKnown,
+      branchSeedsSaved: branches.saved,
+      branchSeedsRejected: branches.rejected.length,
       configuredEntries: outcome.configuredEntries,
       activeEntries: outcome.activeEntries,
       matchedBranches: outcome.matchedBranches,
