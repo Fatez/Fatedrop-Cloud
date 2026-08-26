@@ -37,7 +37,7 @@ test("DNS answers fail closed if any resolved address is private", async () => {
     { address: "93.184.216.34", family: 4 },
     { address: "10.0.0.7", family: 4 },
   ];
-  await assert.rejects(assertPublicHttpUrl("https://retailer.example/products", { lookup }), /non-public address/);
+  await assert.rejects(assertPublicHttpUrl("https://retailer.example.com/products", { lookup }), /non-public address/);
 });
 
 test("public HTTP and HTTPS retailer URLs are accepted", async () => {
