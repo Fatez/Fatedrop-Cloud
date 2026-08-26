@@ -1,0 +1,41 @@
+name: Local Radar production source probe
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe canonical production Local Radar
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://fatedrop-cloud-production.up.railway.app/api/local-radar?lat=51.5074&lng=-0.1278&radiusMiles=10&types=shops&tcg=pokemon'
+          http_status="$(curl --fail-with-body --silent --show-error --max-time 25 --output response.json --write-out '%{http_code}' "$url" || true)"
+
+          {
+            echo '### Disposable Local Radar production probe'
+            echo
+            echo "- HTTP status: \`${http_status}\`"
+            echo '- Probe location: central London (neutral runtime diagnostic)'
+            echo '- Purpose: inspect production branch-discovery/source status only; do not merge this PR.'
+            echo
+            echo '```json'
+            head -c 30000 response.json 2>/dev/null || true
+            echo
+            echo '```'
+          } > probe.md
+
+          gh pr comment "$PR_NUMBER" --body-file probe.md
+
+          test "$http_status" = '200'
