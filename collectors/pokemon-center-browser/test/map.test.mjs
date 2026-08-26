@@ -14,7 +14,7 @@ test("converts catalogue prices to pence", () => {
   assert.equal(priceToPence("£54.99"), 5499);
 });
 
-test("maps selling price separately from official Pokémon Center RRP", () => {
+test("maps selling price separately from official Pokémon Center RRP and emits official listing evidence", () => {
   const mapped = mapPokemonCenterDoc({
     pid: "180-85010",
     title: "Example Pokémon TCG Product",
@@ -32,6 +32,23 @@ test("maps selling price separately from official Pokémon Center RRP", () => {
   assert.equal(mapped.officialRrpPence, 2999);
   assert.equal(mapped.stockConfidence, 0.99);
   assert.match(mapped.url, /^https:\/\/www\.pokemoncenter\.com\//);
+  assert.ok(mapped.evidence.some((item) => item.kind === "official_retailer_product_page" && item.value === mapped.url));
   assert.ok(mapped.evidence.some((item) => item.kind === "pokemon_center_launch_date"));
+  assert.ok(mapped.evidence.some((item) => item.kind === "launch_date"));
   assert.ok(mapped.evidence.some((item) => item.kind === "pokemon_center_official_rrp"));
+});
+
+test("Pokémon Center preorder catalogue state is readiness metadata, not purchase proof", () => {
+  const mapped = mapPokemonCenterDoc({
+    pid: "10-10451-101",
+    title: "Pokémon TCG: 30th Celebration Booster Bundle (6 Packs)",
+    availability_status: ["PREORDER"],
+    price: 26.99,
+    url: "/en-gb/product/10-10451-101/pokemon-tcg-30th-celebration-booster-bundle-6-packs",
+  });
+
+  assert.equal(mapped.stockStatus, "preorder");
+  assert.ok(mapped.evidence.some((item) => item.kind === "official_retailer_product_page"));
+  assert.ok(mapped.evidence.some((item) => item.kind === "preorder_metadata"));
+  assert.equal(mapped.evidence.some((item) => item.kind === "purchase_path_verified"), false);
 });

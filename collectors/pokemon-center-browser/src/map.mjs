@@ -53,6 +53,7 @@ export function mapPokemonCenterDoc(raw) {
   if (!sku || !title || !url) return null;
 
   const availabilityRaw = firstValue(raw.availability_status);
+  const mappedAvailability = mapAvailability(availabilityRaw);
   const launchDate = text(raw.launch_date) || null;
   const imageUrl = absoluteUrl(raw.primary_image_full_size || raw.primary_image || raw.thumb_image);
   const stockQuantity = numericValue(raw.stock_quantity ?? raw.inventory_quantity ?? raw.inventory ?? raw.ats);
@@ -61,8 +62,16 @@ export function mapPokemonCenterDoc(raw) {
 
   const evidence = [
     { kind: "pokemon_center_search_api", value: `availability_status:${text(availabilityRaw) || "UNKNOWN"}` },
+    // The browser collector only emits mapped products from Pokémon Center's
+    // own structured catalogue and canonical en-gb product URLs. This proves
+    // official retailer-page publication/readiness, but not Add-to-Cart.
+    { kind: "official_retailer_product_page", value: url },
   ];
-  if (launchDate) evidence.push({ kind: "pokemon_center_launch_date", value: launchDate });
+  if (launchDate) {
+    evidence.push({ kind: "pokemon_center_launch_date", value: launchDate });
+    evidence.push({ kind: "launch_date", value: launchDate });
+  }
+  if (mappedAvailability === "preorder") evidence.push({ kind: "preorder_metadata", value: "pokemon_center_catalogue_preorder" });
   if (officialRrpPence != null) evidence.push({ kind: "pokemon_center_official_rrp", value: String(officialRrpPence) });
 
   return {
@@ -72,7 +81,7 @@ export function mapPokemonCenterDoc(raw) {
     imageUrl,
     pricePence: sellingPricePence,
     officialRrpPence,
-    stockStatus: mapAvailability(availabilityRaw),
+    stockStatus: mappedAvailability,
     stockConfidence: 0.99,
     stockQuantity: Number.isFinite(stockQuantity) ? Math.round(stockQuantity) : null,
     evidence,
