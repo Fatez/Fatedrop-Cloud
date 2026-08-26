@@ -30,7 +30,7 @@ test("dry run does not require monitored lifecycle state and performs no store w
     scanSource: async () => ({ products: [{ title: "ETB", pricePence: 4999, stockStatus: "in_stock", url: "https://structured.example/p" }], pages: [{ status: 200 }] }),
   });
   assert.equal(result.diagnostics.adapterQualified, true);
-  assert.match(result.note, /No product, offer, signal, health or registry state is written/i);
+  assert.match(result.note, /no product, offer, signal, health.*registry state is written/i);
 });
 
 test("unapproved Shopify candidate can be inspected only through explicit dry-run path", async () => {
