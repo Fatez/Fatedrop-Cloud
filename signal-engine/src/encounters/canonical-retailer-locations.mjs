@@ -77,6 +77,8 @@ async function readLocationRows(store, limit) {
 
 function locationToShop(location, { origin, availableByRetailer }) {
   const onlineOffers = Number(availableByRetailer?.get(location.retailerId) || 0);
+  const providerAttribution = text(location.openingDetails?.sourceAttribution);
+  const providerSourceUrl = text(location.openingDetails?.sourceUrl);
   return {
     id: location.id,
     itemType: "shop",
@@ -101,7 +103,8 @@ function locationToShop(location, { origin, availableByRetailer }) {
       availableOffers: onlineOffers,
       scope: "online-catalogue-not-branch-stock",
     },
-    sourceAttribution: "FateDrop canonical retailer branch registry",
+    sourceAttribution: providerAttribution || "FateDrop canonical retailer branch registry",
+    sourceUrl: providerSourceUrl,
     distanceMiles: origin ? distanceMiles(origin, location) : null,
     branchUpdatedAt: location.updatedAt,
   };
