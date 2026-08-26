@@ -1,5 +1,11 @@
 import { env } from "../config/env.mjs";
 import { buildLocalRadar, distanceMiles, normalizeEncounterBatch } from "../encounters/local-radar.mjs";
+import {
+  normalizeLocalStockObservationBatch,
+  normalizeRetailerLocationBatch,
+  upsertLocalStockObservationsIntoStore,
+  upsertRetailerLocationsIntoStore,
+} from "../encounters/local-stock-store.mjs";
 import { lookupUkPostcode, lookupUkPostcodes } from "../encounters/postcode.mjs";
 import {
   listEncounterInventoryFromStore,
@@ -91,6 +97,7 @@ function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
     locationResolution:location,
     providers:{
       shops:{provider:"google_places",status:"location_unresolved"},
+      localStock:{provider:"fatedrop_signal_events",status:"location_unresolved"},
       events:{provider:"fatedrop_encounters",status:"location_unresolved"},
     },
     shops:[],events:[],counts:{shops:0,events:0},
@@ -98,6 +105,8 @@ function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
       "The supplied location could not be resolved, so FateDrop did not label any shop or event as nearby.",
       "Discovered shops are location candidates, not FateDrop verification or stock evidence.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
+      "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
+      "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",
     ],
   };
@@ -138,7 +147,12 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     if(location.requested&&!location.origin){
       return json(res,200,emptyRadarResult({types:requestedTypes,tcg,radiusMiles,from,to,location:location.resolution}));
     }
-    const radarStore = { listOffers:(options)=>store.listOffers(options), listEncounters:(options)=>listEncountersFromStore(store,options) };
+    const radarStore = {
+      listOffers:(options)=>store.listOffers(options),
+      listEncounters:(options)=>listEncountersFromStore(store,options),
+      ...(typeof store.listLocalStockObservations==="function"?{listLocalStockObservations:(options)=>store.listLocalStockObservations(options)}:{}),
+      ...(typeof store.pool==="function"?{pool:()=>store.pool()}:{}),
+    };
     const result = await buildLocalRadar({
       store:radarStore,retailers,placesApiKey:env.encounters.googlePlacesApiKey,placesSearch,
       latitude:location.origin?.latitude??null,longitude:location.origin?.longitude??null,postcode:location.resolution?.postcode||url.searchParams.get("postcode")||null,
@@ -148,7 +162,7 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     const response={
       ...result,
       events,
-      counts:{shops:result.shops.length,events:events.length},
+      counts:{...(result.counts||{}),shops:result.shops.length,events:events.length},
       locationResolution:location.resolution,
       disclaimers:[
         ...(result.disclaimers||[]),
@@ -156,6 +170,24 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
       ],
     };
     return json(res,200,response);
+  }
+
+  if(req.method==="POST"&&url.pathname==="/internal/local-radar/locations"){
+    if(!authorized(req))return json(res,401,{error:"Unauthorized"});
+    const body=await readBody(req);
+    const normalized=normalizeRetailerLocationBatch(body.locations||[]);
+    if(!normalized.locations.length)return json(res,400,{error:"No valid retailer locations supplied",received:normalized.received,rejected:normalized.rejected});
+    const persisted=await upsertRetailerLocationsIntoStore(store,normalized.locations);
+    return json(res,200,{success:true,received:normalized.received,accepted:normalized.accepted,rejected:normalized.rejected,persisted});
+  }
+
+  if(req.method==="POST"&&url.pathname==="/internal/local-radar/observations"){
+    if(!authorized(req))return json(res,401,{error:"Unauthorized"});
+    const body=await readBody(req);
+    const normalized=normalizeLocalStockObservationBatch(body.observations||[]);
+    if(!normalized.observations.length)return json(res,400,{error:"No valid local stock observations supplied",received:normalized.received,rejected:normalized.rejected});
+    const persisted=await upsertLocalStockObservationsIntoStore(store,normalized.observations);
+    return json(res,200,{success:true,received:normalized.received,accepted:normalized.accepted,rejected:[...normalized.rejected,...(persisted.rejected||[])],persisted:{saved:persisted.saved||0,duplicates:persisted.duplicates||0}});
   }
 
   if(req.method==="POST"&&url.pathname==="/internal/encounters"){
@@ -196,7 +228,7 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
     if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     if(isFateTraderBinderPath(url.pathname)){await handleFateTraderBinder(req,res,{store});return;}
-    const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
+    const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/local-radar/locations"||url.pathname==="/internal/local-radar/observations"||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
     if(isEncounterRoute){await handleFateEncounters(req,res,{store:liveReadStore,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);
   }catch(error){return json(res,500,{error:"FateDrop route error",detail:process.env.NODE_ENV==="development"?String(error?.message||error):undefined});}});
