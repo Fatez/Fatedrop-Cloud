@@ -49,7 +49,20 @@ test("unlisted routes are not throttled by the application limiter", () => {
   assert.equal(decision.policy, null);
 });
 
-test("forwarded client key uses the final proxy-appended address", () => {
+test("Cloudflare client IP takes precedence over proxy forwarding headers", () => {
+  const req = {
+    method: "GET",
+    headers: {
+      "cf-connecting-ip": "192.0.2.50",
+      "x-real-ip": "203.0.113.50",
+      "x-forwarded-for": "198.51.100.99, 203.0.113.44",
+    },
+    socket: { remoteAddress: "10.0.0.10" },
+  };
+  assert.equal(clientRateLimitKey(req), "ip:192.0.2.50");
+});
+
+test("proxy fallback uses the final appended forwarding address", () => {
   const req = {
     method: "GET",
     headers: { "x-forwarded-for": "198.51.100.99, 203.0.113.44" },
