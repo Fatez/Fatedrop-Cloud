@@ -64,13 +64,16 @@ async function deliverWeb(row) {
 }
 
 export async function dispatchNotificationOutbox(pool, { limit = env.hostedFateFind.outboxBatchSize, now = Math.floor(Date.now()/1000), fetchImpl = fetch } = {}) {
-  const { rows } = await pool.query("SELECT * FROM fatedrop_notification_outbox WHERE state IN ('pending','failed') AND next_attempt_at <= $1 ORDER BY CASE WHEN event_type='fate_match' THEN 0 ELSE 1 END, created_at ASC LIMIT $2", [now, limit]);
+  // Hosted Cloud dispatch owns FateMatch notifications only. Lifecycle push
+  // alerts are endpoint-specific rows owned by the Web canonical-push worker;
+  // claiming them here could fan one per-endpoint row out to every endpoint.
+  const { rows } = await pool.query("SELECT * FROM fatedrop_notification_outbox WHERE event_type='fate_match' AND state IN ('pending','failed') AND next_attempt_at <= $1 ORDER BY created_at ASC LIMIT $2", [now, limit]);
   const summary = { attempted: 0, sent: 0, failed: 0, suppressed: 0 };
   for (const candidate of rows) {
     // Claim each row atomically. If another worker/restarted runtime won the
     // claim after our SELECT, the conditional UPDATE returns no row and this
     // worker must not deliver the notification a second time.
-    const { rows: claimedRows } = await pool.query("UPDATE fatedrop_notification_outbox SET state='sending',attempts=attempts+1,updated_at=$2 WHERE id=$1 AND state IN ('pending','failed') AND next_attempt_at <= $2 RETURNING *", [candidate.id, now]);
+    const { rows: claimedRows } = await pool.query("UPDATE fatedrop_notification_outbox SET state='sending',attempts=attempts+1,updated_at=$2 WHERE id=$1 AND event_type='fate_match' AND state IN ('pending','failed') AND next_attempt_at <= $2 RETURNING *", [candidate.id, now]);
     const row = claimedRows[0];
     if (!row) continue;
     summary.attempted += 1;
