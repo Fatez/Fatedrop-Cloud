@@ -241,6 +241,7 @@ export const retailers = [
     baseUrl: "https://magicmadhouse.co.uk/",
     catalogueUrls: ["https://magicmadhouse.co.uk/pokemon/pokemon-sealed-product"],
     catalogue: {
+      stencilTemplate: "category/product-listing",
       sitemapUrl: "https://magicmadhouse.co.uk/xmlsitemap.php",
       urlInclude: SEALED_PRODUCT,
       runtime: {
