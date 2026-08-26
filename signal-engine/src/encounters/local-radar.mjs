@@ -196,6 +196,7 @@ function retailerNameMatches(placeName, retailer) {
     "entertainer-uk": ["the entertainer", "entertainer"],
     "tesco-uk": ["tesco", "tesco extra", "tesco superstore"],
     "argos-uk": ["argos", "argos in sainsburys", "argos inside sainsburys"],
+    "sainsburys-uk": ["sainsburys", "sainsbury s", "sainsburys superstore"],
   };
   const known = nationalAliases[retailer?.id] || [];
   return known.some((alias) => place === alias || place.startsWith(`${alias} `));
@@ -247,10 +248,18 @@ export async function searchGoogleTcgShops({
   const lng = number(longitude);
   const radius = Math.max(1, Math.min(31, number(radiusMiles) || 25));
   const label = TCG_LABELS[String(tcg || "").toLowerCase()] || null;
+  const pokemonPhysicalRetailerQueries = (!tcg || String(tcg).toLowerCase() === "pokemon") ? [
+    "Pokemon cards Smyths Toys",
+    "Pokemon cards The Entertainer",
+    "Pokemon cards Tesco",
+    "Pokemon cards Argos",
+    "Pokemon cards Sainsburys",
+  ] : [];
   const queries = [...new Set([
     label ? `${label} trading card shop` : "trading card shop",
     label ? `${label} TCG shop` : "TCG shop",
     "collectible card game store",
+    ...pokemonPhysicalRetailerQueries,
   ])];
   const found = new Map();
   for (const query of queries) {
@@ -453,6 +462,8 @@ export async function buildLocalRadar({
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
       "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
       "Smyths branch stock uses the retailer's ordinary public collection availability route only; protected or rate-limited responses fail closed and are not bypassed.",
+      "Curated manual or community intelligence is advisory only: it may create a retailer-wide Incoming Watch, but never verified branch stock without exact official branch evidence.",
+      "Expected stock windows are estimates from their stated evidence and should be checked with the store before travelling.",
       "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",
     ],
