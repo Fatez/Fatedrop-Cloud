@@ -35,9 +35,11 @@ function shopifyPageUrl(feedUrl, page) {
   return url.toString();
 }
 
-export async function scanStructuredCatalogue(retailer) {
+export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = false } = {}) {
   if (!retailer?.catalogue?.feedUrl) throw new Error("Structured catalogue requires an explicit feedUrl");
-  if (retailer.catalogue.feedApproved !== true) throw new Error("Structured catalogue feed must be explicitly approved before monitoring");
+  if (retailer.catalogue.feedApproved !== true && allowUnapprovedFeed !== true) {
+    throw new Error("Structured catalogue feed must be explicitly approved before monitoring");
+  }
 
   if (retailer.adapterType === ADAPTER_TYPES.SHOPIFY) {
     const found = new Map();
