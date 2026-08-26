@@ -101,8 +101,7 @@ export const env = {
     explicitlyConfigured: hostedFateFindExplicitlyConfigured,
     productionDefault: hostedFateFindProductionDefault,
     maxFindsPerRun: Math.max(1, Math.min(10000, int("FATEDROP_HOSTED_FATEFIND_MAX_PER_RUN", 2000))),
-    outboxBatchSize: Math.max(1, Math.min(500, int("FATEDROP_NOTIFICATION_BATCH_SIZE", 100))),
-    expoAccessToken: process.env.EXPO_ACCESS_TOKEN || "",
+    outboxBatchSize: Math.max(1, Math.min(500, int("FATEDROP_NOTIFICATION_BATCH_SIZE", 100)),
   },
   discord: {
     enabled: bool("FATEDROP_DISCORD_ENABLED", discordConfigured),
@@ -131,6 +130,8 @@ export const env = {
     gatheringGames: bool("FATEDROP_RETAILER_GATHERING_GAMES", true),
     zatuGames: bool("FATEDROP_RETAILER_ZATU_GAMES", true),
     tgcCollectables: bool("FATEDROP_RETAILER_TGC_COLLECTABLES", true),
+    travellingManUk: bool("FATEDROP_RETAILER_TRAVELLING_MAN_UK", true),
+    theTcgShopUk: bool("FATEDROP_RETAILER_THE_TCG_SHOP_UK", true),
     amazonUk: bool("FATEDROP_RETAILER_AMAZON_UK", false),
   },
 };
