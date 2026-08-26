@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { runAsdaBranchDensitySync } from "../src/encounters/asda-branch-density-sync.mjs";
+import {
+  discoverAsdaBranchUrlsFast,
+  runAsdaBranchDensitySync,
+} from "../src/encounters/asda-branch-density-sync.mjs";
 
 function createStore(existing = []) {
   const saved = [];
@@ -34,6 +37,43 @@ function parsedLocation(url, index) {
     reason: null,
   };
 }
+
+function htmlResponse(body, status = 200) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async text() { return body; },
+  };
+}
+
+test("fast ASDA discovery walks regions and cities into branch URLs", async () => {
+  const fetchImpl = async (url) => {
+    const target = String(url);
+    if (target === "https://storelocator.asda.com/directory") {
+      return htmlResponse('<a href="/east-of-england">East</a><a href="/scotland">Scotland</a>');
+    }
+    if (target === "https://storelocator.asda.com/east-of-england") {
+      return htmlResponse('<a href="/east-of-england/watford">Watford</a>');
+    }
+    if (target === "https://storelocator.asda.com/scotland") {
+      return htmlResponse('<a href="/scotland/glasgow">Glasgow</a>');
+    }
+    if (target === "https://storelocator.asda.com/east-of-england/watford") {
+      return htmlResponse('<a href="/east-of-england/watford/high-street">ASDA Watford</a>');
+    }
+    if (target === "https://storelocator.asda.com/scotland/glasgow") {
+      return htmlResponse('<a href="/scotland/glasgow/forge-retail-park">ASDA Glasgow</a>');
+    }
+    throw new Error(`Unexpected fetch ${target}`);
+  };
+
+  const rows = await discoverAsdaBranchUrlsFast({ fetchImpl, concurrency: 4 });
+  assert.deepEqual(rows.map((row) => row.url).sort(), [
+    "https://storelocator.asda.com/east-of-england/watford/high-street",
+    "https://storelocator.asda.com/scotland/glasgow/forge-retail-park",
+  ]);
+  assert.equal(rows.every((row) => row.retailerId === "asda-uk" && row.provider === "asda_official_directory"), true);
+});
 
 test("ASDA density sync skips known branches, persists new branches, and keeps stock unknown", async () => {
   const knownUrl = "https://storelocator.asda.com/east/test/existing";
