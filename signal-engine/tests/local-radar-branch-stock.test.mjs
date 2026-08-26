@@ -162,3 +162,67 @@ test("preparation evidence remains an incoming watch and never becomes manifeste
   assert.equal(data.shops[0].localStockStatus, "incoming_watch");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
 });
+
+test("newer contradictory evidence wins over an older in-stock observation", async () => {
+  const now = Date.now();
+  const data = await buildLocalRadar({
+    store: storeWith([
+      {
+        id: "evt-old-in",
+        kind: "local_in_stock",
+        retailerId: "smyths-uk",
+        locationId: "loc-romford",
+        locationName: "Smyths Toys Superstores Romford",
+        occurredAt: now - 10 * 60 * 1000,
+        productIdentityId: "pokemon:test-etb",
+        productTitle: "Test Elite Trainer Box",
+        evidence: { evidenceLevel: "official_branch", confidence: 0.95, sourceType: "retailer_store_availability" },
+      },
+      {
+        id: "evt-new-out",
+        kind: "local_out_of_stock",
+        retailerId: "smyths-uk",
+        locationId: "loc-romford",
+        locationName: "Smyths Toys Superstores Romford",
+        occurredAt: now,
+        productIdentityId: "pokemon:test-etb",
+        productTitle: "Test Elite Trainer Box",
+        evidence: { evidenceLevel: "official_branch", confidence: 0.95, sourceType: "retailer_store_availability" },
+      },
+    ]),
+    retailers,
+    placesSearch,
+    latitude: 51.58,
+    longitude: 0.18,
+    types: ["shops"],
+  });
+
+  assert.equal(data.shops[0].localStockProducts.length, 1, "duplicate observations for one product collapse to one current state");
+  assert.equal(data.shops[0].localStockProducts[0].status, "out_of_stock");
+  assert.equal(data.shops[0].localStockProducts[0].contradictionCount, 1);
+  assert.notEqual(data.shops[0].localStockStatus, "in_stock");
+});
+
+test("official branch availability without canonical product identity cannot become verified stock", async () => {
+  const data = await buildLocalRadar({
+    store: storeWith([{
+      id: "evt-unresolved-product",
+      kind: "local_in_stock",
+      retailerId: "smyths-uk",
+      locationId: "loc-romford",
+      locationName: "Smyths Toys Superstores Romford",
+      occurredAt: Date.now(),
+      productIdentityId: null,
+      productTitle: "Unknown Pokemon Box Name",
+      evidence: { evidenceLevel: "official_branch", confidence: 0.99, sourceType: "retailer_store_availability" },
+    }]),
+    retailers,
+    placesSearch,
+    latitude: 51.58,
+    longitude: 0.18,
+    types: ["shops"],
+  });
+
+  assert.equal(data.shops[0].localStockStatus, "incoming_watch");
+  assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
+});
