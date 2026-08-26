@@ -35,41 +35,48 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Test cheap exact-brand OSM queries
+      - name: Verify Total Cards sources from cloud runner
         run: |
           node --input-type=module <<'NODE'
-          const endpoint = 'https://overpass.private.coffee/api/interpreter';
-          const brands = ['Tesco', 'Argos', 'The Entertainer', 'Smyths Toys Superstores', 'Smyths Toys'];
+          const urls = [
+            'https://totalcards.net/pages/we-buy-any-cards',
+            'https://totalcards.net/products/pokemon-mega-evolution-perfect-order-booster-pack',
+            'https://api.postcodes.io/postcodes/DL5%206BF',
+          ];
           const results = [];
-
-          for (const brand of brands) {
-            const query = `[out:json][timeout:25];area["ISO3166-1"="GB"][boundary=administrative]->.uk;nwr["brand"="${brand}"](area.uk);out center tags;`;
+          for (const url of urls) {
             const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 35000);
-            const started = Date.now();
+            const timer = setTimeout(() => controller.abort(), 15000);
             try {
-              const response = await fetch(endpoint, {
-                method: 'POST',
+              const response = await fetch(url, {
                 redirect: 'follow',
                 signal: controller.signal,
                 headers: {
-                  accept: 'application/json',
-                  'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                  accept: 'text/html,application/json;q=0.9,*/*;q=0.5',
                   'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
                 },
-                body: new URLSearchParams({ data: query }).toString(),
               });
               const body = await response.text();
-              let payload = null;
-              try { payload = JSON.parse(body); } catch {}
-              results.push({ brand, status: response.status, ok: response.ok, elapsedMs: Date.now() - started, bytes: body.length, elementCount: payload?.elements?.length ?? null, sample: (payload?.elements || []).slice(0, 3).map((e) => ({ type: e.type, id: e.id, name: e.tags?.name, postcode: e.tags?.['addr:postcode'] })) });
+              results.push({
+                url,
+                status: response.status,
+                ok: response.ok,
+                finalUrl: response.url,
+                bytes: body.length,
+                hasGamingCentre: /Total Cards Gaming Centre/i.test(body),
+                hasPostcode: /DL5\s*6BF/i.test(body),
+                hasPickupOnly: /Pickup Only/i.test(body),
+                hasAvailableInStore: /Available to buy in-store/i.test(body),
+                hasSoldOut: /Sold out/i.test(body),
+                prefix: body.slice(0, 120).replace(/\s+/g, ' '),
+              });
             } catch (error) {
-              results.push({ brand, elapsedMs: Date.now() - started, error: `${error?.name || ''}: ${error?.message || error}` });
+              results.push({ url, error: `${error?.name || ''}: ${error?.message || error}` });
             } finally {
               clearTimeout(timer);
             }
           }
-          console.log('LOCAL_RADAR_EXACT_BRAND_OVERPASS_DIAGNOSTIC');
+          console.log('LOCAL_RADAR_TOTAL_CARDS_FETCH_DIAGNOSTIC');
           console.log(JSON.stringify(results, null, 2));
           NODE
 
