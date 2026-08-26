@@ -16,6 +16,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   signal-engine:
@@ -53,3 +54,34 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Run collector tests
         run: npm test
+
+  smyths-storefinder-structure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect official public Store Finder structure without bypassing protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -u
+          url='https://www.smythstoys.com/uk/en-gb/storefinder'
+          status="$(curl --silent --show-error --location --max-time 25 --user-agent 'Mozilla/5.0 FateDrop/1.0 (+https://fatedrop.co.uk)' --output page.html --write-out '%{http_code}' "$url" || true)"
+          bytes="$(wc -c < page.html 2>/dev/null | tr -d ' ' || echo 0)"
+          details="$(grep -Eo '/uk/en-gb/storefinder/storedetails/[A-Za-z0-9._~-]+' page.html 2>/dev/null | sort -u | wc -l | tr -d ' ' || true)"
+          postcodes="$(grep -Eo '\b[A-Z]{1,2}[0-9][0-9A-Z]?[[:space:]]?[0-9][A-Z]{2}\b' page.html 2>/dev/null | sort -u | wc -l | tr -d ' ' || true)"
+          latitude="$(grep -Eio 'latitude|data-lat|\"lat\"|lat:' page.html 2>/dev/null | wc -l | tr -d ' ' || true)"
+          longitude="$(grep -Eio 'longitude|data-lng|data-lon|\"lng\"|\"lon\"|lng:|lon:' page.html 2>/dev/null | wc -l | tr -d ' ' || true)"
+          sample="$(grep -Eo '/uk/en-gb/storefinder/storedetails/[A-Za-z0-9._~-]+' page.html 2>/dev/null | sort -u | head -n 3 | paste -sd ',' - | sed 's#/uk/en-gb/storefinder/storedetails/##g' || true)"
+          challenge="$(grep -Eio 'captcha|access denied|challenge-platform|cf-chl|akamai|perimeterx|px-captcha' page.html 2>/dev/null | head -n 1 || true)"
+
+          post_status () {
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+              -f state=success \
+              -f context="smyths-storefinder-probe/$1" \
+              -f description="${2:0:140}" >/dev/null
+          }
+          post_status http "HTTP=${status};bytes=${bytes};challenge=${challenge:-none}"
+          post_status links "storeDetailLinks=${details};sample=${sample:-none}"
+          post_status address "uniquePostcodes=${postcodes}"
+          post_status coords "latTokens=${latitude};lngTokens=${longitude}"
