@@ -20,6 +20,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Probe deployed Local Radar providers
+        run: |
+          set -euo pipefail
+          BASE="https://fatedrop-cloud-production.up.railway.app"
+          BODY="$(curl --fail --silent --show-error --max-time 30 "$BASE/api/local-radar?lat=51.761&lng=-0.010&radiusMiles=25&tcg=pokemon&types=shops")"
+          node -e 'const d=JSON.parse(process.argv[1]); console.log(JSON.stringify({counts:d.counts,providers:d.providers,shopSample:(d.shops||[]).slice(0,5).map(s=>({name:s.name,retailerId:s.retailerId,provider:s.provider,postcode:s.postcode,localStockStatus:s.localStockStatus}))},null,2))' "$BODY"
       - name: Generate official Smyths branch snapshot
         working-directory: signal-engine
         run: node tmp/snapshot-smyths.mjs
