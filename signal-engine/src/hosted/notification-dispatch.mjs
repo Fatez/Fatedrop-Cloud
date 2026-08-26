@@ -7,10 +7,21 @@ const id = (prefix, value) => `${prefix}_${crypto.createHash("sha256").update(va
 
 function retryAt(now, attempts) { return now + Math.min(3600, 30 * (2 ** Math.min(6, attempts))); }
 
+function expoFailure(ticket, payload, status) {
+  const code = String(ticket?.details?.error || "").trim();
+  const message = String(ticket?.message || payload?.errors?.[0]?.message || `expo-http-${status}`).trim();
+  return {
+    terminal: code === "DeviceNotRegistered",
+    detail: code ? `${code}: ${message}` : message,
+  };
+}
+
 async function deliverPush(pool, row, fetchImpl) {
   const { rows: endpoints } = await pool.query("SELECT * FROM fatedrop_push_endpoints WHERE user_id=$1 AND enabled=true ORDER BY updated_at DESC", [row.user_id]);
   if (!endpoints.length) return { sent: false, terminal: true, detail: "no-enabled-push-endpoint" };
   let sent = 0;
+  let terminalFailures = 0;
+  let retryableFailures = 0;
   for (const endpoint of endpoints) {
     const headers = { "content-type": "application/json", accept: "application/json" };
     if (env.hostedFateFind.expoAccessToken) headers.authorization = `Bearer ${env.hostedFateFind.expoAccessToken}`;
@@ -21,11 +32,15 @@ async function deliverPush(pool, row, fetchImpl) {
       sent += 1;
       await pool.query("UPDATE fatedrop_push_endpoints SET last_success_at=$2,failure_reason=NULL WHERE id=$1", [endpoint.id, Math.floor(Date.now()/1000)]);
     } else {
-      const reason = ticket?.message || payload?.errors?.[0]?.message || `expo-http-${response.status}`;
-      await pool.query("UPDATE fatedrop_push_endpoints SET last_failure_at=$2,failure_reason=$3,enabled=CASE WHEN $3 LIKE '%DeviceNotRegistered%' THEN false ELSE enabled END WHERE id=$1", [endpoint.id, Math.floor(Date.now()/1000), String(reason).slice(0,500)]);
+      const failure = expoFailure(ticket, payload, response.status);
+      if (failure.terminal) terminalFailures += 1;
+      else retryableFailures += 1;
+      await pool.query("UPDATE fatedrop_push_endpoints SET last_failure_at=$2,failure_reason=$3,enabled=CASE WHEN $4 THEN false ELSE enabled END WHERE id=$1", [endpoint.id, Math.floor(Date.now()/1000), failure.detail.slice(0,500), failure.terminal]);
     }
   }
-  return sent ? { sent: true, detail: `${sent}-push-endpoint(s)` } : { sent: false, terminal: false, detail: "push-provider-failed" };
+  if (sent) return { sent: true, detail: `${sent}-push-endpoint(s)` };
+  if (terminalFailures > 0 && retryableFailures === 0) return { sent: false, terminal: true, detail: "no-registered-push-endpoint" };
+  return { sent: false, terminal: false, detail: "push-provider-failed" };
 }
 
 async function deliverDiscord(pool, row, fetchImpl) {
@@ -51,16 +66,21 @@ async function deliverWeb(row) {
 export async function dispatchNotificationOutbox(pool, { limit = env.hostedFateFind.outboxBatchSize, now = Math.floor(Date.now()/1000), fetchImpl = fetch } = {}) {
   const { rows } = await pool.query("SELECT * FROM fatedrop_notification_outbox WHERE state IN ('pending','failed') AND next_attempt_at <= $1 ORDER BY CASE WHEN event_type='fate_match' THEN 0 ELSE 1 END, created_at ASC LIMIT $2", [now, limit]);
   const summary = { attempted: 0, sent: 0, failed: 0, suppressed: 0 };
-  for (const row of rows) {
+  for (const candidate of rows) {
+    // Claim each row atomically. If another worker/restarted runtime won the
+    // claim after our SELECT, the conditional UPDATE returns no row and this
+    // worker must not deliver the notification a second time.
+    const { rows: claimedRows } = await pool.query("UPDATE fatedrop_notification_outbox SET state='sending',attempts=attempts+1,updated_at=$2 WHERE id=$1 AND state IN ('pending','failed') AND next_attempt_at <= $2 RETURNING *", [candidate.id, now]);
+    const row = claimedRows[0];
+    if (!row) continue;
     summary.attempted += 1;
-    await pool.query("UPDATE fatedrop_notification_outbox SET state='sending',attempts=attempts+1,updated_at=$2 WHERE id=$1", [row.id, now]);
     let result;
     try {
       result = row.channel === "push" ? await deliverPush(pool,row,fetchImpl) : row.channel === "discord" ? await deliverDiscord(pool,row,fetchImpl) : await deliverWeb(row);
     } catch (error) {
       result = { sent: false, terminal: false, detail: String(error?.message || error) };
     }
-    const attemptId = id("nda", `${row.id}:${now}:${row.attempts + 1}`);
+    const attemptId = id("nda", `${row.id}:${now}:${row.attempts}`);
     await pool.query("INSERT INTO fatedrop_notification_delivery_attempts (id,outbox_id,attempted_at,result,provider_message_id,detail) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING", [attemptId,row.id,now,result.sent?"sent":result.terminal?"suppressed":"failed",result.providerMessageId||null,String(result.detail||"").slice(0,1000)]);
     if (result.sent) {
       summary.sent += 1;
@@ -70,7 +90,7 @@ export async function dispatchNotificationOutbox(pool, { limit = env.hostedFateF
       await pool.query("UPDATE fatedrop_notification_outbox SET state='suppressed',updated_at=$2,last_error=$3 WHERE id=$1", [row.id,now,String(result.detail||"").slice(0,1000)]);
     } else {
       summary.failed += 1;
-      await pool.query("UPDATE fatedrop_notification_outbox SET state='failed',next_attempt_at=$2,updated_at=$3,last_error=$4 WHERE id=$1", [row.id,retryAt(now,row.attempts+1),now,String(result.detail||"").slice(0,1000)]);
+      await pool.query("UPDATE fatedrop_notification_outbox SET state='failed',next_attempt_at=$2,updated_at=$3,last_error=$4 WHERE id=$1", [row.id,retryAt(now,row.attempts),now,String(result.detail||"").slice(0,1000)]);
     }
   }
   return summary;
