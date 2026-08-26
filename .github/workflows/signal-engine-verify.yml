@@ -36,55 +36,55 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - name: Install Signal Engine dependencies
         run: npm ci
-      - name: Diagnose current OSM Overpass fallback
+      - name: Test alternate OSM Overpass instance
         run: |
           node --input-type=module <<'NODE'
           import { buildKnownChainOverpassQuery } from './src/encounters/osm-retailer-branch-sync.mjs';
 
-          const endpoint = 'https://overpass-api.de/api/interpreter';
+          const endpoints = [
+            'https://overpass.private.coffee/api/interpreter',
+          ];
           const smallQuery = `[out:json][timeout:20];(nwr["brand"~"^(Tesco|Argos|The Entertainer|Smyths Toys.*)$",i](around:25000,51.5074,-0.1278);nwr["name"~"^(Tesco|Tesco Extra|Tesco Superstore|Argos.*|The Entertainer.*|Smyths Toys.*)$",i](around:25000,51.5074,-0.1278););out center tags 100;`;
-          const queries = [
+          const tests = [
             ['small_london', smallQuery, 30000],
             ['current_national', buildKnownChainOverpassQuery(), 80000],
           ];
           const results = [];
-
-          for (const [label, query, timeoutMs] of queries) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            const started = Date.now();
-            try {
-              const response = await fetch(endpoint, {
-                method: 'POST',
-                redirect: 'follow',
-                signal: controller.signal,
-                headers: {
-                  accept: 'application/json',
-                  'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                  'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
-                },
-                body: new URLSearchParams({ data: query }).toString(),
-              });
-              const body = await response.text();
-              let elementCount = null;
-              try { elementCount = JSON.parse(body)?.elements?.length ?? null; } catch {}
-              results.push({
-                label,
-                status: response.status,
-                ok: response.ok,
-                elapsedMs: Date.now() - started,
-                contentType: response.headers.get('content-type'),
-                bytes: body.length,
-                elementCount,
-                prefix: body.slice(0, 220).replace(/\s+/g, ' '),
-              });
-            } catch (error) {
-              results.push({ label, elapsedMs: Date.now() - started, error: String(error?.name || '') + ': ' + String(error?.message || error) });
-            } finally {
-              clearTimeout(timer);
+          for (const endpoint of endpoints) {
+            for (const [label, query, timeoutMs] of tests) {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), timeoutMs);
+              const started = Date.now();
+              try {
+                const response = await fetch(endpoint, {
+                  method: 'POST',
+                  redirect: 'follow',
+                  signal: controller.signal,
+                  headers: {
+                    accept: 'application/json',
+                    'content-type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'user-agent': 'FateDrop-LocalRadar/1.0 (+https://fatedrop.co.uk)',
+                  },
+                  body: new URLSearchParams({ data: query }).toString(),
+                });
+                const body = await response.text();
+                let payload = null;
+                try { payload = JSON.parse(body); } catch {}
+                const byRetailerHints = {};
+                for (const element of payload?.elements || []) {
+                  const raw = `${element?.tags?.brand || ''} ${element?.tags?.name || ''}`.toLowerCase();
+                  const key = raw.includes('tesco') ? 'tesco' : raw.includes('argos') ? 'argos' : raw.includes('entertainer') ? 'entertainer' : raw.includes('smyths') ? 'smyths' : 'other';
+                  byRetailerHints[key] = (byRetailerHints[key] || 0) + 1;
+                }
+                results.push({ endpoint, label, status: response.status, ok: response.ok, elapsedMs: Date.now() - started, bytes: body.length, elementCount: payload?.elements?.length ?? null, byRetailerHints, prefix: body.slice(0, 160).replace(/\s+/g, ' ') });
+              } catch (error) {
+                results.push({ endpoint, label, elapsedMs: Date.now() - started, error: String(error?.name || '') + ': ' + String(error?.message || error) });
+              } finally {
+                clearTimeout(timer);
+              }
             }
           }
-          console.log('LOCAL_RADAR_OVERPASS_DIAGNOSTIC');
+          console.log('LOCAL_RADAR_ALTERNATE_OVERPASS_DIAGNOSTIC');
           console.log(JSON.stringify(results, null, 2));
           NODE
 
