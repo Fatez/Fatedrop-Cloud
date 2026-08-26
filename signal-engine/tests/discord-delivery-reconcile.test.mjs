@@ -26,11 +26,18 @@ test("fresh signal with no attempt is recovered after initial delivery grace", (
   assert.equal(discordRecoveryDecision({ signal: signal("manifested", 120), now: NOW }).recover, true);
 });
 
-test("stale live-now signals are never recovered", () => {
-  const manifested = discordRecoveryDecision({ signal: signal("manifested", 301), now: NOW });
-  const echo = discordRecoveryDecision({ signal: signal("echo", 301), now: NOW });
+test("provider-attempted stale live-now signals are never retried outside their strict freshness window", () => {
+  const attemptedAt = NOW - 301;
+  const lastAttempt = { result: "failed", detail: "Discord delivery failed (500)", attemptedAt };
+  const manifested = discordRecoveryDecision({ signal: signal("manifested", 301), lastAttempt, now: NOW });
+  const echo = discordRecoveryDecision({ signal: signal("echo", 301), lastAttempt, now: NOW });
   assert.deepEqual([manifested.recover, manifested.reason], [false, "stale"]);
   assert.deepEqual([echo.recover, echo.reason], [false, "stale"]);
+});
+
+test("never-attempted Echo survives a short process/deploy gap as a durable delivery obligation", () => {
+  const echo = discordRecoveryDecision({ signal: signal("echo", 301), now: NOW });
+  assert.deepEqual([echo.recover, echo.reason], [true, "no_attempt"]);
 });
 
 test("failed delivery can retry only after backoff while signal remains fresh", () => {
