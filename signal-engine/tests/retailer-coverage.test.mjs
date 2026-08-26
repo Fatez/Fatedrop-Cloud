@@ -31,6 +31,20 @@ test("launch retailer coverage has unique priority sources", () => {
   for (const id of priorityIds) assert.ok(ids.includes(id), `missing priority retailer ${id}`);
 });
 
+test("sealed product filters reject obvious merchandise without rejecting sleeved boosters", () => {
+  const totalCards = retailers.find((retailer) => retailer.id === "total-cards");
+  const game = retailers.find((retailer) => retailer.id === "game-uk");
+  assert.ok(totalCards?.exclude);
+  assert.ok(game?.exclude);
+
+  for (const retailer of [totalCards, game]) {
+    assert.equal(retailer.exclude.test("Pokemon TCG Sleeved Booster Pack"), false, retailer.id);
+    assert.equal(retailer.exclude.test("Pokemon Card Sleeves"), true, retailer.id);
+    assert.equal(retailer.exclude.test("Pokemon Sleeping Eevee Blind Box"), true, retailer.id);
+    assert.equal(retailer.exclude.test("Pokemon 3D Fridge Magnet Blind Box"), true, retailer.id);
+  }
+});
+
 test("Shopify catalogue scanner paginates collection feeds", async () => {
   const originalFetch = globalThis.fetch;
   const requested = [];

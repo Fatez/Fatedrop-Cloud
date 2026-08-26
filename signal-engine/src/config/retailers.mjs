@@ -3,7 +3,7 @@ import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } f
 
 const SEALED_POKEMON = /pokemon|pokémon/i;
 const SEALED_PRODUCT = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|tech sticker|mini portfolio|first partner|ultra premium/i;
-const NON_PRODUCT = /\bsingle\b|code card|sleeve|binder only|playmat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
+const NON_PRODUCT = /\bsingle\b|code card|\bsleeves?\b|binder only|play\s?mat|top\s?loader|blind box|fridge magnet|plush|key ?(?:chain|ring)|backpack|rucksack|journal|notebook|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
 
 function shopifyPokemonRetailer({ id, name, enabled, baseUrl, collection, retailerClass = RETAILER_CLASSES.INDEPENDENT, maxPages = 20, delayMs = 900, include = SEALED_PRODUCT, exclude = NON_PRODUCT }) {
   return {
@@ -205,7 +205,7 @@ export const retailers = [
     fetchTimeoutMs: 30_000,
     officialRrpSource: false,
     include: /pokemon/i,
-    exclude: /playmat|deck box|sleeve|binder|accessor/i,
+    exclude: /play\s?mat|deck box|\bsleeves?\b|binder|accessor|blind box|fridge magnet|plush/i,
   },
   {
     id: "argos-uk",
