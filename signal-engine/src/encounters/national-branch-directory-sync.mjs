@@ -6,6 +6,7 @@ import {
 const UK_POSTCODE_RE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
 const DEFAULT_BRANCH_FETCH_LIMIT = 250;
 const DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT = 120;
+const DEFAULT_TOYSHOP_FALLBACK_CONCURRENCY = 8;
 const TOYSHOP_HOST = "www.thetoyshop.com";
 
 export const TOYSHOP_STORE_FALLBACK_SEEDS = Object.freeze([
@@ -178,8 +179,10 @@ export async function crawlToyshopOfficialStoreGraph({
   fetchImpl = fetch,
   seeds = TOYSHOP_STORE_FALLBACK_SEEDS,
   discoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
+  concurrency = DEFAULT_TOYSHOP_FALLBACK_CONCURRENCY,
 } = {}) {
   const maxPages = Math.min(250, Math.max(1, Number(discoveryLimit) || DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT));
+  const maxConcurrency = Math.min(12, Math.max(1, Number(concurrency) || DEFAULT_TOYSHOP_FALLBACK_CONCURRENCY));
   const queue = [];
   const queued = new Set();
   const visited = new Set();
@@ -195,19 +198,27 @@ export async function crawlToyshopOfficialStoreGraph({
   for (const seed of Array.isArray(seeds) ? seeds : []) enqueue(seed);
 
   while (queue.length && visited.size < maxPages) {
-    const url = queue.shift();
-    queued.delete(url);
-    if (!url || visited.has(url)) continue;
-    visited.add(url);
-    let html;
-    try {
-      html = await fetchText(url, { fetchImpl });
-    } catch {
-      continue;
+    const batch = [];
+    while (queue.length && batch.length < maxConcurrency && visited.size < maxPages) {
+      const url = queue.shift();
+      queued.delete(url);
+      if (!url || visited.has(url)) continue;
+      visited.add(url);
+      batch.push(url);
     }
-    const identity = classifyToyshopStore(url);
-    if (identity) rows.set(url, { url, ...identity, html, discoveryProvider: "official_store_graph" });
-    for (const link of extractLinks(html, url)) enqueue(link);
+    const fetched = await Promise.all(batch.map(async (url) => {
+      try {
+        return { url, html: await fetchText(url, { fetchImpl }) };
+      } catch {
+        return { url, html: null };
+      }
+    }));
+    for (const { url, html } of fetched) {
+      if (!html) continue;
+      const identity = classifyToyshopStore(url);
+      if (identity) rows.set(url, { url, ...identity, html, discoveryProvider: "official_store_graph" });
+      for (const link of extractLinks(html, url)) enqueue(link);
+    }
   }
 
   return [...rows.values()];
@@ -217,6 +228,7 @@ export async function discoverToyshopBranchUrls({
   fetchImpl = fetch,
   fallbackSeeds = TOYSHOP_STORE_FALLBACK_SEEDS,
   fallbackDiscoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
+  fallbackConcurrency = DEFAULT_TOYSHOP_FALLBACK_CONCURRENCY,
 } = {}) {
   try {
     const xml = await fetchText("https://www.thetoyshop.com/sitemap/media/Store-en-GBP", { fetchImpl });
@@ -232,6 +244,7 @@ export async function discoverToyshopBranchUrls({
     fetchImpl,
     seeds: fallbackSeeds,
     discoveryLimit: fallbackDiscoveryLimit,
+    concurrency: fallbackConcurrency,
   });
 }
 
@@ -345,12 +358,17 @@ export async function runNationalBranchDirectorySync({
   branchFetchLimit = DEFAULT_BRANCH_FETCH_LIMIT,
   toyshopFallbackSeeds = TOYSHOP_STORE_FALLBACK_SEEDS,
   toyshopFallbackDiscoveryLimit = DEFAULT_TOYSHOP_FALLBACK_DISCOVERY_LIMIT,
+  toyshopFallbackConcurrency = DEFAULT_TOYSHOP_FALLBACK_CONCURRENCY,
 } = {}) {
   if (!store) throw new Error("National branch directory sync requires a store");
   const sourceResults = [];
   const discovered = [];
   for (const [source, discover, options] of [
-    ["toyshop_official_store_directory", discoverToyshopBranchUrls, { fallbackSeeds: toyshopFallbackSeeds, fallbackDiscoveryLimit: toyshopFallbackDiscoveryLimit }],
+    ["toyshop_official_store_directory", discoverToyshopBranchUrls, {
+      fallbackSeeds: toyshopFallbackSeeds,
+      fallbackDiscoveryLimit: toyshopFallbackDiscoveryLimit,
+      fallbackConcurrency: toyshopFallbackConcurrency,
+    }],
     ["asda_official_directory", discoverAsdaBranchUrls, {}],
   ]) {
     try {
