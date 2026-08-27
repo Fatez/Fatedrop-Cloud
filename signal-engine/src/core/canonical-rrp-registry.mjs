@@ -36,10 +36,31 @@ function normalizePokemonSeriesWording(title = "") {
     // Retailers often abbreviate Scarlet & Violet to SV. Restrict this to a
     // standalone prefix so set codes such as SV8 are not silently rewritten.
     .replace(/\bSV\b(?=\s+[A-Za-z])/g, " Scarlet & Violet ")
-    // Asmodee commonly includes the expansion sequence (for example 8.5 or 10)
-    // while retailer titles omit it. The named expansion still carries identity,
-    // so the sequence number is safe to ignore for RRP matching only.
+    // Official catalogues commonly include the expansion sequence while retailer
+    // titles omit it. The named expansion still carries identity, so the sequence
+    // number is safe to ignore for RRP matching only.
     .replace(/\bScarlet\s*(?:&|and)\s*Violet\s+\d{1,2}(?:\.\d+)?\b/gi, " Scarlet & Violet ")
+    .replace(/\bSword\s*(?:&|and)\s*Shield\s+\d{1,2}(?:\.\d+)?\b/gi, " Sword & Shield ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const POKEMON_PRODUCT_FORMAT_START = /^(?:elite trainer box|etb|booster(?:\s+(?:display|box|pack|bundle|cdu))?|build and battle stadium|battle deck|league battle deck|theme deck|collection|tin|blister|checklane|case|carton|portfolio|playmat)\b/i;
+
+function omitPokemonEraPrefixWhenNamedExpansion(title = "") {
+  return String(title || "")
+    .replace(/\b(?:Scarlet\s*(?:&|and)\s*Violet|Sword\s*(?:&|and)\s*Shield)\b/gi, (era, offset, whole) => {
+      const tail = String(whole || "")
+        .slice(Number(offset) + era.length)
+        .replace(/^[\s:–—-]+/, "")
+        .trimStart();
+
+      // The era name is itself the set identity for base-set products. Strip it
+      // only when a distinct named expansion follows it; never when the next
+      // token is merely the consumer product format.
+      if (!tail || POKEMON_PRODUCT_FORMAT_START.test(tail)) return era;
+      return " ";
+    })
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -55,9 +76,9 @@ function normalizeRrpAliasInput(input = {}) {
   let normalized = { ...source, title };
   if (tcg === "pokemon") {
     normalized = normalizeThreePackPromoBlister(normalized, normalized.title);
-    normalized.title = normalizePokemonSeriesWording(String(normalized.title || "")
+    normalized.title = omitPokemonEraPrefixWhenNamedExpansion(normalizePokemonSeriesWording(String(normalized.title || "")
       .replace(/\bSWSH\b/gi, " Sword & Shield ")
-      .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box "));
+      .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")));
   }
 
   // Retailers frequently publish the same Pokemon expansion using a set code or
