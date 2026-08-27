@@ -1,6 +1,7 @@
 import { loadSignalHealthSummary } from './signal-health-summary.mjs';
 
 const PUBLIC_SIGNAL_STATES = ['whisper', 'echo', 'manifested', 'vanished'];
+export const PUBLIC_SIGNAL_CONTRACT_VERSION = 1;
 
 function json(res, status, body) {
   res.writeHead(status, {
@@ -164,6 +165,7 @@ export async function handlePublicSignals(req, res, { store } = {}) {
   const signals = await listCanonicalPublicSignals(store, { states, since, limit });
   return json(res, 200, {
     success: true,
+    contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION,
     source: 'FATEDROP_CLOUD',
     count: signals.length,
     generatedAt: new Date().toISOString(),
@@ -199,6 +201,7 @@ export async function handlePublicSignalSummary(req, res, { store } = {}) {
     return json(res, 200, {
       success: false,
       available: false,
+      contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION,
       source: 'FATEDROP_CLOUD',
       generatedAt: new Date().toISOString(),
     });
@@ -206,6 +209,7 @@ export async function handlePublicSignalSummary(req, res, { store } = {}) {
   return json(res, 200, {
     success: true,
     available: true,
+    contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION,
     source: 'FATEDROP_CLOUD',
     generatedAt: new Date(Number(summary.generatedAt) * 1000).toISOString(),
     days: summary.days,
