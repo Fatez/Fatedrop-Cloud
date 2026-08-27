@@ -3,9 +3,10 @@ import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs
 import { rrpAliasSignature, rrpLearningId } from "./rrp-learning.mjs";
 import { recordVerifiedRrpAlias } from "../stores/rrp-learning-store.mjs";
 
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 250;
 const ESCALATION_OCCURRENCES = 10;
-const RECONCILER_RULES_VERSION = "rrp-self-heal-v2";
+const AUTHORITY_GRAPH_LIMIT = 20000;
+const RECONCILER_RULES_VERSION = "rrp-self-heal-v3";
 
 function unique(values = []) { return [...new Set(values.filter(Boolean))]; }
 function conflictReason(reason = "") { return /conflict/i.test(String(reason)); }
@@ -93,7 +94,10 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   }
   const pool = await store.pool();
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-  const products = await store.listProducts({ limit: 5000 });
+  // RRP authority is global catalogue truth. Do not truncate the resolver context to
+  // the historical 5k product window; otherwise valid authority can exist in Neon
+  // but remain invisible to self-healing.
+  const products = await store.listProducts({ limit: AUTHORITY_GRAPH_LIMIT });
   const context = buildRrpValueContext(products);
   const fingerprint = authorityFingerprint(products);
 
@@ -142,6 +146,9 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
     }, context);
     const matchedProductIds = unique(result?.matchedProductIds || []);
 
+    // Only exact official identity matches are persisted as official RRP. Pack and
+    // component references remain useful at render/evaluation time but are never
+    // promoted into product-level official RRP truth by self-healing.
     if (result?.resolved && result.kind === "official" && matchedProductIds.length === 1) {
       const aliasSignature = rrpAliasSignature({ tcg: row.tcg || "pokemon", title: row.observed_title, productType: row.product_type || null });
       await recordVerifiedRrpAlias(pool, {
@@ -149,11 +156,15 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
         tcg: row.tcg || "pokemon",
         aliasSignature,
         observedTitle: row.observed_title,
+        observedProductId: row.product_id || null,
         productType: row.product_type || null,
         canonicalProductIdentityId: matchedProductIds[0],
         resolutionKind: "verified_wording",
         confidence: 1,
         source: result.rrpSource || "rrp-learning-reconciler",
+        officialRrpPence: result.rrpPence,
+        rrpSource: result.rrpSource || "rrp-learning-reconciler",
+        rrpObservedAt: result.rrpObservedAt || now,
         verifiedAt: now,
         retailerId: row.retailer_id,
         evidence: {
@@ -161,6 +172,7 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
           reference_basis: result.referenceBasis || null,
           rrp_pence: result.rrpPence,
           queue_id: row.id,
+          observed_product_id: row.product_id || null,
           authority_fingerprint: fingerprint,
           reconciler_rules_version: RECONCILER_RULES_VERSION,
         },
@@ -191,6 +203,8 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
     conflicts,
     escalated,
     deferred,
+    authorityProducts: context.registry?.authoritativeProducts || 0,
+    authorityGraphProducts: products.length,
     remaining: Number(countRows[0]?.remaining || 0),
   };
 }
