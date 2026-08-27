@@ -10,7 +10,12 @@ function cleanKey(value) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
 
-const TRUSTED_RRP_KINDS = new Set(["official", "component_reference", "pack_reference"]);
+const TRUSTED_UK_RRP_KINDS = new Set(["official", "component_reference", "pack_reference"]);
+const TRUSTED_SOURCE_MARKET_REFERENCE_KINDS = new Set(["source_market_msrp", "source_market_component_reference"]);
+const TRUSTED_COMPARISON_REFERENCE_KINDS = new Set([
+  ...TRUSTED_UK_RRP_KINDS,
+  ...TRUSTED_SOURCE_MARKET_REFERENCE_KINDS,
+]);
 
 export const FateComparisonMode = Object.freeze({
   LIKE_FOR_LIKE: "like_for_like",
@@ -57,7 +62,7 @@ function sameVerifiedMixedReferenceRelease(leftGroup, rightGroup) {
 
   const leftKind = cleanKey(leftReference.kind);
   const rightKind = cleanKey(rightReference.kind);
-  if (!TRUSTED_RRP_KINDS.has(leftKind) || !TRUSTED_RRP_KINDS.has(rightKind)) return false;
+  if (!TRUSTED_UK_RRP_KINDS.has(leftKind) || !TRUSTED_UK_RRP_KINDS.has(rightKind)) return false;
 
   // Keep the existing family fallback for legacy unit/family semantics only.
   // Normalized own-RRP eligibility is decided separately and never rewrites
@@ -144,10 +149,24 @@ export function hasResolvedProductIdentity(group) {
   return Boolean(identity && canonicalProductId && configurationId);
 }
 
+// UK RRP/reference eligibility remains deliberately narrow. This is the gate used
+// for cross-family normalized comparisons where every product must be judged
+// against its own trustworthy UK baseline.
 export function trustedRrpEvidence(group) {
   if (!hasResolvedProductIdentity(group)) return null;
   const reference = rrpEvidence(group);
-  if (!reference || !TRUSTED_RRP_KINDS.has(cleanKey(reference.kind))) return null;
+  if (!reference || !TRUSTED_UK_RRP_KINDS.has(cleanKey(reference.kind))) return null;
+  return reference;
+}
+
+// Same-family source-market products (for example a Japanese pack and its 30-pack
+// box) may still use their verified native MSRP reference, converted to GBP by the
+// authority layer. This does not make that reference a UK RRP and does not make it
+// eligible for arbitrary cross-family UK value ranking.
+function trustedComparisonReferenceEvidence(group) {
+  if (!hasResolvedProductIdentity(group)) return null;
+  const reference = rrpEvidence(group);
+  if (!reference || !TRUSTED_COMPARISON_REFERENCE_KINDS.has(cleanKey(reference.kind))) return null;
   return reference;
 }
 
@@ -175,10 +194,11 @@ export function sameComparableFamily(leftGroup, rightGroup) {
 }
 
 function rrpComparisonMode(leftGroup, rightGroup) {
-  if (!trustedRrpEvidence(leftGroup) || !trustedRrpEvidence(rightGroup)) return null;
-  return sameExactProductIdentity(leftGroup, rightGroup)
-    ? FateComparisonMode.LIKE_FOR_LIKE
-    : FateComparisonMode.NORMALIZED_OWN_RRP;
+  if (!trustedComparisonReferenceEvidence(leftGroup) || !trustedComparisonReferenceEvidence(rightGroup)) return null;
+  if (sameExactProductIdentity(leftGroup, rightGroup)) return FateComparisonMode.LIKE_FOR_LIKE;
+  if (sameComparableFamily(leftGroup, rightGroup)) return FateComparisonMode.NORMALIZED_OWN_RRP;
+  if (trustedRrpEvidence(leftGroup) && trustedRrpEvidence(rightGroup)) return FateComparisonMode.NORMALIZED_OWN_RRP;
+  return null;
 }
 
 export function valuePosition(group) {
@@ -190,7 +210,7 @@ export function valuePosition(group) {
     ? offer.totalDeliveredGbp
     : null;
   const reference = rrpEvidence(group);
-  const trustedReference = trustedRrpEvidence(group);
+  const trustedReference = trustedComparisonReferenceEvidence(group);
   const rrpGbp = reference?.rrpGbp ?? null;
   const rrpPercent = itemPrice !== null && trustedReference
     ? ((itemPrice - trustedReference.rrpGbp) / trustedReference.rrpGbp) * 100
@@ -240,7 +260,7 @@ function rrpWinnerReason(winner, comparisonMode) {
   if (comparisonMode === FateComparisonMode.LIKE_FOR_LIKE) {
     return `${winner.title} has the better value position versus the verified RRP/reference baseline in a like-for-like identity comparison.`;
   }
-  return `${winner.title} is closer to its own verified RRP/reference baseline. This is a normalized % vs own RRP comparison, not a like-for-like product comparison.`;
+  return `${winner.title} is closer to its own verified RRP/reference baseline. This is a normalized % vs own RRP/reference comparison, not a like-for-like product comparison.`;
 }
 
 export function compareGroups(leftGroup, rightGroup) {
@@ -271,7 +291,7 @@ export function compareGroups(leftGroup, rightGroup) {
 
   if (leftHasTrustedRrp || rightHasTrustedRrp) {
     if (!leftHasTrustedRrp || !rightHasTrustedRrp || !comparisonMode) {
-      return noWinner(left, right, FateVerdictReason.NO_VERIFIED_REFERENCE, "FateDrop needs trustworthy verified RRP/reference evidence for both product identities before declaring an RRP-based winner.");
+      return noWinner(left, right, FateVerdictReason.NO_VERIFIED_REFERENCE, "FateDrop needs trustworthy verified RRP/reference evidence in a compatible comparison scope before declaring a reference-based winner.");
     }
 
     const gap = Math.abs(left.rrpPercent - right.rrpPercent);
@@ -304,25 +324,25 @@ export function compareGroups(leftGroup, rightGroup) {
         basis: "rrp_percent",
         gap: 0,
         reasonCode: FateVerdictReason.WINNER_RRP_PERCENT,
-        reason: `${winner.title} matches the RRP value position and has the lower known True Price in a like-for-like identity comparison.`,
+        reason: `${winner.title} matches the RRP/reference value position and has the lower known True Price in a like-for-like identity comparison.`,
         comparisonMode,
       };
     }
 
     const tiedReason = comparisonMode === FateComparisonMode.NORMALIZED_OWN_RRP
       ? "These unlike product identities are tied on normalized % vs their own verified RRP/reference baselines; absolute checkout price is not a safe cross-product tie-break."
-      : "These like-for-like candidates currently have the same verified RRP value position and no trustworthy known True Price tie-break.";
+      : "These like-for-like candidates currently have the same verified RRP/reference value position and no trustworthy known True Price tie-break.";
     return noWinner(left, right, FateVerdictReason.TIED_EVIDENCE, tiedReason, comparisonMode);
   }
 
-  // A claimed-but-conflicting, imported or otherwise untrusted reference cannot
-  // silently fall through into another winner path. Unknown stays unknown.
+  // A claimed-but-conflicting or otherwise untrusted reference cannot silently
+  // fall through into another winner path. Unknown stays unknown.
   if (hasRrpReferenceClaim(leftGroup) || hasRrpReferenceClaim(rightGroup)) {
-    return noWinner(left, right, FateVerdictReason.NO_VERIFIED_REFERENCE, "FateDrop found RRP/reference evidence that is not eligible for this UK value comparison, so it will not declare a winner.");
+    return noWinner(left, right, FateVerdictReason.NO_VERIFIED_REFERENCE, "FateDrop found RRP/reference evidence that is not eligible for this comparison scope, so it will not declare a winner.");
   }
 
   if (!sameComparableFamily(leftGroup, rightGroup)) {
-    return noWinner(left, right, FateVerdictReason.CONFIGURATION_NOT_COMPARABLE, "FateDrop could not verify a shared canonical value family and neither product has its own trustworthy verified RRP/reference for normalized comparison.");
+    return noWinner(left, right, FateVerdictReason.CONFIGURATION_NOT_COMPARABLE, "FateDrop could not verify a shared canonical value family and neither product has its own trustworthy verified UK RRP/reference for normalized cross-family comparison.");
   }
 
   const safeUnitComparison = left.unitCost !== null
@@ -400,13 +420,16 @@ export function rankGroups(groups) {
 
   const allSameFamily = positioned.length <= 1
     || positioned.every((entry) => sameComparableFamily(positioned[0].group, entry.group));
-  const referencedEntries = positioned.filter((entry) => entry.position.rrpPercent !== null);
-  const unreferencedEntries = positioned.filter((entry) => entry.position.rrpPercent === null);
+  const comparisonReferencedEntries = positioned.filter((entry) => entry.position.rrpPercent !== null);
+  const referencedEntries = allSameFamily
+    ? comparisonReferencedEntries
+    : comparisonReferencedEntries.filter((entry) => Boolean(trustedRrpEvidence(entry.group)));
+  const unreferencedEntries = positioned.filter((entry) => !referencedEntries.includes(entry));
 
-  // Two or more safely-resolved products with trusted own-RRP evidence can always
-  // be ranked by the dimensionless % vs each product's own baseline. This does not
-  // merge identities or families; the mode explicitly tells consumers it is a
-  // normalized cross-product comparison.
+  // Same-family products may rank against any trusted reference appropriate to
+  // that canonical family, including a verified source-market MSRP family. Mixed
+  // families may normalize only against trustworthy UK RRP/reference evidence.
+  // In both cases identities stay distinct and comparison mode remains explicit.
   if (referencedEntries.length >= 2 || (referencedEntries.length === 1 && allSameFamily)) {
     const comparisonMode = rankingComparisonMode(referencedEntries);
     const allowTruePriceTieBreak = comparisonMode === FateComparisonMode.LIKE_FOR_LIKE;
@@ -419,14 +442,14 @@ export function rankGroups(groups) {
     const unresolvedCount = unreferencedEntries.length;
     const ranking = [...referencedRanking, ...unreferencedEntries.map((entry) => entry.position)];
     const exclusion = unresolvedCount
-      ? ` ${unresolvedCount} candidate${unresolvedCount === 1 ? " remains" : "s remain"} outside the value ranking because its identity/reference evidence is unavailable or not eligible.`
+      ? ` ${unresolvedCount} candidate${unresolvedCount === 1 ? " remains" : "s remain"} outside the value ranking because its identity/reference evidence is unavailable or not eligible for this comparison scope.`
       : "";
 
     let reason;
     if (tied) {
       reason = comparisonMode === FateComparisonMode.NORMALIZED_OWN_RRP
         ? `The leading unlike products are tied on normalized % vs their own verified RRP/reference baselines; absolute checkout price is not used as a cross-product tie-break.${exclusion}`
-        : `The leading like-for-like candidates are tied on verified RRP value position and available True Price evidence.${exclusion}`;
+        : `The leading like-for-like candidates are tied on verified RRP/reference value position and available True Price evidence.${exclusion}`;
     } else if (comparisonMode === FateComparisonMode.NORMALIZED_OWN_RRP) {
       reason = `${winner.title} has the strongest normalized % vs own verified RRP/reference position. Unlike product identities remain distinct and are not being treated as like-for-like.${exclusion}`;
     } else if (comparisonMode === FateComparisonMode.LIKE_FOR_LIKE) {
@@ -451,7 +474,7 @@ export function rankGroups(groups) {
       winnerId: null,
       basis: null,
       reasonCode: FateVerdictReason.CONFIGURATION_NOT_COMPARABLE,
-      reason: "FateDrop found mixed product value families without at least two identity-safe products carrying trustworthy own-RRP/reference evidence, so it will not declare a cross-product winner.",
+      reason: "FateDrop found mixed product value families without at least two identity-safe products carrying trustworthy UK own-RRP/reference evidence, so it will not declare a cross-product winner.",
       comparisonMode: null,
       provisional,
       ranking: positions,
@@ -475,7 +498,7 @@ export function rankGroups(groups) {
       winnerId: null,
       basis: null,
       reasonCode: FateVerdictReason.NO_VERIFIED_REFERENCE,
-      reason: "FateDrop found RRP/reference evidence that is conflicting, imported or otherwise not eligible for this UK value ranking.",
+      reason: "FateDrop found RRP/reference evidence that is conflicting or otherwise not eligible for this value ranking.",
       comparisonMode: null,
       provisional,
       ranking: positions,
