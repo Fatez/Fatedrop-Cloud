@@ -227,6 +227,24 @@ export function compareGroups(leftGroup, rightGroup) {
   return noWinner(left, right, FateVerdictReason.NO_VERIFIED_REFERENCE, "FateDrop needs comparable verified RRP/reference or unit evidence before declaring a winner.");
 }
 
+function sortRrpPositions(positions) {
+  return [...positions].sort((a, b) => {
+    const gap = a.rrpPercent - b.rrpPercent;
+    if (Math.abs(gap) > 1e-9) return gap;
+    if (a.truePrice !== null && b.truePrice !== null && a.truePrice !== b.truePrice) return a.truePrice - b.truePrice;
+    if (a.deliveryKnown !== b.deliveryKnown) return a.deliveryKnown ? -1 : 1;
+    return 0;
+  });
+}
+
+function rrpLeadersTied(ranking) {
+  const winner = ranking[0];
+  const runnerUp = ranking[1];
+  return Boolean(winner && runnerUp
+    && Math.abs(winner.rrpPercent - runnerUp.rrpPercent) <= 1e-9
+    && (winner.truePrice === null || runnerUp.truePrice === null || Math.abs(winner.truePrice - runnerUp.truePrice) <= 1e-9));
+}
+
 export function rankGroups(groups) {
   const source = Array.isArray(groups) ? groups : [];
   const positioned = source.map((group) => ({ group, position: valuePosition(group) })).filter((entry) => entry.position);
@@ -255,32 +273,35 @@ export function rankGroups(groups) {
     };
   }
 
-  const allHaveRrp = positions.every((item) => item.rrpPercent !== null);
-  const noneHaveRrp = positions.every((item) => item.rrpPercent === null);
+  const referenced = positions.filter((item) => item.rrpPercent !== null);
+  const unreferenced = positions.filter((item) => item.rrpPercent === null);
+  const allHaveRrp = referenced.length === positions.length;
+  const noneHaveRrp = referenced.length === 0;
+
+  // Missing RRP/reference evidence never becomes an accidental value advantage.
+  // Reference-backed candidates remain rankable against the canonical baseline;
+  // unresolved candidates stay visible but are appended outside that ranking.
   if (!allHaveRrp && !noneHaveRrp) {
+    const referencedRanking = sortRrpPositions(referenced);
+    const winner = referencedRanking[0];
+    const tied = rrpLeadersTied(referencedRanking);
+    const unresolvedCount = unreferenced.length;
     return {
-      winnerId: null,
-      basis: null,
-      reasonCode: FateVerdictReason.NO_VERIFIED_REFERENCE,
-      reason: "FateDrop needs verified RRP/reference evidence for every comparable candidate before declaring a winner.",
+      winnerId: tied ? null : winner.groupId,
+      basis: "rrp_percent",
+      reasonCode: tied ? FateVerdictReason.TIED_EVIDENCE : FateVerdictReason.WINNER_RRP_PERCENT,
+      reason: tied
+        ? `The leading reference-backed candidates are tied. ${unresolvedCount} comparable candidate${unresolvedCount === 1 ? " remains" : "s remain"} outside the value ranking because verified RRP/reference evidence is unavailable.`
+        : `${winner.title} has the strongest verified RRP/reference value position. ${unresolvedCount} comparable candidate${unresolvedCount === 1 ? " remains" : "s remain"} outside the value ranking because verified RRP/reference evidence is unavailable.`,
       provisional,
-      ranking: positions,
+      ranking: [...referencedRanking, ...unreferenced],
     };
   }
 
   if (allHaveRrp) {
-    const ranking = [...positions].sort((a, b) => {
-      const gap = a.rrpPercent - b.rrpPercent;
-      if (Math.abs(gap) > 1e-9) return gap;
-      if (a.truePrice !== null && b.truePrice !== null && a.truePrice !== b.truePrice) return a.truePrice - b.truePrice;
-      if (a.deliveryKnown !== b.deliveryKnown) return a.deliveryKnown ? -1 : 1;
-      return 0;
-    });
+    const ranking = sortRrpPositions(positions);
     const winner = ranking[0];
-    const runnerUp = ranking[1];
-    const tied = Boolean(runnerUp
-      && Math.abs(winner.rrpPercent - runnerUp.rrpPercent) <= 1e-9
-      && (winner.truePrice === null || runnerUp.truePrice === null || Math.abs(winner.truePrice - runnerUp.truePrice) <= 1e-9));
+    const tied = rrpLeadersTied(ranking);
 
     return {
       winnerId: tied ? null : winner.groupId,
