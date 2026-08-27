@@ -69,6 +69,25 @@ test("known launch retailers can expose physical presence without inventing stor
   assert.equal(magic?.physicalLocations, null);
 });
 
+test("canonical branch counts override weaker runtime physical-presence metadata", () => {
+  const [profile] = buildPublicRetailerDirectory({
+    retailers: [{
+      id: "physical-indie",
+      name: "Physical Indie",
+      baseUrl: "https://physical.example",
+      retailerClass: "independent",
+      online: true,
+      physicalStores: false,
+      physicalLocations: 0,
+    }],
+    locationCounts: new Map([["physical-indie", 2]]),
+  });
+  assert.equal(profile.online, true);
+  assert.equal(profile.physicalStores, true);
+  assert.equal(profile.physicalLocations, 2);
+  assert.equal("stockStatus" in profile, false);
+});
+
 test("directory is alphabetical and does not rank retailer classes", () => {
   const profiles = buildPublicRetailerDirectory({ retailers: [
     { id: "national", name: "Zulu National", baseUrl: "https://national.example", retailerClass: "national" },

@@ -6,7 +6,7 @@ import { scanAll, scanRetailer } from "./core/engine.mjs";
 import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
-import { listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
+import { countCanonicalRetailerLocations, listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
 import { runHostedFateFindCycle } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
@@ -142,9 +142,12 @@ server.on("request", async (req, res) => {
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/retailers") {
-      const healthRows = await store.listRetailers();
+      const [healthRows, locationCounts] = await Promise.all([
+        store.listRetailers(),
+        countCanonicalRetailerLocations(store, { retailerIds: retailers.map((retailer) => retailer.id) }),
+      ]);
       const requestedClass = String(url.searchParams.get("class") || "").trim().toLowerCase();
-      const directory = buildPublicRetailerDirectory({ retailers, healthRows });
+      const directory = buildPublicRetailerDirectory({ retailers, healthRows, locationCounts });
       const filtered = requestedClass
         ? directory.filter((retailer) => String(retailer.retailerClass).toLowerCase() === requestedClass)
         : directory;
@@ -156,7 +159,7 @@ server.on("request", async (req, res) => {
       res.end(JSON.stringify({
         success: true,
         retailers: filtered,
-        disclaimer: "Monitor health describes FateDrop evidence freshness and is not proof that a retailer currently has stock.",
+        disclaimer: "Monitor health describes FateDrop evidence freshness and is not proof that a retailer currently has stock. Physical presence is derived from canonical branch identity only.",
       }));
       return;
     }

@@ -59,10 +59,22 @@ function directoryEntry(retailer, health) {
   };
 }
 
-export function buildPublicRetailerDirectory({ retailers = [], healthRows = [] } = {}) {
+function canonicalLocationCount(locationCounts, retailerId) {
+  if (locationCounts instanceof Map) return Number(locationCounts.get(retailerId) || 0);
+  if (locationCounts && typeof locationCounts === "object") return Number(locationCounts[retailerId] || 0);
+  return 0;
+}
+
+export function buildPublicRetailerDirectory({ retailers = [], healthRows = [], locationCounts = new Map() } = {}) {
   const healthById = new Map((healthRows || []).map((health) => [health.id, health]));
   return (retailers || [])
-    .map((retailer) => directoryEntry(retailer, healthById.get(retailer.id) || null))
+    .map((retailer) => {
+      const entry = directoryEntry(retailer, healthById.get(retailer.id) || null);
+      const count = canonicalLocationCount(locationCounts, retailer.id);
+      return count > 0
+        ? { ...entry, physicalStores: true, physicalLocations: count }
+        : entry;
+    })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
 

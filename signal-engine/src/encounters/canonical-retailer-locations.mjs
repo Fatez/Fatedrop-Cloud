@@ -88,6 +88,33 @@ export async function listCanonicalRetailerLocations(store, {
     .filter((location) => !wanted.size || wanted.has(location.retailerId));
 }
 
+export async function countCanonicalRetailerLocations(store, {
+  retailerIds = [],
+  limit = 20000,
+} = {}) {
+  const wanted = [...new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean))];
+  if (typeof store?.pool === "function") {
+    const pool = await store.pool();
+    const params = [];
+    const where = wanted.length ? "WHERE retailer_id = ANY($1::text[])" : "";
+    if (wanted.length) params.push(wanted);
+    const { rows } = await pool.query(`
+      SELECT retailer_id,COUNT(*)::int AS location_count
+      FROM fatedrop_retailer_locations
+      ${where}
+      GROUP BY retailer_id
+    `, params);
+    return new Map(rows.map((row) => [String(row.retailer_id), Number(row.location_count) || 0]));
+  }
+
+  const locations = await listCanonicalRetailerLocations(store, { retailerIds: wanted, limit });
+  const counts = new Map();
+  for (const location of locations) {
+    counts.set(location.retailerId, Number(counts.get(location.retailerId) || 0) + 1);
+  }
+  return counts;
+}
+
 function locationToShop(location, { origin, availableByRetailer }) {
   const onlineOffers = Number(availableByRetailer?.get(location.retailerId) || 0);
   const providerAttribution = text(location.openingDetails?.sourceAttribution);
