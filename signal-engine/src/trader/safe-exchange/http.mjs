@@ -118,7 +118,7 @@ export async function handleFateTraderSafeExchange(req,res,{
     if(error?.code==='FTR01'){
       fail(res,409,'COMMITMENT_RESERVED','One or more committed card quantities are already reserved by another active Safe Exchange.');return true;
     }
-    if(error?.code==='FTR02'){
+    if(['FTR02','FTR04'].includes(error?.code)){
       fail(res,409,'COMMITMENT_STALE','One or more committed collection items are no longer available to this exchange.');return true;
     }
     if(['PARTY_NOT_FOUND','COMMITMENT_NOT_OWNED','COMMITMENT_CARD_MISMATCH','COMMITMENT_QUANTITY_UNAVAILABLE','HUB_NOT_APPROVED','HUB_LOCATION_NOT_VERIFIED'].includes(error?.code)){
