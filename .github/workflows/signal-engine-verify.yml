@@ -94,3 +94,75 @@ jobs:
           status="$(curl --silent --show-error --output /tmp/signal-health.json --write-out '%{http_code}' \
             "$BASE/api/signal-health")"
           test "$status" = "401" || { echo "expected /api/signal-health anonymous 401, got $status"; cat /tmp/signal-health.json; exit 1; }
+
+  web-production-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify deployed Web dashboard and App gateway routes
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://fatedrop.co.uk"
+          EMAIL="p0-smoke-20260827-0256@fatedrop.invalid"
+          PASSWORD="P0-$(openssl rand -hex 18)-Aa9!"
+          export EMAIL PASSWORD
+
+          node -e '
+            const fs = require("fs");
+            fs.writeFileSync("/tmp/register.json", JSON.stringify({
+              displayName: "P0 Smoke",
+              email: process.env.EMAIL,
+              password: process.env.PASSWORD,
+            }));
+          '
+
+          register_status="$(curl --silent --show-error --location \
+            --cookie-jar /tmp/cookies.txt --cookie /tmp/cookies.txt \
+            -H "Origin: $BASE" -H "Content-Type: application/json" \
+            --data-binary @/tmp/register.json \
+            --output /tmp/register-response.json --write-out '%{http_code}' \
+            "$BASE/api/auth/register")"
+          test "$register_status" = "201" || { echo "register expected 201, got $register_status"; cat /tmp/register-response.json; exit 1; }
+
+          signals_status="$(curl --silent --show-error --location \
+            --cookie /tmp/cookies.txt --cookie-jar /tmp/cookies.txt \
+            --output /tmp/dashboard-signals.json --write-out '%{http_code}' \
+            "$BASE/api/dashboard/signals")"
+          test "$signals_status" = "200" || { echo "dashboard signals expected 200, got $signals_status"; cat /tmp/dashboard-signals.json; exit 1; }
+          node -e '
+            const fs = require("fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/dashboard-signals.json", "utf8"));
+            if (body.available !== true) throw new Error(`dashboard signal ledger unavailable: ${JSON.stringify(body)}`);
+            if (body.source !== "FateDrop signal ledger") throw new Error(`unexpected dashboard signal source=${body.source}`);
+            if (!Array.isArray(body.signals)) throw new Error("dashboard signals is not an array");
+          '
+
+          dashboard_status="$(curl --silent --show-error --location \
+            --cookie /tmp/cookies.txt --cookie-jar /tmp/cookies.txt \
+            --output /tmp/dashboard.html --write-out '%{http_code}' \
+            "$BASE/dashboard")"
+          test "$dashboard_status" = "200" || { echo "dashboard expected 200, got $dashboard_status"; exit 1; }
+          grep -q "Signals Overview" /tmp/dashboard.html || { echo "dashboard missing Signals Overview"; exit 1; }
+          if grep -q "Signal ledger unavailable" /tmp/dashboard.html; then echo "dashboard still reports Signal ledger unavailable"; exit 1; fi
+          if grep -q "Alert delivery ledger unavailable" /tmp/dashboard.html; then echo "dashboard still reports Alert delivery ledger unavailable"; exit 1; fi
+
+          for path in \
+            "/api/mobile/session" \
+            "/api/mobile/alerts" \
+            "/api/trader/cards?q=Furret&limit=1" \
+            "/dashboard/trader" \
+            "/dashboard/stores" \
+            "/dashboard/local-radar"; do
+            safe_name="$(printf '%s' "$path" | tr '/?=&' '_____')"
+            status="$(curl --silent --show-error --location \
+              --cookie /tmp/cookies.txt --cookie-jar /tmp/cookies.txt \
+              --output "/tmp/${safe_name}.out" --write-out '%{http_code}' \
+              "$BASE$path")"
+            case "$status" in
+              2??) ;;
+              *) echo "$path expected 2xx, got $status"; cat "/tmp/${safe_name}.out"; exit 1 ;;
+            esac
+          done
