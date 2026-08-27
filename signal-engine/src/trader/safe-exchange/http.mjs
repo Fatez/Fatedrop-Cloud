@@ -115,6 +115,12 @@ export async function handleFateTraderSafeExchange(req,res,{
     if(error?.message==='REQUEST_TOO_LARGE'){fail(res,413,'REQUEST_TOO_LARGE','Request body is too large.');return true;}
     if(error instanceof SyntaxError){fail(res,400,'INVALID_JSON','Request body is not valid JSON.');return true;}
     if(error?.code==='SAFE_EXCHANGE_NOT_FOUND'){fail(res,404,'SAFE_EXCHANGE_NOT_FOUND','Safe Exchange not found.');return true;}
+    if(error?.code==='FTR01'){
+      fail(res,409,'COMMITMENT_RESERVED','One or more committed card quantities are already reserved by another active Safe Exchange.');return true;
+    }
+    if(error?.code==='FTR02'){
+      fail(res,409,'COMMITMENT_STALE','One or more committed collection items are no longer available to this exchange.');return true;
+    }
     if(['PARTY_NOT_FOUND','COMMITMENT_NOT_OWNED','COMMITMENT_CARD_MISMATCH','COMMITMENT_QUANTITY_UNAVAILABLE','HUB_NOT_APPROVED','HUB_LOCATION_NOT_VERIFIED'].includes(error?.code)){
       fail(res,409,error.code,error.message,{details:error.details||{}});return true;
     }
