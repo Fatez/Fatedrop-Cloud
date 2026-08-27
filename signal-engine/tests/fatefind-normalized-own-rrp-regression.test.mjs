@@ -176,7 +176,7 @@ test("trusted RRP cannot rescue an unresolved canonical identity", () => {
   assert.equal(verdict.right.referenceEligible, false);
 });
 
-test("FateFind ranking can normalize multiple distinct trusted identities while unsafe references remain outside the ranking", () => {
+test("FateFind ranking can normalize multiple distinct trusted UK identities while source-market references remain outside mixed-family ranking", () => {
   const etb = officialGroup({
     id: "destined-rivals-etb-ranking",
     title: "Pokemon TCG: Scarlet & Violet 10 - Destined Rivals Elite Trainer Box",
@@ -187,17 +187,20 @@ test("FateFind ranking can normalize multiple distinct trusted identities while 
     unitKind: "elite_trainer_box",
   });
   const imported = {
-    ...officialGroup({
-      id: "jp-import-ranking",
-      title: "Japanese Import Booster Box",
-      identityKey: "booster_box:japanese import booster box",
-      valueFamilyKey: "rrp:booster_box:jp-import-ranking",
-      priceGbp: 1,
-      rrpGbp: 1,
-      unitKind: "booster_box",
-    }),
-    rrpKind: "international_msrp",
-    rrpSource: "official-jp-msrp",
+    id: "jp-import-ranking",
+    canonicalProductId: "jp-import-ranking",
+    configurationId: "jp-import-ranking",
+    title: "Pokemon - Mega Evolution - Abyss Eye - Japanese Booster Box (30 Packs)",
+    identityKey: "booster_box:abyss eye japanese",
+    valueFamilyKey: "source-msrp:jp-abyss-eye:standard",
+    rrpGbp: 27.62,
+    rrpSource: "official-msrp:jp:jp-abyss-eye:standard:https://example.com/jp-authority",
+    rrpKind: "source_market_component_reference",
+    rrpReferenceBasis: "Official Japan MSRP ¥6,000 for 30 comparable booster packs; converted to GBP. This is a source-market reference, not a UK RRP.",
+    unitCount: 30,
+    unitKind: "booster_pack",
+    unitRrpGbp: null,
+    offers: [offer("jp-import-ranking-offer", 27.62)],
   };
 
   const verdict = rankGroups([destinedRivalsPack, destinedRivalsBox, etb, imported]);
@@ -212,7 +215,9 @@ test("FateFind ranking can normalize multiple distinct trusted identities while 
     destinedRivalsPack.id,
   ]);
   assert.equal(verdict.ranking.at(-1).groupId, imported.id);
-  assert.equal(verdict.ranking.at(-1).rrpPercent, null);
+  assert.equal(verdict.ranking.at(-1).rrpPercent, 0);
+  assert.equal(verdict.ranking.at(-1).referenceEligible, true);
+  assert.match(verdict.ranking.at(-1).reference.basis, /not a UK RRP/i);
   assert.match(verdict.reason, /identities remain distinct/i);
   assert.match(verdict.reason, /outside the value ranking/i);
 });
