@@ -10,6 +10,60 @@ function cleanKey(value) {
   return typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
 }
 
+function normalizedReleaseTitle(value = "") {
+  return String(value)
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function namedReleaseFamilyKey(title = "") {
+  let text = normalizedReleaseTitle(title)
+    .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
+    .replace(/\bscarlet\s+(?:and\s+)?violet(?:\s+\d{1,2})?\b/g, " ")
+    .replace(/\bsword\s+(?:and\s+)?shield(?:\s+\d{1,2})?\b/g, " ")
+    .replace(/\bsun\s+(?:and\s+)?moon(?:\s+\d{1,2})?\b/g, " ")
+    .replace(/\bmega\s+evolution(?:\s+\d{1,2})?\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const configurationMarker = /\b(?:elite trainer box|etb|half booster box|booster display(?: box)?|booster box|booster bundle|sleeved booster(?: pack)?|booster pack|premium checklane blister|checklane blister|triple blister|\d{1,3}\s+pack(?:s)?\s+(?:bundle|blister)|\d{1,3}\s+booster packs?|build\s+(?:and\s+)?battle|collection box|collection|tin|deck|sealed case|case)\b/;
+  const marker = text.match(configurationMarker);
+  if (marker?.index != null && marker.index > 0) text = text.slice(0, marker.index);
+
+  text = text
+    .replace(/\b(?:sealed|standard|english|uk|united kingdom)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = text.split(" ").filter(Boolean);
+  return tokens.length >= 2 ? tokens.join(" ") : null;
+}
+
+function sameVerifiedMixedReferenceRelease(leftGroup, rightGroup) {
+  const leftReference = rrpEvidence(leftGroup);
+  const rightReference = rrpEvidence(rightGroup);
+  if (!leftReference || !rightReference) return false;
+
+  const allowedKinds = new Set(["official", "component_reference", "pack_reference"]);
+  const leftKind = cleanKey(leftReference.kind);
+  const rightKind = cleanKey(rightReference.kind);
+  if (!allowedKinds.has(leftKind) || !allowedKinds.has(rightKind)) return false;
+
+  // This fallback exists only for the regression where a verified component/pack
+  // reference is compared with a stronger exact official RRP for another sealed
+  // configuration from the same named release. It does not turn arbitrary official
+  // products, imports or different expansions into one value family.
+  if (![leftKind, rightKind].some((kind) => kind === "component_reference" || kind === "pack_reference")) return false;
+
+  const leftRelease = namedReleaseFamilyKey(leftGroup?.title);
+  const rightRelease = namedReleaseFamilyKey(rightGroup?.title);
+  return Boolean(leftRelease && rightRelease && leftRelease === rightRelease);
+}
+
 export const FateVerdictReason = Object.freeze({
   IDENTITY_UNRESOLVED: "IDENTITY_UNRESOLVED",
   CONFIGURATION_NOT_COMPARABLE: "CONFIGURATION_NOT_COMPARABLE",
@@ -84,11 +138,14 @@ export function sameComparableFamily(leftGroup, rightGroup) {
   if (leftIdentity && rightIdentity && leftIdentity === rightIdentity) return true;
 
   // Different configurations (1-pack / 4-pack / 10-pack) intentionally have
-  // distinct identity keys. They are comparable only when Cloud resolved them
-  // to the same verified value-family reference.
+  // distinct identity keys. They are comparable when Cloud resolved them to the
+  // same verified value-family reference. A narrowly-scoped release fallback
+  // prevents stronger exact RRP evidence from breaking a previously valid
+  // component-reference comparison for the same named release.
   const leftFamily = cleanKey(leftGroup?.valueFamilyKey);
   const rightFamily = cleanKey(rightGroup?.valueFamilyKey);
-  return Boolean(leftFamily && rightFamily && leftFamily === rightFamily);
+  if (leftFamily && rightFamily && leftFamily === rightFamily) return true;
+  return sameVerifiedMixedReferenceRelease(leftGroup, rightGroup);
 }
 
 export function valuePosition(group) {
