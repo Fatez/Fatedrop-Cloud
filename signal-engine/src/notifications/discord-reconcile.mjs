@@ -4,6 +4,7 @@ import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const DEFAULT_GRACE_SECONDS = 90;
 const DEFAULT_RETRY_DELAY_SECONDS = 5 * 60;
+const RATE_LIMIT_RETRY_DELAY_SECONDS = 60;
 const DEFAULT_BATCH_LIMIT = 25;
 const DEFAULT_MAX_RECOVERY_AGE_SECONDS = Object.freeze({
   whisper: 15 * 60,
@@ -66,6 +67,12 @@ function retryableAttempt(attempt) {
   return attempt.result === "skipped" && RETRYABLE_SKIPPED_DETAILS.has(attempt.detail);
 }
 
+function rateLimitedAttempt(attempt) {
+  if (!attempt || attempt.result !== "failed") return false;
+  const detail = String(attempt.detail || "").toLowerCase();
+  return detail.includes("rate limit") || detail.includes("rate_limited") || detail.includes("(429)");
+}
+
 function boundedAge(value, fallback, safeGrace) {
   return Math.max(safeGrace, Number(value) || fallback);
 }
@@ -96,7 +103,11 @@ export function discordRecoveryDecision({
     DEFAULT_ORPHAN_MAX_RECOVERY_AGE_SECONDS[state],
     safeGrace,
   );
-  const maxAgeSeconds = lastAttempt ? normalMaxAgeSeconds : orphanMaxAgeSeconds;
+  const providerRateLimited = rateLimitedAttempt(lastAttempt);
+  // Discord 429 is a provider-capacity failure, not evidence that the signal is stale.
+  // Keep that persisted delivery obligation alive for the longer orphan window. The
+  // candidate SQL still suppresses it immediately if a newer lifecycle event exists.
+  const maxAgeSeconds = !lastAttempt || providerRateLimited ? orphanMaxAgeSeconds : normalMaxAgeSeconds;
 
   if (ageSeconds < safeGrace) return { recover: false, reason: "initial_delivery_grace", ageSeconds, maxAgeSeconds };
   if (ageSeconds > maxAgeSeconds) {
@@ -113,11 +124,17 @@ export function discordRecoveryDecision({
   if (!retryableAttempt(lastAttempt)) return { recover: false, reason: "terminal_attempt", ageSeconds, maxAgeSeconds };
 
   const attemptedAt = Number(lastAttempt.attemptedAt);
-  const safeRetryDelay = Math.max(60, Math.min(30 * 60, Math.trunc(retryDelaySeconds)));
+  const configuredRetryDelay = Math.max(60, Math.min(30 * 60, Math.trunc(retryDelaySeconds)));
+  const safeRetryDelay = providerRateLimited ? Math.min(configuredRetryDelay, RATE_LIMIT_RETRY_DELAY_SECONDS) : configuredRetryDelay;
   if (Number.isFinite(attemptedAt) && now - attemptedAt < safeRetryDelay) {
     return { recover: false, reason: "retry_backoff", ageSeconds, maxAgeSeconds };
   }
-  return { recover: true, reason: "retryable_attempt", ageSeconds, maxAgeSeconds };
+  return {
+    recover: true,
+    reason: providerRateLimited ? "rate_limit_retry" : "retryable_attempt",
+    ageSeconds,
+    maxAgeSeconds,
+  };
 }
 
 export async function reconcileMissingDiscordDeliveries({
