@@ -1,6 +1,7 @@
 import { env } from "./config/env.mjs";
 import { runAsdaBranchDensitySync } from "./encounters/asda-branch-density-sync.mjs";
 import { reconcileCuratedIncomingIntel } from "./encounters/curated-incoming-intel-reconcile.mjs";
+import { ensureCuratedNetworkRetailerBranchSeeds } from "./encounters/curated-network-retailer-branch-seeds.mjs";
 import { ensureCuratedRetailerBranchSeeds } from "./encounters/curated-retailer-branch-seeds.mjs";
 import { runCuratedRetailerBranchSync } from "./encounters/curated-retailer-branch-sync.mjs";
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
@@ -66,6 +67,7 @@ async function syncCuratedRetailerBranches() {
   syncingCuratedBranches = true;
   try {
     const outcome = await runCuratedRetailerBranchSync({ store: localBranchStore });
+    const networkOutcome = await ensureCuratedNetworkRetailerBranchSeeds({ store: localBranchStore });
     console.log("[signal-engine] Local Radar manual branch seed sync", {
       provider: outcome.provider,
       status: outcome.status,
@@ -75,6 +77,15 @@ async function syncCuratedRetailerBranches() {
       inserted: outcome.inserted,
       updated: outcome.updated,
       rejected: outcome.rejected.length,
+    });
+    console.log("[signal-engine] Local Radar official specialist branch seed sync", {
+      status: networkOutcome.status,
+      configured: networkOutcome.configured,
+      alreadyKnown: networkOutcome.alreadyKnown,
+      attempted: networkOutcome.attempted,
+      accepted: networkOutcome.accepted,
+      saved: networkOutcome.saved,
+      rejected: networkOutcome.rejected.length,
     });
   } catch (error) {
     console.error("[signal-engine] Local Radar manual branch seed sync failed", { error: String(error?.message || error) });
