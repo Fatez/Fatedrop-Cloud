@@ -37,20 +37,6 @@ jobs:
         run: npm ci
       - name: Audit Signal Engine production dependencies
         run: npm audit --omit=dev --audit-level=high
-      - name: Capture complete Signal Engine diagnostics
-        run: |
-          set +e
-          npm test > "$RUNNER_TEMP/signal-engine-test-output.txt" 2>&1
-          code=$?
-          cat "$RUNNER_TEMP/signal-engine-test-output.txt"
-          echo "Full Signal Engine diagnostic exit code: $code"
-          exit 0
-      - name: Upload Signal Engine diagnostic output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: signal-engine-test-diagnostic
-          path: ${{ runner.temp }}/signal-engine-test-output.txt
       - name: Run complete Signal Engine tests
         run: npm test
 
