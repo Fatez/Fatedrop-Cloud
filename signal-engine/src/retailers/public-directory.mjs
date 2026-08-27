@@ -1,3 +1,5 @@
+import { env } from "../config/env.mjs";
+import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
 import { publicPresenceForRetailer } from "./presence.mjs";
 
 function text(value) {
@@ -29,9 +31,9 @@ function tcgsFor(retailer) {
   return [...new Set(raw.map((value) => text(String(value)).toLowerCase()).filter(Boolean))];
 }
 
-function publicMonitoring(health) {
+function publicMonitoring(health, configured = true) {
   return {
-    configured: true,
+    configured: configured === true,
     healthy: health?.healthy === true,
     stale: health?.stale === true,
     baselineCompleted: health?.baselineCompleted === true,
@@ -41,7 +43,7 @@ function publicMonitoring(health) {
   };
 }
 
-function directoryEntry(retailer, health) {
+function directoryEntry(retailer, health, monitoringConfigured = true) {
   const presence = publicPresenceForRetailer(retailer);
   return {
     id: retailer.id,
@@ -55,7 +57,7 @@ function directoryEntry(retailer, health) {
     online: presence.online,
     physicalStores: presence.physicalStores,
     physicalLocations: presence.physicalLocations,
-    monitoring: publicMonitoring(health),
+    monitoring: publicMonitoring(health, monitoringConfigured),
   };
 }
 
@@ -65,11 +67,56 @@ function canonicalLocationCount(locationCounts, retailerId) {
   return 0;
 }
 
-export function buildPublicRetailerDirectory({ retailers = [], healthRows = [], locationCounts = new Map() } = {}) {
+function retailerState(retailer) {
+  return text(retailer?.state || retailer?.lifecycleState).toLowerCase();
+}
+
+export function selectPublicDirectoryRetailers({ runtimeRetailers = [], registryRetailers = [] } = {}) {
+  const runtimeIds = new Set((runtimeRetailers || []).map((retailer) => String(retailer?.id || "")).filter(Boolean));
+  const byId = new Map((runtimeRetailers || [])
+    .filter((retailer) => retailer?.id && retailer?.name)
+    .map((retailer) => [String(retailer.id), retailer]));
+
+  for (const retailer of registryRetailers || []) {
+    const id = String(retailer?.id || "");
+    if (!id || !retailer?.name) continue;
+    const state = retailerState(retailer);
+    const verification = verificationState(retailer).toLowerCase();
+    if (state === "rejected" || verification === "suspended") {
+      byId.delete(id);
+      continue;
+    }
+    // Monitoring and Stores membership are separate truths. Runtime retailers remain public while
+    // verification is pending; a retailer outside the scanner is public only after identity verification.
+    if (runtimeIds.has(id) || verification === "verified") byId.set(id, retailer);
+  }
+
+  return [...byId.values()];
+}
+
+let registryDirectoryRetailers = [];
+if (env.retailerRegistryEnabled && env.databaseUrl) {
+  try {
+    const registry = new PostgresRetailerRegistry(env.databaseUrl);
+    registryDirectoryRetailers = await registry.list({ limit: 5000 });
+  } catch (error) {
+    console.error("[retailers] canonical Stores directory registry preload failed; using runtime retailers", {
+      error: String(error?.message || error),
+    });
+  }
+}
+
+export function buildPublicRetailerDirectory({ retailers = [], healthRows = [], locationCounts = new Map(), configuredRetailerIds = null, registryRetailers = registryDirectoryRetailers } = {}) {
+  const runtimeRetailers = Array.isArray(retailers) ? retailers : [];
+  const directoryRetailers = selectPublicDirectoryRetailers({ runtimeRetailers, registryRetailers });
+  const runtimeIds = configuredRetailerIds instanceof Set
+    ? configuredRetailerIds
+    : new Set(runtimeRetailers.map((retailer) => String(retailer?.id || "")).filter(Boolean));
   const healthById = new Map((healthRows || []).map((health) => [health.id, health]));
-  return (retailers || [])
+
+  return directoryRetailers
     .map((retailer) => {
-      const entry = directoryEntry(retailer, healthById.get(retailer.id) || null);
+      const entry = directoryEntry(retailer, healthById.get(retailer.id) || null, runtimeIds.has(String(retailer.id)));
       const count = canonicalLocationCount(locationCounts, retailer.id);
       return count > 0
         ? { ...entry, physicalStores: true, physicalLocations: count }
@@ -96,14 +143,14 @@ function publicLocation(location = {}) {
   };
 }
 
-export function buildPublicRetailerProfile({ retailer, health = null, locations = [] } = {}) {
+export function buildPublicRetailerProfile({ retailer, health = null, locations = [], monitoringConfigured = true } = {}) {
   if (!retailer?.id || !retailer?.name) return null;
   const publicLocations = (Array.isArray(locations) ? locations : [])
     .filter((location) => String(location?.retailerId || "") === String(retailer.id))
     .map(publicLocation)
     .filter(Boolean)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
-  const entry = directoryEntry(retailer, health);
+  const entry = directoryEntry(retailer, health, monitoringConfigured);
   return {
     ...entry,
     physicalStores: publicLocations.length > 0 ? true : entry.physicalStores,
