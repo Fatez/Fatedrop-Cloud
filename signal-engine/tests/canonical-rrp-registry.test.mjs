@@ -96,3 +96,43 @@ test("retailer prices without verified RRP provenance never enter the registry",
   ]);
   assert.equal(registry.authoritativeProducts, 0);
 });
+
+test("Scarlet & Violet sequence numbers do not block an otherwise exact verified RRP", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "destined-pack",
+    title: "Pokemon TCG: Scarlet & Violet 10 - Destined Rivals Booster Pack",
+    productType: "booster_pack",
+    tcg: "pokemon",
+    officialRrpPence: 429,
+    rrpSource: "asmodee-uk",
+    rrpObservedAt: 1_700_000_300,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon - Scarlet & Violet - Destined Rivals - Booster Pack",
+    productType: "booster_pack",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, true);
+  assert.equal(result.officialRrpPence, 429);
+  assert.deepEqual(result.matchedProductIds, ["destined-pack"]);
+});
+
+test("SV retailer shorthand and official Scarlet & Violet set sequence resolve to one ETB identity", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "prismatic-etb",
+    title: "Pokemon TCG: Scarlet & Violet 8.5 - Prismatic Evolutions Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+    officialRrpPence: 4999,
+    rrpSource: "asmodee-uk",
+    rrpObservedAt: 1_700_000_400,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon TCG: SV Prismatic Evolutions Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, true);
+  assert.equal(result.officialRrpPence, 4999);
+  assert.deepEqual(result.matchedProductIds, ["prismatic-etb"]);
+});
