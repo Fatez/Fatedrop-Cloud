@@ -350,6 +350,17 @@ const ALERT_SQL = `
     LIMIT 1
   ) live_window ON true
   LEFT JOIN LATERAL (
+    SELECT true AS persisted_prior_live
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) evidence_item
+    WHERE s.state='vanished'
+      AND evidence_item->>'kind'='prior_live_confirmation'
+      AND evidence_item->>'value'='persisted_purchasable_offer'
+      AND COALESCE(evidence_item->>'observedAt','') ~ '^[0-9]+$'
+      AND (evidence_item->>'observedAt')::bigint > 0
+      AND (evidence_item->>'observedAt')::bigint < s.detected_at
+    LIMIT 1
+  ) persisted_live ON true
+  LEFT JOIN LATERAL (
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'id',h.id,'state',h.state,'retailer',h.retailer_name,'detectedAt',h.detected_at,'reason',h.reason,
       'pricePence',h.price_pence,'stockStatus',h.stock_status,'previousStockStatus',h.previous_stock_status,'url',h.url
@@ -384,7 +395,7 @@ const ALERT_SQL = `
     ) a
   ) alternatives ON true
   WHERE ($1::text IS NULL OR s.id=$1)
-    AND (s.state <> 'vanished' OR live_window.manifested_at IS NOT NULL)
+    AND (s.state <> 'vanished' OR live_window.manifested_at IS NOT NULL OR persisted_live.persisted_prior_live IS TRUE)
     AND s.state IN ('whisper','echo','manifested','vanished')
   ORDER BY s.detected_at DESC
   LIMIT $2`;
