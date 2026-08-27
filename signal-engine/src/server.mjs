@@ -166,7 +166,9 @@ server.on("request", async (req, res) => {
     const retailerProfileMatch = req.method === "GET" ? url.pathname.match(/^\/api\/retailers\/([^/]+)$/) : null;
     if (retailerProfileMatch) {
       const retailerId = decodeURIComponent(retailerProfileMatch[1]);
-      const retailer = retailers.find((item) => String(item.id) === retailerId) || null;
+      const healthRows = await store.listRetailers();
+      const directory = buildPublicRetailerDirectory({ retailers, healthRows });
+      const retailer = directory.find((item) => String(item.id) === retailerId) || null;
       if (!retailer) {
         res.writeHead(404, {
           "content-type": "application/json; charset=utf-8",
@@ -176,12 +178,14 @@ server.on("request", async (req, res) => {
         res.end(JSON.stringify({ success: false, error: "Retailer not found" }));
         return;
       }
-      const [healthRows, locations] = await Promise.all([
-        store.listRetailers(),
-        listCanonicalRetailerLocations(store, { retailerIds: [retailerId], limit: 2000 }),
-      ]);
+      const locations = await listCanonicalRetailerLocations(store, { retailerIds: [retailerId], limit: 2000 });
       const health = healthRows.find((item) => String(item.id) === retailerId) || null;
-      const profile = buildPublicRetailerProfile({ retailer, health, locations });
+      const profile = buildPublicRetailerProfile({
+        retailer,
+        health,
+        locations,
+        monitoringConfigured: retailer.monitoring?.configured === true,
+      });
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
