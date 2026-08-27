@@ -1,0 +1,46 @@
+name: P0 Rich Alert Production Smoke
+
+on:
+  push:
+    branches:
+      - "fix/p0-prod-contract-smoke-2026-08-27"
+    paths:
+      - ".github/workflows/p0-alert-contract-smoke.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  production-rich-alert-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify Cloud rich Alerts contract in production
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://fatedrop-cloud-production.up.railway.app"
+
+          curl --fail --silent --show-error --retry 4 --retry-delay 5 \
+            "$BASE/api/signals?detail=alerts&limit=1" -o /tmp/alerts.json
+
+          node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/alerts.json', 'utf8'));
+          if (body.contractVersion !== 1) throw new Error(`contractVersion=${body.contractVersion}`);
+          if (body.source !== 'FATEDROP_CLOUD') throw new Error(`source=${body.source}`);
+          if (body.success !== true) throw new Error(`success=${body.success}`);
+          if (body.available !== true) throw new Error(`available=${body.available}`);
+          if (!Array.isArray(body.alerts)) throw new Error('alerts is not an array');
+          if (body.alerts.length) {
+            const a = body.alerts[0];
+            if (!a || typeof a !== 'object') throw new Error('first alert is not an object');
+            if (typeof a.id !== 'string' || !a.id) throw new Error('alert id missing');
+            if (typeof a.fateStage !== 'string' || !a.fateStage) throw new Error('fateStage missing');
+          }
+          NODE
+
+          status="$(curl --silent --show-error --output /tmp/signal-health.json --write-out '%{http_code}' "$BASE/api/signal-health")"
+          test "$status" = "401" || { echo "expected private /api/signal-health 401, got $status"; cat /tmp/signal-health.json; exit 1; }
