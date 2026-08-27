@@ -46,8 +46,6 @@ test("verified RRP survives retailer ETB abbreviation", () => {
 
 test("Pokemon Center exclusive RRP is not inherited by a standard ETB", () => {
   const registry = buildCanonicalRrpRegistry(verified);
-  // Keep the underlying set identity complete in both aliases. This test is about
-  // exclusive-vs-standard separation, not weakening identity to tolerate missing set words.
   const standard = resolveCanonicalRrp({
     title: "Mega Evolution Phantasmal Flames Elite Trainer Box",
     productType: "elite_trainer_box",
@@ -135,4 +133,116 @@ test("SV retailer shorthand and official Scarlet & Violet set sequence resolve t
   assert.equal(result.resolved, true);
   assert.equal(result.officialRrpPence, 4999);
   assert.deepEqual(result.matchedProductIds, ["prismatic-etb"]);
+});
+
+test("Sword & Shield era prefix can be omitted when a named expansion remains", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "brilliant-stars-etb",
+    title: "Pokemon SWSH Brilliant Stars Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+    officialRrpPence: 3799,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_000_500,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon Brilliant Stars Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, true);
+  assert.equal(result.officialRrpPence, 3799);
+  assert.deepEqual(result.matchedProductIds, ["brilliant-stars-etb"]);
+});
+
+test("base Sword & Shield set identity is never erased into a generic ETB", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "swsh-base-etb",
+    title: "Pokemon Sword & Shield Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+    officialRrpPence: 3799,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_000_600,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, false);
+});
+
+test("base Scarlet & Violet set identity is never erased into a generic ETB", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "sv-base-etb",
+    title: "Pokemon Scarlet & Violet Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+    officialRrpPence: 4999,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_000_700,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon Elite Trainer Box",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, false);
+});
+
+test("retailer CDU suffix does not create a different booster-box RRP identity", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "obsidian-box",
+    title: "Pokemon TCG: Scarlet & Violet 3 - Obsidian Flames Booster Box",
+    productType: "booster_box",
+    tcg: "pokemon",
+    officialRrpPence: 15199,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_000_800,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon TCG: Scarlet & Violet 3 Obsidian Flames Booster Box - CDU",
+    productType: "booster_box",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, true);
+  assert.equal(result.officialRrpPence, 15199);
+});
+
+test("trailing V on an explicit V Battle Deck is treated as redundant retailer wording", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "melmetal-deck",
+    title: "Pokemon - Pokemon Go - V Battle Deck - Melmetal",
+    productType: "deck",
+    tcg: "pokemon",
+    officialRrpPence: 1499,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_000_900,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon - Pokemon Go - V Battle Deck - Melmetal V",
+    productType: "deck",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, true);
+  assert.equal(result.officialRrpPence, 1499);
+});
+
+test("V suffix cleanup is not applied to unrelated deck products", () => {
+  const registry = buildCanonicalRrpRegistry([{
+    id: "pikachu-deck",
+    title: "Pokemon Pikachu Battle Deck",
+    productType: "deck",
+    tcg: "pokemon",
+    officialRrpPence: 1499,
+    rrpSource: "pokemon-center-uk",
+    rrpObservedAt: 1_700_001_000,
+  }]);
+  const result = resolveCanonicalRrp({
+    title: "Pokemon Pikachu V Battle Deck",
+    productType: "deck",
+    tcg: "pokemon",
+  }, registry);
+  assert.equal(result.resolved, false);
 });
