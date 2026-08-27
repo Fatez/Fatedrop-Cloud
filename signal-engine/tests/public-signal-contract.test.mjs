@@ -29,10 +29,12 @@ test('public signal summary exposes only safe dashboard aggregates', () => {
 });
 
 test('private signal health aggregation applies the same valid-Vanished rule everywhere', () => {
-  const manifestedMatches = signalHealth.match(/m\.state='manifested'/g) || [];
-  const vanishedMatches = signalHealth.match(/v\.state='vanished'/g) || [];
-  assert.ok(manifestedMatches.length >= 3, 'detection, delivery and latency queries must require prior Manifested');
-  assert.ok(vanishedMatches.length >= 3, 'detection, delivery and latency queries must reject repeated/unanchored Vanished');
+  assert.match(signalHealth, /const VALID_VANISHED_FILTER/);
+  assert.match(signalHealth, /s\.state <> 'vanished'/);
+  assert.match(signalHealth, /m\.state='manifested'/);
+  assert.match(signalHealth, /v\.state='vanished'/);
+  const filterUses = signalHealth.match(/\$\{VALID_VANISHED_FILTER\}/g) || [];
+  assert.ok(filterUses.length >= 3, 'detection, delivery and latency queries must all apply the canonical valid-Vanished filter');
 });
 
 test('FateDrop HTTP server routes live signal reads through the canonical public contract', () => {
