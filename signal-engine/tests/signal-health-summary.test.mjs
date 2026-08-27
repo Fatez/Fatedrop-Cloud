@@ -56,6 +56,42 @@ test("signal health summary separates detections, delivery policy, duplicate sup
   assert.equal(summary.delivery.manifested.trend.length, 7);
 });
 
+test("reliability diagnostics expose orphaned signals and telemetry stoppage explicitly", () => {
+  const now = 1_800_000_000;
+  const summary = buildSignalHealthSummary({
+    now,
+    days: 2,
+    orphanRows: [
+      { id: "sig_orphan", state: "whisper", retailer_id: "retailer-a", retailer_name: "Retailer A", title: "New ETB", detected_at: now - 300 },
+    ],
+    freshnessRows: [{ latest_signal_at: now - 300, latest_discord_attempt_at: null, recent_signals: 1, recent_discord_attempts: 0 }],
+    monitorRows: [{ id: "pokemon-center-uk", healthy: false, stale: true, lastError: null }],
+  });
+
+  assert.equal(summary.diagnostics.reliability.orphanGraceSeconds, 120);
+  assert.equal(summary.diagnostics.reliability.orphanedDiscordSignals, 1);
+  assert.deepEqual(summary.diagnostics.reliability.orphanedSignalIds, ["sig_orphan"]);
+  assert.equal(summary.diagnostics.reliability.telemetryStoppedWhileSignalsContinue, true);
+  assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["pokemon-center-uk"]);
+});
+
+test("signal health loader prefers canonical network snapshot retailer freshness", async () => {
+  const now = 1_800_000_000;
+  const query = async (sql) => {
+    if (sql.includes("latest_signal_at")) return { rows: [{ latest_signal_at: null, latest_discord_attempt_at: null, recent_signals: 0, recent_discord_attempts: 0 }] };
+    return { rows: [] };
+  };
+  const store = {
+    pool: async () => ({ query }),
+    listNetworkSnapshots: async () => [{ retailers: [{ id: "snapshot-stale", healthy: false, stale: true, lastError: null }] }],
+    listRetailers: async () => [{ id: "raw-healthy", healthy: true, lastError: null }],
+  };
+
+  const summary = await loadSignalHealthSummary(store, { days: 2, now });
+  assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["snapshot-stale"]);
+  assert.equal(summary.diagnostics.monitors.freshRetailers, 0);
+});
+
 test("signal health loader fails closed when a persistent ledger is unavailable", async () => {
   const result = await loadSignalHealthSummary({}, { days: 7, now: 1234 });
   assert.deepEqual(result, { available: false, reason: "persistent_store_unavailable", generatedAt: 1234 });
