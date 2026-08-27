@@ -8,6 +8,8 @@
 --   Local Radar does not make a location a Fate Hub.
 -- - Hub sessions are short-lived and bound to one exchange + one approved hub.
 -- - Safe Exchange terms are stored atomically and transitions are append-only audited.
+-- - Collection quantities committed to a non-terminal Safe Exchange are reserved at
+--   the database boundary so one physical lot cannot be overcommitted concurrently.
 
 CREATE TABLE IF NOT EXISTS fatedrop_fate_hubs (
   id TEXT PRIMARY KEY REFERENCES fatedrop_retailer_locations(id) ON DELETE RESTRICT,
@@ -60,6 +62,131 @@ CREATE INDEX IF NOT EXISTS fatedrop_safe_exchanges_party_b_idx
 CREATE INDEX IF NOT EXISTS fatedrop_safe_exchanges_active_idx
   ON fatedrop_safe_exchanges(state, updated_at DESC)
   WHERE state NOT IN ('completed', 'cancelled');
+
+-- Quantity-aware reservations are intentionally separate from the immutable agreement
+-- JSON. Every exchange gets at most one reservation row per collection lot. Multiple
+-- copies from the same lot are represented by quantity. The trigger below locks the
+-- collection item before checking the active reservation total, which serializes two
+-- concurrent attempts to reserve the same physical lot.
+CREATE TABLE IF NOT EXISTS fatedrop_safe_exchange_reservations (
+  exchange_id TEXT NOT NULL REFERENCES fatedrop_safe_exchanges(id) ON DELETE CASCADE,
+  collection_item_id TEXT NOT NULL REFERENCES fatedrop_collection_items(id) ON DELETE RESTRICT,
+  user_id TEXT NOT NULL REFERENCES fatedrop_users(id) ON DELETE RESTRICT,
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released')),
+  created_at BIGINT NOT NULL,
+  released_at BIGINT,
+  PRIMARY KEY (exchange_id, collection_item_id),
+  CHECK ((status = 'active' AND released_at IS NULL) OR (status = 'released' AND released_at IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS fatedrop_safe_exchange_reservations_item_active_idx
+  ON fatedrop_safe_exchange_reservations(collection_item_id)
+  WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS fatedrop_safe_exchange_reservations_exchange_idx
+  ON fatedrop_safe_exchange_reservations(exchange_id, status);
+
+CREATE OR REPLACE FUNCTION fatedrop_reserve_safe_exchange_commitments()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  reservation RECORD;
+  actual_owner_user_id TEXT;
+  available_trade_quantity INTEGER;
+  already_reserved_quantity INTEGER;
+BEGIN
+  FOR reservation IN
+    WITH commitment_assets AS (
+      SELECT
+        NEW.party_a_user_id AS user_id,
+        NULLIF(asset ->> 'collectionItemId', '') AS collection_item_id,
+        COALESCE(NULLIF(asset ->> 'quantity', '')::INTEGER, 0) AS quantity
+      FROM jsonb_array_elements(COALESCE(NEW.party_a_commitment_json -> 'assets', '[]'::jsonb)) AS asset
+      UNION ALL
+      SELECT
+        NEW.party_b_user_id AS user_id,
+        NULLIF(asset ->> 'collectionItemId', '') AS collection_item_id,
+        COALESCE(NULLIF(asset ->> 'quantity', '')::INTEGER, 0) AS quantity
+      FROM jsonb_array_elements(COALESCE(NEW.party_b_commitment_json -> 'assets', '[]'::jsonb)) AS asset
+    )
+    SELECT user_id, collection_item_id, SUM(quantity)::INTEGER AS quantity
+    FROM commitment_assets
+    GROUP BY user_id, collection_item_id
+    ORDER BY collection_item_id, user_id
+  LOOP
+    IF reservation.collection_item_id IS NULL OR reservation.quantity <= 0 THEN
+      RAISE EXCEPTION 'Safe Exchange commitment contains an invalid collection reservation'
+        USING ERRCODE = 'FTR02';
+    END IF;
+
+    -- Locking the physical lot makes the subsequent SUM + INSERT deterministic under
+    -- concurrent exchange creation. Every writer follows the same item-id order above
+    -- to avoid cross-lot deadlocks.
+    SELECT c.user_id, i.trade_quantity
+      INTO actual_owner_user_id, available_trade_quantity
+    FROM fatedrop_collection_items i
+    JOIN fatedrop_collections c ON c.id = i.collection_id
+    WHERE i.id = reservation.collection_item_id
+      AND i.status = 'active'
+    FOR UPDATE OF i;
+
+    IF NOT FOUND OR actual_owner_user_id <> reservation.user_id THEN
+      RAISE EXCEPTION 'Safe Exchange collection ownership changed before reservation'
+        USING ERRCODE = 'FTR02';
+    END IF;
+
+    SELECT COALESCE(SUM(r.quantity), 0)::INTEGER
+      INTO already_reserved_quantity
+    FROM fatedrop_safe_exchange_reservations r
+    WHERE r.collection_item_id = reservation.collection_item_id
+      AND r.status = 'active';
+
+    IF already_reserved_quantity + reservation.quantity > available_trade_quantity THEN
+      RAISE EXCEPTION 'Collection item quantity is already committed to another active Safe Exchange'
+        USING ERRCODE = 'FTR01';
+    END IF;
+
+    INSERT INTO fatedrop_safe_exchange_reservations
+      (exchange_id, collection_item_id, user_id, quantity, status, created_at, released_at)
+    VALUES
+      (NEW.id, reservation.collection_item_id, reservation.user_id, reservation.quantity, 'active', NEW.created_at, NULL);
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS fatedrop_safe_exchange_reserve_commitments_trigger
+  ON fatedrop_safe_exchanges;
+CREATE TRIGGER fatedrop_safe_exchange_reserve_commitments_trigger
+AFTER INSERT ON fatedrop_safe_exchanges
+FOR EACH ROW
+EXECUTE FUNCTION fatedrop_reserve_safe_exchange_commitments();
+
+CREATE OR REPLACE FUNCTION fatedrop_release_safe_exchange_reservations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  UPDATE fatedrop_safe_exchange_reservations
+  SET status = 'released', released_at = NEW.updated_at
+  WHERE exchange_id = NEW.id
+    AND status = 'active';
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS fatedrop_safe_exchange_release_reservations_trigger
+  ON fatedrop_safe_exchanges;
+CREATE TRIGGER fatedrop_safe_exchange_release_reservations_trigger
+AFTER UPDATE OF state ON fatedrop_safe_exchanges
+FOR EACH ROW
+WHEN (
+  OLD.state IS DISTINCT FROM NEW.state
+  AND NEW.state IN ('completed', 'cancelled')
+)
+EXECUTE FUNCTION fatedrop_release_safe_exchange_reservations();
 
 CREATE TABLE IF NOT EXISTS fatedrop_safe_exchange_events (
   id TEXT PRIMARY KEY,
