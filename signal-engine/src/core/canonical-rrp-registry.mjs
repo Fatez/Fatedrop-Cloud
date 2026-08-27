@@ -44,6 +44,47 @@ function normalizePokemonSeriesWording(title = "") {
     .trim();
 }
 
+function stripEraPrefixWhenExpansionRemains(source, title = "") {
+  let value = String(title || "");
+  const patterns = [
+    /\bSword\s*(?:&|and)\s*Shield\b/gi,
+    /\bScarlet\s*(?:&|and)\s*Violet\b/gi,
+  ];
+  for (const pattern of patterns) {
+    if (!pattern.test(value)) continue;
+    pattern.lastIndex = 0;
+    const stripped = value.replace(pattern, " ").replace(/\s+/g, " ").trim();
+    const descriptor = describeProductIdentity({ ...source, title: stripped });
+    // Never erase the identity of a base-set product such as "Sword & Shield ETB"
+    // or "Scarlet & Violet ETB". Era wording is ignored only when a distinct
+    // expansion identity remains after normal product noise is removed.
+    if (descriptor.coreSignature) value = stripped;
+  }
+  return value;
+}
+
+function normalizePokemonPackagingWording(source, title = "") {
+  let value = String(title || "");
+  const productType = String(source?.productType || "").trim().toLowerCase();
+
+  // Retailers sometimes repeat the V marker after the named Pokemon on V Battle
+  // Deck listings, while the official catalogue title omits that trailing marker.
+  // Scope the cleanup to explicit V Battle Decks only; do not collapse V/ex names
+  // across unrelated decks.
+  if (productType === "deck" && /\bV\s+Battle\s+Deck\b/i.test(value)) {
+    value = value.replace(/\s+V\s*$/i, "");
+  }
+
+  // CDU (counter display unit) is retailer packaging language for the same booster
+  // box unit, not a distinct consumer RRP identity. Case/carton quantities remain
+  // protected by the normal product-identity dimensions.
+  if (productType === "booster_box") {
+    value = value.replace(/\s*[-:–—]?\s*CDU\s*$/i, "");
+  }
+
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function normalizeRrpAliasInput(input = {}) {
   const source = typeof input === "string" ? { title: input } : (input || {});
   const title = String(source.title || "");
@@ -58,6 +99,8 @@ function normalizeRrpAliasInput(input = {}) {
     normalized.title = normalizePokemonSeriesWording(String(normalized.title || "")
       .replace(/\bSWSH\b/gi, " Sword & Shield ")
       .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box "));
+    normalized.title = stripEraPrefixWhenExpansionRemains(normalized, normalized.title);
+    normalized.title = normalizePokemonPackagingWording(normalized, normalized.title);
   }
 
   // Retailers frequently publish the same Pokemon expansion using a set code or
