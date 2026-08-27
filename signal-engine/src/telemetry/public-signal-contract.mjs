@@ -1,3 +1,4 @@
+import { listCanonicalPublicAlerts } from './public-alert-contract.mjs';
 import { loadSignalHealthSummary } from './signal-health-summary.mjs';
 
 const PUBLIC_SIGNAL_STATES = ['whisper', 'echo', 'manifested', 'vanished'];
@@ -160,6 +161,21 @@ export async function listCanonicalPublicSignals(store, { states = PUBLIC_SIGNAL
 export async function handlePublicSignals(req, res, { store } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get('limit') || '50', 10) || 50));
+  const detail = String(url.searchParams.get('detail') || '').trim().toLowerCase();
+  if (detail === 'alerts') {
+    const id = url.searchParams.get('id')?.trim() || null;
+    const alerts = await listCanonicalPublicAlerts(store, { id, limit });
+    return json(res, 200, {
+      success: Array.isArray(alerts),
+      available: Array.isArray(alerts),
+      contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION,
+      source: 'FATEDROP_CLOUD',
+      count: Array.isArray(alerts) ? alerts.length : 0,
+      generatedAt: new Date().toISOString(),
+      alerts: Array.isArray(alerts) ? alerts : [],
+    });
+  }
+
   const since = Math.max(0, Number.parseInt(url.searchParams.get('since') || '0', 10) || 0);
   const states = safeStates(url.searchParams.get('state'));
   const signals = await listCanonicalPublicSignals(store, { states, since, limit });
