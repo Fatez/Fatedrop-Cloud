@@ -75,6 +75,19 @@ async function readLocationRows(store, limit) {
   return rows;
 }
 
+export async function listCanonicalRetailerLocations(store, {
+  retailerIds = [],
+  limit = 10000,
+} = {}) {
+  const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 10000));
+  const wanted = new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean));
+  const rows = await readLocationRows(store, safeLimit);
+  return rows
+    .map(normalizeLocationRow)
+    .filter(Boolean)
+    .filter((location) => !wanted.size || wanted.has(location.retailerId));
+}
+
 function locationToShop(location, { origin, availableByRetailer }) {
   const onlineOffers = Number(availableByRetailer?.get(location.retailerId) || 0);
   const providerAttribution = text(location.openingDetails?.sourceAttribution);
@@ -117,9 +130,7 @@ export async function listCanonicalRetailerLocationShops(store, {
   availableByRetailer = new Map(),
   limit = 10000,
 } = {}) {
-  const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 10000));
-  const rows = await readLocationRows(store, safeLimit);
-  const canonical = rows.map(normalizeLocationRow).filter(Boolean);
+  const canonical = await listCanonicalRetailerLocations(store, { limit });
   const radius = Math.max(1, Math.min(100, Number(radiusMiles) || 25));
   const queryPostcode = postcodeKey(postcode);
   const shops = canonical
