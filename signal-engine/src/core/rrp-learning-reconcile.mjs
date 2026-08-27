@@ -6,7 +6,7 @@ import { recordVerifiedRrpAlias } from "../stores/rrp-learning-store.mjs";
 const DEFAULT_LIMIT = 250;
 const ESCALATION_OCCURRENCES = 10;
 const AUTHORITY_GRAPH_LIMIT = 20000;
-const RECONCILER_RULES_VERSION = "rrp-self-heal-v3";
+const RECONCILER_RULES_VERSION = "rrp-self-heal-v3.1";
 
 function unique(values = []) { return [...new Set(values.filter(Boolean))]; }
 function conflictReason(reason = "") { return /conflict/i.test(String(reason)); }
