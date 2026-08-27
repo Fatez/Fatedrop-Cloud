@@ -46,6 +46,20 @@ function multiPackQuantity(title = "") {
   return Number.isFinite(quantity) && quantity > 1 ? quantity : null;
 }
 
+function explicitPackOnlyQuantity(title = "", productType = null) {
+  const text = fold(title);
+  if (/\bopened live(?: on stream)?\b/.test(text)) return null;
+  if (/\b(?:elite trainer box|etb|blister|checklane|collection|tin|deck|promo)\b/.test(text)) return null;
+
+  const isPackOnlyFormat = productType === "booster_box"
+    || productType === "booster_bundle"
+    || /\b(?:booster box|booster display|half booster box|booster bundle)\b/.test(text);
+  if (!isPackOnlyFormat) return null;
+
+  const quantity = multiPackQuantity(title);
+  return Number.isFinite(quantity) && quantity > 1 && quantity <= 100 ? quantity : null;
+}
+
 function packFormatVariant(title = "") {
   return /\bsleeved booster(?: pack)?\b/.test(fold(title)) ? "sleeved" : "standard";
 }
@@ -54,7 +68,7 @@ function setTokens(title = "") {
   const text = fold(title)
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
     .replace(/\b(?:sleeved|sealed|standard|english|uk|united kingdom)\b/g, " ")
-    .replace(/\b(?:booster|packs?|bundle|display|box|opened|live|stream)\b/g, " ")
+    .replace(/\b(?:booster|packs?|bundle|display|box|half|opened|live|stream)\b/g, " ")
     .replace(/\b\d{1,3}\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -175,7 +189,7 @@ export function resolveRrpValue(input = {}, context = {}) {
     };
   }
 
-  const quantity = bundleQuantity(title);
+  const quantity = bundleQuantity(title) ?? explicitPackOnlyQuantity(title, productType);
   if (quantity) {
     const base = basePackReference({ title }, products);
     if (!base.resolved) return base;

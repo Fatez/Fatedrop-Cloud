@@ -126,3 +126,47 @@ test("conflicting verified loose-pack references fail closed", () => {
   assert.equal(result.resolved, false);
   assert.equal(result.reason, "conflicting_verified_pack_reference");
 });
+
+test("explicit half booster box pack count can use the verified loose-pack component reference", () => {
+  const result = resolveRrpValue({
+    title: "Pokemon TCG: Destined Rivals - Half Booster Box (18 Packs)",
+    productType: "booster_box",
+    tcg: "pokemon",
+  }, context);
+  assert.equal(result.resolved, true);
+  assert.equal(result.kind, "component_reference");
+  assert.equal(result.rrpPence, 7722);
+  assert.equal(result.unitCount, 18);
+  assert.equal(result.unitRrpPence, 429);
+  assert.equal(result.referenceBasis, "18 × verified booster-pack RRP");
+});
+
+test("explicit booster bundle pack count can use the verified loose-pack component reference", () => {
+  const result = resolveRrpValue({
+    title: "Pokemon TCG: Destined Rivals Booster Bundle (6 Packs)",
+    productType: "booster_bundle",
+    tcg: "pokemon",
+  }, context);
+  assert.equal(result.resolved, true);
+  assert.equal(result.kind, "component_reference");
+  assert.equal(result.rrpPence, 2574);
+  assert.equal(result.unitCount, 6);
+});
+
+test("booster boxes without an explicit pack count remain unknown", () => {
+  const result = resolveRrpValue({
+    title: "Pokemon TCG: Destined Rivals Booster Box",
+    productType: "booster_box",
+    tcg: "pokemon",
+  }, context);
+  assert.equal(result.resolved, false);
+});
+
+test("ETBs remain excluded from pack-only component reference even when pack count is explicit", () => {
+  const result = resolveRrpValue({
+    title: "Pokemon TCG: Destined Rivals Elite Trainer Box (9 Packs)",
+    productType: "elite_trainer_box",
+    tcg: "pokemon",
+  }, context);
+  assert.equal(result.resolved, false);
+});
