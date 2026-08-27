@@ -1,19 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createLiveOfferReadStore, freshOfferObservation } from "../src/stores/live-offer-read-store.mjs";
+import {
+  createLiveOfferReadStore,
+  freshOfferObservation,
+  MIN_LIVE_STOCK_CONFIDENCE,
+  trustedStockObservation,
+} from "../src/stores/live-offer-read-store.mjs";
 
 const NOW = 2_000_000_000;
 
-test("live offer reads require both an effectively healthy retailer and a fresh offer observation", async () => {
+test("live offer reads require healthy retailer, fresh offer, and no explicit weak stock confidence", async () => {
   const store = {
     async listOffers() {
       return [
-        { offerId: "fresh", retailerId: "fresh-shop", lastSeenAt: NOW - 30 },
-        { offerId: "stale-offer", retailerId: "fresh-shop", lastSeenAt: NOW - 1801 },
-        { offerId: "missing-time", retailerId: "fresh-shop", lastSeenAt: null },
-        { offerId: "stale-retailer", retailerId: "stale-shop", lastSeenAt: NOW - 30 },
-        { offerId: "failed", retailerId: "failed-shop", lastSeenAt: NOW - 30 },
-        { offerId: "unknown", retailerId: "unknown-shop", lastSeenAt: NOW - 30 },
+        { offerId: "fresh", retailerId: "fresh-shop", lastSeenAt: NOW - 30, stockConfidence: 1 },
+        { offerId: "fresh-unscored", retailerId: "fresh-shop", lastSeenAt: NOW - 30, stockConfidence: null },
+        { offerId: "weak-stock", retailerId: "fresh-shop", lastSeenAt: NOW - 30, stockConfidence: 0.89 },
+        { offerId: "stale-offer", retailerId: "fresh-shop", lastSeenAt: NOW - 1801, stockConfidence: 1 },
+        { offerId: "missing-time", retailerId: "fresh-shop", lastSeenAt: null, stockConfidence: 1 },
+        { offerId: "stale-retailer", retailerId: "stale-shop", lastSeenAt: NOW - 30, stockConfidence: 1 },
+        { offerId: "failed", retailerId: "failed-shop", lastSeenAt: NOW - 30, stockConfidence: 1 },
+        { offerId: "unknown", retailerId: "unknown-shop", lastSeenAt: NOW - 30, stockConfidence: 1 },
       ];
     },
     async listRetailers() {
@@ -27,7 +34,7 @@ test("live offer reads require both an effectively healthy retailer and a fresh 
 
   const liveStore = createLiveOfferReadStore(store, { now: NOW });
   const offers = await liveStore.listOffers({ limit: 100 });
-  assert.deepEqual(offers.map((offer) => offer.offerId), ["fresh"]);
+  assert.deepEqual(offers.map((offer) => offer.offerId), ["fresh", "fresh-unscored"]);
 });
 
 test("offer freshness fails closed for missing, stale, or implausibly future observations", () => {
@@ -38,6 +45,16 @@ test("offer freshness fails closed for missing, stale, or implausibly future obs
   assert.equal(freshOfferObservation({ lastSeenAt: 0 }, { now: NOW }), false);
   assert.equal(freshOfferObservation({ lastSeenAt: NOW + 300 }, { now: NOW }), true);
   assert.equal(freshOfferObservation({ lastSeenAt: NOW + 301 }, { now: NOW }), false);
+});
+
+test("explicit stock confidence mirrors the hosted FateFind 0.90 trust floor while missing scores remain eligible", () => {
+  assert.equal(MIN_LIVE_STOCK_CONFIDENCE, 0.9);
+  assert.equal(trustedStockObservation({ stockConfidence: 1 }), true);
+  assert.equal(trustedStockObservation({ stockConfidence: 0.9 }), true);
+  assert.equal(trustedStockObservation({ stockConfidence: 0.899 }), false);
+  assert.equal(trustedStockObservation({ stockConfidence: "invalid" }), false);
+  assert.equal(trustedStockObservation({ stockConfidence: null }), true);
+  assert.equal(trustedStockObservation({}), true);
 });
 
 test("live offer reads fail closed when retailer health cannot be established", async () => {
