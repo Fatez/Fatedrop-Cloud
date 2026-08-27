@@ -112,16 +112,22 @@ test("the release fallback does not merge arbitrary official configurations", ()
   assert.equal(verdict.comparisonMode, FateComparisonMode.NORMALIZED_OWN_RRP);
 });
 
-test("source-market MSRP evidence cannot enter the normalized UK RRP comparison", () => {
+test("real source-market MSRP can be calculated but cannot enter an unrelated normalized UK RRP comparison", () => {
   const imported = {
-    ...zebstrikaBlister,
-    id: "destined-rivals-import",
-    canonicalProductId: "destined-rivals-import",
-    configurationId: "destined-rivals-import",
-    valueFamilyKey: "rrp:booster_pack:foreign-reference",
-    rrpKind: "international_msrp",
-    rrpSource: "official-jp-msrp",
-    offers: [offer("off-destined-import", 20)],
+    id: "destined-rivals-jp-import",
+    canonicalProductId: "destined-rivals-jp-import",
+    configurationId: "destined-rivals-jp-import",
+    title: "Pokemon - Destined Rivals - Japanese Booster Pack",
+    identityKey: "booster_pack:destined rivals japanese booster pack",
+    valueFamilyKey: "source-msrp:jp-destined-rivals:standard",
+    rrpGbp: 1,
+    rrpSource: "official-msrp:jp:jp-destined-rivals:standard:https://example.com/jp-authority",
+    rrpKind: "source_market_msrp",
+    rrpReferenceBasis: "Official Japan MSRP converted to GBP; source-market reference, not a UK RRP.",
+    unitCount: 1,
+    unitKind: "booster_pack",
+    unitRrpGbp: 1,
+    offers: [offer("off-destined-import", 2)],
   };
 
   assert.equal(sameComparableFamily(fourPack, imported), false);
@@ -129,5 +135,53 @@ test("source-market MSRP evidence cannot enter the normalized UK RRP comparison"
   assert.equal(verdict.winnerId, null);
   assert.equal(verdict.reasonCode, FateVerdictReason.NO_VERIFIED_REFERENCE);
   assert.equal(verdict.comparisonMode, null);
-  assert.equal(verdict.right.rrpPercent, null);
+  assert.equal(verdict.right.rrpPercent, 100);
+  assert.equal(verdict.right.referenceEligible, true);
+  assert.match(verdict.right.reference.basis, /not a UK RRP/i);
+});
+
+test("same verified source-market family can compare pack vs box without becoming UK RRP", () => {
+  const pack = {
+    id: "jp-abyss-pack-targeted",
+    canonicalProductId: "jp-abyss-pack-targeted",
+    configurationId: "jp-abyss-pack-targeted",
+    title: "Pokemon - Mega Evolution - Abyss Eye - Japanese Booster Pack",
+    identityKey: "booster_pack:abyss eye japanese",
+    valueFamilyKey: "source-msrp:jp-abyss-eye:standard",
+    rrpGbp: 0.92,
+    rrpSource: "official-msrp:jp:jp-abyss-eye:standard:https://example.com/jp-authority",
+    rrpKind: "source_market_msrp",
+    rrpReferenceBasis: "Official Japan MSRP ¥200 per booster pack; converted to GBP. This is a source-market reference, not a UK RRP.",
+    unitCount: 1,
+    unitKind: "booster_pack",
+    unitRrpGbp: 0.92,
+    offers: [offer("off-jp-abyss-pack-targeted", 3.25)],
+  };
+  const box = {
+    id: "jp-abyss-box-targeted",
+    canonicalProductId: "jp-abyss-box-targeted",
+    configurationId: "jp-abyss-box-targeted",
+    title: "Pokemon - Mega Evolution - Abyss Eye - Japanese Booster Box (30 Packs)",
+    identityKey: "booster_box:abyss eye japanese",
+    valueFamilyKey: "source-msrp:jp-abyss-eye:standard",
+    rrpGbp: 27.62,
+    rrpSource: "official-msrp:jp:jp-abyss-eye:standard:https://example.com/jp-authority",
+    rrpKind: "source_market_component_reference",
+    rrpReferenceBasis: "Official Japan MSRP ¥6,000 for 30 comparable booster packs; converted to GBP. This is a source-market reference, not a UK RRP.",
+    unitCount: 30,
+    unitKind: "booster_pack",
+    unitRrpGbp: null,
+    offers: [offer("off-jp-abyss-box-targeted", 84.95)],
+  };
+
+  assert.equal(sameComparableFamily(pack, box), true);
+  assert.notEqual(pack.identityKey, box.identityKey);
+
+  const verdict = compareGroups(pack, box);
+  assert.equal(verdict.reasonCode, FateVerdictReason.WINNER_RRP_PERCENT);
+  assert.equal(verdict.basis, "rrp_percent");
+  assert.equal(verdict.comparisonMode, FateComparisonMode.NORMALIZED_OWN_RRP);
+  assert.equal(verdict.winnerId, box.id);
+  assert.match(verdict.left.reference.basis, /not a UK RRP/i);
+  assert.match(verdict.right.reference.basis, /not a UK RRP/i);
 });
