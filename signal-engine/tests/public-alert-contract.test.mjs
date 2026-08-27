@@ -28,6 +28,15 @@ test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history'
   assert.match(alertSource, /NO_FAIR_COMPARISON/);
 });
 
+test('Vanished stays fail-closed but accepts canonical persisted prior-live proof when baseline suppressed the Manifested alert row', () => {
+  assert.match(alertSource, /evidence_item->>'kind'='prior_live_confirmation'/);
+  assert.match(alertSource, /evidence_item->>'value'='persisted_purchasable_offer'/);
+  assert.match(alertSource, /evidence_item->>'observedAt'/);
+  assert.match(alertSource, /live_window\.manifested_at IS NOT NULL OR persisted_live\.persisted_prior_live IS TRUE/);
+  assert.match(alertSource, /CASE WHEN s\.state='vanished' AND live_window\.manifested_at IS NOT NULL THEN GREATEST\(0,s\.detected_at-live_window\.manifested_at\) ELSE NULL END/);
+  assert.doesNotMatch(alertSource, /s\.state <> 'vanished' OR TRUE/);
+});
+
 test('Cloud alert output preserves the final four-stage lifecycle and prepared links', () => {
   assert.match(alertSource, /state === 'whisper'\) return 'WHISPER'/);
   assert.match(alertSource, /state === 'echo'\) return 'ECHO'/);
