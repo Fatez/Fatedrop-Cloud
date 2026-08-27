@@ -6,12 +6,13 @@ import { createFateDropHttpServer } from "../src/http/fatedrop-server.mjs";
 const savedEvents = [];
 const savedVendors = [];
 const savedInventory = [];
+const observedAt = Math.floor(Date.now() / 1000);
 const store = {
   async listOffers() {
     return [
-      { retailerId: "indie-live", stockStatus: "in_stock" },
-      { retailerId: "indie-live", stockStatus: "preorder" },
-      { retailerId: "other", stockStatus: "out_of_stock" },
+      { retailerId: "indie-live", stockStatus: "in_stock", lastSeenAt: observedAt },
+      { retailerId: "indie-live", stockStatus: "preorder", lastSeenAt: observedAt },
+      { retailerId: "other", stockStatus: "out_of_stock", lastSeenAt: observedAt },
     ];
   },
   async listEncounters({ from = null } = {}) {
