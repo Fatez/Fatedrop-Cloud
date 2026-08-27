@@ -37,6 +37,20 @@ jobs:
         run: npm ci
       - name: Audit Signal Engine production dependencies
         run: npm audit --omit=dev --audit-level=high
+      - name: Capture RRP v3 diagnostics
+        run: |
+          set +e
+          node --test tests/canonical-rrp-registry.test.mjs tests/rrp-learning-reconcile.test.mjs tests/rrp-learning-store.test.mjs > "$RUNNER_TEMP/rrp-v3-test-output.txt" 2>&1
+          code=$?
+          cat "$RUNNER_TEMP/rrp-v3-test-output.txt"
+          echo "Targeted RRP diagnostic exit code: $code"
+          exit 0
+      - name: Upload RRP v3 diagnostic output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rrp-v3-diagnostic
+          path: ${{ runner.temp }}/rrp-v3-test-output.txt
       - name: Run complete Signal Engine tests
         run: npm test
 
