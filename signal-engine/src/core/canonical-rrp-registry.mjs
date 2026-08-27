@@ -31,6 +31,19 @@ function normalizeThreePackPromoBlister(source, title) {
   return source;
 }
 
+function normalizePokemonSeriesWording(title = "") {
+  return String(title || "")
+    // Retailers often abbreviate Scarlet & Violet to SV. Restrict this to a
+    // standalone prefix so set codes such as SV8 are not silently rewritten.
+    .replace(/\bSV\b(?=\s+[A-Za-z])/g, " Scarlet & Violet ")
+    // Asmodee commonly includes the expansion sequence (for example 8.5 or 10)
+    // while retailer titles omit it. The named expansion still carries identity,
+    // so the sequence number is safe to ignore for RRP matching only.
+    .replace(/\bScarlet\s*(?:&|and)\s*Violet\s+\d{1,2}(?:\.\d+)?\b/gi, " Scarlet & Violet ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeRrpAliasInput(input = {}) {
   const source = typeof input === "string" ? { title: input } : (input || {});
   const title = String(source.title || "");
@@ -42,11 +55,9 @@ function normalizeRrpAliasInput(input = {}) {
   let normalized = { ...source, title };
   if (tcg === "pokemon") {
     normalized = normalizeThreePackPromoBlister(normalized, normalized.title);
-    normalized.title = String(normalized.title || "")
+    normalized.title = normalizePokemonSeriesWording(String(normalized.title || "")
       .replace(/\bSWSH\b/gi, " Sword & Shield ")
-      .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box ")
-      .replace(/\s+/g, " ")
-      .trim();
+      .replace(/\bBooster\s+Display\s+Box\b/gi, " Booster Box "));
   }
 
   // Retailers frequently publish the same Pokemon expansion using a set code or
