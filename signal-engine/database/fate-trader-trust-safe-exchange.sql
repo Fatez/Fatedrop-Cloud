@@ -10,6 +10,8 @@
 -- - Safe Exchange terms are stored atomically and transitions are append-only audited.
 -- - Collection quantities committed to a non-terminal Safe Exchange are reserved at
 --   the database boundary so one physical lot cannot be overcommitted concurrently.
+-- - The committed raw/graded state, raw condition, or graded company/value must match
+--   canonical collection truth at agreement creation; vague or invented card state fails closed.
 -- - Active reservations also protect the source collection lot from being removed or
 --   reduced below its committed quantity; completed exchanges consume the outgoing lot.
 
@@ -64,6 +66,91 @@ CREATE INDEX IF NOT EXISTS fatedrop_safe_exchanges_party_b_idx
 CREATE INDEX IF NOT EXISTS fatedrop_safe_exchanges_active_idx
   ON fatedrop_safe_exchanges(state, updated_at DESC)
   WHERE state NOT IN ('completed', 'cancelled');
+
+-- Bind the human-visible agreement to the collection record that actually exists. This
+-- is separate from quantity reservation because the agreement also carries raw/graded
+-- state and condition/grade claims. A direct database writer cannot bypass this check.
+CREATE OR REPLACE FUNCTION fatedrop_validate_safe_exchange_commitment_state()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  committed RECORD;
+  item RECORD;
+  committed_copy_state TEXT;
+  committed_condition TEXT;
+  committed_grading_company TEXT;
+  committed_grade_text TEXT;
+  committed_grade NUMERIC;
+BEGIN
+  FOR committed IN
+    SELECT NEW.party_a_user_id AS user_id, asset
+    FROM jsonb_array_elements(COALESCE(NEW.party_a_commitment_json -> 'assets', '[]'::jsonb)) AS asset
+    UNION ALL
+    SELECT NEW.party_b_user_id AS user_id, asset
+    FROM jsonb_array_elements(COALESCE(NEW.party_b_commitment_json -> 'assets', '[]'::jsonb)) AS asset
+  LOOP
+    SELECT i.copy_state, i.condition_code, c.user_id,
+           g.grading_company, g.grade_value
+      INTO item
+    FROM fatedrop_collection_items i
+    JOIN fatedrop_collections c ON c.id = i.collection_id
+    LEFT JOIN fatedrop_collection_grading g ON g.collection_item_id = i.id
+    WHERE i.id = NULLIF(committed.asset ->> 'collectionItemId', '')
+      AND i.status = 'active';
+
+    IF NOT FOUND OR item.user_id <> committed.user_id THEN
+      RAISE EXCEPTION 'Committed collection item is not available to this trader'
+        USING ERRCODE = 'FTR02';
+    END IF;
+
+    committed_copy_state := lower(COALESCE(committed.asset ->> 'copyState', ''));
+    committed_condition := lower(NULLIF(committed.asset ->> 'conditionCode', ''));
+    committed_grading_company := NULLIF(committed.asset ->> 'gradingCompany', '');
+    committed_grade_text := NULLIF(committed.asset ->> 'gradeValue', '');
+    committed_grade := NULL;
+
+    IF committed_copy_state <> item.copy_state THEN
+      RAISE EXCEPTION 'Committed card state does not match the collection item'
+        USING ERRCODE = 'FTR05';
+    END IF;
+
+    IF item.copy_state = 'raw' THEN
+      IF committed_condition IS DISTINCT FROM item.condition_code
+         OR committed_grading_company IS NOT NULL
+         OR committed_grade_text IS NOT NULL THEN
+        RAISE EXCEPTION 'Committed raw card condition does not match the collection item'
+          USING ERRCODE = 'FTR05';
+      END IF;
+    ELSIF item.copy_state = 'graded' THEN
+      IF committed_condition IS NOT NULL
+         OR committed_grading_company IS DISTINCT FROM item.grading_company
+         OR committed_grade_text IS NULL
+         OR committed_grade_text !~ '^[0-9]+([.][0-9]+)?$' THEN
+        RAISE EXCEPTION 'Committed graded card details do not match the collection item'
+          USING ERRCODE = 'FTR05';
+      END IF;
+      committed_grade := committed_grade_text::NUMERIC;
+      IF committed_grade IS DISTINCT FROM item.grade_value THEN
+        RAISE EXCEPTION 'Committed graded card value does not match the collection item'
+          USING ERRCODE = 'FTR05';
+      END IF;
+    ELSE
+      RAISE EXCEPTION 'Collection item has an unsupported copy state'
+        USING ERRCODE = 'FTR05';
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS fatedrop_safe_exchange_validate_state_trigger
+  ON fatedrop_safe_exchanges;
+CREATE TRIGGER fatedrop_safe_exchange_validate_state_trigger
+BEFORE INSERT ON fatedrop_safe_exchanges
+FOR EACH ROW
+EXECUTE FUNCTION fatedrop_validate_safe_exchange_commitment_state();
 
 -- Quantity-aware reservations are intentionally separate from the immutable agreement
 -- JSON. Every exchange gets at most one reservation row per collection lot. Multiple
@@ -122,9 +209,6 @@ BEGIN
         USING ERRCODE = 'FTR02';
     END IF;
 
-    -- Locking the physical lot makes the subsequent SUM + INSERT deterministic under
-    -- concurrent exchange creation. Every writer follows the same item-id order above
-    -- to avoid cross-lot deadlocks.
     SELECT c.user_id, i.trade_quantity
       INTO actual_owner_user_id, available_trade_quantity
     FROM fatedrop_collection_items i
@@ -166,10 +250,6 @@ AFTER INSERT ON fatedrop_safe_exchanges
 FOR EACH ROW
 EXECUTE FUNCTION fatedrop_reserve_safe_exchange_commitments();
 
--- A trader may still increase an active lot while it is reserved, but cannot reduce
--- quantity/trade_quantity below the sum committed to open exchanges and cannot remove
--- the lot outright. This prevents a valid agreement becoming unfunded underneath the
--- counterparty after it was created.
 CREATE OR REPLACE FUNCTION fatedrop_guard_reserved_collection_item_mutation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -187,8 +267,9 @@ BEGIN
     NEW.status <> 'active'
     OR NEW.quantity < reserved_quantity
     OR NEW.trade_quantity < reserved_quantity
+    OR NEW.condition_code IS DISTINCT FROM OLD.condition_code
   ) THEN
-    RAISE EXCEPTION 'Collection item has quantity reserved by an active Safe Exchange'
+    RAISE EXCEPTION 'Collection item has card state or quantity reserved by an active Safe Exchange'
       USING ERRCODE = 'FTR03';
   END IF;
 
@@ -199,15 +280,10 @@ $$;
 DROP TRIGGER IF EXISTS fatedrop_safe_exchange_guard_collection_mutation_trigger
   ON fatedrop_collection_items;
 CREATE TRIGGER fatedrop_safe_exchange_guard_collection_mutation_trigger
-BEFORE UPDATE OF quantity, trade_quantity, status ON fatedrop_collection_items
+BEFORE UPDATE OF quantity, trade_quantity, status, condition_code ON fatedrop_collection_items
 FOR EACH ROW
 EXECUTE FUNCTION fatedrop_guard_reserved_collection_item_mutation();
 
--- Cancellation releases the reservation without changing inventory. Completion consumes
--- the committed outgoing quantity from the original owner's collection. Full-lot trades
--- mark the source item removed (retaining its historical quantity); partial trades reduce
--- the live lot. The receiver can then be reconciled separately without leaving false
--- ownership on the sender side.
 CREATE OR REPLACE FUNCTION fatedrop_resolve_safe_exchange_reservations()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -253,8 +329,6 @@ BEGIN
         USING ERRCODE = 'FTR04';
     END IF;
 
-    -- Resolve first inside the same transaction so the collection mutation guard sees
-    -- no active reservation from this exchange. Any later failure rolls all of it back.
     UPDATE fatedrop_safe_exchange_reservations
     SET status = 'consumed', resolved_at = NEW.updated_at
     WHERE exchange_id = NEW.id
