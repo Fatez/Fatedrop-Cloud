@@ -1,3 +1,5 @@
+import { env } from "../config/env.mjs";
+import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
 import { publicPresenceForRetailer } from "./presence.mjs";
 
 function text(value) {
@@ -84,22 +86,37 @@ export function selectPublicDirectoryRetailers({ runtimeRetailers = [], registry
       byId.delete(id);
       continue;
     }
-    // Runtime retailers remain visible even while formal verification is pending.
-    // Non-runtime retailers are directory-eligible only after their business identity is verified.
+    // Monitoring and Stores membership are separate truths. Runtime retailers remain public while
+    // verification is pending; a retailer outside the scanner is public only after identity verification.
     if (runtimeIds.has(id) || verification === "verified") byId.set(id, retailer);
   }
 
   return [...byId.values()];
 }
 
-export function buildPublicRetailerDirectory({ retailers = [], healthRows = [], locationCounts = new Map(), configuredRetailerIds = null } = {}) {
+let registryDirectoryRetailers = [];
+if (env.retailerRegistryEnabled && env.databaseUrl) {
+  try {
+    const registry = new PostgresRetailerRegistry(env.databaseUrl);
+    registryDirectoryRetailers = await registry.list({ limit: 5000 });
+  } catch (error) {
+    console.error("[retailers] canonical Stores directory registry preload failed; using runtime retailers", {
+      error: String(error?.message || error),
+    });
+  }
+}
+
+export function buildPublicRetailerDirectory({ retailers = [], healthRows = [], locationCounts = new Map(), configuredRetailerIds = null, registryRetailers = registryDirectoryRetailers } = {}) {
+  const runtimeRetailers = Array.isArray(retailers) ? retailers : [];
+  const directoryRetailers = selectPublicDirectoryRetailers({ runtimeRetailers, registryRetailers });
+  const runtimeIds = configuredRetailerIds instanceof Set
+    ? configuredRetailerIds
+    : new Set(runtimeRetailers.map((retailer) => String(retailer?.id || "")).filter(Boolean));
   const healthById = new Map((healthRows || []).map((health) => [health.id, health]));
-  return (retailers || [])
+
+  return directoryRetailers
     .map((retailer) => {
-      const configured = configuredRetailerIds instanceof Set
-        ? configuredRetailerIds.has(String(retailer.id))
-        : true;
-      const entry = directoryEntry(retailer, healthById.get(retailer.id) || null, configured);
+      const entry = directoryEntry(retailer, healthById.get(retailer.id) || null, runtimeIds.has(String(retailer.id)));
       const count = canonicalLocationCount(locationCounts, retailer.id);
       return count > 0
         ? { ...entry, physicalStores: true, physicalLocations: count }
