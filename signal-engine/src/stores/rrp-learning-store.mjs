@@ -37,6 +37,37 @@ export async function findVerifiedRrpAlias(pool, { tcg = "pokemon", aliasSignatu
   return rows[0] || null;
 }
 
+async function backfillVerifiedRrp(pool, row) {
+  const productId = String(row?.observedProductId || "").trim();
+  const rrpPence = Number(row?.officialRrpPence);
+  const rrpSource = String(row?.rrpSource || "").trim();
+  const observedAt = Number(row?.rrpObservedAt || row?.verifiedAt || 0);
+  if (!productId || !Number.isFinite(rrpPence) || rrpPence <= 0 || !rrpSource) return { products: 0, identities: 0 };
+
+  // Only fill genuinely missing values. Never overwrite a product that already has
+  // an RRP, even if a later resolver candidate disagrees; conflicts remain fail-closed.
+  const productResult = await pool.query(`
+    UPDATE fatedrop_products
+    SET official_rrp_pence=$2,
+        rrp_source=$3,
+        rrp_observed_at=$4,
+        updated_at=GREATEST(updated_at,$4)
+    WHERE id=$1 AND official_rrp_pence IS NULL
+  `, [productId, Math.round(rrpPence), rrpSource, observedAt]);
+  const identityResult = await pool.query(`
+    UPDATE fatedrop_product_identities
+    SET official_rrp_pence=$2,
+        rrp_source=$3,
+        rrp_verified_at=$4,
+        updated_at=GREATEST(updated_at,$4)
+    WHERE id=$1 AND official_rrp_pence IS NULL
+  `, [productId, Math.round(rrpPence), rrpSource, observedAt]);
+  return {
+    products: Number(productResult?.rowCount || 0),
+    identities: Number(identityResult?.rowCount || 0),
+  };
+}
+
 export async function recordVerifiedRrpAlias(pool, row) {
   if (!pool || !row) return null;
   const { rows } = await pool.query(`
@@ -60,11 +91,17 @@ export async function recordVerifiedRrpAlias(pool, row) {
     row.canonicalProductIdentityId, row.resolutionKind || "verified_alias", row.confidence ?? 1,
     row.source || "rrp-resolver", row.verifiedAt, JSON.stringify(row.evidence || {}),
   ]);
+  const backfill = await backfillVerifiedRrp(pool, row);
   await pool.query(`
     UPDATE fatedrop_rrp_resolution_queue
     SET status='resolved', candidate_identity_id=$1, candidate_confidence=$2,
-        resolved_at=$3, resolution_source=$4
+        resolved_at=$3, resolution_source=$4,
+        evidence_json=evidence_json || $8::jsonb
     WHERE retailer_id=$5 AND observed_title=$6 AND COALESCE(product_type,'')=COALESCE($7,'')
-  `, [row.canonicalProductIdentityId, row.confidence ?? 1, row.verifiedAt, row.source || "rrp-resolver", row.retailerId || "", row.observedTitle, row.productType || null]);
+  `, [
+    row.canonicalProductIdentityId, row.confidence ?? 1, row.verifiedAt,
+    row.source || "rrp-resolver", row.retailerId || "", row.observedTitle,
+    row.productType || null, JSON.stringify({ exact_rrp_backfill: backfill }),
+  ]);
   return rows[0] || null;
 }

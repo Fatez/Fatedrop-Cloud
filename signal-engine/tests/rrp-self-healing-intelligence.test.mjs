@@ -116,7 +116,7 @@ test("repeated unresolved rows are classified once then deferred until authority
   assert.equal(evidence.reconciliation_class, "authority_gap");
   assert.equal(evidence.escalated, true);
   assert.equal(evidence.next_action, "await_or_refresh_authoritative_rrp_source");
-  assert.match(evidence.authority_fingerprint, /^rrp-self-heal-v2:/);
+  assert.match(evidence.authority_fingerprint, /^rrp-self-heal-v3:/);
 
   const updateCount = updates.length;
   const second = await reconcileRrpLearningQueue({ store, now: 1_787_738_000 });
