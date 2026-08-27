@@ -75,7 +75,7 @@ function placesSearch() {
         itemType: "shop",
         provider: "google_places",
         providerPlaceId: "game-watford",
-        name: "GAME Watford",
+        name: "GAME UK",
         address: "Watford",
         latitude: 51.656,
         longitude: -0.398,
