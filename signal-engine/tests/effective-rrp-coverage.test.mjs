@@ -10,12 +10,13 @@ const products = [
   { id: "unknown", title: "Mystery Pokemon Product", productType: "other", tcg: "pokemon", officialRrpPence: null, rrpSource: null },
 ];
 
+const observedAt = Math.floor(Date.now() / 1000);
 const offers = [
-  { offerId: "offer-etb", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "in_stock", pricePence: 5999 },
-  { offerId: "offer-bundle", productId: "bundle", retailerId: "retailer-live", title: products[2].title, stockStatus: "in_stock", pricePence: 16695 },
-  { offerId: "offer-pack", productId: "pack-alias", retailerId: "retailer-live", title: products[3].title, stockStatus: "preorder", pricePence: 499 },
-  { offerId: "offer-unknown", productId: "unknown", retailerId: "retailer-live", title: products[4].title, stockStatus: "low_stock", pricePence: 1200 },
-  { offerId: "offer-sold", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "out_of_stock", pricePence: 4999 },
+  { offerId: "offer-etb", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "in_stock", pricePence: 5999, lastSeenAt: observedAt },
+  { offerId: "offer-bundle", productId: "bundle", retailerId: "retailer-live", title: products[2].title, stockStatus: "in_stock", pricePence: 16695, lastSeenAt: observedAt },
+  { offerId: "offer-pack", productId: "pack-alias", retailerId: "retailer-live", title: products[3].title, stockStatus: "preorder", pricePence: 499, lastSeenAt: observedAt },
+  { offerId: "offer-unknown", productId: "unknown", retailerId: "retailer-live", title: products[4].title, stockStatus: "low_stock", pricePence: 1200, lastSeenAt: observedAt },
+  { offerId: "offer-sold", productId: "etb", retailerId: "retailer-live", title: products[0].title, stockStatus: "out_of_stock", pricePence: 4999, lastSeenAt: observedAt },
 ];
 
 test("effective RRP coverage measures the same official/reference resolver users actually receive", () => {

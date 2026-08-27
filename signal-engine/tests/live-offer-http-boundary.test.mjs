@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFateDropHttpServer } from "../src/http/fatedrop-server.mjs";
 
+const NOW = Math.floor(Date.now() / 1000);
 const product = {
   id: "product-1",
   title: "Audit Test Elite Trainer Box",
@@ -9,7 +10,7 @@ const product = {
   tcg: "pokemon",
   officialRrpPence: 4999,
   rrpSource: "pokemon-center-uk",
-  rrpObservedAt: 1776767000,
+  rrpObservedAt: NOW - 3600,
 };
 
 const offers = [
@@ -26,7 +27,37 @@ const offers = [
     postagePence: 0,
     stockStatus: "in_stock",
     stockConfidence: 1,
-    lastSeenAt: 1776768000,
+    lastSeenAt: NOW - 30,
+  },
+  {
+    offerId: "fresh-shop:weak-stock",
+    productId: "product-1",
+    retailerId: "fresh-shop",
+    retailerName: "Fresh Shop",
+    retailerSku: "weak-stock",
+    title: product.title,
+    url: "https://example.com/weak-stock",
+    imageUrl: null,
+    pricePence: 1999,
+    postagePence: 0,
+    stockStatus: "in_stock",
+    stockConfidence: 0.5,
+    lastSeenAt: NOW - 30,
+  },
+  {
+    offerId: "fresh-shop:stale-sku",
+    productId: "product-1",
+    retailerId: "fresh-shop",
+    retailerName: "Fresh Shop",
+    retailerSku: "stale-sku",
+    title: product.title,
+    url: "https://example.com/preserved-stale-offer",
+    imageUrl: null,
+    pricePence: 2999,
+    postagePence: 0,
+    stockStatus: "in_stock",
+    stockConfidence: 1,
+    lastSeenAt: NOW - 1801,
   },
   {
     offerId: "stale-shop:sku-2",
@@ -35,13 +66,13 @@ const offers = [
     retailerName: "Stale Shop",
     retailerSku: "sku-2",
     title: product.title,
-    url: "https://example.com/stale",
+    url: "https://example.com/stale-retailer",
     imageUrl: null,
     pricePence: 3999,
     postagePence: 0,
     stockStatus: "in_stock",
     stockConfidence: 1,
-    lastSeenAt: 1776768000,
+    lastSeenAt: NOW - 30,
   },
 ];
 
@@ -54,7 +85,7 @@ const store = {
       { id: "stale-shop", name: "Stale Shop", healthy: true, stale: true, baselineCompleted: true },
     ];
   },
-  async stats() { return { productsTracked: 1, offersTracked: 2, currentlyAvailable: 2 }; },
+  async stats() { return { productsTracked: 1, offersTracked: 4, currentlyAvailable: 4 }; },
   async listSignals() { return []; },
   async listNetworkSnapshots() { return []; },
 };
@@ -70,25 +101,27 @@ async function withServer(fn) {
   }
 }
 
-test("catalogue search preserves raw store history but exposes only fresh retailers", async () => withServer(async (base) => {
+test("catalogue search preserves raw store history but exposes only fresh trusted retailer + offer observations", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/catalogue?q=audit&inStock=true`);
   assert.equal(response.status, 200);
   const data = await response.json();
-  assert.deepEqual(data.products.map((offer) => offer.retailerKey), ["fresh-shop"]);
+  assert.deepEqual(data.products.map((offer) => offer.id), ["fresh-shop:sku-1"]);
+  assert.equal(data.products.some((offer) => offer.id === "fresh-shop:weak-stock"), false);
+  assert.equal(data.products.some((offer) => offer.id === "fresh-shop:stale-sku"), false);
   assert.equal(data.products.some((offer) => offer.retailerKey === "stale-shop"), false);
-  assert.equal((await store.listOffers()).length, 2, "underlying historical store remains untouched");
+  assert.equal((await store.listOffers()).length, 4, "underlying historical store remains untouched");
 }));
 
-test("True Price cannot choose a cheaper preserved offer from a stale retailer", async () => withServer(async (base) => {
+test("True Price cannot choose a cheaper weak or preserved stale offer from an otherwise healthy retailer", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/true-price?q=audit`);
   assert.equal(response.status, 200);
   const data = await response.json();
   assert.equal(data.groups.length, 1);
-  assert.deepEqual(data.groups[0].offers.map((offer) => offer.retailerId), ["fresh-shop"]);
+  assert.deepEqual(data.groups[0].offers.map((offer) => offer.id), ["fresh-shop:sku-1"]);
   assert.equal(data.groups[0].offers[0].isLowestKnownDelivered, true);
 }));
 
-test("Fate Verdict inherits the same fresh-offer authority boundary", async () => withServer(async (base) => {
+test("Fate Verdict inherits the same retailer, freshness, and stock-confidence authority boundary", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/fatefind/matches`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -98,5 +131,5 @@ test("Fate Verdict inherits the same fresh-offer authority boundary", async () =
   const data = await response.json();
   assert.equal(data.source, "FATEDROP_CLOUD");
   assert.equal(data.groups.length, 1);
-  assert.deepEqual(data.groups[0].offers.map((offer) => offer.retailerId), ["fresh-shop"]);
+  assert.deepEqual(data.groups[0].offers.map((offer) => offer.id), ["fresh-shop:sku-1"]);
 }));
