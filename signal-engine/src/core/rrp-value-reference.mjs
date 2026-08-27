@@ -68,7 +68,7 @@ function setTokens(title = "") {
   const text = fold(title)
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
     .replace(/\b(?:sleeved|sealed|standard|english|uk|united kingdom)\b/g, " ")
-    .replace(/\b(?:booster|packs?|bundle|display|box|opened|live|stream)\b/g, " ")
+    .replace(/\b(?:booster|packs?|bundle|display|box|half|opened|live|stream)\b/g, " ")
     .replace(/\b\d{1,3}\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
