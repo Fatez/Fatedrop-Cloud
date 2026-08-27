@@ -106,6 +106,7 @@ export async function handleFateTraderCollection(req,res,{
   }catch(error){
     if(error?.code==='CARD_IDENTITY_NOT_VERIFIED'){fail(res,409,'CARD_IDENTITY_NOT_VERIFIED','The requested card identity is not verified.');return true;}
     if(error?.code==='REVISION_CONFLICT'){fail(res,409,'REVISION_CONFLICT','The collection item changed since it was last read. Refresh and retry.');return true;}
+    if(error?.code==='FTR03'){fail(res,409,'COLLECTION_ITEM_RESERVED','This collection item has quantity committed to an active Safe Exchange. Cancel or complete that exchange before reducing the reserved quantity.');return true;}
     if(error?.message==='REQUEST_TOO_LARGE'){fail(res,413,'REQUEST_TOO_LARGE','Request body is too large.');return true;}
     if(error instanceof SyntaxError){fail(res,400,'INVALID_JSON','Request body is not valid JSON.');return true;}
     if(error instanceof TypeError){fail(res,400,'INVALID_COLLECTION_INPUT',error.message);return true;}
