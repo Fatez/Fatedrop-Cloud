@@ -41,6 +41,7 @@ function nonNegativeInt(value) {
 function normalizeAssets(value) {
   if (!Array.isArray(value)) return [];
   return value.map((asset) => Object.freeze({
+    collectionItemId: text(asset?.collectionItemId) || null,
     fateCardId: text(asset?.fateCardId),
     quantity: nonNegativeInt(asset?.quantity) ?? 0,
     copyState: text(asset?.copyState || 'unspecified'),
