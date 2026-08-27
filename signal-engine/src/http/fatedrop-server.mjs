@@ -1,5 +1,5 @@
 import { env } from "../config/env.mjs";
-import { buildLocalRadar, distanceMiles, normalizeEncounterBatch } from "../encounters/local-radar.mjs";
+import { buildLocalRadar, distanceMiles, normalizeEncounterBatch } from "../encounters/local-radar-contract.mjs";
 import {
   normalizeLocalStockObservationBatch,
   normalizeRetailerLocationBatch,
