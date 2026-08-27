@@ -56,3 +56,41 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Run collector tests
         run: npm test
+
+  production-contract-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify deployed public signal contracts and private diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://fatedrop-cloud-production.up.railway.app"
+
+          curl --fail --silent --show-error --retry 4 --retry-delay 5 \
+            "$BASE/api/signals?limit=1" -o /tmp/signals.json
+          node -e '
+            const fs = require("fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/signals.json", "utf8"));
+            if (body.contractVersion !== 1) throw new Error(`signals contractVersion=${body.contractVersion}`);
+            if (body.source !== "FATEDROP_CLOUD") throw new Error(`signals source=${body.source}`);
+            if (body.success !== true) throw new Error(`signals success=${body.success}`);
+          '
+
+          curl --fail --silent --show-error --retry 4 --retry-delay 5 \
+            "$BASE/api/signal-summary" -o /tmp/summary.json
+          node -e '
+            const fs = require("fs");
+            const body = JSON.parse(fs.readFileSync("/tmp/summary.json", "utf8"));
+            if (body.contractVersion !== 1) throw new Error(`summary contractVersion=${body.contractVersion}`);
+            if (body.source !== "FATEDROP_CLOUD") throw new Error(`summary source=${body.source}`);
+            if (body.success !== true || body.available !== true) {
+              throw new Error(`summary unavailable success=${body.success} available=${body.available}`);
+            }
+          '
+
+          status="$(curl --silent --show-error --output /tmp/signal-health.json --write-out '%{http_code}' \
+            "$BASE/api/signal-health")"
+          test "$status" = "401" || { echo "expected /api/signal-health anonymous 401, got $status"; cat /tmp/signal-health.json; exit 1; }
