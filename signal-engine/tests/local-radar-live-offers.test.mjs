@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createFateDropHttpServer } from "../src/http/fatedrop-server.mjs";
 
+const observedAt = Math.floor(Date.now() / 1000);
 const store = {
   async listOffers() {
     return [
-      { offerId: "fresh:1", retailerId: "fresh-shop", stockStatus: "in_stock" },
-      { offerId: "stale:1", retailerId: "stale-shop", stockStatus: "in_stock" },
+      { offerId: "fresh:1", retailerId: "fresh-shop", stockStatus: "in_stock", lastSeenAt: observedAt },
+      { offerId: "stale:1", retailerId: "stale-shop", stockStatus: "in_stock", lastSeenAt: observedAt },
     ];
   },
   async listRetailers() {
