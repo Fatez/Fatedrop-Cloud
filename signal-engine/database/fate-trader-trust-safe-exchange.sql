@@ -10,6 +10,8 @@
 -- - Safe Exchange terms are stored atomically and transitions are append-only audited.
 -- - Collection quantities committed to a non-terminal Safe Exchange are reserved at
 --   the database boundary so one physical lot cannot be overcommitted concurrently.
+-- - Active reservations also protect the source collection lot from being removed or
+--   reduced below its committed quantity; completed exchanges consume the outgoing lot.
 
 CREATE TABLE IF NOT EXISTS fatedrop_fate_hubs (
   id TEXT PRIMARY KEY REFERENCES fatedrop_retailer_locations(id) ON DELETE RESTRICT,
@@ -73,11 +75,11 @@ CREATE TABLE IF NOT EXISTS fatedrop_safe_exchange_reservations (
   collection_item_id TEXT NOT NULL REFERENCES fatedrop_collection_items(id) ON DELETE RESTRICT,
   user_id TEXT NOT NULL REFERENCES fatedrop_users(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
-  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'released', 'consumed')),
   created_at BIGINT NOT NULL,
-  released_at BIGINT,
+  resolved_at BIGINT,
   PRIMARY KEY (exchange_id, collection_item_id),
-  CHECK ((status = 'active' AND released_at IS NULL) OR (status = 'released' AND released_at IS NOT NULL))
+  CHECK ((status = 'active' AND resolved_at IS NULL) OR (status IN ('released', 'consumed') AND resolved_at IS NOT NULL))
 );
 
 CREATE INDEX IF NOT EXISTS fatedrop_safe_exchange_reservations_item_active_idx
@@ -148,7 +150,7 @@ BEGIN
     END IF;
 
     INSERT INTO fatedrop_safe_exchange_reservations
-      (exchange_id, collection_item_id, user_id, quantity, status, created_at, released_at)
+      (exchange_id, collection_item_id, user_id, quantity, status, created_at, resolved_at)
     VALUES
       (NEW.id, reservation.collection_item_id, reservation.user_id, reservation.quantity, 'active', NEW.created_at, NULL);
   END LOOP;
@@ -164,29 +166,159 @@ AFTER INSERT ON fatedrop_safe_exchanges
 FOR EACH ROW
 EXECUTE FUNCTION fatedrop_reserve_safe_exchange_commitments();
 
-CREATE OR REPLACE FUNCTION fatedrop_release_safe_exchange_reservations()
+-- A trader may still increase an active lot while it is reserved, but cannot reduce
+-- quantity/trade_quantity below the sum committed to open exchanges and cannot remove
+-- the lot outright. This prevents a valid agreement becoming unfunded underneath the
+-- counterparty after it was created.
+CREATE OR REPLACE FUNCTION fatedrop_guard_reserved_collection_item_mutation()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  reserved_quantity INTEGER;
 BEGIN
-  UPDATE fatedrop_safe_exchange_reservations
-  SET status = 'released', released_at = NEW.updated_at
-  WHERE exchange_id = NEW.id
-    AND status = 'active';
+  SELECT COALESCE(SUM(r.quantity), 0)::INTEGER
+    INTO reserved_quantity
+  FROM fatedrop_safe_exchange_reservations r
+  WHERE r.collection_item_id = OLD.id
+    AND r.status = 'active';
+
+  IF reserved_quantity > 0 AND (
+    NEW.status <> 'active'
+    OR NEW.quantity < reserved_quantity
+    OR NEW.trade_quantity < reserved_quantity
+  ) THEN
+    RAISE EXCEPTION 'Collection item has quantity reserved by an active Safe Exchange'
+      USING ERRCODE = 'FTR03';
+  END IF;
+
   RETURN NEW;
 END;
 $$;
 
-DROP TRIGGER IF EXISTS fatedrop_safe_exchange_release_reservations_trigger
+DROP TRIGGER IF EXISTS fatedrop_safe_exchange_guard_collection_mutation_trigger
+  ON fatedrop_collection_items;
+CREATE TRIGGER fatedrop_safe_exchange_guard_collection_mutation_trigger
+BEFORE UPDATE OF quantity, trade_quantity, status ON fatedrop_collection_items
+FOR EACH ROW
+EXECUTE FUNCTION fatedrop_guard_reserved_collection_item_mutation();
+
+-- Cancellation releases the reservation without changing inventory. Completion consumes
+-- the committed outgoing quantity from the original owner's collection. Full-lot trades
+-- mark the source item removed (retaining its historical quantity); partial trades reduce
+-- the live lot. The receiver can then be reconciled separately without leaving false
+-- ownership on the sender side.
+CREATE OR REPLACE FUNCTION fatedrop_resolve_safe_exchange_reservations()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  reservation RECORD;
+  item RECORD;
+  next_quantity INTEGER;
+  next_trade_quantity INTEGER;
+  next_status TEXT;
+  collection_event_type TEXT;
+BEGIN
+  IF NEW.state = 'cancelled' THEN
+    UPDATE fatedrop_safe_exchange_reservations
+    SET status = 'released', resolved_at = NEW.updated_at
+    WHERE exchange_id = NEW.id
+      AND status = 'active';
+    RETURN NEW;
+  END IF;
+
+  IF NEW.state <> 'completed' THEN
+    RETURN NEW;
+  END IF;
+
+  FOR reservation IN
+    SELECT *
+    FROM fatedrop_safe_exchange_reservations
+    WHERE exchange_id = NEW.id
+      AND status = 'active'
+    ORDER BY collection_item_id
+    FOR UPDATE
+  LOOP
+    SELECT i.id, i.quantity, i.trade_quantity, i.status, i.revision
+      INTO item
+    FROM fatedrop_collection_items i
+    JOIN fatedrop_collections c ON c.id = i.collection_id
+    WHERE i.id = reservation.collection_item_id
+      AND c.user_id = reservation.user_id
+    FOR UPDATE OF i;
+
+    IF NOT FOUND OR item.status <> 'active' OR item.quantity < reservation.quantity OR item.trade_quantity < reservation.quantity THEN
+      RAISE EXCEPTION 'Reserved collection item is no longer valid for Safe Exchange completion'
+        USING ERRCODE = 'FTR04';
+    END IF;
+
+    -- Resolve first inside the same transaction so the collection mutation guard sees
+    -- no active reservation from this exchange. Any later failure rolls all of it back.
+    UPDATE fatedrop_safe_exchange_reservations
+    SET status = 'consumed', resolved_at = NEW.updated_at
+    WHERE exchange_id = NEW.id
+      AND collection_item_id = reservation.collection_item_id
+      AND status = 'active';
+
+    IF reservation.quantity >= item.quantity THEN
+      next_quantity := item.quantity;
+      next_trade_quantity := 0;
+      next_status := 'removed';
+      collection_event_type := 'removed';
+    ELSE
+      next_quantity := item.quantity - reservation.quantity;
+      next_trade_quantity := GREATEST(0, item.trade_quantity - reservation.quantity);
+      next_status := 'active';
+      collection_event_type := 'updated';
+    END IF;
+
+    UPDATE fatedrop_collection_items
+    SET quantity = next_quantity,
+        trade_quantity = next_trade_quantity,
+        status = next_status,
+        revision = revision + 1,
+        updated_at = NEW.updated_at
+    WHERE id = reservation.collection_item_id;
+
+    INSERT INTO fatedrop_collection_item_events
+      (id, user_id, collection_item_id, event_type, before_json, after_json, occurred_at)
+    VALUES (
+      'ftse_' || md5(NEW.id || ':' || reservation.collection_item_id || ':completed'),
+      reservation.user_id,
+      reservation.collection_item_id,
+      collection_event_type,
+      jsonb_build_object(
+        'quantity', item.quantity,
+        'tradeQuantity', item.trade_quantity,
+        'status', item.status,
+        'revision', item.revision
+      ),
+      jsonb_build_object(
+        'quantity', next_quantity,
+        'tradeQuantity', next_trade_quantity,
+        'status', next_status,
+        'revision', item.revision + 1
+      ),
+      NEW.updated_at
+    )
+    ON CONFLICT (id) DO NOTHING;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS fatedrop_safe_exchange_resolve_reservations_trigger
   ON fatedrop_safe_exchanges;
-CREATE TRIGGER fatedrop_safe_exchange_release_reservations_trigger
+CREATE TRIGGER fatedrop_safe_exchange_resolve_reservations_trigger
 AFTER UPDATE OF state ON fatedrop_safe_exchanges
 FOR EACH ROW
 WHEN (
   OLD.state IS DISTINCT FROM NEW.state
   AND NEW.state IN ('completed', 'cancelled')
 )
-EXECUTE FUNCTION fatedrop_release_safe_exchange_reservations();
+EXECUTE FUNCTION fatedrop_resolve_safe_exchange_reservations();
 
 CREATE TABLE IF NOT EXISTS fatedrop_safe_exchange_events (
   id TEXT PRIMARY KEY,
