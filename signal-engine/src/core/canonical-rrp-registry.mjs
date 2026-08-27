@@ -45,6 +45,13 @@ function normalizePokemonSeriesWording(title = "") {
 }
 
 function stripEraPrefixWhenExpansionRemains(source, title = "") {
+  const productType = String(source?.productType || "").trim().toLowerCase();
+  // A loose retailer booster-pack title is intentionally allowed to use a
+  // clearly-labelled pack reference without becoming an exact official product
+  // identity. Removing the era prefix here would silently upgrade that reference
+  // into official-RRP inheritance, so booster packs keep the stricter v3 boundary.
+  if (productType === "booster_pack") return String(title || "");
+
   let value = String(title || "");
   const patterns = [
     /\bSword\s*(?:&|and)\s*Shield\b/gi,
