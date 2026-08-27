@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { compareGroups, FateVerdictReason, sameComparableFamily } from "../src/core/fate-verdict.mjs";
+import {
+  compareGroups,
+  FateComparisonMode,
+  FateVerdictReason,
+  sameComparableFamily,
+} from "../src/core/fate-verdict.mjs";
 
 function offer(id, priceGbp) {
   return {
@@ -57,14 +62,16 @@ test("P0: Destined Rivals 4-pack component reference remains comparable with str
   const verdict = compareGroups(fourPack, zebstrikaBlister);
   assert.equal(verdict.reasonCode, FateVerdictReason.WINNER_RRP_PERCENT);
   assert.equal(verdict.basis, "rrp_percent");
+  assert.equal(verdict.comparisonMode, FateComparisonMode.NORMALIZED_OWN_RRP);
   assert.equal(verdict.winnerId, zebstrikaBlister.id);
   assert.ok(Math.abs(verdict.left.rrpPercent - (((66.95 - 17.16) / 17.16) * 100)) < 1e-9);
   assert.ok(Math.abs(verdict.right.rrpPercent - (((31.95 - 13.99) / 13.99) * 100)) < 1e-9);
   assert.equal(verdict.left.deliveryKnown, false);
   assert.equal(verdict.right.deliveryKnown, false);
+  assert.match(verdict.reason, /not a like-for-like product comparison/i);
 });
 
-test("different named expansions remain fail-closed even when both have verified reference evidence", () => {
+test("different named expansions stay distinct families but can compare normalized % vs each trusted own RRP", () => {
   const otherExpansion = {
     ...zebstrikaBlister,
     id: "surging-sparks-blister",
@@ -78,8 +85,9 @@ test("different named expansions remain fail-closed even when both have verified
 
   assert.equal(sameComparableFamily(fourPack, otherExpansion), false);
   const verdict = compareGroups(fourPack, otherExpansion);
-  assert.equal(verdict.winnerId, null);
-  assert.equal(verdict.reasonCode, FateVerdictReason.CONFIGURATION_NOT_COMPARABLE);
+  assert.equal(verdict.reasonCode, FateVerdictReason.WINNER_RRP_PERCENT);
+  assert.equal(verdict.comparisonMode, FateComparisonMode.NORMALIZED_OWN_RRP);
+  assert.equal(verdict.winnerId, otherExpansion.id);
 });
 
 test("the release fallback does not merge arbitrary official configurations", () => {
@@ -98,9 +106,13 @@ test("the release fallback does not merge arbitrary official configurations", ()
   };
 
   assert.equal(sameComparableFamily(officialEtb, zebstrikaBlister), false);
+
+  const verdict = compareGroups(officialEtb, zebstrikaBlister);
+  assert.equal(verdict.reasonCode, FateVerdictReason.WINNER_RRP_PERCENT);
+  assert.equal(verdict.comparisonMode, FateComparisonMode.NORMALIZED_OWN_RRP);
 });
 
-test("source-market MSRP evidence cannot use the UK mixed-reference release fallback", () => {
+test("source-market MSRP evidence cannot enter the normalized UK RRP comparison", () => {
   const imported = {
     ...zebstrikaBlister,
     id: "destined-rivals-import",
@@ -113,4 +125,9 @@ test("source-market MSRP evidence cannot use the UK mixed-reference release fall
   };
 
   assert.equal(sameComparableFamily(fourPack, imported), false);
+  const verdict = compareGroups(fourPack, imported);
+  assert.equal(verdict.winnerId, null);
+  assert.equal(verdict.reasonCode, FateVerdictReason.NO_VERIFIED_REFERENCE);
+  assert.equal(verdict.comparisonMode, null);
+  assert.equal(verdict.right.rrpPercent, null);
 });
