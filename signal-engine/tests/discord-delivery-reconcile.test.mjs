@@ -14,6 +14,7 @@ test("orphaned lifecycle Discord deliveries are reconciled durably and freshness
   assert.match(reconcileSource, /result='sent'/);
   assert.match(reconcileSource, /DEFAULT_GRACE_SECONDS = 90/);
   assert.match(reconcileSource, /DEFAULT_RETRY_DELAY_SECONDS = 5 \* 60/);
+  assert.match(reconcileSource, /RATE_LIMIT_RETRY_DELAY_SECONDS = 60/);
   assert.match(reconcileSource, /manifested: 5 \* 60/);
   assert.match(reconcileSource, /echo: 5 \* 60/);
   assert.match(reconcileSource, /DEFAULT_BATCH_LIMIT = 25/);
@@ -54,6 +55,24 @@ test("failed delivery can retry only after backoff while signal remains fresh", 
     now: NOW,
   });
   assert.deepEqual([retry.recover, retry.reason], [true, "retryable_attempt"]);
+});
+
+test("Discord rate limits retry on the next reconcile cycle and retain the longer delivery-obligation window", () => {
+  const tooSoon = discordRecoveryDecision({
+    signal: signal("whisper", 16 * 60),
+    lastAttempt: { result: "failed", detail: "Discord rate limited for 0.3s", attemptedAt: NOW - 30 },
+    now: NOW,
+  });
+  assert.deepEqual([tooSoon.recover, tooSoon.reason], [false, "retry_backoff"]);
+  assert.equal(tooSoon.maxAgeSeconds, 20 * 60);
+
+  const retry = discordRecoveryDecision({
+    signal: signal("whisper", 16 * 60),
+    lastAttempt: { result: "failed", detail: "Discord delivery failed (429)", attemptedAt: NOW - 61 },
+    now: NOW,
+  });
+  assert.deepEqual([retry.recover, retry.reason], [true, "rate_limit_retry"]);
+  assert.equal(retry.maxAgeSeconds, 20 * 60);
 });
 
 test("configuration-missing skips are retryable but deliberate disabled policy is terminal", () => {
