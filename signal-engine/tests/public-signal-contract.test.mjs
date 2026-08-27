@@ -8,8 +8,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const publicContract = readFileSync(resolve(here, '../src/telemetry/public-signal-contract.mjs'), 'utf8');
 const signalHealth = readFileSync(resolve(here, '../src/telemetry/signal-health-summary.mjs'), 'utf8');
 const fateDropServer = readFileSync(resolve(here, '../src/http/fatedrop-server.mjs'), 'utf8');
+const topServer = readFileSync(resolve(here, '../src/server.mjs'), 'utf8');
 
-test('public signal feed is Cloud-owned, no-store and canonical for Vanished', () => {
+test('public signal feed is Cloud-owned, versioned, no-store and canonical for Vanished', () => {
+  assert.match(publicContract, /PUBLIC_SIGNAL_CONTRACT_VERSION = 1/);
+  assert.match(publicContract, /contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION/);
   assert.match(publicContract, /source: 'FATEDROP_CLOUD'/);
   assert.match(publicContract, /'cache-control': 'no-store'/);
   assert.match(publicContract, /s\.state <> 'vanished'/);
@@ -37,4 +40,10 @@ test('FateDrop HTTP server routes live signal reads through the canonical public
   assert.match(fateDropServer, /url\.pathname==="\/api\/signals"/);
   assert.match(fateDropServer, /handlePublicSignalSummary/);
   assert.match(fateDropServer, /url\.pathname==="\/api\/signal-summary"/);
+});
+
+test('public product signal contracts stay separate from private operational diagnostics', () => {
+  assert.match(topServer, /"\/api\/signal-health"/);
+  assert.doesNotMatch(topServer, /"\/api\/signal-summary"/);
+  assert.match(fateDropServer, /"\/api\/signal-summary"/);
 });
