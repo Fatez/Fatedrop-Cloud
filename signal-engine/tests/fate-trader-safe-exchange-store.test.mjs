@@ -92,7 +92,7 @@ test('Safe Exchange rejects a commitment to somebody else\'s collection item', a
     input: {
       partyBUserId: 'user-b',
       method: 'postal',
-      partyACommitment: { assets: [{ collectionItemId: 'item-b', fateCardId: 'card-b', quantity: 1 }] },
+      partyACommitment: { assets: [{ collectionItemId: 'item-b', fateCardId: 'card-b', quantity: 1, copyState: 'raw', conditionCode: 'near_mint' }] },
       partyBCommitment: commitments().partyBCommitment,
     },
   }), (error) => error.code === 'COMMITMENT_NOT_OWNED');
