@@ -1,6 +1,7 @@
 import { resolveFateTraderSessionUser } from '../auth.mjs';
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import { findTradeOpportunities } from './service.mjs';
+import { enrichFinderWithTrust } from './trust-context.mjs';
 
 function json(res, status, payload) {
   res.writeHead(status, {
@@ -49,7 +50,8 @@ export async function handleFateTraderMatching(req, res, {
   }
 
   try {
-    const data = await findTradeOpportunities(store, { userId: user.id, limit: limitFor(url) });
+    const finder = await findTradeOpportunities(store, { userId: user.id, limit: limitFor(url) });
+    const data = flags.trustEnabled ? await enrichFinderWithTrust(store, finder) : finder;
     ok(res, data);
     return true;
   } catch (error) {

@@ -11,6 +11,8 @@ export function resolveFateTraderFlags(source = process.env) {
   const matching = network && enabled(source.FATE_TRADER_MATCHING_ENABLED);
   const hunts = matching && enabled(source.FATE_TRADER_HUNTS_ENABLED);
   const messaging = network && enabled(source.FATE_TRADER_MESSAGING_ENABLED);
+  const trust = matching && enabled(source.FATE_TRADER_TRUST_ENABLED);
+  const safeExchange = trust && enabled(source.FATE_TRADER_SAFE_EXCHANGE_ENABLED);
 
   return Object.freeze({
     enabled: master,
@@ -21,5 +23,7 @@ export function resolveFateTraderFlags(source = process.env) {
     matchingEnabled: matching,
     huntsEnabled: hunts,
     messagingEnabled: messaging,
+    trustEnabled: trust,
+    safeExchangeEnabled: safeExchange,
   });
 }

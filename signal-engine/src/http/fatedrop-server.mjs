@@ -21,6 +21,9 @@ import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 import { handleFateTraderCatalogue, isFateTraderCataloguePath } from "../trader/catalogue/http.mjs";
 import { handleFateTraderCollection, isFateTraderCollectionPath } from "../trader/collection/http.mjs";
 import { handleFateTraderBinder, isFateTraderBinderPath } from "../trader/binder/http.mjs";
+import { handleFateTraderMatching, isFateTraderMatchingPath } from "../trader/matching/http.mjs";
+import { handleFateTraderTrust, isFateTraderTrustPath } from "../trader/trust/http.mjs";
+import { handleFateTraderSafeExchange, isFateTraderSafeExchangePath } from "../trader/safe-exchange/http.mjs";
 import { createHttpServer as createLegacyHttpServer } from "./server.mjs";
 
 function json(res, status, body) {
@@ -247,6 +250,9 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}
     if(isFateTraderCollectionPath(url.pathname)){await handleFateTraderCollection(req,res,{store});return;}
     if(isFateTraderBinderPath(url.pathname)){await handleFateTraderBinder(req,res,{store});return;}
+    if(isFateTraderMatchingPath(url.pathname)){await handleFateTraderMatching(req,res,{store});return;}
+    if(isFateTraderTrustPath(url.pathname)){await handleFateTraderTrust(req,res,{store,internalSecret:env.ingestSecret});return;}
+    if(isFateTraderSafeExchangePath(url.pathname)){await handleFateTraderSafeExchange(req,res,{store,internalSecret:env.ingestSecret});return;}
     const isEncounterRoute=url.pathname==="/api/local-radar"||url.pathname==="/api/encounters"||url.pathname.startsWith("/api/encounters/")||url.pathname==="/api/calendar-events"||url.pathname.startsWith("/api/calendar-events/")||url.pathname==="/internal/local-radar/locations"||url.pathname==="/internal/local-radar/observations"||url.pathname==="/internal/encounters"||url.pathname==="/internal/encounter-vendors"||url.pathname==="/internal/encounter-inventory";
     if(isEncounterRoute){await handleFateEncounters(req,res,{store:liveReadStore,retailers,placesSearch,postcodeLookup,postcodeBatchLookup});return;}
     return legacyHandler(req,res);

@@ -56,6 +56,8 @@ const enabledFlags = Object.freeze({
   matchingEnabled: false,
   huntsEnabled: false,
   messagingEnabled: false,
+  trustEnabled: false,
+  safeExchangeEnabled: false,
 });
 
 test('Fate Trader flags default dark and enforce dependency ordering', () => {
@@ -68,6 +70,8 @@ test('Fate Trader flags default dark and enforce dependency ordering', () => {
     matchingEnabled: false,
     huntsEnabled: false,
     messagingEnabled: false,
+    trustEnabled: false,
+    safeExchangeEnabled: false,
   });
 
   const withoutMaster = resolveFateTraderFlags({ FATE_TRADER_CATALOGUE_ENABLED: 'true' });
@@ -82,6 +86,32 @@ test('Fate Trader flags default dark and enforce dependency ordering', () => {
   assert.equal(collection.binderEnabled, false);
   assert.equal(collection.networkEnabled, false);
   assert.equal(collection.matchingEnabled, false);
+  assert.equal(collection.trustEnabled, false);
+  assert.equal(collection.safeExchangeEnabled, false);
+
+  const safeExchangeWithoutMatching = resolveFateTraderFlags({
+    FATE_TRADER_ENABLED: 'true',
+    FATE_TRADER_CATALOGUE_ENABLED: 'true',
+    FATE_TRADER_COLLECTION_ENABLED: 'true',
+    FATE_TRADER_BINDER_ENABLED: 'true',
+    FATE_TRADER_NETWORK_ENABLED: 'true',
+    FATE_TRADER_TRUST_ENABLED: 'true',
+    FATE_TRADER_SAFE_EXCHANGE_ENABLED: 'true',
+  });
+  assert.equal(safeExchangeWithoutMatching.trustEnabled, false);
+  assert.equal(safeExchangeWithoutMatching.safeExchangeEnabled, false);
+
+  const trustWithoutSafeExchange = resolveFateTraderFlags({
+    FATE_TRADER_ENABLED: 'true',
+    FATE_TRADER_CATALOGUE_ENABLED: 'true',
+    FATE_TRADER_COLLECTION_ENABLED: 'true',
+    FATE_TRADER_BINDER_ENABLED: 'true',
+    FATE_TRADER_NETWORK_ENABLED: 'true',
+    FATE_TRADER_MATCHING_ENABLED: 'true',
+    FATE_TRADER_TRUST_ENABLED: 'true',
+  });
+  assert.equal(trustWithoutSafeExchange.trustEnabled, true);
+  assert.equal(trustWithoutSafeExchange.safeExchangeEnabled, false);
 });
 
 test('disabled catalogue route fails closed as unavailable', async () => {
