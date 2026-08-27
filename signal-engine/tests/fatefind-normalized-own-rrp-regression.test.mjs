@@ -79,8 +79,8 @@ test("P0 real case: Destined Rivals pack vs booster box ranks by % vs each own v
   assert.equal(verdict.winnerId, destinedRivalsBox.id);
   closeTo(verdict.left.rrpPercent, ((9.99 - 4.29) / 4.29) * 100);
   closeTo(verdict.right.rrpPercent, ((334.95 - 151.99) / 151.99) * 100);
-  closeTo(verdict.left.rrpPercent, 132.86713286713285);
-  closeTo(verdict.right.rrpPercent, 120.38949930916498);
+  assert.equal(Number(verdict.left.rrpPercent.toFixed(1)), 132.9);
+  assert.equal(Number(verdict.right.rrpPercent.toFixed(1)), 120.4);
   assert.match(verdict.reason, /normalized % vs own RRP/i);
   assert.match(verdict.reason, /not a like-for-like product comparison/i);
 });
