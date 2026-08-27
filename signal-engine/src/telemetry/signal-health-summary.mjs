@@ -1,4 +1,6 @@
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
+const ORPHAN_GRACE_SECONDS = 120;
+const RELIABILITY_LOOKBACK_SECONDS = 24 * 60 * 60;
 
 function startOfUtcDay(timestamp) {
   const date = new Date(timestamp * 1000);
@@ -51,7 +53,39 @@ function monitorDiagnostics(monitorRows = []) {
   };
 }
 
-export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
+function reliabilityDiagnostics({ orphanRows = [], freshnessRows = [], now }) {
+  const orphans = Array.isArray(orphanRows) ? orphanRows : [];
+  const freshness = freshnessRows?.[0] || {};
+  const latestSignalAt = freshness.latest_signal_at == null ? null : Number(freshness.latest_signal_at);
+  const latestDiscordAttemptAt = freshness.latest_discord_attempt_at == null ? null : Number(freshness.latest_discord_attempt_at);
+  const recentSignals = Number(freshness.recent_signals || 0);
+  const recentDiscordAttempts = Number(freshness.recent_discord_attempts || 0);
+  const telemetryStoppedWhileSignalsContinue = recentSignals > 0
+    && recentDiscordAttempts === 0
+    && latestSignalAt != null
+    && now - latestSignalAt >= ORPHAN_GRACE_SECONDS;
+
+  return {
+    orphanGraceSeconds: ORPHAN_GRACE_SECONDS,
+    orphanedDiscordSignals: orphans.length,
+    orphanedSignalIds: orphans.map((row) => row.id),
+    orphanedSignals: orphans.map((row) => ({
+      id: row.id,
+      state: row.state,
+      retailerId: row.retailer_id,
+      retailerName: row.retailer_name,
+      title: row.title,
+      detectedAt: Number(row.detected_at),
+    })),
+    latestSignalAt,
+    latestDiscordAttemptAt,
+    recentSignals,
+    recentDiscordAttempts,
+    telemetryStoppedWhileSignalsContinue,
+  };
+}
+
+export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], orphanRows = [], freshnessRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   const { safeDays, day0 } = safeWindow(days, now);
   const lifecycle = emptyLifecycle(day0, safeDays);
   const delivery = emptyDelivery(day0, safeDays);
@@ -122,6 +156,7 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
       duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0),
       discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0),
       discordLatency: overallLatency,
+      reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }),
       monitors: monitorDiagnostics(monitorRows),
     },
   };
@@ -133,45 +168,18 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
   }
   const { safeDays, day0 } = safeWindow(days, now);
   const pool = await store.pool();
-  const [detections, deliveries, latency, monitorRows] = await Promise.all([
+  const reliabilitySince = Math.max(0, now - RELIABILITY_LOOKBACK_SECONDS);
+  const orphanBefore = Math.max(0, now - ORPHAN_GRACE_SECONDS);
+
+  const [detections, deliveries, latency, orphans, freshness, snapshots, rawMonitors] = await Promise.all([
     pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count
       FROM fatedrop_signals s
       WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished')
-        AND (
-          s.state <> 'vanished'
-          OR (
-            s.offer_id IS NOT NULL
-            AND EXISTS (
-              SELECT 1 FROM fatedrop_signals m
-              WHERE m.offer_id=s.offer_id AND m.state='manifested' AND m.detected_at < s.detected_at
-                AND NOT EXISTS (
-                  SELECT 1 FROM fatedrop_signals v
-                  WHERE v.offer_id=s.offer_id AND v.state='vanished'
-                    AND v.detected_at > m.detected_at AND v.detected_at < s.detected_at
-                )
-            )
-          )
-        )
       GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count
       FROM fatedrop_signal_delivery_attempts a
       INNER JOIN fatedrop_signals s ON s.id=a.signal_id
       WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished')
-        AND (
-          s.state <> 'vanished'
-          OR (
-            s.offer_id IS NOT NULL
-            AND EXISTS (
-              SELECT 1 FROM fatedrop_signals m
-              WHERE m.offer_id=s.offer_id AND m.state='manifested' AND m.detected_at < s.detected_at
-                AND NOT EXISTS (
-                  SELECT 1 FROM fatedrop_signals v
-                  WHERE v.offer_id=s.offer_id AND v.state='vanished'
-                    AND v.detected_at > m.detected_at AND v.detected_at < s.detected_at
-                )
-            )
-          )
-        )
       GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size,
         percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds,
@@ -183,29 +191,37 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
         WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord'
           AND a.attempted_at >= s.detected_at
           AND s.state IN ('whisper','echo','manifested','vanished')
-          AND (
-            s.state <> 'vanished'
-            OR (
-              s.offer_id IS NOT NULL
-              AND EXISTS (
-                SELECT 1 FROM fatedrop_signals m
-                WHERE m.offer_id=s.offer_id AND m.state='manifested' AND m.detected_at < s.detected_at
-                  AND NOT EXISTS (
-                    SELECT 1 FROM fatedrop_signals v
-                    WHERE v.offer_id=s.offer_id AND v.state='vanished'
-                      AND v.detected_at > m.detected_at AND v.detected_at < s.detected_at
-                  )
-              )
-            )
-          )
       ) sent
       GROUP BY GROUPING SETS ((state),())`, [day0]),
-    typeof store.listRetailers === "function" ? store.listRetailers() : [],
+    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at
+      FROM fatedrop_signals s
+      WHERE s.detected_at >= $1 AND s.detected_at <= $2
+        AND s.state IN ('whisper','echo','manifested','vanished')
+        AND NOT EXISTS (
+          SELECT 1 FROM fatedrop_signal_delivery_attempts a
+          WHERE a.signal_id=s.id AND a.channel='discord'
+        )
+      ORDER BY s.detected_at ASC LIMIT 100`, [reliabilitySince, orphanBefore]),
+    pool.query(`SELECT
+        (SELECT MAX(detected_at) FROM fatedrop_signals WHERE detected_at >= $1 AND state IN ('whisper','echo','manifested','vanished')) AS latest_signal_at,
+        (SELECT MAX(attempted_at) FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS latest_discord_attempt_at,
+        (SELECT COUNT(*)::int FROM fatedrop_signals WHERE detected_at >= $1 AND state IN ('whisper','echo','manifested','vanished')) AS recent_signals,
+        (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS recent_discord_attempts`, [reliabilitySince]),
+    typeof store.listNetworkSnapshots === "function" ? store.listNetworkSnapshots(1).catch(() => []) : [],
+    typeof store.listRetailers === "function" ? store.listRetailers().catch(() => []) : [],
   ]);
+
+  const latestSnapshot = Array.isArray(snapshots) ? snapshots[0] : null;
+  const monitorRows = Array.isArray(latestSnapshot?.retailers) && latestSnapshot.retailers.length
+    ? latestSnapshot.retailers
+    : rawMonitors;
+
   return buildSignalHealthSummary({
     detectionRows: detections.rows,
     deliveryRows: deliveries.rows,
     latencyRows: latency.rows,
+    orphanRows: orphans.rows,
+    freshnessRows: freshness.rows,
     monitorRows,
     days: safeDays,
     now,
