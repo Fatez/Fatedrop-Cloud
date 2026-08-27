@@ -1,3 +1,5 @@
+import { RAW_CONDITIONS } from '../collection/model.mjs';
+
 export const SAFE_EXCHANGE_METHODS = Object.freeze({
   HUB: 'hub',
   POSTAL: 'postal',
@@ -44,8 +46,8 @@ function normalizeAssets(value) {
     collectionItemId: text(asset?.collectionItemId) || null,
     fateCardId: text(asset?.fateCardId),
     quantity: nonNegativeInt(asset?.quantity) ?? 0,
-    copyState: text(asset?.copyState || 'unspecified'),
-    conditionCode: text(asset?.conditionCode) || null,
+    copyState: text(asset?.copyState || 'unspecified').toLowerCase(),
+    conditionCode: text(asset?.conditionCode).toLowerCase() || null,
     gradingCompany: text(asset?.gradingCompany) || null,
     gradeValue: asset?.gradeValue == null ? null : Number(asset.gradeValue),
   }));
@@ -65,7 +67,19 @@ function validateCommitment(commitment, side) {
   for (const asset of commitment.assets) {
     if (!asset.fateCardId) errors.push(`${side}_card_identity_missing`);
     if (asset.quantity <= 0) errors.push(`${side}_card_quantity_invalid`);
-    if (asset.gradeValue != null && !Number.isFinite(asset.gradeValue)) errors.push(`${side}_grade_invalid`);
+    if (!['raw', 'graded'].includes(asset.copyState)) {
+      errors.push(`${side}_copy_state_invalid`);
+      continue;
+    }
+    if (asset.copyState === 'raw') {
+      if (!asset.conditionCode || !RAW_CONDITIONS.includes(asset.conditionCode)) errors.push(`${side}_condition_invalid`);
+      if (asset.gradingCompany || asset.gradeValue != null) errors.push(`${side}_raw_grading_not_allowed`);
+    } else {
+      if (asset.conditionCode) errors.push(`${side}_graded_condition_not_allowed`);
+      if (!asset.gradingCompany) errors.push(`${side}_grading_company_missing`);
+      if (asset.gradeValue == null || !Number.isFinite(asset.gradeValue) || asset.gradeValue < 0) errors.push(`${side}_grade_invalid`);
+      if (asset.quantity !== 1) errors.push(`${side}_graded_quantity_invalid`);
+    }
   }
   if (commitment.assets.length === 0 && commitment.cashPence <= 0) errors.push(`${side}_commitment_empty`);
   return errors;
