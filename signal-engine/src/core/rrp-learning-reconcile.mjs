@@ -11,6 +11,39 @@ const RECONCILER_RULES_VERSION = "rrp-self-heal-v3";
 function unique(values = []) { return [...new Set(values.filter(Boolean))]; }
 function conflictReason(reason = "") { return /conflict/i.test(String(reason)); }
 
+function dbAuthorityProduct(row = {}) {
+  return {
+    id: row.id,
+    title: row.title,
+    productType: row.product_type,
+    tcg: row.tcg || "pokemon",
+    officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence),
+    rrpSource: row.rrp_source || null,
+    rrpObservedAt: row.rrp_observed_at == null ? null : Number(row.rrp_observed_at),
+    updatedAt: row.updated_at == null ? null : Number(row.updated_at),
+  };
+}
+
+async function loadAuthorityProducts(pool, store) {
+  // The normal catalogue read intentionally has a bounded product window. RRP
+  // healing needs a different view: every authoritative RRP row, regardless of
+  // catalogue recency, so older verified products cannot fall out of the resolver.
+  try {
+    const { rows } = await pool.query(`
+      SELECT id,title,product_type,tcg,official_rrp_pence,rrp_source,rrp_observed_at,updated_at
+      FROM fatedrop_products
+      WHERE official_rrp_pence IS NOT NULL AND official_rrp_pence > 0
+        AND rrp_source IS NOT NULL AND btrim(rrp_source) <> ''
+      ORDER BY updated_at DESC
+      LIMIT $1
+    `, [AUTHORITY_GRAPH_LIMIT]);
+    if (rows?.length) return rows.map(dbAuthorityProduct);
+  } catch {
+    // File/test stores do not necessarily expose the production SQL schema.
+  }
+  return store.listProducts({ limit: AUTHORITY_GRAPH_LIMIT });
+}
+
 function authorityFingerprint(products = []) {
   const facts = (products || [])
     .filter((product) => Number.isFinite(product?.officialRrpPence) && product.officialRrpPence > 0 && product?.rrpSource)
@@ -94,10 +127,7 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   }
   const pool = await store.pool();
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || DEFAULT_LIMIT));
-  // RRP authority is global catalogue truth. Do not truncate the resolver context to
-  // the historical 5k product window; otherwise valid authority can exist in Neon
-  // but remain invisible to self-healing.
-  const products = await store.listProducts({ limit: AUTHORITY_GRAPH_LIMIT });
+  const products = await loadAuthorityProducts(pool, store);
   const context = buildRrpValueContext(products);
   const fingerprint = authorityFingerprint(products);
 
