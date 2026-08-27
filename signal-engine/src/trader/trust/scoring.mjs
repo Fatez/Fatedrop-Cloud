@@ -130,8 +130,10 @@ export function scoreFateTrust({ evidence = {}, account = {} } = {}) {
   const weighted = Object.entries(FATE_TRUST_WEIGHTS)
     .reduce((sum, [key, weight]) => sum + (components[key] * weight), 0);
   const penalties = penaltyScore(evidence);
-  const rawScore = (1000 * confidence * weighted) - penalties;
-  const score = Math.max(0, Math.min(1000, Math.round(Math.min(ceiling, rawScore))));
+  const evidenceBoundScore = Math.min(ceiling, 1000 * confidence * weighted);
+  // Apply substantiated penalties after the evidence ceiling so a real adverse outcome
+  // can never be hidden by a low-history account already sitting at its ceiling.
+  const score = Math.max(0, Math.min(1000, Math.round(evidenceBoundScore - penalties)));
   const restricted = finiteNonNegative(evidence.confirmedFraudFindings) > 0;
   const level = classifyFateTrust({ score, effectiveTrades, restricted });
 
