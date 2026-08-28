@@ -33,7 +33,7 @@ export async function bootstrapAsmodeeRrp({
     };
   }
 
-  const result = await syncFn({ databaseUrl, now });
+  const result = await syncFn({ databaseUrl, pool, now });
   return {
     skipped: false,
     refreshReason: existing === 0 ? "not_bootstrapped" : "authoritative_evidence_stale",
