@@ -56,6 +56,11 @@ function verifiedObservation(run, overrides = {}) {
   });
 }
 
+function dateOnly(value) {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
 const pool = new Pool({ connectionString, max: 2 });
 const store = { pool: async () => pool };
 
@@ -197,7 +202,7 @@ try {
   assert.equal(persisted.rows[0].source_name, 'cardmarket');
   assert.equal(persisted.rows[0].currency_code, 'EUR');
   assert.equal(Number(persisted.rows[0].avg_7d), 8.8);
-  assert.equal(String(persisted.rows[0].market_day), '2026-08-28');
+  assert.equal(dateOnly(persisted.rows[0].market_day), '2026-08-28');
 
   console.log('Fate Value PostgreSQL smoke rehearsal passed');
 } finally {
