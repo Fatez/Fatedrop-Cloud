@@ -99,30 +99,34 @@ function fetchImpl(url) {
 
 test('live rehearsal reads canonical store and remains dry-run only', async () => {
   const store = { async read() { return canonicalState(); } };
-  const report = await buildLiveCardmarketRehearsal({ store, fetchImpl, fetchedAt: NOW, limit: 1 });
+  const report = await buildLiveCardmarketRehearsal({ store, fetchImpl, fetchedAt: NOW, limit: 2 });
 
   assert.equal(report.mode, 'dry-run');
   assert.equal(report.liveSource, true);
   assert.equal(report.persistenceAuthorized, false);
-  assert.equal(report.sample.selected.length, 1);
-  assert.equal(report.sample.selected[0].sourceRecordId, '668227');
-  assert.ok(report.sample.selected[0].reasons.includes('duplicate-name-in-expansion'));
-  assert.ok(report.sample.selected[0].reasons.includes('meaningful-holo-lane'));
+  assert.deepEqual(report.sample.selected.map((item) => item.sourceRecordId), ['668228', '668227']);
+  assert.ok(report.sample.selected[0].reasons.includes('high-value'));
+  assert.ok(report.sample.selected[0].reasons.includes('high-short-term-volatility'));
+  assert.ok(report.sample.selected[1].reasons.includes('meaningful-holo-lane'));
   assert.equal(report.wouldInsert, 1);
-  assert.equal(report.wouldReject, 1);
-  assert.equal(report.rejections[0].sourceVariantKey, 'holo');
+  assert.equal(report.wouldReject, 2);
+  assert.ok(report.rejections.some((item) => item.sourceRecordId === '668227' && item.sourceVariantKey === 'holo'));
   assert.match(report.artifacts.priceGuide.sha256, /^[a-f0-9]{64}$/);
 });
 
 test('without exact card mapping, live rehearsal only suggests candidates inside verified mapped set', async () => {
   const store = { async read() { return canonicalState({ withCardMapping: false }); } };
-  const report = await buildLiveCardmarketRehearsal({ store, fetchImpl, fetchedAt: NOW, limit: 1 });
+  const report = await buildLiveCardmarketRehearsal({ store, fetchImpl, fetchedAt: NOW, limit: 2 });
 
   assert.equal(report.wouldInsert, 0);
-  assert.equal(report.wouldReject, 2);
-  assert.equal(report.diagnostics[0].status, 'candidate');
-  assert.equal(report.diagnostics[0].crosswalk.autoMappable, false);
-  assert.equal(report.diagnostics[0].crosswalk.candidates[0].fateCardId, 'fdcard_161');
+  assert.equal(report.wouldReject, 3);
+  const standardDiagnostic = report.diagnostics.find((item) => (
+    item.sourceRecordId === '668227' && item.sourceVariantKey === 'normal'
+  ));
+  assert.ok(standardDiagnostic);
+  assert.equal(standardDiagnostic.status, 'candidate');
+  assert.equal(standardDiagnostic.crosswalk.autoMappable, false);
+  assert.equal(standardDiagnostic.crosswalk.candidates[0].fateCardId, 'fdcard_161');
 });
 
 test('without exact set crosswalk, live rehearsal refuses global catalogue matching', async () => {
@@ -139,7 +143,8 @@ test('sample selection prioritizes difficult rows rather than source order', asy
   const store = { async read() { return canonicalState({ withCardMapping: false }); } };
   const report = await buildLiveCardmarketRehearsal({ store, fetchImpl, fetchedAt: NOW, limit: 2 });
 
-  assert.deepEqual(report.sample.selected.map((item) => item.sourceRecordId), ['668227', '668228']);
-  assert.ok(report.sample.selected[1].reasons.includes('high-value'));
-  assert.ok(report.sample.selected[1].reasons.includes('duplicate-name-in-expansion'));
+  assert.deepEqual(report.sample.selected.map((item) => item.sourceRecordId), ['668228', '668227']);
+  assert.ok(report.sample.selected[0].reasons.includes('high-value'));
+  assert.ok(report.sample.selected[0].reasons.includes('duplicate-name-in-expansion'));
+  assert.ok(report.sample.selected[1].reasons.includes('meaningful-holo-lane'));
 });
