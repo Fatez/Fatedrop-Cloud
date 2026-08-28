@@ -35,10 +35,23 @@ function assertBatch(run, observations, rejections) {
   }
 }
 
+function fileCardIdentity(state, cardIdentityId) {
+  const cards = state.traderCatalogue?.cards || {};
+  return cards[cardIdentityId]
+    ?? Object.values(cards).find((candidate) => candidate?.id === cardIdentityId)
+    ?? null;
+}
+
 function assertFileMapping(state, observation) {
   const mappings = Object.values(state.traderCatalogue?.cardSourceMappings || {});
   const mapping = mappings.find((candidate) => candidate.id === observation.cardSourceMappingId);
   if (!mapping) throw new Error('Market observation requires a canonical card source mapping');
+
+  const card = fileCardIdentity(state, observation.cardIdentityId);
+  if (!card || card.verificationStatus !== 'verified') {
+    throw new Error('Market observation requires a verified canonical card identity');
+  }
+
   if (mapping.cardIdentityId !== observation.cardIdentityId
     || mapping.sourceName !== observation.sourceName
     || mapping.sourceRecordId !== observation.sourceRecordId
@@ -94,12 +107,18 @@ async function persistFile(store, batch) {
 
 async function assertPostgresMapping(client, observation) {
   const { rows } = await client.query(
-    `SELECT card_identity_id,source_name,source_record_id,source_variant_key
-       FROM fatedrop_card_source_mappings WHERE id=$1`,
+    `SELECT m.card_identity_id,m.source_name,m.source_record_id,m.source_variant_key,
+            c.verification_status
+       FROM fatedrop_card_source_mappings m
+       JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
+      WHERE m.id=$1`,
     [observation.cardSourceMappingId],
   );
   const mapping = rows[0];
   if (!mapping) throw new Error('Market observation requires a canonical card source mapping');
+  if (mapping.verification_status !== 'verified') {
+    throw new Error('Market observation requires a verified canonical card identity');
+  }
   if (mapping.card_identity_id !== observation.cardIdentityId
     || mapping.source_name !== observation.sourceName
     || mapping.source_record_id !== observation.sourceRecordId
