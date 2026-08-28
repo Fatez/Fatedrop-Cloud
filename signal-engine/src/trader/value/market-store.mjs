@@ -62,29 +62,37 @@ function assertFileMapping(state, observation) {
 
 async function persistFile(store, batch) {
   return store.mutate((state) => {
-    const lab = fileValueLab(state);
     const { run, observations, rejections } = batch;
 
+    // Validate every canonical relationship before creating or mutating any
+    // Fate Value state. File-backed stores are not assumed to be transactional,
+    // so a rejected observation must leave no partial ingest-run residue behind.
+    for (const observation of observations) assertFileMapping(state, observation);
+
+    const lab = fileValueLab(state);
     const existingRun = lab.ingestRuns[run.id];
     if (existingRun
       && (existingRun.sourceName !== run.sourceName
         || existingRun.sourceSnapshotId !== run.sourceSnapshotId)) {
       throw new Error('Market ingest run identity conflict');
     }
-    lab.ingestRuns[run.id] = run;
 
     let insertedObservations = 0;
     let duplicateObservations = 0;
     for (const observation of observations) {
-      assertFileMapping(state, observation);
       const existing = lab.observations[observation.id];
       if (existing) {
         if (existing.contentFingerprint !== observation.contentFingerprint) {
           throw new Error('Immutable market observation conflict');
         }
         duplicateObservations += 1;
-        continue;
       }
+    }
+
+    // Only after all fail-closed validation succeeds do we mutate the file state.
+    lab.ingestRuns[run.id] = run;
+    for (const observation of observations) {
+      if (lab.observations[observation.id]) continue;
       lab.observations[observation.id] = observation;
       insertedObservations += 1;
     }
