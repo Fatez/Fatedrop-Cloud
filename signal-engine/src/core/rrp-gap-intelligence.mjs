@@ -66,10 +66,16 @@ export function classifyRrpGap(reason = "") {
 
 export function rrpGapGroupKey(row = {}) {
   const evidence = evidenceFor(row);
-  const productId = text(row.product_id || row.productId);
-  if (productId) return `product:${productId}`;
+  // Prefer retailer-independent canonical identity evidence before the persisted
+  // product id. Product ids are excellent local keys but can differ across source
+  // normalisation boundaries; the canonical key lets the learner notice the same
+  // product failing at multiple retailers and raise that gap faster.
+  const canonicalKey = text(evidence.canonical_key || evidence.canonicalKey);
+  if (canonicalKey) return `canonical:${lower(canonicalKey)}`;
   const alias = text(evidence.alias_signature);
   if (alias) return `alias:${alias}`;
+  const productId = text(row.product_id || row.productId);
+  if (productId) return `product:${productId}`;
   return `title:${lower(row.tcg || "pokemon")}|${lower(row.product_type || row.productType)}|${normalizedTitle(row.observed_title || row.observedTitle)}`;
 }
 
@@ -78,7 +84,9 @@ export function rrpObservationFingerprint(row = {}) {
   const facts = [
     text(row.product_id || row.productId),
     text(row.offer_id || row.offerId),
+    lower(row.product_type || row.productType),
     lower(row.failure_reason || row.failureReason),
+    lower(evidence.canonical_key || evidence.canonicalKey),
     lower(evidence.stock_status || evidence.stockStatus),
     text(evidence.price_pence ?? evidence.pricePence),
     text(evidence.postage_pence ?? evidence.postagePence),
