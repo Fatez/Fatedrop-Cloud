@@ -126,6 +126,7 @@ function githubObservationEvidence(raw, { issueNumber, issueUrl, observedAt }) {
 
   const material = { ...evidence };
   delete material.transport;
+  delete material.discoveredAt;
   evidence.fingerprint = sha256(stableJson(material));
   evidence.canonical_pipeline = { status: "pending", attempts: 0 };
   return { sourceUrl: canonicalUrl, evidence };
