@@ -33,6 +33,8 @@ CREATE INDEX IF NOT EXISTS fatedrop_market_ingest_runs_source_time_idx
 -- One row is one mapped market observation for one exact source snapshot.
 -- New snapshots append new rows. Re-running the exact same source snapshot is
 -- idempotent through the unique source/snapshot/card/segment constraint below.
+-- content_fingerprint lets persistence reject an attempted mutation of an
+-- already-recorded logical observation instead of silently overwriting history.
 CREATE TABLE IF NOT EXISTS fatedrop_market_observations (
   id TEXT PRIMARY KEY,
   ingest_run_id TEXT NOT NULL REFERENCES fatedrop_market_ingest_runs(id) ON DELETE RESTRICT,
@@ -58,6 +60,7 @@ CREATE TABLE IF NOT EXISTS fatedrop_market_observations (
   excellent_plus_low NUMERIC(20,6),
   metrics_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  content_fingerprint TEXT NOT NULL CHECK (content_fingerprint ~ '^[a-f0-9]{64}$'),
   created_at BIGINT NOT NULL,
   CHECK (market_price IS NULL OR market_price >= 0),
   CHECK (low_price IS NULL OR low_price >= 0),
