@@ -40,6 +40,39 @@ jobs:
       - name: Run complete Signal Engine tests
         run: npm test
 
+  fate-value-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fatedrop_value_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fatedrop_value_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Install Signal Engine dependencies
+        run: npm ci
+      - name: Run Fate Value PostgreSQL schema and persistence smoke rehearsal
+        env:
+          FATE_VALUE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/fatedrop_value_test
+        run: node tests/fate-value-postgres-smoke.mjs
+
   pokemon-center-collector:
     runs-on: ubuntu-latest
     defaults:
