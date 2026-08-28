@@ -49,12 +49,27 @@ function requireCount(value, field) {
   return value;
 }
 
+function digest(prefix, value) {
+  const hash = createHash('sha256').update(value).digest('hex');
+  return prefix ? `${prefix}_${hash.slice(0, 24)}` : hash;
+}
+
 function stableId(prefix, parts) {
-  const digest = createHash('sha256')
-    .update(parts.map((part) => String(part ?? '')).join('|'))
-    .digest('hex')
-    .slice(0, 24);
-  return `${prefix}_${digest}`;
+  return digest(prefix, parts.map((part) => String(part ?? '')).join('|'));
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]),
+    );
+  }
+  return value;
+}
+
+function stableJson(value) {
+  return JSON.stringify(canonicalJson(value));
 }
 
 function plainObject(value, field) {
@@ -66,7 +81,8 @@ function plainObject(value, field) {
 }
 
 function normaliseLabel(value, fallback, field) {
-  const text = optionalText(value) ?? fallback;
+  const text = optionalText(value) ?? optionalText(fallback);
+  if (!text) throw new TypeError(`${field} is required`);
   const normalized = text.normalize('NFKC').toLowerCase().replace(/\s+/g, '-');
   if (!/^[a-z0-9._+/=-]+$/.test(normalized)) {
     throw new TypeError(`${field} contains unsupported characters`);
@@ -161,18 +177,42 @@ export function normaliseMarketObservationCandidate(input) {
   const sourceVariantKey = requireText(input.sourceVariantKey, 'sourceVariantKey');
   const marketSegmentKey = normaliseLabel(input.marketSegmentKey, 'default', 'marketSegmentKey');
   const conditionCode = normaliseLabel(input.conditionCode, 'unspecified', 'conditionCode');
+  const currencyCode = normaliseCurrency(input.currencyCode);
+  const cardIdentityId = requireText(input.cardIdentityId, 'cardIdentityId');
+  const cardSourceMappingId = requireText(input.cardSourceMappingId, 'cardSourceMappingId');
 
   const prices = Object.fromEntries(
     STANDARD_PRICE_FIELDS.map((field) => [field, normalisePrice(input[field], field)]),
   );
   const metricsJson = plainObject(input.metricsJson, 'metricsJson');
+  const rawPayload = plainObject(input.rawPayload, 'rawPayload');
   if (!STANDARD_PRICE_FIELDS.some((field) => prices[field] != null)
     && Object.keys(metricsJson).length === 0) {
     throw new TypeError('at least one market metric is required');
   }
 
-  const runId = optionalText(input.ingestRunId)
+  const ingestRunId = optionalText(input.ingestRunId)
     ?? makeMarketIngestRunId(sourceName, sourceSnapshotId);
+  const marketDay = utcDay(sourceEffectiveAt ?? observedAt);
+
+  const contentFingerprint = digest(null, stableJson({
+    ingestRunId,
+    cardIdentityId,
+    cardSourceMappingId,
+    sourceName,
+    sourceSnapshotId,
+    sourceRecordId,
+    sourceVariantKey,
+    marketSegmentKey,
+    conditionCode,
+    currencyCode,
+    observedAt,
+    sourceEffectiveAt,
+    marketDay,
+    prices,
+    metricsJson,
+    rawPayload,
+  }));
 
   return Object.freeze({
     id: makeMarketObservationId({
@@ -183,22 +223,23 @@ export function normaliseMarketObservationCandidate(input) {
       marketSegmentKey,
       conditionCode,
     }),
-    ingestRunId: runId,
-    cardIdentityId: requireText(input.cardIdentityId, 'cardIdentityId'),
-    cardSourceMappingId: requireText(input.cardSourceMappingId, 'cardSourceMappingId'),
+    ingestRunId,
+    cardIdentityId,
+    cardSourceMappingId,
     sourceName,
     sourceSnapshotId,
     sourceRecordId,
     sourceVariantKey,
     marketSegmentKey,
     conditionCode,
-    currencyCode: normaliseCurrency(input.currencyCode),
+    currencyCode,
     observedAt,
     sourceEffectiveAt,
-    marketDay: utcDay(sourceEffectiveAt ?? observedAt),
+    marketDay,
     ...prices,
     metricsJson,
-    rawPayload: plainObject(input.rawPayload, 'rawPayload'),
+    rawPayload,
+    contentFingerprint,
     createdAt: requireTimestamp(input.createdAt ?? observedAt, 'createdAt'),
   });
 }
