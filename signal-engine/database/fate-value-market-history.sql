@@ -82,7 +82,8 @@ CREATE TABLE IF NOT EXISTS fatedrop_market_observations (
     source_record_id,
     source_variant_key,
     market_segment_key,
-    condition_code
+    condition_code,
+    currency_code
   )
 );
 
