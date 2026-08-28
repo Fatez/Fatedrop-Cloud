@@ -1,11 +1,11 @@
-import { syncAsmodeeRrp } from "./asmodee-authority.mjs";
+import { syncAsmodeeRrpWithPool } from "./asmodee-store-sync.mjs";
 
 const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 export async function bootstrapAsmodeeRrp({
   store,
   databaseUrl,
-  syncFn = syncAsmodeeRrp,
+  syncFn = syncAsmodeeRrpWithPool,
   now = Math.floor(Date.now() / 1000),
   maxAgeSeconds = DEFAULT_MAX_AGE_SECONDS,
 } = {}) {
