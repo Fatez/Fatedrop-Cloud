@@ -333,27 +333,35 @@ async function reconcileDiscordDeliveries() {
   if (reconcilingDiscordDeliveries) return;
   reconcilingDiscordDeliveries = true;
   try {
-    const outcome = await reconcileMissingDiscordDeliveries({ store, maxSignals: 1500 });
-    if (outcome.enabled && (outcome.attempted > 0 || outcome.failed > 0)) {
-      console.log("[signal-engine] Discord delivery reconciliation", outcome);
+    const outcome = await reconcileMissingDiscordDeliveries({ store });
+    if (outcome.recovered > 0 || outcome.failed > 0) {
+      console.log("[signal-engine] Discord lifecycle delivery reconciliation", outcome);
     }
   } catch (error) {
-    console.error("[signal-engine] Discord delivery reconciliation failed", { error: String(error?.message || error) });
+    console.error("[signal-engine] Discord lifecycle delivery reconciliation failed", {
+      error: String(error?.message || error),
+    });
   } finally {
     reconcilingDiscordDeliveries = false;
   }
 }
 
-async function reconcileDiscoveryWatch() {
+async function reconcileDiscoveryWatchEvidence() {
   if (reconcilingDiscoveryWatch) return;
   reconcilingDiscoveryWatch = true;
   try {
-    const outcome = await reconcileProductDiscoveryWatch({ store, retailers, maxItems: 200 });
-    if (outcome.enabled && (outcome.evaluated > 0 || outcome.failed > 0)) {
-      console.log("[signal-engine] discovery watch reconciliation", outcome);
+    const outcome = await reconcileProductDiscoveryWatch({ store, retailers });
+    if (outcome.signalsCreated > 0) {
+      await publishWebsiteSnapshot({ store });
+      await refreshBetaRuntimeReadiness({ store }).catch(() => null);
+    }
+    if (outcome.examined > 0 || outcome.failed > 0 || outcome.retried > 0) {
+      console.log("[signal-engine] product discovery watch reconciliation", outcome);
     }
   } catch (error) {
-    console.error("[signal-engine] discovery watch reconciliation failed", { error: String(error?.message || error) });
+    console.error("[signal-engine] product discovery watch reconciliation failed", {
+      error: String(error?.message || error),
+    });
   } finally {
     reconcilingDiscoveryWatch = false;
   }
@@ -363,30 +371,32 @@ async function refreshDiscordRoutes() {
   if (checkingDiscordRoutes) return;
   checkingDiscordRoutes = true;
   try {
-    const health = await refreshDiscordRouteHealth();
-    console.log("[signal-engine] Discord route health", { healthy: health.healthy, routes: health.routes.map((route) => `${route.name}:${route.status}`) });
+    const outcome = await refreshDiscordRouteHealth();
+    console.log("[signal-engine] Discord lifecycle route health", outcome);
+    const runtime = await recordBetaRuntimeReadiness({ store });
+    console.log("[signal-engine] Beta runtime readiness", { recorded: runtime.recorded, ready: runtime.readiness?.ready });
   } catch (error) {
-    console.error("[signal-engine] Discord route health check failed", { error: String(error?.message || error) });
+    console.error("[signal-engine] Discord lifecycle route health failed", { error: String(error?.message || error) });
+    await recordBetaRuntimeReadiness({ store }).catch(() => null);
   } finally {
     checkingDiscordRoutes = false;
   }
 }
 
-await store.init();
-console.log(`[signal-engine] starting store=${env.store} retailers=${retailers.length}`);
-await refreshAuthoritativeRrp();
-await reconcileRrpLearning();
-await refreshBetaReadiness();
-await refreshDiscordRoutes();
-await reconcileDiscordDeliveries();
-await reconcileDiscoveryWatch();
-await scheduledScan();
-setInterval(scheduledScan, env.scanIntervalSeconds * 1000);
-setInterval(reconcileRrpLearning, RRP_LEARNING_RECONCILE_INTERVAL_MS).unref();
+server.listen(env.port, () => {
+  console.log(`[signal-engine] listening on :${env.port}; ${retailers.length} retailer adapters enabled; registry=${env.retailerRegistryEnabled ? "on" : "off"}; hosted FateFind=${env.hostedFateFind.enabled ? "on" : "off"}`);
+  void refreshAuthoritativeRrp();
+  void reconcileRrpLearning();
+  void refreshDiscordRoutes();
+  void refreshBetaReadiness();
+  void reconcileDiscordDeliveries();
+  void reconcileDiscoveryWatchEvidence();
+});
+if (env.scanOnStart) scheduledScan();
+setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
 setInterval(refreshAuthoritativeRrp, RRP_AUTHORITY_REFRESH_INTERVAL_MS).unref();
-setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
+setInterval(reconcileRrpLearning, RRP_LEARNING_RECONCILE_INTERVAL_MS).unref();
 setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
+setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
 setInterval(reconcileDiscordDeliveries, DISCORD_DELIVERY_RECONCILE_INTERVAL_MS).unref();
-setInterval(reconcileDiscoveryWatch, DISCOVERY_WATCH_RECONCILE_INTERVAL_MS).unref();
-
-server.listen(env.port, "0.0.0.0", () => console.log(`[signal-engine] listening on :${env.port}`));
+setInterval(reconcileDiscoveryWatchEvidence, DISCOVERY_WATCH_RECONCILE_INTERVAL_MS).unref();
