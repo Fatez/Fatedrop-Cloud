@@ -1,3 +1,4 @@
+import { createStore } from "../stores/index.mjs";
 import { additionalLaunchRetailers } from "./additional-launch-retailers.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES, RRP_AUTHORITY, normalizeRetailerCandidate } from "./registry.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
@@ -54,7 +55,7 @@ export function retailerToRuntimeConfig(input) {
   return retailerToAdapterConfig(input, { requireMonitored: true, allowUnapprovedFeed: false });
 }
 
-export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabled = false, databaseUrl = "" } = {}) {
+export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabled = false, databaseUrl = "", store = null } = {}) {
   const launchRetailers = [...staticRetailers];
   const byLaunchId = new Map(launchRetailers.map((retailer) => [retailer.id, retailer]));
   for (const retailer of additionalLaunchRetailers()) byLaunchId.set(retailer.id, retailer);
@@ -62,7 +63,9 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
 
   if (!registryEnabled) return launch;
   if (!databaseUrl) throw new Error("Retailer registry runtime requires DATABASE_URL");
-  const registry = new PostgresRetailerRegistry(databaseUrl);
+  const canonicalStore = store || createStore();
+  if (typeof canonicalStore?.pool !== "function") throw new Error("Retailer registry runtime requires the canonical PostgreSQL store");
+  const registry = new PostgresRetailerRegistry(databaseUrl, { poolProvider: () => canonicalStore.pool() });
   await ensureStaticRetailersInRegistry({ registry, staticRetailers: launch });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
   const dynamic = monitored
