@@ -39,7 +39,7 @@ async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
   qualifyingRetailerCandidates = true;
   try {
-    const outcome = await runCandidateQualificationCycle({ databaseUrl: env.databaseUrl });
+    const outcome = await runCandidateQualificationCycle({ databaseUrl: env.databaseUrl, store: localBranchStore });
     console.log("[signal-engine] retailer candidate qualification", {
       candidates: outcome.candidates,
       due: outcome.due,
