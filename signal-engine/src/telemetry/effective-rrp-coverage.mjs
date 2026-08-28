@@ -3,7 +3,14 @@ import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-referen
 import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 
 const PURCHASABLE = new Set(["in_stock", "low_stock", "preorder"]);
-const KINDS = Object.freeze(["official", "component_reference", "pack_reference"]);
+const KINDS = Object.freeze([
+  "official",
+  "component_reference",
+  "pack_reference",
+  "source_market_msrp",
+  "source_market_component_reference",
+  "other_reference",
+]);
 
 function percentage(numerator, denominator) {
   if (!denominator) return 0;
@@ -77,7 +84,7 @@ export function buildEffectiveRrpCoverage({ offers = [], products = [] } = {}) {
         eligibleResolvedOffers += 1;
         bucket.eligibleResolvedOffers += 1;
       }
-      const kind = KINDS.includes(rrp.kind) ? rrp.kind : "official";
+      const kind = KINDS.includes(rrp.kind) ? rrp.kind : "other_reference";
       byKind[kind] += 1;
     } else {
       bucket.unresolvedOffers += 1;
