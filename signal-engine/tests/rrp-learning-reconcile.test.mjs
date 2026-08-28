@@ -68,7 +68,7 @@ test("reconciler never promotes component references into product aliases", asyn
   assert.equal(result.remaining, 1);
 });
 
-test("already-escalated rows on the same authority fingerprint are filtered before LIMIT", async () => {
+test("candidate selection widens the pool before knowledge ranking and reactive deferral", async () => {
   let selection = null;
   const pool = {
     async query(sql, params = []) {
@@ -91,14 +91,13 @@ test("already-escalated rows on the same authority fingerprint are filtered befo
     },
   };
 
-  await reconcileRrpLearningQueue({ store, limit: 100, now: 300 });
+  const result = await reconcileRrpLearningQueue({ store, limit: 100, now: 300 });
   assert.ok(selection);
-  assert.match(selection.sql, /COALESCE\(evidence_json->>'escalated','false'\)='true'/);
-  assert.match(selection.sql, /authority_fingerprint/);
-  assert.match(selection.sql, /reconciler_rules_version/);
-  assert.equal(selection.params[0], 100);
-  assert.match(selection.params[1], /^rrp-self-heal-v3:/);
-  assert.equal(selection.params[2], "rrp-self-heal-v3");
+  assert.match(selection.sql, /status IN \('open','candidate'\)/);
+  assert.match(selection.sql, /ORDER BY last_seen_at DESC, occurrence_count DESC/);
+  assert.equal(selection.params[0], 800);
+  assert.equal(result.candidatePool, 0);
+  assert.equal(result.deferred, 0);
 });
 
 test("production authority query is not limited by the normal catalogue read window", async () => {
