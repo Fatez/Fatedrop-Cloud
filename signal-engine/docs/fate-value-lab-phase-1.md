@@ -12,9 +12,10 @@ Fate Value does not create another card catalogue.
 
 - `fatedrop_card_identities.id` / `fateCardId` remains the canonical exact printed identity.
 - External provider IDs remain crosswalks in `fatedrop_card_source_mappings`.
-- A market observation may enter canonical history only when its provider record resolves through an existing exact source mapping.
+- A market observation may enter canonical history only when its provider record resolves through an existing exact source mapping to an already verified FateDrop card identity.
 - Condition is evidence about a market or physical copy and is never encoded into `fateCardId`.
 - Unresolved evidence is retained in `fatedrop_market_ingest_rejections`; identity is never guessed to increase coverage.
+- Market data is downstream evidence. It cannot create, repair or reinterpret canonical card identity.
 
 ## Phase 1 tables
 
@@ -55,6 +56,19 @@ The source-agnostic observation contract currently supports:
 
 A provider adapter may populate only the fields it actually knows. Missing signals remain null/unknown.
 
+## Cardmarket adapter boundary
+
+Cardmarket is the first provider adapter. Cardmarket publishes its product catalogue and price-guide downloads publicly, so Phase 1 is designed around those download artefacts rather than account credentials, private API access or page scraping.
+
+The adapter is deliberately split in two:
+
+1. `cardmarket-catalogue-adapter.mjs` stages provider product evidence only. It has no authority to produce a `fateCardId`, collector number or FateDrop variant.
+2. `cardmarket-adapter.mjs` converts a price-guide row into market evidence only after an exact verified source mapping has been supplied.
+
+The price guide can contain standard and holo metrics in the same provider row. Those lanes are never merged or automatically interpreted as FateDrop variants. Each meaningful lane must resolve explicitly. Zero-only placeholder lanes do not become market observations.
+
+Provider snapshot identity comes from the provider's own version/timestamp rather than FateDrop's ingest time. This keeps retries idempotent and prevents the same daily source file being recorded as several different market days merely because it was processed more than once.
+
 ## Explicitly out of scope for Phase 1
 
 - Fate Fair Value formula
@@ -65,13 +79,8 @@ A provider adapter may populate only the fields it actually knows. Missing signa
 - Fate Trader trade-balance changes
 - collection valuation
 - scanner/camera recognition
-- automated provider scraping
-
-## First provider adapter
-
-Cardmarket is the intended first price-guide adapter because its downloadable catalogue/price-guide data maps well to the observation contract. The adapter must remain isolated from the shared model so another source can be added or substituted without changing FateDrop's canonical identity or market history.
-
-Before any Cardmarket-derived values are exposed publicly/commercially, current provider terms/permissions must be resolved. Phase 1 is an internal data-foundation project only.
+- automated page scraping
+- market data creating or changing canonical card identities
 
 ## Phase 1 exit gate
 
@@ -84,6 +93,8 @@ Phase 1 is ready for a provider rehearsal when all of the following are true:
 5. identical snapshot replays are idempotent;
 6. changed evidence cannot mutate previously stored observations;
 7. source-native currency and raw evidence are preserved;
-8. no public product behaviour changes.
+8. Cardmarket standard/holo lanes cannot cross-map implicitly;
+9. Cardmarket catalogue evidence cannot create canonical FateDrop identity;
+10. no public product behaviour changes.
 
-The next engineering slice after this foundation is a **Cardmarket catalogue crosswalk + price-guide adapter rehearsal** against a deliberately small Pokémon sample before any full-catalogue ingestion.
+The next database-backed engineering slice is a **small Cardmarket catalogue crosswalk + price-guide rehearsal** against deliberately selected Pokémon examples before any full-catalogue ingestion. Database rehearsal remains mandatory before that slice is allowed to write anything.
