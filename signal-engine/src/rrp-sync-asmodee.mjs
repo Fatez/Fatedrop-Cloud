@@ -1,10 +1,8 @@
-import { syncAsmodeeRrpWithPool } from "./rrp/asmodee-store-sync.mjs";
-import { createStore } from "./stores/index.mjs";
+import { env } from "./config/env.mjs";
+import { syncAsmodeeRrp } from "./rrp/asmodee-authority.mjs";
 
 try {
-  const store = createStore();
-  if (typeof store?.pool !== "function") throw new Error("Asmodee RRP sync requires the canonical PostgreSQL store");
-  const result = await syncAsmodeeRrpWithPool({ pool: await store.pool() });
+  const result = await syncAsmodeeRrp({ databaseUrl: env.databaseUrl });
   console.log(JSON.stringify(result, null, 2));
 } catch (error) {
   console.error(error?.stack || error?.message || error);
