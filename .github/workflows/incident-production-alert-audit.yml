@@ -18,10 +18,13 @@ jobs:
         run: |
           set -euo pipefail
           CLOUD="https://fatedrop-cloud-production.up.railway.app"
+          WEB="https://fatedrop.co.uk"
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/health" -o /tmp/health.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/retailers" -o /tmp/retailers.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=100" -o /tmp/signals.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signal-summary" -o /tmp/summary.json
+          push_code="$(curl --silent --show-error --retry 3 --retry-delay 2 --output /dev/null --write-out '%{http_code}' "$WEB/api/health/push")"
+          export PUSH_CODE="$push_code"
 
           node <<'NODE'
           const fs = require('fs');
@@ -32,17 +35,19 @@ jobs:
           const rows = Array.isArray(signals.signals) ? signals.signals : [];
           const retailerRows = Array.isArray(retailers.retailers) ? retailers.retailers : [];
           const now = Date.now();
-          const ageHours = (value) => {
-            const ms = Date.parse(value || '');
-            return Number.isFinite(ms) ? Math.round(((now - ms) / 3600000) * 100) / 100 : null;
+          const epochMs = value => {
+            const n = Number(value);
+            if (Number.isFinite(n) && n > 0) return n > 1e12 ? n : n * 1000;
+            const parsed = Date.parse(value || '');
+            return Number.isFinite(parsed) ? parsed : null;
           };
-          const recent24 = rows.filter(r => {
-            const ms = Date.parse(r.detectedAt || '');
-            return Number.isFinite(ms) && now - ms <= 24 * 3600000;
-          });
-          const recent6 = rows.filter(r => {
-            const ms = Date.parse(r.detectedAt || '');
-            return Number.isFinite(ms) && now - ms <= 6 * 3600000;
+          const ageHours = value => {
+            const ms = epochMs(value);
+            return ms == null ? null : Math.round(((now - ms) / 3600000) * 100) / 100;
+          };
+          const recent = hours => rows.filter(r => {
+            const ms = epochMs(r.detectedAt);
+            return ms != null && now - ms <= hours * 3600000;
           });
           const countBy = (items, key) => items.reduce((acc, item) => {
             const k = String(item?.[key] ?? 'unknown');
@@ -52,30 +57,37 @@ jobs:
           const monitoring = retailerRows.map(r => ({
             id: r.id,
             name: r.name,
-            class: r.retailerClass,
             configured: r.monitoring?.configured ?? null,
             healthy: r.monitoring?.healthy ?? r.healthy ?? null,
             stale: r.monitoring?.stale ?? r.stale ?? null,
             lastSuccessAt: r.monitoring?.lastSuccessAt ?? r.lastSuccessAt ?? null,
-            lastAttemptAt: r.monitoring?.lastAttemptAt ?? r.lastAttemptAt ?? null,
             lastSuccessAgeHours: ageHours(r.monitoring?.lastSuccessAt ?? r.lastSuccessAt),
-            lastAttemptAgeHours: ageHours(r.monitoring?.lastAttemptAt ?? r.lastAttemptAt),
             lastError: r.monitoring?.lastError ?? r.lastError ?? null,
           }));
-          console.log('=== FATEDROP INCIDENT AUDIT ===');
+          const configured = monitoring.filter(r => r.configured === true);
+          const healthy = configured.filter(r => r.healthy === true && r.stale !== true);
+          const stale = configured.filter(r => r.stale === true);
+          const unhealthy = configured.filter(r => r.healthy !== true && r.stale !== true);
+          const noSuccess = configured.filter(r => r.lastSuccessAt == null);
+          const today = Object.fromEntries(['whisper','echo','manifested','vanished'].map(state => [state, {
+            generated: Number(summary.lifecycle?.[state]?.today || 0),
+            discordSent: Number(summary.delivery?.[state]?.todaySent || 0),
+            discordIssues: Number(summary.delivery?.[state]?.trend?.at(-1)?.issues || 0),
+          }]));
+          console.log('=== FATEDROP INCIDENT SUMMARY ===');
           console.log(JSON.stringify({
-            health,
-            generatedAt: signals.generatedAt || null,
-            returnedSignals: rows.length,
-            newestSignal: rows[0] || null,
-            oldestReturnedSignal: rows.at(-1) || null,
-            signalsLast24h: recent24.length,
-            signalsLast6h: recent6.length,
-            statesLast24h: countBy(recent24, 'state'),
-            retailersLast24h: countBy(recent24, 'retailerId'),
-            statesLast6h: countBy(recent6, 'state'),
-            retailersLast6h: countBy(recent6, 'retailerId'),
-            retailerMonitoring: monitoring,
-            signalSummary: summary,
+            cloudHealth: health,
+            webPushHealthHttp: Number(process.env.PUSH_CODE),
+            signalsLast24h: recent(24).length,
+            signalsLast6h: recent(6).length,
+            statesLast24h: countBy(recent(24), 'state'),
+            retailersLast24h: countBy(recent(24), 'retailerId'),
+            todayLifecycleDiscordParity: today,
+            configuredRetailers: configured.length,
+            healthyFreshRetailers: healthy.length,
+            staleRetailers: stale,
+            unhealthyNonStaleRetailers: unhealthy,
+            configuredWithNoSuccessfulScan: noSuccess,
+            diagnostics: summary.diagnostics || null,
           }, null, 2));
           NODE
