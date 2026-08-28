@@ -97,8 +97,8 @@ test("already-escalated rows on the same authority fingerprint are filtered befo
   assert.match(selection.sql, /authority_fingerprint/);
   assert.match(selection.sql, /reconciler_rules_version/);
   assert.equal(selection.params[0], 100);
-  assert.match(selection.params[1], /^rrp-self-heal-v3:/);
-  assert.equal(selection.params[2], "rrp-self-heal-v3");
+  assert.match(selection.params[1], /^rrp-self-heal-v3\.1:/);
+  assert.equal(selection.params[2], "rrp-self-heal-v3.1");
 });
 
 test("production authority query is not limited by the normal catalogue read window", async () => {
