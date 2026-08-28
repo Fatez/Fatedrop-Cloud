@@ -1,12 +1,17 @@
 import { createHash } from "node:crypto";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
+import {
+  buildRrpGapSnapshot,
+  currentRrpObservationFingerprint,
+  rankRrpGapRows,
+} from "./rrp-gap-intelligence.mjs";
 import { rrpAliasSignature, rrpLearningId } from "./rrp-learning.mjs";
 import { recordVerifiedRrpAlias } from "../stores/rrp-learning-store.mjs";
 
 const DEFAULT_LIMIT = 250;
 const ESCALATION_OCCURRENCES = 10;
 const AUTHORITY_GRAPH_LIMIT = 20000;
-const RECONCILER_RULES_VERSION = "rrp-self-heal-v3";
+const RECONCILER_RULES_VERSION = "rrp-self-heal-v4-knowledge-gap";
 
 function unique(values = []) { return [...new Set(values.filter(Boolean))]; }
 function conflictReason(reason = "") { return /conflict/i.test(String(reason)); }
@@ -60,50 +65,22 @@ function authorityFingerprint(products = []) {
   return `${RECONCILER_RULES_VERSION}:${createHash("sha256").update(facts).digest("hex").slice(0, 16)}`;
 }
 
-function reconciliationDisposition(reason = "") {
-  const value = String(reason || "verified_rrp_unavailable");
-  if (conflictReason(value)) {
-    return {
-      classification: "authority_conflict",
-      nextAction: "hold_fail_closed_until_authority_conflict_is_resolved",
-    };
-  }
-  if (value === "no_authoritative_candidate" || value === "registry_unavailable") {
-    return {
-      classification: "authority_gap",
-      nextAction: "await_or_refresh_authoritative_rrp_source",
-    };
-  }
-  if (value === "no_exact_identity_match" || value === "identity_bucket_unavailable" || value === "reference_identity_too_weak") {
-    return {
-      classification: "identity_gap",
-      nextAction: "review_verified_identity_or_safe_alias_evidence",
-    };
-  }
-  if (value === "no_verified_pack_reference") {
-    return {
-      classification: "component_authority_gap",
-      nextAction: "await_verified_equivalent_pack_reference",
-    };
-  }
-  return {
-    classification: "unresolved_reference",
-    nextAction: "retry_after_authority_or_identity_evidence_changes",
-  };
-}
-
 function canDeferEscalatedRow(row, fingerprint) {
   const evidence = row?.evidence_json && typeof row.evidence_json === "object" ? row.evidence_json : {};
+  const currentObservationFingerprint = currentRrpObservationFingerprint(row);
   return evidence.escalated === true
     && evidence.authority_fingerprint === fingerprint
-    && evidence.reconciler_rules_version === RECONCILER_RULES_VERSION;
+    && evidence.reconciler_rules_version === RECONCILER_RULES_VERSION
+    && evidence.reconciled_observation_fingerprint === currentObservationFingerprint;
 }
 
-async function recordUnresolvedDisposition(pool, row, result, now, fingerprint) {
+async function recordUnresolvedDisposition(pool, row, result, now, fingerprint, intelligence = {}) {
   const reason = String(result?.reason || row.failure_reason || "verified_rrp_unavailable");
-  const disposition = reconciliationDisposition(reason);
   const occurrenceCount = Number(row.occurrence_count || 0);
   const escalated = occurrenceCount >= ESCALATION_OCCURRENCES;
+  const currentObservationFingerprint = intelligence.currentObservationFingerprint || currentRrpObservationFingerprint(row);
+  const classification = intelligence.classification || "unresolved_reference";
+  const nextAction = intelligence.nextAction || "retry_after_authority_or_identity_evidence_changes";
   await pool.query(`
     UPDATE fatedrop_rrp_resolution_queue
     SET failure_reason=$1,
@@ -111,14 +88,20 @@ async function recordUnresolvedDisposition(pool, row, result, now, fingerprint) 
     WHERE id=$3
   `, [reason, JSON.stringify({
     reconciled_at: now,
-    reconciliation_class: disposition.classification,
-    next_action: disposition.nextAction,
+    reconciliation_class: classification,
+    next_action: nextAction,
+    actionability: intelligence.actionability || "evidence_watch",
+    knowledge_priority: Number(intelligence.priority || 0),
+    cross_retailer_count: Number(intelligence.crossRetailerCount || 1),
+    live_offer: intelligence.liveOffer === true,
+    identifier_evidence: intelligence.hasIdentifierEvidence === true,
     escalated,
     escalation_threshold: ESCALATION_OCCURRENCES,
     authority_fingerprint: fingerprint,
+    reconciled_observation_fingerprint: currentObservationFingerprint,
     reconciler_rules_version: RECONCILER_RULES_VERSION,
   }), row.id]);
-  return { ...disposition, escalated };
+  return { classification, nextAction, escalated };
 }
 
 export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, now = Math.floor(Date.now() / 1000) } = {}) {
@@ -127,40 +110,42 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   }
   const pool = await store.pool();
   const safeLimit = Math.min(500, Math.max(1, Number(limit) || DEFAULT_LIMIT));
+  const candidateLimit = Math.min(2500, Math.max(500, safeLimit * 8));
   const products = await loadAuthorityProducts(pool, store);
   const context = buildRrpValueContext(products);
   const fingerprint = authorityFingerprint(products);
 
-  // Exclude already-escalated rows at the database selection boundary when neither
-  // the authoritative RRP graph nor resolver rules have changed. Filtering only in
-  // the JS loop would let those rows occupy the LIMIT forever and starve the rest
-  // of the queue. COALESCE is intentional: legacy rows have no self-heal metadata.
-  const { rows } = await pool.query(`
+  // Pull a wider recent candidate pool, then let the knowledge layer rank it using
+  // live availability, product value family, identifiers, recurrence and evidence
+  // across retailers. Escalated rows are only deferred when both authority truth
+  // and the latest observed market facts are unchanged.
+  const { rows: candidateRows } = await pool.query(`
     SELECT *
     FROM fatedrop_rrp_resolution_queue
     WHERE status IN ('open','candidate')
-      AND NOT (
-        COALESCE(evidence_json->>'escalated','false')='true'
-        AND COALESCE(evidence_json->>'authority_fingerprint','')=$2
-        AND COALESCE(evidence_json->>'reconciler_rules_version','')=$3
-      )
-    ORDER BY occurrence_count DESC, last_seen_at DESC
+    ORDER BY last_seen_at DESC, occurrence_count DESC
     LIMIT $1
-  `, [safeLimit, fingerprint, RECONCILER_RULES_VERSION]);
+  `, [candidateLimit]);
+
+  const ranked = rankRrpGapRows(candidateRows, { now });
+  const active = [];
+  let deferred = 0;
+  for (const item of ranked) {
+    if (canDeferEscalatedRow(item.row, fingerprint)) {
+      deferred += 1;
+      continue;
+    }
+    active.push(item);
+    if (active.length >= safeLimit) break;
+  }
 
   let resolved = 0;
   let conflicts = 0;
   let escalated = 0;
-  let deferred = 0;
+  const checkedRows = [];
 
-  for (const row of rows) {
-    // Keep a second defensive gate in case a non-Postgres test/store path supplies
-    // a row that the SQL boundary would normally have filtered.
-    if (canDeferEscalatedRow(row, fingerprint)) {
-      deferred += 1;
-      continue;
-    }
-
+  for (const { row, intelligence } of active) {
+    checkedRows.push(row);
     const result = resolveRrpValue({
       title: row.observed_title,
       productType: row.product_type || undefined,
@@ -205,13 +190,15 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
           observed_product_id: row.product_id || null,
           authority_fingerprint: fingerprint,
           reconciler_rules_version: RECONCILER_RULES_VERSION,
+          knowledge_priority: intelligence.priority,
+          cross_retailer_count: intelligence.crossRetailerCount,
         },
       });
       resolved += 1;
       continue;
     }
 
-    const disposition = await recordUnresolvedDisposition(pool, row, result, now, fingerprint);
+    const disposition = await recordUnresolvedDisposition(pool, row, result, now, fingerprint, intelligence);
     if (disposition.escalated) escalated += 1;
 
     if (conflictReason(result?.reason)) {
@@ -228,7 +215,8 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
   const { rows: countRows } = await pool.query(`SELECT count(*)::int AS remaining FROM fatedrop_rrp_resolution_queue WHERE status IN ('open','candidate')`);
   return {
     enabled: true,
-    checked: rows.length,
+    checked: checkedRows.length,
+    candidatePool: candidateRows.length,
     resolved,
     conflicts,
     escalated,
@@ -236,5 +224,6 @@ export async function reconcileRrpLearningQueue({ store, limit = DEFAULT_LIMIT, 
     authorityProducts: context.registry?.authoritativeProducts || 0,
     authorityGraphProducts: products.length,
     remaining: Number(countRows[0]?.remaining || 0),
+    knowledge: buildRrpGapSnapshot(candidateRows, { now, limit: 10 }),
   };
 }
