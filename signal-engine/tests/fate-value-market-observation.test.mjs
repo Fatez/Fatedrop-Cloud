@@ -55,6 +55,12 @@ function completedRun({ accepted = 1, rejected = 0 } = {}) {
 function memoryStore() {
   const state = {
     traderCatalogue: {
+      cards: {
+        [CARD_ID]: {
+          id: CARD_ID,
+          verificationStatus: 'verified',
+        },
+      },
       cardSourceMappings: {
         [`${SOURCE}|12345|normal`]: {
           id: MAPPING_ID,
@@ -217,6 +223,21 @@ test('persistence refuses market evidence whose source mapping is not canonical'
       rejections: [],
     }),
     /requires a canonical card source mapping/,
+  );
+});
+
+test('persistence refuses market evidence mapped to an unverified card identity', async () => {
+  const store = memoryStore();
+  const run = completedRun();
+  store.state.traderCatalogue.cards[CARD_ID].verificationStatus = 'staged';
+
+  await assert.rejects(
+    persistMarketEvidenceBatch(store, {
+      run,
+      observations: [observation()],
+      rejections: [],
+    }),
+    /requires a verified canonical card identity/,
   );
 });
 
