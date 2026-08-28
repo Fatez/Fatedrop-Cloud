@@ -1,4 +1,3 @@
-import { env } from "./config/env.mjs";
 import { syncAsmodeeRrpWithPool } from "./rrp/asmodee-store-sync.mjs";
 import { createStore } from "./stores/index.mjs";
 
