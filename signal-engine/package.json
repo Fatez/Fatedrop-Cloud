@@ -6,7 +6,7 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "dev": "node --watch src/server.mjs",
-    "start": "node src/server-production.mjs",
+    "start": "node --import ./src/encounters/operator-local-radar-intake.mjs src/server-production.mjs",
     "scan": "node src/scan-once.mjs",
     "rrp:asmodee": "node src/rrp-sync-asmodee.mjs",
     "trader:catalogue": "node src/trader/catalogue/sync-all-cli.mjs",
