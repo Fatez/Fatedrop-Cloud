@@ -7,7 +7,7 @@ import { reconcileCuratedIncomingIntel } from "./curated-incoming-intel-reconcil
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
 const ISSUE_PREFIX = "[FATEDROP LOCAL RADAR]";
-const POLL_INTERVAL_MS = 60_000;
+const POLL_INTERVAL_MS = 120_000;
 const POLL_START_DELAY_MS = 20_000;
 const STRONG_ECHO_SOURCES = new Set([
   "official_retailer_page",
@@ -202,7 +202,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
 }
 
 export async function listOperatorIssues(fetchImpl = fetch) {
-  const response = await fetchImpl(`https://api.github.com/repos/${OPERATOR_REPOSITORY}/issues?state=open&per_page=50&sort=created&direction=desc`, {
+  const response = await fetchImpl(`https://api.github.com/repos/${OPERATOR_REPOSITORY}/issues?state=open&per_page=100&sort=created&direction=desc`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "FateDrop-Local-Radar-Operator/1.0",
