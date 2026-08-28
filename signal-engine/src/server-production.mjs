@@ -7,6 +7,7 @@ import { runCuratedRetailerBranchSync } from "./encounters/curated-retailer-bran
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
 import { reconcileTotalCardsPhysicalAvailability } from "./encounters/total-cards-local-availability.mjs";
+import "./notifications/lifecycle-push-heartbeat.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
 import { createStore } from "./stores/index.mjs";
 import "./server.mjs";
