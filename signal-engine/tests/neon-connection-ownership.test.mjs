@@ -7,7 +7,6 @@ const recurringPaths = [
   "../src/retailers/runtime.mjs",
   "../src/retailers/candidate-qualification.mjs",
   "../src/rrp/asmodee-bootstrap.mjs",
-  "../src/rrp-sync-asmodee.mjs",
   "../src/server-production.mjs",
 ];
 
