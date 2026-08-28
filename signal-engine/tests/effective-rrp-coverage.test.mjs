@@ -27,10 +27,43 @@ test("effective RRP coverage measures the same official/reference resolver users
   assert.equal(result.coveragePercent, 75);
   assert.equal(result.directVerifiedLinkedOffers, 1);
   assert.equal(result.resolverLiftOffers, 2);
-  assert.deepEqual(result.byKind, { official: 1, component_reference: 1, pack_reference: 1 });
+  assert.deepEqual(result.byKind, {
+    official: 1,
+    component_reference: 1,
+    pack_reference: 1,
+    source_market_msrp: 0,
+    source_market_component_reference: 0,
+    other_reference: 0,
+  });
   assert.equal(result.byProductType.elite_trainer_box.coveragePercent, 100);
   assert.equal(result.byProductType.booster_pack.coveragePercent, 100);
   assert.equal(result.byProductType.other.coveragePercent, 50);
+});
+
+test("effective RRP coverage keeps verified source-market MSRP separate from official UK RRP", () => {
+  const importProduct = {
+    id: "jp-team-rocket-pack",
+    title: "Pokemon TCG Glory of Team Rocket SV10 Booster Pack | Japanese Pokemon Cards",
+    productType: "booster_pack",
+    tcg: "pokemon",
+    officialRrpPence: null,
+    rrpSource: null,
+  };
+  const importOffer = {
+    offerId: "offer-jp-team-rocket",
+    productId: importProduct.id,
+    retailerId: "retailer-live",
+    title: importProduct.title,
+    stockStatus: "in_stock",
+    pricePence: 795,
+    lastSeenAt: observedAt,
+  };
+
+  const result = buildEffectiveRrpCoverage({ offers: [importOffer], products: [importProduct] });
+  assert.equal(result.resolvedOffers, 1);
+  assert.equal(result.byKind.source_market_msrp, 1);
+  assert.equal(result.byKind.official, 0);
+  assert.equal(result.directVerifiedLinkedOffers, 0);
 });
 
 test("effective coverage loader measures only fresh healthy retailer evidence", async () => {
