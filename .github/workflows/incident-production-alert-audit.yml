@@ -1,0 +1,81 @@
+name: Incident Production Alert Audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/incident-production-alert-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query public FateDrop production evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLOUD="https://fatedrop-cloud-production.up.railway.app"
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/health" -o /tmp/health.json
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/retailers" -o /tmp/retailers.json
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=100" -o /tmp/signals.json
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signal-summary" -o /tmp/summary.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const health = JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
+          const retailers = JSON.parse(fs.readFileSync('/tmp/retailers.json','utf8'));
+          const signals = JSON.parse(fs.readFileSync('/tmp/signals.json','utf8'));
+          const summary = JSON.parse(fs.readFileSync('/tmp/summary.json','utf8'));
+          const rows = Array.isArray(signals.signals) ? signals.signals : [];
+          const retailerRows = Array.isArray(retailers.retailers) ? retailers.retailers : [];
+          const now = Date.now();
+          const ageHours = (value) => {
+            const ms = Date.parse(value || '');
+            return Number.isFinite(ms) ? Math.round(((now - ms) / 3600000) * 100) / 100 : null;
+          };
+          const recent24 = rows.filter(r => {
+            const ms = Date.parse(r.detectedAt || '');
+            return Number.isFinite(ms) && now - ms <= 24 * 3600000;
+          });
+          const recent6 = rows.filter(r => {
+            const ms = Date.parse(r.detectedAt || '');
+            return Number.isFinite(ms) && now - ms <= 6 * 3600000;
+          });
+          const countBy = (items, key) => items.reduce((acc, item) => {
+            const k = String(item?.[key] ?? 'unknown');
+            acc[k] = (acc[k] || 0) + 1;
+            return acc;
+          }, {});
+          const monitoring = retailerRows.map(r => ({
+            id: r.id,
+            name: r.name,
+            class: r.retailerClass,
+            configured: r.monitoring?.configured ?? null,
+            healthy: r.monitoring?.healthy ?? r.healthy ?? null,
+            stale: r.monitoring?.stale ?? r.stale ?? null,
+            lastSuccessAt: r.monitoring?.lastSuccessAt ?? r.lastSuccessAt ?? null,
+            lastAttemptAt: r.monitoring?.lastAttemptAt ?? r.lastAttemptAt ?? null,
+            lastSuccessAgeHours: ageHours(r.monitoring?.lastSuccessAt ?? r.lastSuccessAt),
+            lastAttemptAgeHours: ageHours(r.monitoring?.lastAttemptAt ?? r.lastAttemptAt),
+            lastError: r.monitoring?.lastError ?? r.lastError ?? null,
+          }));
+          console.log('=== FATEDROP INCIDENT AUDIT ===');
+          console.log(JSON.stringify({
+            health,
+            generatedAt: signals.generatedAt || null,
+            returnedSignals: rows.length,
+            newestSignal: rows[0] || null,
+            oldestReturnedSignal: rows.at(-1) || null,
+            signalsLast24h: recent24.length,
+            signalsLast6h: recent6.length,
+            statesLast24h: countBy(recent24, 'state'),
+            retailersLast24h: countBy(recent24, 'retailerId'),
+            statesLast6h: countBy(recent6, 'state'),
+            retailersLast6h: countBy(recent6, 'retailerId'),
+            retailerMonitoring: monitoring,
+            signalSummary: summary,
+          }, null, 2));
+          NODE
