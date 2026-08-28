@@ -42,41 +42,44 @@ test("live repeated high-value gaps outrank stale low-value unknowns", () => {
   assert.ok(rrpGapPriority(liveEtb, { now }) > rrpGapPriority(staleOther, { now }));
 });
 
-test("multi-retailer recurrence becomes stronger knowledge evidence", () => {
+test("canonical identity recurrence across retailers becomes stronger knowledge evidence", () => {
   const rows = [
     {
-      id: "q-1", product_id: "prd-etb", retailer_id: "titan-cards", observed_title: "Mega Lucario ETB",
+      id: "q-1", product_id: "prd-titan-local", retailer_id: "titan-cards", observed_title: "Mega Lucario ETB",
       product_type: "elite_trainer_box", failure_reason: "no_exact_identity_match", occurrence_count: 2, last_seen_at: now,
-      evidence_json: { stock_status: "in_stock", retailer_sku: "a" },
+      evidence_json: { canonical_key: "mega-lucario-etb", stock_status: "in_stock", retailer_sku: "a" },
     },
     {
-      id: "q-2", product_id: "prd-etb", retailer_id: "chaos-cards", observed_title: "Mega Lucario ETB",
+      id: "q-2", product_id: "prd-chaos-local", retailer_id: "chaos-cards", observed_title: "Pokemon Mega Evolution Mega Lucario Elite Trainer Box",
       product_type: "elite_trainer_box", failure_reason: "no_exact_identity_match", occurrence_count: 2, last_seen_at: now,
-      evidence_json: { stock_status: "in_stock", retailer_sku: "b" },
+      evidence_json: { canonical_key: "mega-lucario-etb", stock_status: "in_stock", retailer_sku: "b" },
     },
   ];
   const ranked = rankRrpGapRows(rows, { now });
+  assert.equal(ranked[0].intelligence.groupKey, "canonical:mega-lucario-etb");
   assert.equal(ranked[0].intelligence.crossRetailerCount, 2);
   assert.ok(ranked[0].intelligence.priority >= 60);
 });
 
-test("observation fingerprints remain stable until market evidence changes", () => {
+test("observation fingerprints remain stable until market or identity evidence changes", () => {
   const row = {
-    product_id: "prd-1", offer_id: "off-1", failure_reason: "no_authoritative_candidate",
-    evidence_json: { stock_status: "in_stock", price_pence: 1000, retailer_sku: "sku" },
+    product_id: "prd-1", offer_id: "off-1", product_type: "booster_box", failure_reason: "no_authoritative_candidate",
+    evidence_json: { canonical_key: "set-box", stock_status: "in_stock", price_pence: 1000, retailer_sku: "sku" },
   };
   const first = currentRrpObservationFingerprint(row);
   const same = currentRrpObservationFingerprint({ ...row, occurrence_count: 50, last_seen_at: now });
-  const changed = currentRrpObservationFingerprint({ ...row, evidence_json: { ...row.evidence_json, price_pence: 1200 } });
+  const priceChanged = currentRrpObservationFingerprint({ ...row, evidence_json: { ...row.evidence_json, price_pence: 1200 } });
+  const identityChanged = currentRrpObservationFingerprint({ ...row, evidence_json: { ...row.evidence_json, canonical_key: "corrected-set-box" } });
   assert.equal(first, same);
-  assert.notEqual(first, changed);
+  assert.notEqual(first, priceChanged);
+  assert.notEqual(first, identityChanged);
 });
 
 test("knowledge snapshot surfaces live and high-priority gaps", () => {
   const snapshot = buildRrpGapSnapshot([{
     id: "q-live", product_id: "prd-etb", retailer_id: "titan-cards", observed_title: "Mega Lucario ETB",
     product_type: "elite_trainer_box", failure_reason: "no_authoritative_candidate", occurrence_count: 10, last_seen_at: now,
-    evidence_json: { stock_status: "in_stock", live_offer: true, gtin: "123", retailer_sku: "sku" },
+    evidence_json: { canonical_key: "mega-lucario-etb", stock_status: "in_stock", live_offer: true, gtin: "123", retailer_sku: "sku" },
   }], { now });
   assert.equal(snapshot.openRows, 1);
   assert.equal(snapshot.liveOpen, 1);
