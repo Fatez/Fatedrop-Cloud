@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { rrpObservationFingerprint } from "./rrp-gap-intelligence.mjs";
 
 function normalizePart(value) {
   return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
@@ -43,6 +44,24 @@ export function unresolvedRrpRecord({ product, offer, retailer, failureReason = 
   const productType = offer?.productType || product?.productType || null;
   const tcg = product?.tcg || offer?.tcg || "pokemon";
   const signature = rrpAliasSignature({ tcg, title, productType });
+  const stockStatus = offer?.stockStatus || null;
+  const evidence = {
+    alias_signature: signature,
+    retailer_sku: offer?.retailerSku || null,
+    gtin: offer?.gtin || null,
+    canonical_key: product?.canonicalKey || null,
+    stock_status: stockStatus,
+    live_offer: ["in_stock", "low_stock", "preorder"].includes(String(stockStatus || "").toLowerCase()),
+    price_pence: Number.isFinite(offer?.pricePence) ? Math.round(offer.pricePence) : null,
+    postage_pence: Number.isFinite(offer?.postagePence) ? Math.round(offer.postagePence) : null,
+    last_observation_at: observedAt || null,
+  };
+  evidence.current_observation_fingerprint = rrpObservationFingerprint({
+    productId: product?.id || offer?.productId || null,
+    offerId: offer?.offerId || null,
+    failureReason,
+    evidence,
+  });
   return {
     id: rrpLearningId("rrpq", `${retailer?.id || offer?.retailerId || "unknown"}|${signature}`),
     tcg,
@@ -55,10 +74,6 @@ export function unresolvedRrpRecord({ product, offer, retailer, failureReason = 
     regionCode: offer?.region || product?.region || null,
     failureReason,
     observedAt,
-    evidence: {
-      alias_signature: signature,
-      retailer_sku: offer?.retailerSku || null,
-      gtin: offer?.gtin || null,
-    },
+    evidence,
   };
 }

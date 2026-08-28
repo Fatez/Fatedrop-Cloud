@@ -72,7 +72,7 @@ test("series shorthand never lets a standard ETB inherit a Pokemon Center exclus
   }
 });
 
-test("repeated unresolved rows are classified once then deferred until authority or rules change", async () => {
+test("repeated unresolved rows are classified once then deferred until authority, rules or observed market facts change", async () => {
   const updates = [];
   const queue = {
     id: "q-authority-gap",
@@ -84,7 +84,8 @@ test("repeated unresolved rows are classified once then deferred until authority
     failure_reason: "no_authoritative_candidate",
     language_code: null,
     region_code: null,
-    evidence_json: {},
+    last_seen_at: 1_787_737_000,
+    evidence_json: { stock_status: "in_stock", live_offer: true, price_pence: 6999, retailer_sku: "SKU-1" },
   };
   const pool = {
     async query(sql, params = []) {
@@ -110,13 +111,16 @@ test("repeated unresolved rows are classified once then deferred until authority
   assert.equal(first.resolved, 0);
   assert.equal(first.escalated, 1);
   assert.equal(first.deferred, 0);
+  assert.equal(first.knowledge.liveOpen, 1);
   const disposition = updates.find(({ params }) => params[0] === "no_authoritative_candidate");
   assert.ok(disposition);
   const evidence = JSON.parse(disposition.params[1]);
   assert.equal(evidence.reconciliation_class, "authority_gap");
   assert.equal(evidence.escalated, true);
   assert.equal(evidence.next_action, "await_or_refresh_authoritative_rrp_source");
-  assert.match(evidence.authority_fingerprint, /^rrp-self-heal-v3:/);
+  assert.ok(evidence.knowledge_priority >= 75);
+  assert.match(evidence.reconciled_observation_fingerprint, /^rrpobs:/);
+  assert.match(evidence.authority_fingerprint, /^rrp-self-heal-v4-knowledge-gap:/);
 
   const updateCount = updates.length;
   const second = await reconcileRrpLearningQueue({ store, now: 1_787_738_000 });
@@ -124,4 +128,11 @@ test("repeated unresolved rows are classified once then deferred until authority
   assert.equal(second.escalated, 0);
   assert.equal(second.deferred, 1);
   assert.equal(updates.length, updateCount);
+
+  queue.evidence_json.price_pence = 7499;
+  queue.evidence_json.current_observation_fingerprint = undefined;
+  const third = await reconcileRrpLearningQueue({ store, now: 1_787_739_000 });
+  assert.equal(third.deferred, 0);
+  assert.equal(third.escalated, 1);
+  assert.ok(updates.length > updateCount);
 });
