@@ -69,7 +69,7 @@ test("GitHub Drop Watch transport rejects non-PCUK and non-canonical product URL
   );
 });
 
-test("GitHub import is idempotent and only newer changed evidence may replace the ledger row", async () => {
+test("GitHub import is idempotent and only newer materially changed evidence may replace the ledger row", async () => {
   let stored = null;
   const sqlSeen = [];
   const client = {
@@ -104,13 +104,21 @@ test("GitHub import is idempotent and only newer changed evidence may replace th
   assert.equal(second.unchanged, 1);
 
   currentIssue = issue({
-    issue: { number: 269, created_at: "2026-08-28T21:10:00Z", html_url: "https://github.com/Fatez/Fatedrop-Cloud/issues/269" },
+    issue: { number: 269, created_at: "2026-08-28T21:00:00Z", html_url: "https://github.com/Fatez/Fatedrop-Cloud/issues/269" },
+  });
+  const duplicateRetry = await importGithubDiscoveryIssues(client, { now: 2000000090, fetchFn, enabled: true, force: true });
+  assert.equal(duplicateRetry.imported, 0);
+  assert.equal(duplicateRetry.unchanged, 1);
+  assert.equal(stored.observedAt, Math.floor(Date.parse("2026-08-28T20:49:02Z") / 1000));
+
+  currentIssue = issue({
+    issue: { number: 270, created_at: "2026-08-28T21:10:00Z", html_url: "https://github.com/Fatez/Fatedrop-Cloud/issues/270" },
     observation: { availabilityText: "Pre-orders are now open.", preorder: true, preorderText: true },
   });
   const changed = await importGithubDiscoveryIssues(client, { now: 2000000120, fetchFn, enabled: true, force: true });
   assert.equal(changed.imported, 1);
   assert.equal(stored.observedAt, Math.floor(Date.parse("2026-08-28T21:10:00Z") / 1000));
-  assert.ok(sqlSeen.length >= 3);
+  assert.ok(sqlSeen.length >= 4);
 });
 
 test("GitHub transport failure remains isolated from the existing reconciler path", async () => {
