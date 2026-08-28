@@ -8,11 +8,33 @@ const heartbeatSource = fs.readFileSync(new URL("../src/notifications/lifecycle-
 const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 
 test("push heartbeat is inert outside configured production", () => {
-  assert.deepEqual(lifecyclePushDispatchConfig({ environmentName: "development", store: "file", databaseUrl: "", secret: "" }), {
+  assert.deepEqual(lifecyclePushDispatchConfig({ environmentName: "development", store: "file", databaseUrl: "", snapshotUrl: "", secret: "" }), {
     configured: false,
     url: "",
     secret: "",
   });
+});
+
+test("configured website snapshot bridge supplies the matching push dispatcher target", () => {
+  const config = lifecyclePushDispatchConfig({
+    environmentName: "development",
+    store: "file",
+    databaseUrl: "",
+    snapshotUrl: "https://web.example.test/api/dashboard/network-snapshot",
+    secret: "shared-secret",
+  });
+  assert.equal(config.configured, true);
+  assert.equal(config.url, "https://web.example.test/api/dashboard/push-dispatch");
+  assert.equal(config.secret, "shared-secret");
+});
+
+test("explicit push dispatcher URL takes precedence over snapshot-derived target", () => {
+  const config = lifecyclePushDispatchConfig({
+    url: "https://push.example.test/custom-dispatch",
+    snapshotUrl: "https://web.example.test/api/dashboard/network-snapshot",
+    secret: "shared-secret",
+  });
+  assert.equal(config.url, "https://push.example.test/custom-dispatch");
 });
 
 test("production Postgres defaults to the canonical FateDrop Web dispatch route", () => {
@@ -20,6 +42,7 @@ test("production Postgres defaults to the canonical FateDrop Web dispatch route"
     environmentName: "production",
     store: "postgres",
     databaseUrl: "postgres://example.invalid/db",
+    snapshotUrl: "",
     secret: "shared-secret",
   });
   assert.equal(config.configured, true);
