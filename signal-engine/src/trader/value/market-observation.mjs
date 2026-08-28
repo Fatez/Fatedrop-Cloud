@@ -163,6 +163,7 @@ export function makeMarketObservationId(input) {
     requireText(input?.sourceVariantKey, 'sourceVariantKey'),
     normaliseLabel(input?.marketSegmentKey, 'default', 'marketSegmentKey'),
     normaliseLabel(input?.conditionCode, 'unspecified', 'conditionCode'),
+    normaliseCurrency(input?.currencyCode),
   ]);
 }
 
@@ -195,8 +196,9 @@ export function normaliseMarketObservationCandidate(input) {
     ?? makeMarketIngestRunId(sourceName, sourceSnapshotId);
   const marketDay = utcDay(sourceEffectiveAt ?? observedAt);
 
+  // observedAt/createdAt deliberately stay out of the content fingerprint.
+  // Replaying the same immutable source snapshot later must remain idempotent.
   const contentFingerprint = digest(null, stableJson({
-    ingestRunId,
     cardIdentityId,
     cardSourceMappingId,
     sourceName,
@@ -206,7 +208,6 @@ export function normaliseMarketObservationCandidate(input) {
     marketSegmentKey,
     conditionCode,
     currencyCode,
-    observedAt,
     sourceEffectiveAt,
     marketDay,
     prices,
@@ -222,6 +223,7 @@ export function normaliseMarketObservationCandidate(input) {
       sourceVariantKey,
       marketSegmentKey,
       conditionCode,
+      currencyCode,
     }),
     ingestRunId,
     cardIdentityId,
