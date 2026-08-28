@@ -121,7 +121,7 @@ test('without exact card mapping, live rehearsal only suggests candidates inside
   assert.equal(report.wouldInsert, 0);
   assert.equal(report.wouldReject, 3);
   const standardDiagnostic = report.diagnostics.find((item) => (
-    item.sourceRecordId === '668227' && item.sourceVariantKey === 'normal'
+    item.sourceRecordId === '668227' && item.sourceVariantKey === 'standard'
   ));
   assert.ok(standardDiagnostic);
   assert.equal(standardDiagnostic.status, 'candidate');
