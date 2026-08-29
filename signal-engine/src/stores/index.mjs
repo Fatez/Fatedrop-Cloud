@@ -1,6 +1,7 @@
 import { env } from "../config/env.mjs";
 import { assertProductionDatabaseTarget } from "./database-target.mjs";
 import { FileStore } from "./file-store.mjs";
+import { decorateCatalogueCompletenessStore } from "./catalogue-completeness.mjs";
 import { decorateRetailerHealthStore } from "./health-staleness.mjs";
 import { PostgresStore } from "./postgres-store.mjs";
 
@@ -20,9 +21,9 @@ export function createStore() {
   if (env.store === "postgres") {
     if (!env.databaseUrl) throw new Error("FATEDROP_SIGNAL_STORE=postgres requires DATABASE_URL");
     assertProductionDatabaseTarget(env.databaseUrl);
-    storeInstance = decorateRetailerHealthStore(new PostgresStore(env.databaseUrl));
+    storeInstance = decorateCatalogueCompletenessStore(decorateRetailerHealthStore(new PostgresStore(env.databaseUrl)));
   } else {
-    storeInstance = decorateRetailerHealthStore(new FileStore(env.filePath));
+    storeInstance = decorateCatalogueCompletenessStore(decorateRetailerHealthStore(new FileStore(env.filePath)));
   }
 
   storeInstanceKey = key;
