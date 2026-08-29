@@ -1,5 +1,6 @@
 import { isPurchasable } from "./model.mjs";
 import { PriceQuality, classifyObservedPrice } from "./price-quality.mjs";
+import { deriveRetailerPressure, retailerPressureEvidence } from "./retailer-pressure.mjs";
 
 const VERIFIED_PURCHASE_EVIDENCE = new Set([
   "add_to_cart_verified",
@@ -31,7 +32,7 @@ function evidenceEntry(evidence = [], kind) {
 }
 
 function hasStructuredCatalogueEvidence(kinds) {
-  return [...kinds].some((kind) => /(?:shopify|woocommerce|structured|catalogue|product_page|retailer_sku)/i.test(kind));
+  return [...kinds].some((kind) => /(?:shopify|woocommerce|structured|catalogue|product_page|retailer_sku)/i.test(String(kind)));
 }
 
 function repeatedObservationThresholdCrossed(previousOffer, now, minimumSeconds) {
@@ -76,6 +77,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
   const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
+  const retailerPressure = deriveRetailerPressure({ previousOffer, currentOffer, now });
 
   // Preserve the established official-product-page behaviour for retailers that
   // already emit it. Smyths catalogue evidence is intentionally edge-triggered:
@@ -121,6 +123,9 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
     && corroborated
     && score >= 5;
 
+  // Retailer Pressure is advisory intelligence only. It is deliberately excluded
+  // from Echo eligibility and purchasability so a high pressure score can never
+  // manufacture lifecycle truth.
   const lifecycleConfidence = echoEligible ? Math.min(0.98, 0.72 + (score * 0.04)) : Math.min(0.75, 0.25 + (score * 0.06));
 
   return {
@@ -135,6 +140,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
     identityConfidence: identityValid ? 0.98 : 0.25,
     availabilityConfidence: purchaseVerified ? 0.99 : effectivePurchasable(currentOffer) ? 0.8 : 0.15,
     price,
+    retailerPressure,
     evidence: [
       { kind: "retailer_preparation_score", value: String(score), observedAt: now },
       { kind: "retailer_preparation_identity", value: identityValid ? "valid" : "incomplete", observedAt: now },
@@ -145,6 +151,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
       ...(suppressStandaloneLifecycle ? [{ kind: "retailer_preparation_cluster_member", value: String(clusterId), observedAt: now }] : []),
       ...metadataKinds.map((kind) => ({ kind: "retailer_preparation_metadata", value: kind, observedAt: now })),
+      ...retailerPressureEvidence(retailerPressure, now),
     ],
   };
 }
