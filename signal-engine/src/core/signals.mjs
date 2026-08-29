@@ -6,6 +6,21 @@ import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 import { resolveSignalReference } from "./signal-reference.mjs";
 
+const WHISPER_SCOUTING_EVIDENCE = new Set([
+  "official_retailer_product_page",
+  "official_retailer_catalogue_listing",
+  "stock_object_present",
+  "inventory_metadata",
+  "launch_metadata",
+  "launch_date",
+  "preorder_metadata",
+  "future_release_known",
+  "retailer_backend_exposed",
+  "network_readiness",
+  "queue_readiness",
+  "security_readiness",
+]);
+
 function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
   const price = preparation?.price ?? null;
   return [
@@ -40,6 +55,33 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
       confidence: priorLiveConfirmation.confidence,
     }] : []),
   ];
+}
+
+function evidenceKinds(offer) {
+  return new Set((Array.isArray(offer?.evidence) ? offer.evidence : [])
+    .map((entry) => String(entry?.kind || "").trim())
+    .filter(Boolean));
+}
+
+function identityComplete(offer) {
+  return Boolean(offer?.retailerId && offer?.retailerSku && offer?.title && offer?.url);
+}
+
+function hasStructuredScoutingSurface(kinds) {
+  return [...kinds].some((kind) => /(?:shopify|woocommerce|structured|catalogue|product_page|retailer_sku)/i.test(kind));
+}
+
+function credibleNewWhisperDiscovery(currentOffer) {
+  const kinds = evidenceKinds(currentOffer);
+  return identityComplete(currentOffer) && hasStructuredScoutingSurface(kinds);
+}
+
+function credibleWhisperEvidenceChange(previousOffer, currentOffer) {
+  if (!previousOffer || !identityComplete(currentOffer)) return false;
+  const previousKinds = evidenceKinds(previousOffer);
+  const currentKinds = evidenceKinds(currentOffer);
+  if (!hasStructuredScoutingSurface(currentKinds)) return false;
+  return [...currentKinds].some((kind) => WHISPER_SCOUTING_EVIDENCE.has(kind) && !previousKinds.has(kind));
 }
 
 function priorLiveConfirmation(previousOffer) {
@@ -95,10 +137,12 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       state = SignalState.ECHO;
       kind = "retailer_preparation";
       reason = "Corroborated retailer preparation detected before verified purchase availability";
-    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus) || preparation.price.priceQuality === PriceQuality.PLACEHOLDER) {
+    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)
+      || preparation.price.priceQuality === PriceQuality.PLACEHOLDER
+      || credibleNewWhisperDiscovery(currentOffer)) {
       state = SignalState.WHISPER;
       kind = "catalogue_new";
-      reason = "New retailer SKU/catalogue activity observed before verified availability";
+      reason = "New exact retailer SKU/catalogue activity observed before verified availability";
     }
   } else if (!wasPurchasable && nowPurchasable) {
     state = SignalState.MANIFESTED;
@@ -123,6 +167,10 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     state = SignalState.WHISPER;
     kind = "catalogue_state_change";
     reason = "Retailer SKU/catalogue state changed before verified availability";
+  } else if (!nowPurchasable && credibleWhisperEvidenceChange(previousOffer, currentOffer)) {
+    state = SignalState.WHISPER;
+    kind = "preparation_evidence_change";
+    reason = "New retailer preparation evidence observed before verified availability";
   }
 
   if (!state || !kind) return null;
