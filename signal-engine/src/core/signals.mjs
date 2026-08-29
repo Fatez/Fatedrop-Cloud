@@ -6,6 +6,8 @@ import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 import { resolveSignalReference } from "./signal-reference.mjs";
 
+export const WHISPER_RECYCLE_SECONDS = 12 * 60 * 60;
+
 // Oru is intentionally broad and lenient. These are product-side clues that can
 // matter before FateDrop has enough evidence to claim verified availability.
 // Retailer queue/security/access-control readiness is NOT in this set; that is
@@ -26,6 +28,14 @@ const WHISPER_PRODUCT_EVIDENCE = new Set([
   "discovery_change_type",
   "discovery_page_exists",
   "discovery_url_status",
+]);
+
+const WHISPER_RECYCLABLE_STATUSES = new Set([
+  StockStatus.IN_STOCK,
+  StockStatus.LOW_STOCK,
+  StockStatus.PREORDER,
+  StockStatus.COMING_SOON,
+  StockStatus.UNKNOWN,
 ]);
 
 function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
@@ -78,6 +88,13 @@ function hasProductScoutingSurface(kinds) {
   return [...kinds].some((kind) => /(?:shopify|woocommerce|structured|catalogue|product_page|retailer_sku|discovery_)/i.test(kind));
 }
 
+function hasCredibleWhisperSurface(currentOffer) {
+  if (!identitySufficient(currentOffer)) return false;
+  const kinds = evidenceKinds(currentOffer);
+  return hasProductScoutingSurface(kinds)
+    || [...kinds].some((kind) => WHISPER_PRODUCT_EVIDENCE.has(kind));
+}
+
 function credibleNewWhisperDiscovery(currentOffer) {
   const kinds = evidenceKinds(currentOffer);
   return identitySufficient(currentOffer) && hasProductScoutingSurface(kinds);
@@ -122,6 +139,14 @@ function quantityChanged(previousOffer, currentOffer) {
   const previousQuantity = Number.isFinite(previousOffer.stockQuantity) ? previousOffer.stockQuantity : null;
   const currentQuantity = Number.isFinite(currentOffer.stockQuantity) ? currentOffer.stockQuantity : null;
   return previousQuantity !== currentQuantity && (previousQuantity != null || currentQuantity != null);
+}
+
+function whisperRecycleDue(previousOffer, currentOffer, now) {
+  if (!previousOffer || !WHISPER_RECYCLABLE_STATUSES.has(currentOffer?.stockStatus)) return false;
+  if (!hasCredibleWhisperSurface(currentOffer)) return false;
+  const lastWhisperAt = Number(previousOffer.lastWhisperAt);
+  if (!Number.isFinite(lastWhisperAt) || lastWhisperAt <= 0) return false;
+  return Number(now) - lastWhisperAt >= WHISPER_RECYCLE_SECONDS;
 }
 
 function priorLiveConfirmation(previousOffer) {
@@ -225,6 +250,9 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   // WHISPER / ORU = broad, lenient product-side early intelligence: new catalogue
   //   entries/pages, preorder/coming-soon hints, stock metadata, price/quantity/state
   //   movement and other meaningful product-side clues before confirmed live stock.
+  //   If a credible unresolved stock/product condition remains active, Oru may
+  //   re-alert after a 12-hour cooldown so useful stock-watch intelligence does
+  //   not disappear indefinitely merely because the retailer state stayed stable.
   // ECHO / FENN = retailer readiness behaviour: queue, waiting-room, security,
   //   challenge/access-control and similar readiness states. Echo is emitted by
   //   network-readiness.mjs, not by ordinary catalogue classification here.
@@ -274,6 +302,10 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     state = SignalState.WHISPER;
     kind = "product_evidence_change";
     reason = "Meaningful product-side evidence moved before verified live stock";
+  } else if (!nowPurchasable && whisperRecycleDue(previousOffer, currentOffer, now)) {
+    state = SignalState.WHISPER;
+    kind = "stock_watch_refresh";
+    reason = "Unresolved credible stock/product intelligence remains active after the 12-hour Oru cooldown";
   }
 
   if (!state || !kind) return null;
