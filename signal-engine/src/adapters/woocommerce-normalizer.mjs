@@ -29,10 +29,7 @@ export function normalizeWooStoreProducts(payload, retailer) {
       stockStatus,
       stockConfidence: stockStatus === "unknown" ? 0.5 : 0.98,
       stockQuantity: null,
-      evidence: [
-        { kind: "woocommerce_store_api", value: `product:${product?.id || retailerSku}` },
-        ...(product?.is_in_stock === true ? [{ kind: "verified_stock_api", value: "woocommerce_is_in_stock" }] : []),
-      ],
+      evidence: [{ kind: "woocommerce_store_api", value: `product:${product?.id || retailerSku}` }],
     }];
   });
 }
