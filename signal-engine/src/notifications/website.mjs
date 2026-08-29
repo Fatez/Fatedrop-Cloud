@@ -10,6 +10,7 @@ const PRECISE_KINDS = new Set([
   "catalogue_price_change",
   "inventory_quantity_change",
   "product_evidence_change",
+  "stock_watch_refresh",
   "retailer_preparation",
   "queue",
   "security",
