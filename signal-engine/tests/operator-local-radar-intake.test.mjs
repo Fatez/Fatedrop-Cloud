@@ -75,10 +75,17 @@ test("general operator intelligence cannot self-promote to Echo", () => {
   assert.equal(parsed.entry.confidence, 0.59);
 });
 
-test("operator intake rejects untrusted authors and pull requests while branchless broadcasts require strong Echo provenance", () => {
+test("operator intake rejects untrusted authors and requires chain-grade provenance for branchless Echo", () => {
   assert.throws(() => parseOperatorIssue(operatorIssue({ user: { login: "someone-else" } }), NOW), /author is not authorised/);
   assert.throws(() => parseOperatorIssue(operatorIssue({ pull_request: { url: "https://example.invalid" } }), NOW), /Pull requests are not operator alerts/);
-  assert.throws(() => parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "operator_manual", kind: "echo" } }), NOW), /named target branch is required/);
+  assert.throws(
+    () => parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "operator_manual", kind: "echo" } }), NOW),
+    /retailer-chain Echo provenance/,
+  );
+  assert.throws(
+    () => parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "official_retailer_page", kind: "echo" } }), NOW),
+    /retailer-chain Echo provenance/,
+  );
 
   const chainEcho = parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "retailer_staff_report", kind: "echo" } }), NOW);
   assert.equal(chainEcho.entry.kind, "echo");
@@ -136,6 +143,7 @@ test("operator issue requires the canonical store and persists Expected intellig
     const result = await processOperatorIssue({ issue: operatorIssue(), store, fetchImpl, now: NOW });
     assert.equal(result.status, "published");
     assert.equal(result.matchedBranches, 2);
+    assert.equal(result.retailerChainRecords, 0);
     assert.equal(saved.length, 2);
     for (const observation of saved) {
       assert.equal(observation.kind, "echo");
@@ -184,6 +192,7 @@ test("branchless strong Echo publishes and persists only one retailer-chain advi
     const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
     assert.equal(result.status, "published");
     assert.equal(result.matchedBranches, 0);
+    assert.equal(result.retailerChainRecords, 1);
     assert.equal(saved.length, 1);
     assert.equal(saved[0].locationId, null);
     assert.equal(saved[0].kind, "echo");
@@ -191,6 +200,7 @@ test("branchless strong Echo publishes and persists only one retailer-chain advi
     assert.equal(saved[0].evidence.localIntel, true);
     assert.equal(saved[0].evidence.advisory, true);
     assert.equal(saved[0].evidence.availabilityVerified, false);
+    assert.equal(saved[0].evidence.branchVerified, false);
     const payload = JSON.parse(outbound.options.body);
     assert.equal(payload.stage, "ECHO");
     assert.equal(payload.branchCount, 0);
