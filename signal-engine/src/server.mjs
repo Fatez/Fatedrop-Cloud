@@ -7,6 +7,7 @@ import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { countCanonicalRetailerLocations, listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
+import { consumeFateFindEvaluationCapability } from "./hosted/fatefind-capability-auth.mjs";
 import { runHostedFateFindCycle, runHostedFateFindNow } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
@@ -35,7 +36,6 @@ const PRIVATE_DIAGNOSTIC_PATHS = new Set([
   "/api/website-snapshot-health",
   "/api/fatefind-evaluator-preflight",
   "/api/signal-health",
-  "/internal/fatefind/evaluate",
 ]);
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
@@ -119,6 +119,23 @@ server.on("request", async (req, res) => {
         res.end(JSON.stringify({ success: false, error: "A valid fateFindId is required" }));
         return;
       }
+
+      let authorized = diagnosticAuthorized(req);
+      if (!authorized) {
+        authorized = await consumeFateFindEvaluationCapability(store, {
+          fateFindId,
+          token: bearerToken(req),
+        });
+      }
+      if (!authorized) {
+        res.writeHead(401, {
+          "content-type": "application/json; charset=utf-8",
+          "cache-control": "no-store",
+        });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+
       const outcome = await runHostedFateFindNow(fateFindId);
       res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       res.end(JSON.stringify({ success: true, ...outcome }));
