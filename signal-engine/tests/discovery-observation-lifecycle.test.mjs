@@ -56,27 +56,27 @@ function kind(signal, name) {
   return signal?.evidence?.find((entry) => entry.kind === name)?.value ?? null;
 }
 
-test("1. new verified official retailer page becomes one canonical Echo", async () => withStore(async (store) => {
+test("1. new verified official retailer page becomes one canonical Whisper", async () => withStore(async (store) => {
   const result = await ingest(store, [discovery()]);
   assert.equal(result.signalsCreated, 1);
-  assert.equal(result.signals[0].state, "echo");
-  assert.equal(result.signals[0].kind, "retailer_preparation");
+  assert.equal(result.signals[0].state, "whisper");
+  assert.equal(result.signals[0].kind, "catalogue_new");
   assert.equal(kind(result.signals[0], "official_retailer_product_page"), page("30th-celebration-booster-bundle-6-packs"));
 }));
 
-test("2. rediscovering the same official page does not create a duplicate Echo", async () => withStore(async (store) => {
+test("2. rediscovering the same official page does not create a duplicate Whisper", async () => withStore(async (store) => {
   const first = await ingest(store, [discovery()]);
   const second = await ingest(store, [discovery({ discoveredAt: NOW + 120 })], NOW + 120);
   assert.equal(first.signalsCreated, 1);
   assert.equal(second.signalsCreated, 0);
   assert.equal(second.deduplicatedSignals, 1);
   const signals = await store.listSignals({ retailerIds: [RETAILER.id], since: 0, limit: 20 });
-  assert.equal(signals.filter((signal) => signal.state === "echo").length, 1);
+  assert.equal(signals.filter((signal) => signal.state === "whisper").length, 1);
 }));
 
-test("3. official page plus PREORDER text only remains Echo", async () => withStore(async (store) => {
+test("3. official page plus PREORDER text remains Whisper", async () => withStore(async (store) => {
   const result = await ingest(store, [discovery({ preorderText: true, availabilityText: "PREORDER — estimated September 2026", pricePence: 2699 })]);
-  assert.equal(result.signals[0].state, "echo");
+  assert.equal(result.signals[0].state, "whisper");
   assert.equal(result.signals[0].stockStatus, "preorder");
   assert.equal(kind(result.signals[0], "preorder_metadata"), "PREORDER — estimated September 2026");
 }));
@@ -89,21 +89,21 @@ test("4. official page plus enabled preorder purchase control becomes Manifested
   assert.equal(kind(result.signals[0], "purchase_path_verified"), "enabled_preorder_purchase_control");
 }));
 
-test("5. Echo later becoming orderable creates exactly one Manifested transition", async () => withStore(async (store) => {
-  const echo = await ingest(store, [discovery()]);
+test("5. Whisper later becoming orderable creates exactly one Manifested transition", async () => withStore(async (store) => {
+  const whisper = await ingest(store, [discovery()]);
   const manifested = await ingest(store, [discovery({ discoveredAt: NOW + 120, addToCartEnabled: true, pricePence: 2699, changeType: "purchase_control_enabled" })], NOW + 120);
   const repeated = await ingest(store, [discovery({ discoveredAt: NOW + 180, addToCartEnabled: true, pricePence: 2699, changeType: "purchase_control_enabled" })], NOW + 180);
-  assert.equal(echo.signals[0].state, "echo");
+  assert.equal(whisper.signals[0].state, "whisper");
   assert.equal(manifested.signals[0].state, "manifested");
   assert.equal(repeated.signalsCreated, 0);
   const signals = await store.listSignals({ retailerIds: [RETAILER.id], since: 0, limit: 20 });
-  assert.deepEqual(signals.map((signal) => signal.state).sort(), ["echo", "manifested"]);
+  assert.deepEqual(signals.map((signal) => signal.state).sort(), ["manifested", "whisper"]);
 }));
 
 test("6. malformed retailer URL is preserved as evidence but never exposed as a fake link", async () => withStore(async (store) => {
   const result = await ingest(store, [discovery({ url: "https://www.pokemoncenter.com/-" })]);
   assert.equal(result.signalsCreated, 1);
-  assert.notEqual(result.signals[0].state, "manifested");
+  assert.equal(result.signals[0].state, "whisper");
   assert.equal(result.signals[0].url, "");
   assert.equal(kind(result.signals[0], "discovery_url_status"), "invalid_or_missing");
   const message = buildDiscordSignalMessage(result.signals[0]);
@@ -113,7 +113,7 @@ test("6. malformed retailer URL is preserved as evidence but never exposed as a 
 
 test("7. 30th Anniversary discovery carries high-priority metadata without changing lifecycle truth", async () => withStore(async (store) => {
   const result = await ingest(store, [discovery()]);
-  assert.equal(result.signals[0].state, "echo");
+  assert.equal(result.signals[0].state, "whisper");
   assert.equal(kind(result.signals[0], "discovery_priority"), "high");
   assert.equal(kind(result.signals[0], "discovery_priority_reason"), "anniversary");
 }));
@@ -138,7 +138,7 @@ test("9. a previously Manifested product losing verified availability becomes Va
 test("10. collector lifecycle or in-stock claims cannot directly declare Manifested", async () => withStore(async (store) => {
   const result = await ingest(store, [discovery({ state: "manifested", lifecycle: "manifested", stockStatus: "in_stock", pricePence: 2699 })]);
   assert.equal(result.signalsCreated, 1);
-  assert.equal(result.signals[0].state, "echo");
+  assert.equal(result.signals[0].state, "whisper");
   assert.equal(result.signals[0].stockStatus, "coming_soon");
 }));
 
