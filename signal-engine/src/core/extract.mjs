@@ -89,6 +89,84 @@ function normalizeExtractedProduct(raw, retailer, pageUrl, evidenceKind = "catal
   };
 }
 
+function comparablePath(url, baseUrl) {
+  try {
+    const parsed = new URL(url, baseUrl);
+    return `${parsed.hostname.toLowerCase()}${parsed.pathname.replace(/\/$/, "")}`;
+  } catch {
+    return null;
+  }
+}
+
+function matchingJsonLdProduct($, pageUrl) {
+  const products = jsonLdProducts($);
+  const pageKey = comparablePath(pageUrl, pageUrl);
+  return products.find((product) => comparablePath(product.url, pageUrl) === pageKey) || products[0] || null;
+}
+
+function attributeOrText($, node) {
+  const element = $(node);
+  return normalizeWhitespace(
+    element.attr("content") ||
+    element.attr("data-stock-status") ||
+    element.attr("data-availability") ||
+    element.attr("aria-label") ||
+    element.attr("value") ||
+    element.text()
+  );
+}
+
+function productSpecificAvailabilityEvidence($, scope, pageUrl) {
+  const structured = matchingJsonLdProduct($, pageUrl);
+  if (structured?.availability) {
+    return {
+      text: normalizeWhitespace(structured.availability),
+      kind: "product_page_json_ld_availability",
+      structured,
+    };
+  }
+
+  const selectors = [
+    '[itemprop="availability"]',
+    '[data-stock-status]',
+    '[data-availability]',
+    '.productView-stock',
+    '.productView-availability',
+    '.product-stock',
+    '.stock-status',
+    '.availability-status',
+    '[class*="inventory"]',
+    'button[data-add-to-cart]',
+    '[data-action="add-to-cart"]',
+    'button[name*="cart"]',
+    'button[name*="basket"]',
+    'form[action*="cart"] button[type="submit"]',
+    'form[action*="basket"] button[type="submit"]',
+  ];
+
+  const values = [];
+  for (const selector of selectors) {
+    scope.find(selector).each((_, node) => {
+      const value = attributeOrText($, node);
+      if (value) values.push(value);
+    });
+  }
+  const unique = [...new Set(values)];
+  if (unique.length) {
+    return {
+      text: normalizeWhitespace(unique.join(" ")),
+      kind: "product_page_purchase_controls",
+      structured,
+    };
+  }
+
+  return {
+    text: normalizeWhitespace(scope.text()),
+    kind: "product_page_fallback_text",
+    structured,
+  };
+}
+
 export function extractCatalogueProducts({ html, pageUrl, retailer }) {
   const $ = load(html);
   const fromLd = jsonLdProducts($);
@@ -113,8 +191,11 @@ export function extractDirectProductPage({ html, pageUrl, retailer }) {
   if (!retailer.productUrlPattern.test(pageUrl)) return null;
   const $ = load(html);
   const scope = $(".productView").first().length ? $(".productView").first() : $("main").first().length ? $("main").first() : $("body");
-  const text = normalizeWhitespace(scope.text());
+  const pageText = normalizeWhitespace(scope.text());
+  const availability = productSpecificAvailabilityEvidence($, scope, pageUrl);
+  const structured = availability.structured;
   const title = normalizeWhitespace(
+    structured?.title ||
     scope.find("h1,.productView-title").first().text() ||
     $('meta[property="og:title"]').attr("content") ||
     $("title").first().text()
@@ -124,21 +205,22 @@ export function extractDirectProductPage({ html, pageUrl, retailer }) {
   const priceCandidate = normalizeWhitespace(
     scope.find(".price--withoutTax,.price--main,[data-product-price-without-tax],[class*=price]").first().text()
   );
-  const nowPrice = text.match(/\bNow\s*(£\s*[0-9][0-9,.]*)/i)?.[1] || null;
-  const pricePence = parseMoneyToPence(priceCandidate || nowPrice);
+  const nowPrice = pageText.match(/\bNow\s*(£\s*[0-9][0-9,.]*)/i)?.[1] || null;
+  const pricePence = structured?.pricePence ?? parseMoneyToPence(priceCandidate || nowPrice);
   const sku = normalizeWhitespace(
+    structured?.sku ||
     scope.find("[data-product-sku],.productView-info-value").filter((_, node) => /[A-Z0-9-]{4,}/i.test($(node).text())).first().text()
-  ) || text.match(/\bCode:\s*([A-Z0-9-]{4,})/i)?.[1] || null;
+  ) || pageText.match(/\bCode:\s*([A-Z0-9-]{4,})/i)?.[1] || null;
   const image = scope.find("img").filter((_, node) => /product|booster|trainer|collection|tin|pack/i.test(`${$(node).attr("alt") || ""} ${$(node).attr("class") || ""}`)).first();
 
   return normalizeExtractedProduct({
     title,
     url: pageUrl,
-    imageUrl: absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl),
+    imageUrl: structured?.imageUrl || absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl),
     sku,
     pricePence,
-    rawText: text,
-  }, retailer, pageUrl, "product_page_probe");
+    rawText: availability.text,
+  }, retailer, pageUrl, availability.kind);
 }
 
 export function discoverProductLinks({ html, pageUrl, retailer }) {
