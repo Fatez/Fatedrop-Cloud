@@ -9,11 +9,6 @@ const VERIFIED_PURCHASE_EVIDENCE = new Set([
   "purchase_path_verified",
 ]);
 
-const VERIFIED_OFFICIAL_LISTING_EVIDENCE = new Set([
-  "official_retailer_product_page",
-  "official_retailer_catalogue_listing",
-]);
-
 const PREPARATION_METADATA_EVIDENCE = new Set([
   "stock_object_present",
   "inventory_metadata",
@@ -81,9 +76,16 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
   const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
-  const officialListingVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => kinds.has(kind));
-  const officialListingPreviouslyVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => previousKinds.has(kind));
-  const officialListingNew = officialListingVerified && !officialListingPreviouslyVerified;
+
+  // Preserve the established official-product-page behaviour for retailers that
+  // already emit it. Smyths catalogue evidence is intentionally edge-triggered:
+  // a newly staged catalogue listing can Echo once, then unchanged scans stay quiet.
+  const officialProductPageVerified = kinds.has("official_retailer_product_page");
+  const officialCatalogueVerified = kinds.has("official_retailer_catalogue_listing");
+  const officialCataloguePreviouslyVerified = previousKinds.has("official_retailer_catalogue_listing");
+  const officialCatalogueNew = officialCatalogueVerified && !officialCataloguePreviouslyVerified;
+  const officialListingVerified = officialProductPageVerified || officialCatalogueNew;
+
   const structuredCatalogue = hasStructuredCatalogueEvidence(kinds);
   const identityValid = Boolean(currentOffer?.retailerId && currentOffer?.retailerSku && currentOffer?.title && currentOffer?.url);
   const repeated = repeatedObservationThresholdCrossed(previousOffer, now, repeatedAfterSeconds)
@@ -103,18 +105,14 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   let score = 0;
   if (identityValid) score += 1;
   if (structuredCatalogue) score += 1;
-  if (officialListingNew) score += 3;
+  if (officialListingVerified) score += 3;
   if (price.priceQuality === PriceQuality.PLACEHOLDER) score += 2;
   if (repeated) score += 2;
   if (placeholderResolved) score += 3;
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  // A newly observed official retailer listing is itself strong retailer-side
-  // readiness evidence. It can create one immediate Echo, but never proves
-  // purchasability and must not emit the same Echo on every unchanged scan.
-  // Manifested still requires the independent purchase-availability boundary.
-  const corroborated = officialListingNew || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
+  const corroborated = officialListingVerified || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
   const echoEligible = !suppressStandaloneLifecycle
     && notConfirmedPurchasable
     && !purchaseVerified
@@ -141,7 +139,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       { kind: "retailer_preparation_score", value: String(score), observedAt: now },
       { kind: "retailer_preparation_identity", value: identityValid ? "valid" : "incomplete", observedAt: now },
       { kind: "retailer_preparation_structured_catalogue", value: structuredCatalogue ? "present" : "absent", observedAt: now },
-      ...(officialListingNew ? [{ kind: "retailer_preparation_official_listing", value: "verified_official_product_page", observedAt: now }] : []),
+      ...(officialListingVerified ? [{ kind: "retailer_preparation_official_listing", value: "verified_official_product_page", observedAt: now }] : []),
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
       ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
