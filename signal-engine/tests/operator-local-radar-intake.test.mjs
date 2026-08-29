@@ -48,12 +48,25 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   const parsed = parseOperatorIssue(operatorIssue(), NOW);
   assert.equal(parsed.entry.kind, "echo");
   assert.equal(parsed.entry.confidence, 0.68);
+  assert.equal(parsed.entry.expiresAt, "2026-08-30T23:00:00.000Z");
   const notification = buildOperatorNotification(parsed, { matchedBranches: 2, unmatchedTargets: [] });
   assert.equal(notification.stage, "ECHO");
   assert.equal(notification.branchCount, 2);
   assert.equal(notification.title, "FateDrop · Local Radar · Incoming stock");
   assert.match(notification.body, /expected at 2 The Entertainer stores tomorrow, 30 August\./);
   assert.match(notification.body, /Check Local Radar to see if a participating store is near you\.$/);
+});
+
+test("operator expiry cannot kill a future physical-stock Echo before its expected date", () => {
+  const parsed = parseOperatorIssue(operatorIssue({
+    body: {
+      expectedFrom: "2026-09-01T00:00:00+01:00",
+      expectedTo: "2026-09-01T23:59:59+01:00",
+      expectedLabel: "Expected 1 September",
+      expiresAt: "2026-08-28T23:59:59+01:00",
+    },
+  }), NOW);
+  assert.equal(parsed.entry.expiresAt, "2026-09-01T23:00:00.000Z");
 });
 
 test("general operator intelligence cannot self-promote to Echo", () => {
@@ -129,6 +142,7 @@ test("operator issue requires the canonical store and persists Expected intellig
       assert.equal(observation.evidence.localIntel, true);
       assert.equal(observation.evidence.advisory, true);
       assert.equal(observation.evidence.availabilityVerified, false);
+      assert.equal(observation.evidence.expiresAt, "2026-08-30T23:00:00.000Z");
     }
     assert.equal(outbound.url, "https://fatedrop.co.uk/api/dashboard/local-radar-operator-alert");
     assert.equal(outbound.options.headers.Authorization, "Bearer test-secret");
@@ -144,7 +158,7 @@ test("operator issue requires the canonical store and persists Expected intellig
   }
 });
 
-test("branchless strong Echo publishes while writing no fake branch observations", async () => {
+test("branchless strong Echo publishes and persists only one retailer-chain advisory record", async () => {
   const saved = [];
   let outbound = null;
   const store = {
@@ -170,7 +184,13 @@ test("branchless strong Echo publishes while writing no fake branch observations
     const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
     assert.equal(result.status, "published");
     assert.equal(result.matchedBranches, 0);
-    assert.equal(saved.length, 0);
+    assert.equal(saved.length, 1);
+    assert.equal(saved[0].locationId, null);
+    assert.equal(saved[0].kind, "echo");
+    assert.equal(saved[0].evidence.scope, "retailer_chain");
+    assert.equal(saved[0].evidence.localIntel, true);
+    assert.equal(saved[0].evidence.advisory, true);
+    assert.equal(saved[0].evidence.availabilityVerified, false);
     const payload = JSON.parse(outbound.options.body);
     assert.equal(payload.stage, "ECHO");
     assert.equal(payload.branchCount, 0);
