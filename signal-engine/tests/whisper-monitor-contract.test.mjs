@@ -31,77 +31,106 @@ function offer(extra = {}) {
   };
 }
 
-function states(signals) {
-  return signals.map((signal) => signal.state);
-}
-
-test("observed in-stock state without purchase proof is Whisper, not Manifested", () => {
-  const signals = deriveSignals({
-    previousOffer: offer({ stockStatus: "out_of_stock", lastSeenAt: 180 }),
-    currentOffer: offer({ stockStatus: "in_stock", lastSeenAt: 200 }),
-    now: 200,
-  });
-  assert.deepEqual(states(signals), ["whisper"]);
-  assert.equal(signals[0].stockStatus, "in_stock");
-  assert.equal(verifiedPurchasable(signals[0]), false);
+test("new exact structured SKU can Whisper while availability remains unknown", () => {
+  const signal = deriveSignal({ previousOffer: null, currentOffer: offer(), now: 200 });
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_new");
 });
 
-test("verified live transition records Whisper observation plus Manifested confirmation", () => {
-  const signals = deriveSignals({
-    previousOffer: offer({ stockStatus: "out_of_stock", lastSeenAt: 180 }),
+test("verified official product page belongs to Whisper rather than catalogue-derived Echo", () => {
+  const signal = deriveSignal({
+    previousOffer: null,
+    currentOffer: offer({ evidence: [{ kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" }] }),
+    now: 200,
+  });
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_new");
+});
+
+test("preorder metadata is broad early Whisper intelligence until purchase is verified", () => {
+  const signal = deriveSignal({
+    previousOffer: null,
     currentOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 200,
+      stockStatus: "preorder",
       evidence: [
-        { kind: "structured_catalogue", value: "present" },
-        { kind: "verified_stock_api", value: "retailer_authoritative_stock" },
+        { kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" },
+        { kind: "preorder_metadata", value: "coming September" },
       ],
     }),
     now: 200,
   });
-  assert.deepEqual(states(signals), ["whisper", "manifested"]);
-  assert.equal(signals[0].kind, "catalogue_state_change");
-  assert.equal(signals[1].kind, "availability_live");
-  assert.equal(deriveSignal({
-    previousOffer: offer({ stockStatus: "out_of_stock", lastSeenAt: 180 }),
-    currentOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 200,
-      evidence: [
-        { kind: "structured_catalogue", value: "present" },
-        { kind: "verified_stock_api", value: "retailer_authoritative_stock" },
-      ],
-    }),
-    now: 200,
-  }).state, "manifested");
+  assert.equal(signal.state, "whisper");
 });
 
-test("brand-new verified live SKU keeps its Whisper origin beside Manifested", () => {
-  const signals = deriveSignals({
+test("retailer in-stock wording that explicitly requires purchase verification remains Whisper", () => {
+  const signal = deriveSignal({
     previousOffer: null,
     currentOffer: offer({
       stockStatus: "in_stock",
-      lastSeenAt: 200,
       evidence: [
-        { kind: "structured_catalogue", value: "present" },
-        { kind: "verified_stock_api", value: "retailer_authoritative_stock" },
+        { kind: "official_retailer_catalogue_listing", value: "verified" },
+        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
       ],
     }),
     now: 200,
   });
-  assert.deepEqual(states(signals), ["whisper", "manifested"]);
-  assert.equal(signals[0].kind, "catalogue_new");
-  assert.equal(signals[1].kind, "new_listing_live");
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.stockStatus, "in_stock");
 });
 
-test("previously verified live stock going unavailable records Whisper plus Vanished", () => {
+test("verified purchase transition uses the Manifested fast path without inventing an Echo", () => {
+  const signal = deriveSignal({
+    previousOffer: offer({
+      stockStatus: "in_stock",
+      lastSeenAt: 180,
+      evidence: [
+        { kind: "official_retailer_catalogue_listing", value: "verified" },
+        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+      ],
+    }),
+    currentOffer: offer({
+      stockStatus: "in_stock",
+      lastSeenAt: 200,
+      evidence: [
+        { kind: "official_retailer_catalogue_listing", value: "verified" },
+        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+        { kind: "add_to_cart_verified", value: "enabled" },
+      ],
+    }),
+    now: 200,
+  });
+  assert.equal(signal.state, "manifested");
+  assert.equal(signal.kind, "availability_live");
+  assert.deepEqual(deriveSignals({
+    previousOffer: offer({
+      stockStatus: "in_stock",
+      lastSeenAt: 180,
+      evidence: [
+        { kind: "official_retailer_catalogue_listing", value: "verified" },
+        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+      ],
+    }),
+    currentOffer: offer({
+      stockStatus: "in_stock",
+      lastSeenAt: 200,
+      evidence: [
+        { kind: "official_retailer_catalogue_listing", value: "verified" },
+        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+        { kind: "add_to_cart_verified", value: "enabled" },
+      ],
+    }),
+    now: 200,
+  }).map((item) => item.state), ["manifested"]);
+});
+
+test("previously verified live stock going unavailable becomes Vanished", () => {
   const previous = offer({
     stockStatus: "in_stock",
     everAvailableAt: 50,
     lastSeenAt: 180,
     evidence: [
-      { kind: "structured_catalogue", value: "present" },
-      { kind: "verified_stock_api", value: "retailer_authoritative_stock" },
+      { kind: "purchase_verification_required", value: "verified_control" },
+      { kind: "add_to_cart_verified", value: "enabled" },
     ],
   });
   const current = offer({
@@ -110,31 +139,32 @@ test("previously verified live stock going unavailable records Whisper plus Vani
     lastSeenAt: 200,
     evidence: [{ kind: "structured_catalogue", value: "present" }],
   });
-  const signals = deriveSignals({ previousOffer: previous, currentOffer: current, now: 200 });
-  assert.deepEqual(states(signals), ["whisper", "vanished"]);
-  assert.equal(signals[1].kind, "sold_out");
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: 200 });
+  assert.equal(signal.state, "vanished");
+  assert.equal(signal.kind, "sold_out");
 });
 
-test("unverified apparent stock going out is only Whisper and never Vanished", () => {
-  const signals = deriveSignals({
-    previousOffer: offer({ stockStatus: "in_stock", everAvailableAt: null, lastSeenAt: 180 }),
-    currentOffer: offer({ stockStatus: "out_of_stock", lastSeenAt: 200 }),
-    now: 200,
-  });
-  assert.deepEqual(states(signals), ["whisper"]);
-});
-
-test("quantity movement is a Whisper even when stock label is unchanged", () => {
-  const signals = deriveSignals({
+test("quantity movement before verified availability is Whisper", () => {
+  const signal = deriveSignal({
     previousOffer: offer({ stockStatus: "out_of_stock", stockQuantity: 0, lastSeenAt: 180 }),
     currentOffer: offer({ stockStatus: "out_of_stock", stockQuantity: 5, lastSeenAt: 200 }),
     now: 200,
   });
-  assert.deepEqual(states(signals), ["whisper"]);
-  assert.equal(signals[0].kind, "inventory_quantity_change");
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "inventory_quantity_change");
 });
 
-test("meaningful evidence change creates one Whisper while unchanged evidence stays quiet", () => {
+test("price movement before verified availability is Whisper", () => {
+  const signal = deriveSignal({
+    previousOffer: offer({ stockStatus: "out_of_stock", pricePence: null, lastSeenAt: 180 }),
+    currentOffer: offer({ stockStatus: "out_of_stock", pricePence: 4999, lastSeenAt: 200 }),
+    now: 200,
+  });
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_price_change");
+});
+
+test("meaningful product evidence change Whispers once while unchanged evidence stays quiet", () => {
   const previous = offer({
     stockStatus: "unknown",
     firstSeenAt: 100,
@@ -150,46 +180,46 @@ test("meaningful evidence change creates one Whisper while unchanged evidence st
       { kind: "inventory_metadata", value: "exposed" },
     ],
   });
-  const changedSignals = deriveSignals({ previousOffer: previous, currentOffer: changed, now: 200 });
-  assert.equal(changedSignals.some((signal) => signal.state === "whisper"), true);
+  const changedSignal = deriveSignal({ previousOffer: previous, currentOffer: changed, now: 200 });
+  assert.equal(changedSignal.state, "whisper");
+  assert.equal(changedSignal.kind, "product_evidence_change");
 
-  const unchanged = offer({
-    stockStatus: "unknown",
-    firstSeenAt: 100,
-    lastSeenAt: 220,
-    evidence: changed.evidence,
-  });
-  const unchangedSignals = deriveSignals({ previousOffer: changed, currentOffer: unchanged, now: 220 });
-  assert.equal(unchangedSignals.some((signal) => signal.state === "whisper"), false);
+  const unchanged = offer({ stockStatus: "unknown", firstSeenAt: 100, lastSeenAt: 220, evidence: changed.evidence });
+  assert.equal(deriveSignal({ previousOffer: changed, currentOffer: unchanged, now: 220 }), null);
 });
 
-test("official preparation can coexist with Whisper instead of replacing it", () => {
-  const signals = deriveSignals({
+test("catalogue preparation alone never becomes Echo", () => {
+  const signal = deriveSignal({
     previousOffer: null,
     currentOffer: offer({
-      stockStatus: "unknown",
+      stockStatus: "out_of_stock",
       evidence: [
         { kind: "structured_catalogue", value: "present" },
         { kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" },
+        { kind: "inventory_metadata", value: "exposed" },
+        { kind: "launch_date", value: "2026-09-01" },
       ],
     }),
     now: 200,
   });
-  assert.deepEqual(states(signals), ["whisper", "echo"]);
+  assert.equal(signal.state, "whisper");
 });
 
-test("verifiedPurchasable requires explicit confirmation evidence", () => {
-  assert.equal(verifiedPurchasable(offer({ stockStatus: "in_stock" })), false);
+test("purchase-verification-required state remains unavailable until real proof appears", () => {
+  assert.equal(verifiedPurchasable(offer({
+    stockStatus: "in_stock",
+    evidence: [{ kind: "purchase_verification_required", value: "required" }],
+  })), false);
   assert.equal(verifiedPurchasable(offer({
     stockStatus: "in_stock",
     evidence: [
-      { kind: "structured_catalogue", value: "present" },
+      { kind: "purchase_verification_required", value: "required" },
       { kind: "purchase_path_verified", value: "enabled_add_to_cart" },
     ],
   })), true);
 });
 
-test("Shopify structured live stock carries verified stock API proof", () => {
+test("Shopify structured live stock carries verified stock API provenance", () => {
   const retailer = { baseUrl: "https://shop.example" };
   const live = normalizeShopifyProducts({ products: [{
     title: "Pokemon Booster Box",
@@ -207,7 +237,7 @@ test("Shopify structured live stock carries verified stock API proof", () => {
   assert.equal(soldOut.evidence.some((entry) => entry.kind === "verified_stock_api"), false);
 });
 
-test("WooCommerce structured live stock carries verified stock API proof", () => {
+test("WooCommerce structured live stock carries verified stock API provenance", () => {
   const live = normalizeWooStoreProducts([{
     id: 1,
     name: "Pokemon Booster Box",
