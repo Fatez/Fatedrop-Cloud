@@ -10,6 +10,18 @@ const RETAILER_CHAIN_ECHO_SOURCES = new Set([
   "retailer_submission",
   "authorised_feed",
 ]);
+const LONDON_DATE = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const LONDON_OFFSET = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/London",
+  timeZoneName: "longOffset",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
 
 // Human-curated from a current official retailer page. This is preparation evidence only.
 // It expires automatically and cannot create Local Manifested.
@@ -64,6 +76,35 @@ function tokens(value = "") {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
+}
+
+function londonOffsetMs(timestamp) {
+  const label = LONDON_OFFSET.formatToParts(new Date(timestamp)).find((part) => part.type === "timeZoneName")?.value || "GMT";
+  if (label === "GMT") return 0;
+  const match = /^GMT([+-])(\d{2}):(\d{2})$/.exec(label);
+  if (!match) return 0;
+  const minutes = (Number(match[2]) * 60) + Number(match[3]);
+  return (match[1] === "-" ? -1 : 1) * minutes * 60_000;
+}
+
+function nextLondonCalendarDayStart(value) {
+  const timestamp = Date.parse(value || "");
+  if (!Number.isFinite(timestamp)) return null;
+  const parts = Object.fromEntries(
+    LONDON_DATE.formatToParts(new Date(timestamp))
+      .filter((part) => ["year", "month", "day"].includes(part.type))
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  const nextDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1));
+  const probe = Date.UTC(nextDate.getUTCFullYear(), nextDate.getUTCMonth(), nextDate.getUTCDate());
+  return probe - londonOffsetMs(probe);
+}
+
+export function expectedIntelClearAt(entry = {}) {
+  const physicalDateBoundary = nextLondonCalendarDayStart(entry.expectedTo || entry.expectedFrom);
+  if (Number.isFinite(physicalDateBoundary)) return new Date(physicalDateBoundary).toISOString();
+  const fallback = Date.parse(entry.expiresAt || "");
+  return Number.isFinite(fallback) ? new Date(fallback).toISOString() : null;
 }
 
 const BRAND_STOPWORDS = new Set(["the", "entertainer", "toys", "toyshop", "store"]);
@@ -180,7 +221,11 @@ export async function reconcileCuratedIncomingIntel({
   now = Date.now(),
 } = {}) {
   if (!store) throw new Error("Curated incoming-intel reconciliation requires a store");
-  const activeEntries = (Array.isArray(entries) ? entries : []).filter((entry) => {
+  const preparedEntries = (Array.isArray(entries) ? entries : []).map((entry) => ({
+    ...entry,
+    expiresAt: expectedIntelClearAt(entry),
+  }));
+  const activeEntries = preparedEntries.filter((entry) => {
     const expiresAt = Date.parse(entry.expiresAt || "");
     return Number.isFinite(expiresAt) && expiresAt > now;
   });
@@ -235,6 +280,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets,
-    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only. Strong retailer-chain Echo intelligence may persist without a resolved branch, but can never create Local Manifested without separate exact-branch verified availability evidence.",
+    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only. Strong retailer-chain Echo intelligence may persist without a resolved branch and stays active through the expected physical-stock date, then clears at the start of the following Europe/London calendar day. It can never create Local Manifested without separate exact-branch verified availability evidence.",
   };
 }
