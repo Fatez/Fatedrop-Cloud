@@ -72,6 +72,8 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const rawProductTitle = text(payload.rawProductTitle, 220);
   const targetBranches = stringList(payload.targetBranches, 100, 180);
   const sourceType = text(payload.sourceType, 80)?.toLowerCase() || "operator_manual";
+  const requestedKind = text(payload.kind, 20)?.toLowerCase();
+  const kind = requestedKind === "echo" && STRONG_ECHO_SOURCES.has(sourceType) ? "echo" : "whisper";
   const sourceUrl = text(payload.sourceUrl, 700);
   const sourceLabel = text(payload.sourceLabel, 180) || "FateDrop operator intelligence";
   const expectedFrom = iso(payload.expectedFrom, "expectedFrom");
@@ -84,13 +86,11 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
   if (!retailerId || !retailerName) throw new Error("retailerId and retailerName are required");
   if (!rawProductTitle) throw new Error("rawProductTitle is required");
-  if (!targetBranches.length) throw new Error("At least one named target branch is required before a Local Radar broadcast");
+  if (!targetBranches.length && kind !== "echo") throw new Error("At least one named target branch is required for Whisper operator intelligence");
   if (!expectedFrom && !expectedTo && !expectedLabel) throw new Error("An expected date/window is required");
   if (!expiresAt || Date.parse(expiresAt) <= now) throw new Error("expiresAt must be in the future");
   if (expectedFrom && expectedTo && Date.parse(expectedTo) < Date.parse(expectedFrom)) throw new Error("expectedTo cannot be before expectedFrom");
 
-  const requestedKind = text(payload.kind, 20)?.toLowerCase();
-  const kind = requestedKind === "echo" && STRONG_ECHO_SOURCES.has(sourceType) ? "echo" : "whisper";
   const defaultConfidence = kind === "echo" ? 0.68 : 0.48;
   const maxConfidence = kind === "echo" ? 0.8 : 0.59;
   const safeConfidence = Math.min(maxConfidence, confidence(payload.confidence, defaultConfidence));
@@ -124,25 +124,29 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   };
 }
 
-export function buildOperatorNotification(parsed, reconciliation) {
-  const branchCount = parsed.entry.targetBranches.length;
-  if (reconciliation.unmatchedTargets?.length || reconciliation.matchedBranches !== branchCount) {
-    return null;
-  }
+export function buildOperatorNotification(parsed, reconciliation = {}) {
+  const targetBranchCount = parsed.entry.targetBranches.length;
+  const matchedBranchCount = Number(reconciliation.matchedBranches || 0);
+  const branchResolutionComplete = targetBranchCount > 0
+    && !(reconciliation.unmatchedTargets?.length)
+    && matchedBranchCount === targetBranchCount;
   const datePhrase = parsed.notificationDateLabel ? ` ${parsed.notificationDateLabel}` : "";
-  const storeWord = branchCount === 1 ? "store" : "stores";
+  const storeWord = targetBranchCount === 1 ? "store" : "stores";
+  const body = branchResolutionComplete
+    ? `${parsed.entry.rawProductTitle} expected at ${targetBranchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Check Local Radar to see if a participating store is near you.`
+    : `${parsed.entry.rawProductTitle} expected at participating ${parsed.retailerName} stores${datePhrase}. Exact participating branches are still being resolved. Check Local Radar to see if a participating store is near you.`;
   return {
     eventId: parsed.eventId,
     stage: parsed.entry.kind === "echo" ? "ECHO" : "WHISPER",
     title: "FateDrop · Local Radar · Incoming stock",
-    body: `${parsed.entry.rawProductTitle} expected at ${branchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Check Local Radar to see if a participating store is near you.`,
+    body,
     retailerId: parsed.entry.retailerId,
     retailerName: parsed.retailerName,
     productTitle: parsed.entry.rawProductTitle,
     expectedFrom: parsed.entry.expectedFrom,
     expectedTo: parsed.entry.expectedTo,
     expectedLabel: parsed.entry.expectedLabel,
-    branchCount,
+    branchCount: branchResolutionComplete ? targetBranchCount : matchedBranchCount,
     operatorIssue: parsed.issueNumber,
   };
 }
@@ -180,22 +184,13 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
   const parsed = parseOperatorIssue(issue, now);
   const reconciliation = await reconcileCuratedIncomingIntel({ store, entries: [parsed.entry], now });
   const notification = buildOperatorNotification(parsed, reconciliation);
-  if (!notification) {
-    return {
-      status: "held",
-      eventId: parsed.eventId,
-      matchedBranches: reconciliation.matchedBranches,
-      expectedBranches: parsed.entry.targetBranches.length,
-      unmatchedTargets: reconciliation.unmatchedTargets,
-      truthRule: reconciliation.truthRule,
-    };
-  }
   const push = await publishOperatorNotification(notification, fetchImpl);
   return {
     status: push.published ? "published" : "retry",
     eventId: parsed.eventId,
     matchedBranches: reconciliation.matchedBranches,
     expectedBranches: parsed.entry.targetBranches.length,
+    unmatchedTargets: reconciliation.unmatchedTargets,
     push,
     truthRule: reconciliation.truthRule,
   };
