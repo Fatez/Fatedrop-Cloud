@@ -1,6 +1,6 @@
 import { SignalState, StockStatus } from "./model.mjs";
 import { markupPercent, stableId } from "./normalize.mjs";
-import { classifyRetailerPreparation, effectivePurchasable } from "./preparation-intelligence.mjs";
+import { classifyRetailerPreparation, verifiedPurchasable } from "./preparation-intelligence.mjs";
 import { PriceQuality } from "./price-quality.mjs";
 import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
@@ -19,6 +19,11 @@ const WHISPER_SCOUTING_EVIDENCE = new Set([
   "network_readiness",
   "queue_readiness",
   "security_readiness",
+  "add_to_cart_verified",
+  "checkout_verified",
+  "availability_verified",
+  "verified_stock_api",
+  "purchase_path_verified",
 ]);
 
 function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
@@ -81,11 +86,18 @@ function credibleWhisperEvidenceChange(previousOffer, currentOffer) {
   const previousKinds = evidenceKinds(previousOffer);
   const currentKinds = evidenceKinds(currentOffer);
   if (!hasStructuredScoutingSurface(currentKinds)) return false;
-  return [...currentKinds].some((kind) => WHISPER_SCOUTING_EVIDENCE.has(kind) && !previousKinds.has(kind));
+  return [...WHISPER_SCOUTING_EVIDENCE].some((kind) => previousKinds.has(kind) !== currentKinds.has(kind));
+}
+
+function quantityChanged(previousOffer, currentOffer) {
+  if (!previousOffer) return false;
+  const previousQuantity = Number.isFinite(previousOffer.stockQuantity) ? previousOffer.stockQuantity : null;
+  const currentQuantity = Number.isFinite(currentOffer.stockQuantity) ? currentOffer.stockQuantity : null;
+  return previousQuantity !== currentQuantity && (previousQuantity != null || currentQuantity != null);
 }
 
 function priorLiveConfirmation(previousOffer) {
-  if (!previousOffer || !effectivePurchasable(previousOffer)) return null;
+  if (!previousOffer || !verifiedPurchasable(previousOffer)) return null;
   const observedAt = Number(previousOffer.lastSeenAt);
   const firstAvailableAt = Number(previousOffer.everAvailableAt);
   if (!Number.isFinite(observedAt) || observedAt <= 0 || !Number.isFinite(firstAvailableAt) || firstAvailableAt <= 0) return null;
@@ -97,83 +109,115 @@ function priorLiveConfirmation(previousOffer) {
   };
 }
 
-export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
-  if (isBaseline) return null;
-
-  const productAlert = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
-  // Beta alert delivery is intentionally sealed-TCG only. The offer/catalogue observation
-  // is still persisted by the engine; we simply do not promote accessories, merchandise,
-  // single cards or ambiguous products into the user-facing lifecycle stream.
-  if (productAlert.category !== "SEALED_TCG") return null;
-
+function whisperDescriptor({ previousOffer, currentOffer, preparation }) {
+  if (!identityComplete(currentOffer)) return null;
   const previousStatus = previousOffer?.stockStatus ?? null;
   const currentStatus = currentOffer.stockStatus;
-  const wasPurchasable = previousOffer ? effectivePurchasable(previousOffer) : false;
-  const nowPurchasable = effectivePurchasable(currentOffer);
-  const policy = signalCapabilities(currentOffer.retailerId);
-  const preparation = classifyRetailerPreparation({ previousOffer, currentOffer, now });
 
-  let state = null;
-  let kind = null;
-  let reason = null;
-  let priorLive = null;
+  if (!previousOffer) {
+    if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)
+      || preparation.price.priceQuality === PriceQuality.PLACEHOLDER
+      || credibleNewWhisperDiscovery(currentOffer)) {
+      return {
+        state: SignalState.WHISPER,
+        kind: "catalogue_new",
+        reason: "New exact retailer SKU/catalogue activity observed; availability is reported but not confirmed by Whisper",
+      };
+    }
+    return null;
+  }
 
-  // FINAL FATEDROP LIFECYCLE CONTRACT:
-  // WHISPER = earliest credible SKU/catalogue movement or weak pre-live state change.
-  // ECHO = corroborated retailer preparation/readiness evidence before purchase availability is confirmed.
-  // MANIFESTED = verified genuinely purchasable availability/restock.
-  // VANISHED = previously confirmed purchasable availability lost.
-  // Echo is universal: catalogue preparation and network/queue/security readiness can all contribute.
-  // A placeholder price is evidence, never proof of purchasability and never commercial pricing truth.
-  // Cluster members remain raw observations; one representative offer carries the lifecycle Echo.
-  if (!wasPurchasable && !nowPurchasable && preparation.suppressStandaloneLifecycle) return null;
+  if (previousStatus !== currentStatus) {
+    return {
+      state: SignalState.WHISPER,
+      kind: "catalogue_state_change",
+      reason: "Retailer SKU/catalogue stock state changed; Whisper reports the observed state without claiming purchase confirmation",
+    };
+  }
+
+  if (quantityChanged(previousOffer, currentOffer)) {
+    return {
+      state: SignalState.WHISPER,
+      kind: "inventory_quantity_change",
+      reason: "Retailer inventory quantity changed; Whisper reports the observed movement without claiming purchase confirmation",
+    };
+  }
+
+  if (credibleWhisperEvidenceChange(previousOffer, currentOffer)) {
+    return {
+      state: SignalState.WHISPER,
+      kind: "preparation_evidence_change",
+      reason: "Meaningful retailer stock/preparation evidence changed; availability is not confirmed by Whisper",
+    };
+  }
+
+  return null;
+}
+
+function lifecycleDescriptor({ previousOffer, currentOffer, preparation }) {
+  const wasPurchasable = previousOffer ? verifiedPurchasable(previousOffer) : false;
+  const nowPurchasable = verifiedPurchasable(currentOffer);
 
   if (!previousOffer) {
     if (nowPurchasable) {
-      state = SignalState.MANIFESTED;
-      kind = "new_listing_live";
-      reason = "New retailer SKU discovered and verified purchasable";
-    } else if (preparation.echoEligible) {
-      state = SignalState.ECHO;
-      kind = "retailer_preparation";
-      reason = "Corroborated retailer preparation detected before verified purchase availability";
-    } else if ([StockStatus.PREORDER, StockStatus.COMING_SOON, StockStatus.OUT_OF_STOCK].includes(currentStatus)
-      || preparation.price.priceQuality === PriceQuality.PLACEHOLDER
-      || credibleNewWhisperDiscovery(currentOffer)) {
-      state = SignalState.WHISPER;
-      kind = "catalogue_new";
-      reason = "New exact retailer SKU/catalogue activity observed before verified availability";
+      return {
+        state: SignalState.MANIFESTED,
+        kind: "new_listing_live",
+        reason: "New retailer SKU discovered with verified purchase availability",
+      };
     }
-  } else if (!wasPurchasable && nowPurchasable) {
-    state = SignalState.MANIFESTED;
-    if (previousOffer?.everAvailableAt) {
-      kind = "restock";
-      reason = "Previously available retailer SKU returned to verified availability";
-    } else {
-      kind = "availability_live";
-      reason = "Retailer SKU availability became verified";
+    if (preparation.echoEligible) {
+      return {
+        state: SignalState.ECHO,
+        kind: "retailer_preparation",
+        reason: "Corroborated retailer preparation detected before verified purchase availability",
+      };
     }
-  } else if (wasPurchasable && !nowPurchasable) {
-    priorLive = priorLiveConfirmation(previousOffer);
-    if (!priorLive) return null;
-    state = SignalState.VANISHED;
-    kind = "sold_out";
-    reason = "Previously confirmed purchasable retailer SKU is no longer verified available";
-  } else if (!nowPurchasable && preparation.echoEligible) {
-    state = SignalState.ECHO;
-    kind = "retailer_preparation";
-    reason = "Corroborated retailer preparation detected before verified purchase availability";
-  } else if (previousStatus !== currentStatus && !nowPurchasable) {
-    state = SignalState.WHISPER;
-    kind = "catalogue_state_change";
-    reason = "Retailer SKU/catalogue state changed before verified availability";
-  } else if (!nowPurchasable && credibleWhisperEvidenceChange(previousOffer, currentOffer)) {
-    state = SignalState.WHISPER;
-    kind = "preparation_evidence_change";
-    reason = "New retailer preparation evidence observed before verified availability";
+    return null;
   }
 
-  if (!state || !kind) return null;
+  if (!wasPurchasable && nowPurchasable) {
+    if (previousOffer?.everAvailableAt) {
+      return {
+        state: SignalState.MANIFESTED,
+        kind: "restock",
+        reason: "Previously available retailer SKU returned to verified purchase availability",
+      };
+    }
+    return {
+      state: SignalState.MANIFESTED,
+      kind: "availability_live",
+      reason: "Retailer SKU purchase availability became verified",
+    };
+  }
+
+  if (wasPurchasable && !nowPurchasable) {
+    const priorLive = priorLiveConfirmation(previousOffer);
+    if (!priorLive) return null;
+    return {
+      state: SignalState.VANISHED,
+      kind: "sold_out",
+      reason: "Previously confirmed purchasable retailer SKU is no longer verified available",
+      priorLive,
+    };
+  }
+
+  if (!nowPurchasable && preparation.echoEligible) {
+    return {
+      state: SignalState.ECHO,
+      kind: "retailer_preparation",
+      reason: "Corroborated retailer preparation detected before verified purchase availability",
+    };
+  }
+
+  return null;
+}
+
+function buildSignal({ descriptor, currentOffer, previousOffer, preparation, productAlert, policy, now }) {
+  if (!descriptor) return null;
+  const { state, kind, reason, priorLive = null } = descriptor;
+  const currentStatus = currentOffer.stockStatus;
+  const previousStatus = previousOffer?.stockStatus ?? null;
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
   const commercialPricePence = preparation.price.canonicalPricePence;
   const reference = resolveSignalReference(currentOffer, now);
@@ -235,4 +279,42 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
       productAlert,
     }),
   };
+}
+
+export function deriveSignals({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
+  if (isBaseline) return [];
+
+  const productAlert = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
+  // Beta alert delivery is intentionally sealed-TCG only. The offer/catalogue observation
+  // is still persisted by the engine; accessories, merchandise, single cards and ambiguous
+  // products do not enter the user-facing lifecycle stream.
+  if (productAlert.category !== "SEALED_TCG") return [];
+
+  const policy = signalCapabilities(currentOffer.retailerId);
+  const preparation = classifyRetailerPreparation({ previousOffer, currentOffer, now });
+  const descriptors = [];
+
+  // FINAL FATEDROP LIFECYCLE CONTRACT:
+  // WHISPER = the monitoring heartbeat: a meaningful retailer SKU/stock/inventory/evidence change.
+  //           It reports the retailer's observed status but never claims that purchase is confirmed.
+  // ECHO = corroborated retailer preparation/readiness before purchase availability is confirmed.
+  // MANIFESTED = independently verified genuinely purchasable availability/restock.
+  // VANISHED = previously verified purchasable availability lost.
+  // A stronger lifecycle conclusion never erases the Whisper observation that led to it.
+  const whisper = whisperDescriptor({ previousOffer, currentOffer, preparation });
+  if (whisper) descriptors.push(whisper);
+
+  const lifecycle = lifecycleDescriptor({ previousOffer, currentOffer, preparation });
+  if (lifecycle) descriptors.push(lifecycle);
+
+  return descriptors
+    .map((descriptor) => buildSignal({ descriptor, currentOffer, previousOffer, preparation, productAlert, policy, now }))
+    .filter(Boolean);
+}
+
+// Compatibility helper for focused callers/tests that expect one strongest lifecycle result.
+// The engine itself uses deriveSignals() so Whisper can coexist with Echo/Manifested/Vanished.
+export function deriveSignal(args) {
+  const signals = deriveSignals(args);
+  return signals.find((signal) => signal.state !== SignalState.WHISPER) ?? signals[0] ?? null;
 }
