@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   CURATED_INCOMING_INTEL,
+  expectedIntelClearAt,
   reconcileCuratedIncomingIntel,
   targetBranchMatchesLocation,
 } from "../src/encounters/curated-incoming-intel-reconcile.mjs";
@@ -43,6 +44,14 @@ test("branch target matching is retailer-agnostic text matching and requires eve
   assert.equal(targetBranchMatchesLocation("The Entertainer Birmingham Bullring", LOCATIONS[0]), false);
 });
 
+test("Echo lifetime follows the expected physical-stock date and clears at the start of the following London day", () => {
+  assert.equal(expectedIntelClearAt({
+    expectedFrom: "2026-09-01T00:00:00+01:00",
+    expectedTo: "2026-09-01T23:59:59+01:00",
+    expiresAt: "2026-08-30T12:00:00+01:00",
+  }), "2026-09-01T23:00:00.000Z");
+});
+
 test("curated official incoming evidence becomes branch-specific advisory Echo only for uniquely matched branches", async () => {
   const saved = [];
   const store = {
@@ -72,6 +81,7 @@ test("curated official incoming evidence becomes branch-specific advisory Echo o
     assert.equal(row.evidence.sourceType, "official_retailer_page");
     assert.equal(row.evidence.availabilityVerified, false);
     assert.equal(row.evidence.expectedLabel, "Expected 28 August");
+    assert.equal(row.evidence.expiresAt, "2026-08-28T23:00:00.000Z");
     assert.equal("stockStatus" in row.evidence, false);
   }
 });
@@ -130,6 +140,40 @@ test("strong retailer staff Echo persists as retailer-chain intelligence with ze
   assert.equal(saved[0].evidence.branchVerified, false);
 });
 
+test("future-dated Echo stays active even if an operator supplied an earlier expiry, then clears on the following day", async () => {
+  const saved = [];
+  const futureEntry = entry({
+    retailerId: "smyths-uk",
+    sourceType: "retailer_staff_report",
+    sourceId: "operator:smyths-manager:2026-08-29",
+    targetBranches: [],
+    expectedFrom: "2026-09-01T00:00:00+01:00",
+    expectedTo: "2026-09-01T23:59:59+01:00",
+    expectedLabel: "Expected 1 September",
+    expiresAt: "2026-08-30T12:00:00+01:00",
+  });
+  const store = {
+    async listRetailerLocations() { return []; },
+    async upsertLocalStockObservations(rows) { saved.push(...rows); return { saved: rows.length, duplicates: 0 }; },
+  };
+
+  const beforeClear = await reconcileCuratedIncomingIntel({
+    store,
+    entries: [futureEntry],
+    now: Date.parse("2026-09-01T22:30:00+01:00"),
+  });
+  assert.equal(beforeClear.activeEntries, 1);
+  assert.equal(beforeClear.saved, 1);
+  assert.equal(saved[0].evidence.expiresAt, "2026-09-01T23:00:00.000Z");
+
+  const afterClear = await reconcileCuratedIncomingIntel({
+    store,
+    entries: [futureEntry],
+    now: Date.parse("2026-09-02T00:00:00+01:00"),
+  });
+  assert.equal(afterClear.activeEntries, 0);
+});
+
 test("strong chain Echo persists once at retailer level and only fans out to branches that actually resolve", async () => {
   const saved = [];
   const store = {
@@ -180,6 +224,6 @@ test("production curated record is time-bounded official preparation evidence, n
   assert.equal(real.rawProductTitle, "Pokémon TCG: Mega Forces Tin (Styles Vary)");
   assert.equal(real.expectedLabel, "Expected 28 August");
   assert.match(real.sourceUrl, /thetoyshop\.com\/pokemon-at-the-entertainer/);
-  assert.ok(Date.parse(real.expiresAt) > Date.parse(real.expectedTo));
+  assert.equal(expectedIntelClearAt(real), "2026-08-28T23:00:00.000Z");
   assert.ok(real.targetBranches.length > 5);
 });
