@@ -1,7 +1,10 @@
 import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
-import { reconcileCuratedIncomingIntel } from "./curated-incoming-intel-reconcile.mjs";
+import {
+  expectedIntelClearAt,
+  reconcileCuratedIncomingIntel,
+} from "./curated-incoming-intel-reconcile.mjs";
 
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
@@ -78,7 +81,8 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const sourceLabel = text(payload.sourceLabel, 180) || "FateDrop operator intelligence";
   const expectedFrom = iso(payload.expectedFrom, "expectedFrom");
   const expectedTo = iso(payload.expectedTo, "expectedTo");
-  const expiresAt = iso(payload.expiresAt, "expiresAt");
+  const requestedExpiresAt = iso(payload.expiresAt, "expiresAt");
+  const expiresAt = expectedIntelClearAt({ expectedFrom, expectedTo, expiresAt: requestedExpiresAt });
   const expectedLabel = text(payload.expectedLabel, 120);
   const notificationDateLabel = text(payload.notificationDateLabel, 120)
     || expectedLabel?.replace(/^expected\s+/i, "")
@@ -88,7 +92,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   if (!rawProductTitle) throw new Error("rawProductTitle is required");
   if (!targetBranches.length && kind !== "echo") throw new Error("At least one named target branch is required for Whisper operator intelligence");
   if (!expectedFrom && !expectedTo && !expectedLabel) throw new Error("An expected date/window is required");
-  if (!expiresAt || Date.parse(expiresAt) <= now) throw new Error("expiresAt must be in the future");
+  if (!expiresAt || Date.parse(expiresAt) <= now) throw new Error("Expected-stock clear date must be in the future");
   if (expectedFrom && expectedTo && Date.parse(expectedTo) < Date.parse(expectedFrom)) throw new Error("expectedTo cannot be before expectedFrom");
 
   const defaultConfidence = kind === "echo" ? 0.68 : 0.48;
