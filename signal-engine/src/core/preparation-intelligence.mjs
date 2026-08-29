@@ -70,6 +70,15 @@ export function effectivePurchasable(offer) {
   return true;
 }
 
+// Manifested is intentionally stricter than the general availability helper.
+// A retailer may *show* an in-stock state without FateDrop having independently
+// confirmed a real purchase path. Lifecycle confirmation requires both an
+// observed purchasable state and explicit verified purchase/stock evidence.
+export function verifiedPurchasable(offer) {
+  if (!offer) return false;
+  return effectivePurchasable(offer) && hasVerifiedPurchaseEvidence(offer.evidence);
+}
+
 export function classifyRetailerPreparation({ previousOffer = null, currentOffer, now = Math.floor(Date.now() / 1000), repeatedAfterSeconds = 60 } = {}) {
   const evidence = Array.isArray(currentOffer?.evidence) ? currentOffer.evidence : [];
   const kinds = evidenceKinds(evidence);
@@ -102,7 +111,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const clusterStrong = clusterLeader;
   const suppressStandaloneLifecycle = clusterMember && !clusterLeader;
   const metadataKinds = [...kinds].filter((kind) => PREPARATION_METADATA_EVIDENCE.has(kind));
-  const notConfirmedPurchasable = !effectivePurchasable(currentOffer);
+  const notConfirmedPurchasable = !verifiedPurchasable(currentOffer);
 
   let score = 0;
   if (identityValid) score += 1;
