@@ -52,6 +52,7 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   assert.equal(notification.stage, "ECHO");
   assert.equal(notification.branchCount, 2);
   assert.equal(notification.title, "FateDrop · Local Radar · Incoming stock");
+  assert.match(notification.body, /expected at 2 The Entertainer stores tomorrow, 30 August\./);
   assert.match(notification.body, /Check Local Radar to see if a participating store is near you\.$/);
 });
 
@@ -61,18 +62,35 @@ test("general operator intelligence cannot self-promote to Echo", () => {
   assert.equal(parsed.entry.confidence, 0.59);
 });
 
-test("operator intake rejects untrusted authors, pull requests and branchless broadcasts", () => {
+test("operator intake rejects untrusted authors and pull requests while branchless broadcasts require strong Echo provenance", () => {
   assert.throws(() => parseOperatorIssue(operatorIssue({ user: { login: "someone-else" } }), NOW), /author is not authorised/);
   assert.throws(() => parseOperatorIssue(operatorIssue({ pull_request: { url: "https://example.invalid" } }), NOW), /Pull requests are not operator alerts/);
-  assert.throws(() => parseOperatorIssue(operatorIssue({ body: { targetBranches: [] } }), NOW), /At least one named target branch is required/);
+  assert.throws(() => parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "operator_manual", kind: "echo" } }), NOW), /named target branch is required/);
+
+  const chainEcho = parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "retailer_staff_report", kind: "echo" } }), NOW);
+  assert.equal(chainEcho.entry.kind, "echo");
+  assert.deepEqual(chainEcho.entry.targetBranches, []);
 });
 
-test("broadcast is held if the advertised branch count cannot be proven", () => {
+test("unresolved canonical branch coverage does not suppress a strong advisory Echo", () => {
   const parsed = parseOperatorIssue(operatorIssue(), NOW);
-  assert.equal(buildOperatorNotification(parsed, {
+  const notification = buildOperatorNotification(parsed, {
     matchedBranches: 1,
     unmatchedTargets: [{ target: "The Entertainer Watford", reason: "branch_not_found" }],
-  }), null);
+  });
+  assert.equal(notification.stage, "ECHO");
+  assert.equal(notification.branchCount, 1);
+  assert.match(notification.body, /expected at participating The Entertainer stores tomorrow, 30 August\./);
+  assert.match(notification.body, /Exact participating branches are still being resolved\./);
+});
+
+test("branchless chain-level Echo stays visible without fabricating branch stock", () => {
+  const parsed = parseOperatorIssue(operatorIssue({ body: { targetBranches: [], sourceType: "retailer_staff_report", kind: "echo" } }), NOW);
+  const notification = buildOperatorNotification(parsed, { matchedBranches: 0, unmatchedTargets: [] });
+  assert.equal(notification.stage, "ECHO");
+  assert.equal(notification.branchCount, 0);
+  assert.match(notification.body, /expected at participating The Entertainer stores tomorrow, 30 August\./);
+  assert.match(notification.body, /Exact participating branches are still being resolved\./);
 });
 
 test("operator issue requires the canonical store and persists Expected intelligence before Web publication", async () => {
@@ -118,6 +136,45 @@ test("operator issue requires the canonical store and persists Expected intellig
     assert.equal(payload.eventId, "local-radar-operator:301");
     assert.equal(payload.stage, "ECHO");
     assert.equal(payload.branchCount, 2);
+  } finally {
+    if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
+    if (originalSecret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
+    else process.env.FATEDROP_METRICS_INGEST_SECRET = originalSecret;
+  }
+});
+
+test("branchless strong Echo publishes while writing no fake branch observations", async () => {
+  const saved = [];
+  let outbound = null;
+  const store = {
+    async listRetailerLocations() {
+      return [];
+    },
+    async upsertLocalStockObservations(observations) {
+      saved.push(...observations);
+      return { saved: observations.length, duplicates: 0 };
+    },
+  };
+  const fetchImpl = async (url, options) => {
+    outbound = { url: String(url), options };
+    return new Response(JSON.stringify({ accepted: true, queued: 1, sent: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  const originalUrl = process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+  const originalSecret = process.env.FATEDROP_METRICS_INGEST_SECRET;
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.co.uk/api/dashboard/network-snapshot";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  try {
+    const issue = operatorIssue({ body: { targetBranches: [], sourceType: "retailer_staff_report", kind: "echo" } });
+    const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
+    assert.equal(result.status, "published");
+    assert.equal(result.matchedBranches, 0);
+    assert.equal(saved.length, 0);
+    const payload = JSON.parse(outbound.options.body);
+    assert.equal(payload.stage, "ECHO");
+    assert.equal(payload.branchCount, 0);
+    assert.match(payload.body, /Exact participating branches are still being resolved\./);
   } finally {
     if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
     else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
