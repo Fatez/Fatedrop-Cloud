@@ -21,7 +21,7 @@ jobs:
           WEB="https://fatedrop.co.uk"
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/health" -o /tmp/health.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/retailers" -o /tmp/retailers.json
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=100" -o /tmp/signals.json
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=200" -o /tmp/signals.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signal-summary" -o /tmp/summary.json
           push_code="$(curl --silent --show-error --retry 3 --retry-delay 2 --output /dev/null --write-out '%{http_code}' "$WEB/api/health/push")"
           export PUSH_CODE="$push_code"
@@ -54,6 +54,42 @@ jobs:
             acc[k] = (acc[k] || 0) + 1;
             return acc;
           }, {});
+          const evidenceKinds = row => new Set((Array.isArray(row?.evidence) ? row.evidence : []).map(e => String(e?.kind || '')).filter(Boolean));
+          const VERIFIED_PURCHASE = new Set(['add_to_cart_verified','checkout_verified','availability_verified','verified_stock_api','purchase_path_verified']);
+          const isPurchasableStatus = value => ['in_stock','low_stock'].includes(String(value || ''));
+          const hasVerifiedPurchase = row => [...evidenceKinds(row)].some(kind => VERIFIED_PURCHASE.has(kind));
+          const hasPriorLive = row => evidenceKinds(row).has('prior_live_confirmation');
+          const compact = row => ({
+            id: row.id,
+            state: row.state,
+            kind: row.kind,
+            retailerId: row.retailerId,
+            title: row.title,
+            stockStatus: row.stockStatus,
+            previousStockStatus: row.previousStockStatus,
+            pricePence: row.pricePence,
+            confidence: row.confidence,
+            verifiedPurchaseEvidence: hasVerifiedPurchase(row),
+            priorLiveConfirmation: hasPriorLive(row),
+            evidenceKinds: [...evidenceKinds(row)],
+            detectedAt: row.detectedAt,
+          });
+
+          const last24 = recent(24);
+          const manifested = last24.filter(r => r.state === 'manifested');
+          const whispers = last24.filter(r => r.state === 'whisper');
+          const echoes = last24.filter(r => r.state === 'echo');
+          const vanished = last24.filter(r => r.state === 'vanished');
+
+          const manifestedStrong = manifested.filter(r => hasVerifiedPurchase(r));
+          const manifestedStatusOnly = manifested.filter(r => !hasVerifiedPurchase(r) && isPurchasableStatus(r.stockStatus) && Number.isFinite(Number(r.pricePence)) && Number(r.pricePence) > 1);
+          const manifestedQuestionable = manifested.filter(r => !hasVerifiedPurchase(r) && !manifestedStatusOnly.includes(r));
+          const whisperNonPurchasable = whispers.filter(r => !isPurchasableStatus(r.stockStatus) && !hasVerifiedPurchase(r));
+          const whisperOos = whispers.filter(r => r.stockStatus === 'out_of_stock');
+          const echoNonPurchasable = echoes.filter(r => !isPurchasableStatus(r.stockStatus) && !hasVerifiedPurchase(r));
+          const vanishedStrong = vanished.filter(r => hasPriorLive(r) && !isPurchasableStatus(r.stockStatus));
+          const vanishedQuestionable = vanished.filter(r => !vanishedStrong.includes(r));
+
           const monitoring = retailerRows.map(r => ({
             id: r.id,
             name: r.name,
@@ -66,28 +102,50 @@ jobs:
           }));
           const configured = monitoring.filter(r => r.configured === true);
           const healthy = configured.filter(r => r.healthy === true && r.stale !== true);
-          const stale = configured.filter(r => r.stale === true);
-          const unhealthy = configured.filter(r => r.healthy !== true && r.stale !== true);
-          const noSuccess = configured.filter(r => r.lastSuccessAt == null);
           const today = Object.fromEntries(['whisper','echo','manifested','vanished'].map(state => [state, {
             generated: Number(summary.lifecycle?.[state]?.today || 0),
             discordSent: Number(summary.delivery?.[state]?.todaySent || 0),
             discordIssues: Number(summary.delivery?.[state]?.trend?.at(-1)?.issues || 0),
           }]));
-          console.log('=== FATEDROP INCIDENT SUMMARY ===');
+
+          console.log('=== FATEDROP LIFECYCLE PRECISION AUDIT ===');
           console.log(JSON.stringify({
+            measuredAt: new Date(now).toISOString(),
             cloudHealth: health,
             webPushHealthHttp: Number(process.env.PUSH_CODE),
-            signalsLast24h: recent(24).length,
+            signalsLast24h: last24.length,
             signalsLast6h: recent(6).length,
-            statesLast24h: countBy(recent(24), 'state'),
-            retailersLast24h: countBy(recent(24), 'retailerId'),
+            statesLast24h: countBy(last24, 'state'),
+            retailersLast24h: countBy(last24, 'retailerId'),
             todayLifecycleDiscordParity: today,
+            semanticAudit: {
+              manifested: {
+                total: manifested.length,
+                withIndependentVerifiedPurchaseEvidence: manifestedStrong.length,
+                statusAndCommercialPriceOnly: manifestedStatusOnly.length,
+                questionable: manifestedQuestionable.length,
+                statusAndCommercialPriceOnlyExamples: manifestedStatusOnly.slice(0, 20).map(compact),
+                questionableExamples: manifestedQuestionable.slice(0, 20).map(compact),
+              },
+              whisper: {
+                total: whispers.length,
+                nonPurchasableEarlyEvidence: whisperNonPurchasable.length,
+                outOfStockWhispers: whisperOos.length,
+                examples: whispers.slice(0, 20).map(compact),
+              },
+              echo: {
+                total: echoes.length,
+                nonPurchasablePreparationEvidence: echoNonPurchasable.length,
+                examples: echoes.slice(0, 20).map(compact),
+              },
+              vanished: {
+                total: vanished.length,
+                withPriorLiveAndNowNonPurchasable: vanishedStrong.length,
+                questionable: vanishedQuestionable.length,
+                questionableExamples: vanishedQuestionable.slice(0, 20).map(compact),
+              },
+            },
             configuredRetailers: configured.length,
             healthyFreshRetailers: healthy.length,
-            staleRetailers: stale,
-            unhealthyNonStaleRetailers: unhealthy,
-            configuredWithNoSuccessfulScan: noSuccess,
-            diagnostics: summary.diagnostics || null,
           }, null, 2));
           NODE
