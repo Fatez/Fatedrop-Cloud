@@ -41,6 +41,7 @@ const retailers = await loadRuntimeRetailers({
   staticRetailers,
   registryEnabled: env.retailerRegistryEnabled,
   databaseUrl: env.databaseUrl,
+  store,
 });
 
 function bearerToken(req) {

@@ -35,6 +35,28 @@ test("Asmodee authority sync runs when production has no Asmodee RRP", async () 
   assert.equal(outcome.result.matched, 4);
 });
 
+test("Asmodee refresh hands the canonical store pool to the sync implementation", async () => {
+  const canonicalPool = {
+    async query(sql) {
+      assert.match(sql, /rrp_source='asmodee-uk'/);
+      return { rows: [{ count: 0, latest_observed_at: null }] };
+    },
+  };
+  const store = { async pool() { return canonicalPool; } };
+  let seenPool = null;
+
+  await bootstrapAsmodeeRrp({
+    store,
+    databaseUrl: "postgres://example",
+    syncFn: async ({ pool }) => {
+      seenPool = pool;
+      return { matched: 0 };
+    },
+  });
+
+  assert.equal(seenPool, canonicalPool);
+});
+
 test("recent authoritative Asmodee evidence does not trigger another crawl", async () => {
   let calls = 0;
   const outcome = await bootstrapAsmodeeRrp({

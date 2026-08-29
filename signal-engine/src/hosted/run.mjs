@@ -1,13 +1,14 @@
 import { env } from "../config/env.mjs";
+import { createStore } from "../stores/index.mjs";
 import { evaluateHostedFateFinds } from "./fatefind.mjs";
 import { dispatchNotificationOutbox } from "./notification-dispatch.mjs";
 import { buildFateMatchNotificationReadiness } from "./notification-readiness.mjs";
 
-let poolPromise;
 async function pool() {
   if (!env.databaseUrl) throw new Error("Hosted FateFind requires DATABASE_URL");
-  if (!poolPromise) poolPromise = import("pg").then(({ Pool }) => new Pool({ connectionString: env.databaseUrl, ssl: env.databaseUrl.includes("localhost") ? undefined : { rejectUnauthorized: false } }));
-  return poolPromise;
+  const store = createStore();
+  if (typeof store?.pool !== "function") throw new Error("Hosted FateFind requires the canonical PostgreSQL store");
+  return store.pool();
 }
 
 export async function runHostedFateFindCycle() {

@@ -1,11 +1,11 @@
-import { syncAsmodeeRrp } from "./asmodee-authority.mjs";
+import { syncAsmodeeRrpWithPool } from "./asmodee-store-sync.mjs";
 
 const DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60;
 
 export async function bootstrapAsmodeeRrp({
   store,
   databaseUrl,
-  syncFn = syncAsmodeeRrp,
+  syncFn = syncAsmodeeRrpWithPool,
   now = Math.floor(Date.now() / 1000),
   maxAgeSeconds = DEFAULT_MAX_AGE_SECONDS,
 } = {}) {
@@ -33,7 +33,7 @@ export async function bootstrapAsmodeeRrp({
     };
   }
 
-  const result = await syncFn({ databaseUrl, now });
+  const result = await syncFn({ databaseUrl, pool, now });
   return {
     skipped: false,
     refreshReason: existing === 0 ? "not_bootstrapped" : "authoritative_evidence_stale",

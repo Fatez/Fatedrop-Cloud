@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { runWithRetailerScanDeadline } from "../core/scan-deadline.mjs";
+import { createStore } from "../stores/index.mjs";
 import { dryRunRetailer } from "./dry-run.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES } from "./registry.mjs";
@@ -46,6 +47,7 @@ export function candidateQualificationDecision(retailer, lastRunAt, {
 
 export async function runCandidateQualificationCycle({
   databaseUrl = "",
+  store = null,
   registry = null,
   dryRunFn = dryRunRetailer,
   now = Math.floor(Date.now() / 1000),
@@ -55,7 +57,12 @@ export async function runCandidateQualificationCycle({
   deadlineMs = RETAILER_QUALIFICATION_DEADLINE_MS,
 } = {}) {
   if (!registry && !databaseUrl) return { enabled: false, reason: "database-url-missing", candidates: 0, attempted: 0, succeeded: 0, failed: 0, results: [] };
-  const source = registry || new PostgresRetailerRegistry(databaseUrl);
+  let source = registry;
+  if (!source) {
+    const canonicalStore = store || createStore();
+    if (typeof canonicalStore?.pool !== "function") throw new Error("Retailer qualification requires the canonical PostgreSQL store");
+    source = new PostgresRetailerRegistry(databaseUrl, { poolProvider: () => canonicalStore.pool() });
+  }
   const candidates = await source.list({
     states: [RETAILER_STATES.CANDIDATE, RETAILER_STATES.QUALIFYING],
     adapters: [ADAPTER_TYPES.SHOPIFY, ADAPTER_TYPES.WOOCOMMERCE],

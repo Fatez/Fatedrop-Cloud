@@ -26,9 +26,20 @@ function fromRow(row) {
 }
 
 export class PostgresRetailerRegistry {
-  constructor(databaseUrl) { this.databaseUrl = databaseUrl; this.poolPromise = null; }
+  constructor(databaseUrl, { poolProvider = null } = {}) {
+    this.databaseUrl = databaseUrl;
+    this.poolProvider = typeof poolProvider === "function" ? poolProvider : null;
+    this.poolPromise = null;
+  }
+
   async pool() {
-    if (!this.poolPromise) this.poolPromise = import("pg").then(({ Pool }) => new Pool({ connectionString: this.databaseUrl, ssl: this.databaseUrl.includes("localhost") ? undefined : { rejectUnauthorized: false } }));
+    if (this.poolProvider) return this.poolProvider();
+    if (!this.poolPromise) {
+      this.poolPromise = import("pg").then(({ Pool }) => new Pool({
+        connectionString: this.databaseUrl,
+        ssl: this.databaseUrl.includes("localhost") ? undefined : { rejectUnauthorized: false },
+      }));
+    }
     return this.poolPromise;
   }
 
