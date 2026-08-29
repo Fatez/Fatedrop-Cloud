@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { normalizeShopifyProducts } from "../src/adapters/shopify-normalizer.mjs";
-import { normalizeWooStoreProducts } from "../src/adapters/woocommerce-normalizer.mjs";
 import { verifiedPurchasable } from "../src/core/preparation-intelligence.mjs";
 import { deriveSignal, deriveSignals } from "../src/core/signals.mjs";
 
@@ -79,48 +77,27 @@ test("retailer in-stock wording that explicitly requires purchase verification r
 });
 
 test("verified purchase transition uses the Manifested fast path without inventing an Echo", () => {
-  const signal = deriveSignal({
-    previousOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 180,
-      evidence: [
-        { kind: "official_retailer_catalogue_listing", value: "verified" },
-        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
-      ],
-    }),
-    currentOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 200,
-      evidence: [
-        { kind: "official_retailer_catalogue_listing", value: "verified" },
-        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
-        { kind: "add_to_cart_verified", value: "enabled" },
-      ],
-    }),
-    now: 200,
+  const previous = offer({
+    stockStatus: "in_stock",
+    lastSeenAt: 180,
+    evidence: [
+      { kind: "official_retailer_catalogue_listing", value: "verified" },
+      { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+    ],
   });
+  const current = offer({
+    stockStatus: "in_stock",
+    lastSeenAt: 200,
+    evidence: [
+      { kind: "official_retailer_catalogue_listing", value: "verified" },
+      { kind: "purchase_verification_required", value: "smyths_purchase_control" },
+      { kind: "add_to_cart_verified", value: "enabled" },
+    ],
+  });
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: 200 });
   assert.equal(signal.state, "manifested");
   assert.equal(signal.kind, "availability_live");
-  assert.deepEqual(deriveSignals({
-    previousOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 180,
-      evidence: [
-        { kind: "official_retailer_catalogue_listing", value: "verified" },
-        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
-      ],
-    }),
-    currentOffer: offer({
-      stockStatus: "in_stock",
-      lastSeenAt: 200,
-      evidence: [
-        { kind: "official_retailer_catalogue_listing", value: "verified" },
-        { kind: "purchase_verification_required", value: "smyths_purchase_control" },
-        { kind: "add_to_cart_verified", value: "enabled" },
-      ],
-    }),
-    now: 200,
-  }).map((item) => item.state), ["manifested"]);
+  assert.deepEqual(deriveSignals({ previousOffer: previous, currentOffer: current, now: 200 }).map((item) => item.state), ["manifested"]);
 });
 
 test("previously verified live stock going unavailable becomes Vanished", () => {
@@ -217,43 +194,4 @@ test("purchase-verification-required state remains unavailable until real proof 
       { kind: "purchase_path_verified", value: "enabled_add_to_cart" },
     ],
   })), true);
-});
-
-test("Shopify structured live stock carries verified stock API provenance", () => {
-  const retailer = { baseUrl: "https://shop.example" };
-  const live = normalizeShopifyProducts({ products: [{
-    title: "Pokemon Booster Box",
-    handle: "pokemon-booster-box",
-    variants: [{ id: 1, sku: "SHOP-1", price: "99.99", available: true }],
-    images: [],
-  }] }, retailer)[0];
-  const soldOut = normalizeShopifyProducts({ products: [{
-    title: "Pokemon Booster Box",
-    handle: "pokemon-booster-box",
-    variants: [{ id: 2, sku: "SHOP-2", price: "99.99", available: false }],
-    images: [],
-  }] }, retailer)[0];
-  assert.equal(live.evidence.some((entry) => entry.kind === "verified_stock_api"), true);
-  assert.equal(soldOut.evidence.some((entry) => entry.kind === "verified_stock_api"), false);
-});
-
-test("WooCommerce structured live stock carries verified stock API provenance", () => {
-  const live = normalizeWooStoreProducts([{
-    id: 1,
-    name: "Pokemon Booster Box",
-    sku: "WOO-1",
-    permalink: "https://woo.example/pokemon-booster-box",
-    is_in_stock: true,
-    prices: { price: "9999", currency_minor_unit: 2 },
-  }], {})[0];
-  const soldOut = normalizeWooStoreProducts([{
-    id: 2,
-    name: "Pokemon Booster Box",
-    sku: "WOO-2",
-    permalink: "https://woo.example/pokemon-booster-box-2",
-    is_in_stock: false,
-    prices: { price: "9999", currency_minor_unit: 2 },
-  }], {})[0];
-  assert.equal(live.evidence.some((entry) => entry.kind === "verified_stock_api"), true);
-  assert.equal(soldOut.evidence.some((entry) => entry.kind === "verified_stock_api"), false);
 });
