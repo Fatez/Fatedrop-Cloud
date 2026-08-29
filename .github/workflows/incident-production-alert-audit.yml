@@ -13,27 +13,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Query public FateDrop production evidence
+      - name: Cross-check live lifecycle categories
         shell: bash
         run: |
           set -euo pipefail
           CLOUD="https://fatedrop-cloud-production.up.railway.app"
-          WEB="https://fatedrop.co.uk"
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/health" -o /tmp/health.json
-          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/retailers" -o /tmp/retailers.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=200" -o /tmp/signals.json
           curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signal-summary" -o /tmp/summary.json
-          push_code="$(curl --silent --show-error --retry 3 --retry-delay 2 --output /dev/null --write-out '%{http_code}' "$WEB/api/health/push")"
-          export PUSH_CODE="$push_code"
-
           node <<'NODE'
           const fs = require('fs');
-          const health = JSON.parse(fs.readFileSync('/tmp/health.json','utf8'));
-          const retailers = JSON.parse(fs.readFileSync('/tmp/retailers.json','utf8'));
           const signals = JSON.parse(fs.readFileSync('/tmp/signals.json','utf8'));
           const summary = JSON.parse(fs.readFileSync('/tmp/summary.json','utf8'));
           const rows = Array.isArray(signals.signals) ? signals.signals : [];
-          const retailerRows = Array.isArray(retailers.retailers) ? retailers.retailers : [];
           const now = Date.now();
           const epochMs = value => {
             const n = Number(value);
@@ -41,111 +32,37 @@ jobs:
             const parsed = Date.parse(value || '');
             return Number.isFinite(parsed) ? parsed : null;
           };
-          const ageHours = value => {
-            const ms = epochMs(value);
-            return ms == null ? null : Math.round(((now - ms) / 3600000) * 100) / 100;
-          };
-          const recent = hours => rows.filter(r => {
+          const last24 = rows.filter(r => {
             const ms = epochMs(r.detectedAt);
-            return ms != null && now - ms <= hours * 3600000;
+            return ms != null && now - ms <= 24 * 3600000;
           });
-          const countBy = (items, key) => items.reduce((acc, item) => {
-            const k = String(item?.[key] ?? 'unknown');
-            acc[k] = (acc[k] || 0) + 1;
-            return acc;
-          }, {});
-          const evidenceKinds = row => new Set((Array.isArray(row?.evidence) ? row.evidence : []).map(e => String(e?.kind || '')).filter(Boolean));
-          const VERIFIED_PURCHASE = new Set(['add_to_cart_verified','checkout_verified','availability_verified','verified_stock_api','purchase_path_verified']);
-          const isPurchasableStatus = value => ['in_stock','low_stock'].includes(String(value || ''));
-          const hasVerifiedPurchase = row => [...evidenceKinds(row)].some(kind => VERIFIED_PURCHASE.has(kind));
-          const hasPriorLive = row => evidenceKinds(row).has('prior_live_confirmation');
-          const compact = row => ({
-            id: row.id,
-            state: row.state,
-            kind: row.kind,
-            retailerId: row.retailerId,
-            title: row.title,
-            stockStatus: row.stockStatus,
-            previousStockStatus: row.previousStockStatus,
-            pricePence: row.pricePence,
-            confidence: row.confidence,
-            verifiedPurchaseEvidence: hasVerifiedPurchase(row),
-            priorLiveConfirmation: hasPriorLive(row),
-            evidenceKinds: [...evidenceKinds(row)],
-            detectedAt: row.detectedAt,
-          });
-
-          const last24 = recent(24);
-          const manifested = last24.filter(r => r.state === 'manifested');
-          const whispers = last24.filter(r => r.state === 'whisper');
-          const echoes = last24.filter(r => r.state === 'echo');
-          const vanished = last24.filter(r => r.state === 'vanished');
-
-          const manifestedStrong = manifested.filter(r => hasVerifiedPurchase(r));
-          const manifestedStatusOnly = manifested.filter(r => !hasVerifiedPurchase(r) && isPurchasableStatus(r.stockStatus) && Number.isFinite(Number(r.pricePence)) && Number(r.pricePence) > 1);
-          const manifestedQuestionable = manifested.filter(r => !hasVerifiedPurchase(r) && !manifestedStatusOnly.includes(r));
-          const whisperNonPurchasable = whispers.filter(r => !isPurchasableStatus(r.stockStatus) && !hasVerifiedPurchase(r));
-          const whisperOos = whispers.filter(r => r.stockStatus === 'out_of_stock');
-          const echoNonPurchasable = echoes.filter(r => !isPurchasableStatus(r.stockStatus) && !hasVerifiedPurchase(r));
-          const vanishedStrong = vanished.filter(r => hasPriorLive(r) && !isPurchasableStatus(r.stockStatus));
-          const vanishedQuestionable = vanished.filter(r => !vanishedStrong.includes(r));
-
-          const monitoring = retailerRows.map(r => ({
-            id: r.id,
-            name: r.name,
-            configured: r.monitoring?.configured ?? null,
-            healthy: r.monitoring?.healthy ?? r.healthy ?? null,
-            stale: r.monitoring?.stale ?? r.stale ?? null,
-            lastSuccessAt: r.monitoring?.lastSuccessAt ?? r.lastSuccessAt ?? null,
-            lastSuccessAgeHours: ageHours(r.monitoring?.lastSuccessAt ?? r.lastSuccessAt),
-            lastError: r.monitoring?.lastError ?? r.lastError ?? null,
+          const states = ['whisper','echo','manifested','vanished'];
+          const stockByState = Object.fromEntries(states.map(state => {
+            const subset = last24.filter(r => r.state === state);
+            const counts = subset.reduce((acc, r) => {
+              const key = String(r.stockStatus ?? 'unknown');
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {});
+            return [state, { total: subset.length, stockStatuses: counts }];
           }));
-          const configured = monitoring.filter(r => r.configured === true);
-          const healthy = configured.filter(r => r.healthy === true && r.stale !== true);
-          const today = Object.fromEntries(['whisper','echo','manifested','vanished'].map(state => [state, {
+          const inconsistentPublicSurface = last24.filter(r =>
+            (r.state === 'manifested' && !['in_stock','low_stock'].includes(r.stockStatus)) ||
+            (r.state === 'vanished' && ['in_stock','low_stock'].includes(r.stockStatus)) ||
+            (['whisper','echo'].includes(r.state) && ['in_stock','low_stock'].includes(r.stockStatus))
+          ).map(r => ({ id:r.id, state:r.state, retailerId:r.retailerId, title:r.title, stockStatus:r.stockStatus, confidence:r.confidence, detectedAt:r.detectedAt }));
+          const today = Object.fromEntries(states.map(state => [state, {
             generated: Number(summary.lifecycle?.[state]?.today || 0),
             discordSent: Number(summary.delivery?.[state]?.todaySent || 0),
-            discordIssues: Number(summary.delivery?.[state]?.trend?.at(-1)?.issues || 0),
           }]));
-
-          console.log('=== FATEDROP LIFECYCLE PRECISION AUDIT ===');
+          console.log('=== FATEDROP PUBLIC LIFECYCLE CROSS-CHECK ===');
           console.log(JSON.stringify({
             measuredAt: new Date(now).toISOString(),
-            cloudHealth: health,
-            webPushHealthHttp: Number(process.env.PUSH_CODE),
             signalsLast24h: last24.length,
-            signalsLast6h: recent(6).length,
-            statesLast24h: countBy(last24, 'state'),
-            retailersLast24h: countBy(last24, 'retailerId'),
+            stockByState,
+            publicSurfaceInconsistencies: inconsistentPublicSurface.length,
+            inconsistentExamples: inconsistentPublicSurface,
             todayLifecycleDiscordParity: today,
-            semanticAudit: {
-              manifested: {
-                total: manifested.length,
-                withIndependentVerifiedPurchaseEvidence: manifestedStrong.length,
-                statusAndCommercialPriceOnly: manifestedStatusOnly.length,
-                questionable: manifestedQuestionable.length,
-                statusAndCommercialPriceOnlyExamples: manifestedStatusOnly.slice(0, 20).map(compact),
-                questionableExamples: manifestedQuestionable.slice(0, 20).map(compact),
-              },
-              whisper: {
-                total: whispers.length,
-                nonPurchasableEarlyEvidence: whisperNonPurchasable.length,
-                outOfStockWhispers: whisperOos.length,
-                examples: whispers.slice(0, 20).map(compact),
-              },
-              echo: {
-                total: echoes.length,
-                nonPurchasablePreparationEvidence: echoNonPurchasable.length,
-                examples: echoes.slice(0, 20).map(compact),
-              },
-              vanished: {
-                total: vanished.length,
-                withPriorLiveAndNowNonPurchasable: vanishedStrong.length,
-                questionable: vanishedQuestionable.length,
-                questionableExamples: vanishedQuestionable.slice(0, 20).map(compact),
-              },
-            },
-            configuredRetailers: configured.length,
-            healthyFreshRetailers: healthy.length,
+            note: 'Public /api/signals omits internal evidence arrays and previous-state proof; this cross-check validates lifecycle state against the stock status exposed by production, not the hidden classifier evidence.',
           }, null, 2));
           NODE
