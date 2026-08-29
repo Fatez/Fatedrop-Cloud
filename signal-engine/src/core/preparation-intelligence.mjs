@@ -11,6 +11,7 @@ const VERIFIED_PURCHASE_EVIDENCE = new Set([
 
 const VERIFIED_OFFICIAL_LISTING_EVIDENCE = new Set([
   "official_retailer_product_page",
+  "official_retailer_catalogue_listing",
 ]);
 
 const PREPARATION_METADATA_EVIDENCE = new Set([
@@ -55,13 +56,16 @@ export function hasVerifiedPurchaseEvidence(evidence = []) {
 
 export function effectivePurchasable(offer) {
   if (!offer) return false;
-  const purchaseVerified = hasVerifiedPurchaseEvidence(offer.evidence);
+  const kinds = evidenceKinds(offer.evidence);
+  const purchaseVerified = [...VERIFIED_PURCHASE_EVIDENCE].some((kind) => kinds.has(kind));
+  const purchaseVerificationRequired = kinds.has("purchase_verification_required");
 
   // PREORDER is a commercial lifecycle state only when a real purchase path is
   // independently verified. Retailer copy such as "Preorder" or a future
   // release date remains preparation evidence and can never Manifest by itself.
   if (offer.stockStatus === "preorder") return purchaseVerified;
   if (!isPurchasable(offer.stockStatus)) return false;
+  if (purchaseVerificationRequired && !purchaseVerified) return false;
 
   const price = classifyObservedPrice({ pricePence: offer.pricePence, retailerId: offer.retailerId, evidence: offer.evidence });
   if (price.priceQuality === PriceQuality.PLACEHOLDER || price.priceQuality === PriceQuality.INVALID) {
@@ -73,10 +77,13 @@ export function effectivePurchasable(offer) {
 export function classifyRetailerPreparation({ previousOffer = null, currentOffer, now = Math.floor(Date.now() / 1000), repeatedAfterSeconds = 60 } = {}) {
   const evidence = Array.isArray(currentOffer?.evidence) ? currentOffer.evidence : [];
   const kinds = evidenceKinds(evidence);
+  const previousKinds = evidenceKinds(previousOffer?.evidence);
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
   const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
   const officialListingVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => kinds.has(kind));
+  const officialListingPreviouslyVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => previousKinds.has(kind));
+  const officialListingNew = officialListingVerified && !officialListingPreviouslyVerified;
   const structuredCatalogue = hasStructuredCatalogueEvidence(kinds);
   const identityValid = Boolean(currentOffer?.retailerId && currentOffer?.retailerSku && currentOffer?.title && currentOffer?.url);
   const repeated = repeatedObservationThresholdCrossed(previousOffer, now, repeatedAfterSeconds)
@@ -96,17 +103,18 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   let score = 0;
   if (identityValid) score += 1;
   if (structuredCatalogue) score += 1;
-  if (officialListingVerified) score += 3;
+  if (officialListingNew) score += 3;
   if (price.priceQuality === PriceQuality.PLACEHOLDER) score += 2;
   if (repeated) score += 2;
   if (placeholderResolved) score += 3;
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  // An official retailer product page is itself strong retailer-side readiness
-  // evidence. It can create an Echo immediately, but never proves purchasability.
+  // A newly observed official retailer listing is itself strong retailer-side
+  // readiness evidence. It can create one immediate Echo, but never proves
+  // purchasability and must not emit the same Echo on every unchanged scan.
   // Manifested still requires the independent purchase-availability boundary.
-  const corroborated = officialListingVerified || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
+  const corroborated = officialListingNew || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
   const echoEligible = !suppressStandaloneLifecycle
     && notConfirmedPurchasable
     && !purchaseVerified
@@ -133,7 +141,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       { kind: "retailer_preparation_score", value: String(score), observedAt: now },
       { kind: "retailer_preparation_identity", value: identityValid ? "valid" : "incomplete", observedAt: now },
       { kind: "retailer_preparation_structured_catalogue", value: structuredCatalogue ? "present" : "absent", observedAt: now },
-      ...(officialListingVerified ? [{ kind: "retailer_preparation_official_listing", value: "verified_official_product_page", observedAt: now }] : []),
+      ...(officialListingNew ? [{ kind: "retailer_preparation_official_listing", value: "verified_official_product_page", observedAt: now }] : []),
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
       ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
