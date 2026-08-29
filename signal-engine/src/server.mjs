@@ -7,7 +7,7 @@ import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { countCanonicalRetailerLocations, listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
-import { runHostedFateFindCycle } from "./hosted/run.mjs";
+import { runHostedFateFindCycle, runHostedFateFindNow } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
 import { publishWebsiteSnapshot } from "./notifications/website.mjs";
 import { reconcileMissingDiscordDeliveries } from "./notifications/discord-reconcile.mjs";
@@ -35,6 +35,7 @@ const PRIVATE_DIAGNOSTIC_PATHS = new Set([
   "/api/website-snapshot-health",
   "/api/fatefind-evaluator-preflight",
   "/api/signal-health",
+  "/internal/fatefind/evaluate",
 ]);
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
@@ -59,6 +60,15 @@ function diagnosticAuthorized(req) {
   if (!env.apiToken) return false;
   const provided = bearerToken(req);
   return Boolean(provided) && constantTimeEqual(provided, env.apiToken);
+}
+
+async function readJsonBody(req, { maxBytes = 16 * 1024 } = {}) {
+  let raw = "";
+  for await (const chunk of req) {
+    raw += chunk;
+    if (Buffer.byteLength(raw, "utf8") > maxBytes) throw new Error("Request body too large");
+  }
+  return raw ? JSON.parse(raw) : {};
 }
 
 let fateFindPreflightCache = null;
@@ -92,6 +102,26 @@ server.on("request", async (req, res) => {
         "cache-control": "no-store",
       });
       res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+    if (req.method === "POST" && url.pathname === "/internal/fatefind/evaluate") {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        res.writeHead(400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify({ success: false, error: "Invalid JSON request body" }));
+        return;
+      }
+      const fateFindId = typeof body?.fateFindId === "string" ? body.fateFindId.trim() : "";
+      if (!fateFindId || fateFindId.length > 128) {
+        res.writeHead(400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+        res.end(JSON.stringify({ success: false, error: "A valid fateFindId is required" }));
+        return;
+      }
+      const outcome = await runHostedFateFindNow(fateFindId);
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+      res.end(JSON.stringify({ success: true, ...outcome }));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/discord-route-health") {
