@@ -112,8 +112,17 @@ function normalizeExtractedProduct(raw, retailer, pageUrl, evidenceKind = "catal
   if (evidenceKind === "product_page_probe" && lifecyclePolicy.officialProductPageEvidence) {
     evidence.push({ kind: "official_retailer_product_page", value: url, pageUrl });
   }
-  if (lifecyclePolicy.requireVerifiedPurchaseEvidence) {
-    evidence.push({ kind: "purchase_verification_required", value: "retailer_policy", pageUrl });
+
+  // HTML wording such as "In stock" is valuable Oru intelligence, but it is not
+  // enough by itself for Koru. An enabled add-to-cart/buy control on the same
+  // observed surface is the purchase verification that promotes it to Manifested.
+  const htmlStockNeedsPurchaseVerification = stock.status === "in_stock" || stock.status === "low_stock";
+  if (lifecyclePolicy.requireVerifiedPurchaseEvidence || htmlStockNeedsPurchaseVerification) {
+    evidence.push({
+      kind: "purchase_verification_required",
+      value: lifecyclePolicy.requireVerifiedPurchaseEvidence ? "retailer_policy" : "html_stock_requires_purchase_control",
+      pageUrl,
+    });
   }
   if (raw.purchaseEvidence?.kind) {
     evidence.push({ ...raw.purchaseEvidence, pageUrl });
