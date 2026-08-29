@@ -18,6 +18,12 @@ const STRONG_ECHO_SOURCES = new Set([
   "retailer_submission",
   "authorised_feed",
 ]);
+const RETAILER_CHAIN_ECHO_SOURCES = new Set([
+  "official_store_social",
+  "retailer_staff_report",
+  "retailer_submission",
+  "authorised_feed",
+]);
 
 function text(value, max = 500) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -90,7 +96,9 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
   if (!retailerId || !retailerName) throw new Error("retailerId and retailerName are required");
   if (!rawProductTitle) throw new Error("rawProductTitle is required");
-  if (!targetBranches.length && kind !== "echo") throw new Error("At least one named target branch is required for Whisper operator intelligence");
+  if (!targetBranches.length && (kind !== "echo" || !RETAILER_CHAIN_ECHO_SOURCES.has(sourceType))) {
+    throw new Error("Branchless Local Radar intelligence requires retailer-chain Echo provenance");
+  }
   if (!expectedFrom && !expectedTo && !expectedLabel) throw new Error("An expected date/window is required");
   if (!expiresAt || Date.parse(expiresAt) <= now) throw new Error("Expected-stock clear date must be in the future");
   if (expectedFrom && expectedTo && Date.parse(expectedTo) < Date.parse(expectedFrom)) throw new Error("expectedTo cannot be before expectedFrom");
@@ -193,6 +201,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
     status: push.published ? "published" : "retry",
     eventId: parsed.eventId,
     matchedBranches: reconciliation.matchedBranches,
+    retailerChainRecords: Number(reconciliation.retailerChainRecords || 0),
     expectedBranches: parsed.entry.targetBranches.length,
     unmatchedTargets: reconciliation.unmatchedTargets,
     push,
