@@ -223,13 +223,28 @@ function rowToProduct(row) {
 
 function stableId(prefix, value) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
 
-export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.floor(Date.now() / 1000) } = {}) {
-  const { rows: findRows } = await pool.query(`
-    SELECT f.* FROM fatedrop_fate_matches f
-    JOIN fatedrop_memberships m ON m.user_id=f.user_id
-    WHERE f.enabled=true AND m.tier IN ('plus','pro') AND m.status IN ('active','trialing')
-    ORDER BY f.updated_at DESC LIMIT $1
-  `, [limit]);
+export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.floor(Date.now() / 1000), fateFindId = null } = {}) {
+  const requestedFateFindId = typeof fateFindId === "string" ? fateFindId.trim() : "";
+  const findQuery = requestedFateFindId
+    ? {
+        sql: `
+          SELECT f.* FROM fatedrop_fate_matches f
+          JOIN fatedrop_memberships m ON m.user_id=f.user_id
+          WHERE f.id=$1 AND f.enabled=true AND m.tier IN ('plus','pro') AND m.status IN ('active','trialing')
+          LIMIT 1
+        `,
+        params: [requestedFateFindId],
+      }
+    : {
+        sql: `
+          SELECT f.* FROM fatedrop_fate_matches f
+          JOIN fatedrop_memberships m ON m.user_id=f.user_id
+          WHERE f.enabled=true AND m.tier IN ('plus','pro') AND m.status IN ('active','trialing')
+          ORDER BY f.updated_at DESC LIMIT $1
+        `,
+        params: [limit],
+      };
+  const { rows: findRows } = await pool.query(findQuery.sql, findQuery.params);
   if (!findRows.length) return { finds: 0, evaluated: 0, created: 0 };
 
   const { rows: offerRows } = await pool.query(`
