@@ -51,7 +51,7 @@ function catalogueHtml(control = "") {
   `;
 }
 
-test("Smyths official catalogue listing is Echo when stock wording exists but no purchase control is verified", () => {
+test("Smyths official catalogue listing is Whisper when stock wording exists but no purchase control is verified", () => {
   const [product] = extractCatalogueProducts({ html: catalogueHtml(), pageUrl, retailer });
   assert.equal(product.stockStatus, "in_stock");
   assert.ok(product.evidence.some((entry) => entry.kind === "official_retailer_catalogue_listing"));
@@ -59,11 +59,11 @@ test("Smyths official catalogue listing is Echo when stock wording exists but no
   assert.ok(!product.evidence.some((entry) => entry.kind === "add_to_cart_verified"));
 
   const signal = deriveSignal({ previousOffer: null, currentOffer: offerFrom(product), now: 200 });
-  assert.equal(signal.state, "echo");
-  assert.equal(signal.kind, "retailer_preparation");
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_new");
 });
 
-test("disabled Smyths Add to Basket control does not Manifest", () => {
+test("disabled Smyths Add to Basket control remains Whisper and does not Manifest", () => {
   const [product] = extractCatalogueProducts({
     html: catalogueHtml('<button disabled>Add to Basket</button>'),
     pageUrl,
@@ -71,7 +71,7 @@ test("disabled Smyths Add to Basket control does not Manifest", () => {
   });
   assert.ok(!product.evidence.some((entry) => entry.kind === "add_to_cart_verified"));
   const signal = deriveSignal({ previousOffer: null, currentOffer: offerFrom(product), now: 200 });
-  assert.equal(signal.state, "echo");
+  assert.equal(signal.state, "whisper");
 });
 
 test("enabled Smyths Add to Basket control verifies the purchase boundary and Manifests", () => {
@@ -86,7 +86,7 @@ test("enabled Smyths Add to Basket control verifies the purchase boundary and Ma
   assert.equal(signal.kind, "new_listing_live");
 });
 
-test("unchanged Smyths staged listing does not repeat the official-listing Echo every scan", () => {
+test("unchanged Smyths staged listing does not repeat Whisper every scan", () => {
   const [product] = extractCatalogueProducts({ html: catalogueHtml(), pageUrl, retailer });
   const previous = offerFrom(product, { firstSeenAt: 100, lastSeenAt: 200 });
   const current = offerFrom(product, { firstSeenAt: 100, lastSeenAt: 300 });
@@ -94,7 +94,7 @@ test("unchanged Smyths staged listing does not repeat the official-listing Echo 
   assert.equal(signal, null);
 });
 
-test("Smyths direct product page exposes Ref as SKU and remains Echo without an active buy control", () => {
+test("Smyths direct product page exposes Ref as SKU and Whispers without an active buy control", () => {
   const product = extractDirectProductPage({
     html: `
       <main>
@@ -111,5 +111,5 @@ test("Smyths direct product page exposes Ref as SKU and remains Echo without an 
   assert.ok(product.evidence.some((entry) => entry.kind === "official_retailer_product_page"));
   assert.ok(!product.evidence.some((entry) => entry.kind === "add_to_cart_verified"));
   const signal = deriveSignal({ previousOffer: null, currentOffer: offerFrom(product), now: 200 });
-  assert.equal(signal.state, "echo");
+  assert.equal(signal.state, "whisper");
 });
