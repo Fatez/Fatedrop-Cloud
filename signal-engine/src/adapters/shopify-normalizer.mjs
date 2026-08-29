@@ -38,7 +38,6 @@ export function normalizeShopifyProducts(payload, retailer) {
         stockQuantity: null,
         evidence: [
           { kind: "shopify_structured_catalogue", value: `variant:${variant?.id || retailerSku}` },
-          ...(variant?.available === true ? [{ kind: "verified_stock_api", value: "shopify_variant_available" }] : []),
           ...(gtin ? [{ kind: "gtin", value: gtin }] : []),
         ],
       });
