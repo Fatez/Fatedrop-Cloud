@@ -16,10 +16,14 @@ const LONDON_DATE = new Intl.DateTimeFormat("en-GB", {
   month: "2-digit",
   day: "2-digit",
 });
-const LONDON_OFFSET = new Intl.DateTimeFormat("en-GB", {
+const LONDON_CLOCK = new Intl.DateTimeFormat("en-GB", {
   timeZone: "Europe/London",
-  timeZoneName: "longOffset",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
   hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
   hourCycle: "h23",
 });
 
@@ -78,26 +82,44 @@ function tokens(value = "") {
     .filter(Boolean);
 }
 
+function dateTimeParts(formatter, timestamp, wanted) {
+  return Object.fromEntries(
+    formatter.formatToParts(new Date(timestamp))
+      .filter((part) => wanted.includes(part.type))
+      .map((part) => [part.type, Number(part.value)]),
+  );
+}
+
 function londonOffsetMs(timestamp) {
-  const label = LONDON_OFFSET.formatToParts(new Date(timestamp)).find((part) => part.type === "timeZoneName")?.value || "GMT";
-  if (label === "GMT") return 0;
-  const match = /^GMT([+-])(\d{2}):(\d{2})$/.exec(label);
-  if (!match) return 0;
-  const minutes = (Number(match[2]) * 60) + Number(match[3]);
-  return (match[1] === "-" ? -1 : 1) * minutes * 60_000;
+  const wholeSecond = Math.trunc(timestamp / 1000) * 1000;
+  const parts = dateTimeParts(
+    LONDON_CLOCK,
+    wholeSecond,
+    ["year", "month", "day", "hour", "minute", "second"],
+  );
+  const londonWallTimeAsUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return londonWallTimeAsUtc - wholeSecond;
 }
 
 function nextLondonCalendarDayStart(value) {
   const timestamp = Date.parse(value || "");
   if (!Number.isFinite(timestamp)) return null;
-  const parts = Object.fromEntries(
-    LONDON_DATE.formatToParts(new Date(timestamp))
-      .filter((part) => ["year", "month", "day"].includes(part.type))
-      .map((part) => [part.type, Number(part.value)]),
-  );
+  const parts = dateTimeParts(LONDON_DATE, timestamp, ["year", "month", "day"]);
   const nextDate = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + 1));
-  const probe = Date.UTC(nextDate.getUTCFullYear(), nextDate.getUTCMonth(), nextDate.getUTCDate());
-  return probe - londonOffsetMs(probe);
+  const londonMidnightAsUtc = Date.UTC(
+    nextDate.getUTCFullYear(),
+    nextDate.getUTCMonth(),
+    nextDate.getUTCDate(),
+  );
+  const firstGuess = londonMidnightAsUtc - londonOffsetMs(londonMidnightAsUtc);
+  return londonMidnightAsUtc - londonOffsetMs(firstGuess);
 }
 
 export function expectedIntelClearAt(entry = {}) {
