@@ -34,6 +34,16 @@ test("signal health summary separates detections, delivery policy, duplicate sup
       { id: "stale", healthy: false, stale: true, lastError: null },
       { id: "blocked", healthy: false, stale: false, lastError: "Retailer blocked catalogue request (403)" },
     ],
+    discoveryRows: [{
+      discovery_available: true,
+      pending: 2,
+      retry: 1,
+      processed: 9,
+      failed: 1,
+      latest_observed_at: now - 60,
+      latest_processed_at: now - 90,
+      oldest_active_at: now - 600,
+    }],
   });
 
   assert.equal(summary.available, true);
@@ -52,6 +62,16 @@ test("signal health summary separates detections, delivery policy, duplicate sup
   assert.deepEqual(summary.diagnostics.discordLatency, { sampleSize: 28, medianSeconds: 4, p95Seconds: 11 });
   assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["stale"]);
   assert.deepEqual(summary.diagnostics.monitors.blockedRetailerIds, ["blocked"]);
+  assert.deepEqual(summary.diagnostics.discovery, {
+    available: true,
+    pending: 2,
+    retry: 1,
+    processed: 9,
+    failed: 1,
+    latestObservedAt: now - 60,
+    latestProcessedAt: now - 90,
+    oldestActiveAt: now - 600,
+  });
   assert.equal(summary.lifecycle.manifested.trend.length, 7);
   assert.equal(summary.delivery.manifested.trend.length, 7);
 });
@@ -75,10 +95,25 @@ test("reliability diagnostics expose orphaned signals and telemetry stoppage exp
   assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["pokemon-center-uk"]);
 });
 
+test("discovery diagnostics keep telemetry unavailable distinct from an empty backlog", () => {
+  const summary = buildSignalHealthSummary({ days: 2, now: 1_800_000_000 });
+  assert.deepEqual(summary.diagnostics.discovery, {
+    available: false,
+    pending: 0,
+    retry: 0,
+    processed: 0,
+    failed: 0,
+    latestObservedAt: null,
+    latestProcessedAt: null,
+    oldestActiveAt: null,
+  });
+});
+
 test("signal health loader prefers canonical network snapshot retailer freshness", async () => {
   const now = 1_800_000_000;
   const query = async (sql) => {
     if (sql.includes("latest_signal_at")) return { rows: [{ latest_signal_at: null, latest_discord_attempt_at: null, recent_signals: 0, recent_discord_attempts: 0 }] };
+    if (sql.includes("fatedrop_retailer_discovery_evidence")) return { rows: [{ discovery_available: true, pending: 0, retry: 0, processed: 3, failed: 0, latest_observed_at: now - 10, latest_processed_at: now - 5, oldest_active_at: null }] };
     return { rows: [] };
   };
   const store = {
@@ -90,6 +125,8 @@ test("signal health loader prefers canonical network snapshot retailer freshness
   const summary = await loadSignalHealthSummary(store, { days: 2, now });
   assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["snapshot-stale"]);
   assert.equal(summary.diagnostics.monitors.freshRetailers, 0);
+  assert.equal(summary.diagnostics.discovery.available, true);
+  assert.equal(summary.diagnostics.discovery.processed, 3);
 });
 
 test("signal health loader fails closed when a persistent ledger is unavailable", async () => {
