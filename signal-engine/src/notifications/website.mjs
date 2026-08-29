@@ -7,6 +7,9 @@ const LIFECYCLE_STATES = new Set(["whisper", "manifested", "vanished", "echo"]);
 const PRECISE_KINDS = new Set([
   "catalogue_new",
   "catalogue_state_change",
+  "catalogue_price_change",
+  "inventory_quantity_change",
+  "product_evidence_change",
   "retailer_preparation",
   "queue",
   "security",
@@ -44,10 +47,6 @@ function alertClass(signal) {
 
 function signalIntensity(signal) {
   const kind = signalKind(signal);
-  const officialListingEcho = signal.state === "echo"
-    && kind === "retailer_preparation"
-    && evidenceValue(signal, "retailer_preparation_official_listing") === "verified_official_product_page";
-  if (officialListingEcho) return "major";
   if (signal.state === "echo" && ["queue", "security"].includes(kind)) return "major";
   if (signal.state === "manifested" || signal.state === "echo") return "standard";
   return Number(signal.confidence || 0) >= 0.9 ? "standard" : "subtle";
