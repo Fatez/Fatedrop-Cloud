@@ -1,8 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveSignal } from "../src/core/signals.mjs";
+import { deriveSignal, deriveSignals } from "../src/core/signals.mjs";
 
-const offer = (status, extra={}) => ({ offerId:"off_1",productId:"prd_1",retailerId:"chaos-cards",retailerName:"Chaos Cards",retailerSku:"SKU-123",title:"Example ETB",productType:"elite_trainer_box",url:"https://example.test/p",pricePence:4999,rrpPence:4999,postagePence:null,stockStatus:status,stockConfidence:0.99,evidence:[],everAvailableAt:null,lastSeenAt:null,...extra });
+const offer = (status, extra={}) => ({
+  offerId:"off_1",
+  productId:"prd_1",
+  retailerId:"chaos-cards",
+  retailerName:"Chaos Cards",
+  retailerSku:"SKU-123",
+  title:"Example ETB",
+  productType:"elite_trainer_box",
+  url:"https://example.test/p",
+  pricePence:4999,
+  rrpPence:4999,
+  postagePence:null,
+  stockStatus:status,
+  stockConfidence:0.99,
+  evidence:[{ kind: "structured_catalogue", value: "present" }],
+  everAvailableAt:null,
+  firstSeenAt:100,
+  lastSeenAt:null,
+  ...extra,
+});
 
 function kind(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "signal_kind")?.value ?? null;
@@ -21,25 +40,35 @@ function priorLive(signal) {
 }
 
 test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
+
 test("new unavailable retailer SKU whispers with exact catalogue cause",()=>{
   const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200});
   assert.equal(signal.state,"whisper");
   assert.equal(signal.kind,"catalogue_new");
   assert.equal(kind(signal),"catalogue_new");
 });
-test("preorder catalogue movement whispers",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("preorder"),now:200}).state,"whisper"));
-test("unavailable to available manifests as availability live",()=>{
-  const signal=deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200});
+
+test("preorder catalogue movement whispers",()=>assert.equal(deriveSignal({previousOffer:offer("out_of_stock",{lastSeenAt:150}),currentOffer:offer("preorder",{lastSeenAt:200}),now:200}).state,"whisper"));
+
+test("verified unavailable to available becomes Manifested availability live",()=>{
+  const signal=deriveSignal({previousOffer:offer("out_of_stock",{lastSeenAt:150}),currentOffer:offer("in_stock",{lastSeenAt:200}),now:200});
   assert.equal(signal.state,"manifested");
   assert.equal(signal.kind,"availability_live");
+  assert.deepEqual(deriveSignals({previousOffer:offer("out_of_stock",{lastSeenAt:150}),currentOffer:offer("in_stock",{lastSeenAt:200}),now:200}).map((item)=>item.state),["manifested"]);
 });
-test("previously available return manifests as restock",()=>{
-  const signal=deriveSignal({previousOffer:offer("out_of_stock",{everAvailableAt:50}),currentOffer:offer("in_stock",{everAvailableAt:50}),now:200});
+
+test("previously available return becomes Manifested restock",()=>{
+  const signal=deriveSignal({previousOffer:offer("out_of_stock",{everAvailableAt:50,lastSeenAt:150}),currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
   assert.equal(signal.state,"manifested");
   assert.equal(signal.kind,"restock");
 });
-test("available to unavailable vanishes only with auditable prior-live state",()=>{
-  const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150}),currentOffer:offer("out_of_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
+
+test("available to unavailable becomes Vanished with auditable prior-live state",()=>{
+  const signal=deriveSignal({
+    previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150}),
+    currentOffer:offer("out_of_stock",{everAvailableAt:50,lastSeenAt:200}),
+    now:200,
+  });
   assert.equal(signal.state,"vanished");
   assert.equal(signal.kind,"sold_out");
   assert.deepEqual(priorLive(signal),{
@@ -51,35 +80,63 @@ test("available to unavailable vanishes only with auditable prior-live state",()
     confidence:0.99,
   });
 });
-test("available to unavailable fails closed when prior-live provenance is incomplete",()=>{
-  assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:null}),currentOffer:offer("out_of_stock",{everAvailableAt:50}),now:200}),null);
-  assert.equal(deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:null,lastSeenAt:150}),currentOffer:offer("out_of_stock"),now:200}),null);
+
+test("Vanished fails closed when prior-live provenance is incomplete",()=>{
+  const missingObservedAt=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:null}),currentOffer:offer("out_of_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
+  const missingFirstAvailable=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:null,lastSeenAt:150}),currentOffer:offer("out_of_stock",{lastSeenAt:200}),now:200});
+  assert.equal(missingObservedAt,null);
+  assert.equal(missingFirstAvailable,null);
 });
-test("catalogue derivation never invents Echo because Echo belongs to traffic/security readiness intelligence",()=>{
+
+test("purchase-verification-required in-stock wording remains Whisper until the control is verified",()=>{
+  const signal=deriveSignal({
+    previousOffer:null,
+    currentOffer:offer("in_stock",{evidence:[
+      {kind:"official_retailer_catalogue_listing",value:"verified"},
+      {kind:"purchase_verification_required",value:"required"},
+    ]}),
+    now:200,
+  });
+  assert.equal(signal.state,"whisper");
+});
+
+test("ordinary catalogue preparation does not invent Echo",()=>{
   const states=[
     deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200})?.state,
-    deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("preorder"),now:201})?.state,
-    deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:202})?.state,
+    deriveSignal({previousOffer:null,currentOffer:offer("preorder",{evidence:[{kind:"official_retailer_product_page",value:"https://example.test/p"},{kind:"preorder_metadata",value:"soon"}]}),now:201})?.state,
+    deriveSignal({previousOffer:null,currentOffer:offer("out_of_stock",{evidence:[{kind:"structured_catalogue",value:"present"},{kind:"inventory_metadata",value:"exposed"},{kind:"launch_date",value:"2026-09-01"}]}),now:202})?.state,
   ];
   assert.equal(states.includes("echo"),false);
+  assert.deepEqual(states,["whisper","whisper","whisper"]);
 });
+
+test("price movement before verified availability is Whisper",()=>{
+  const signal=deriveSignal({previousOffer:offer("out_of_stock",{pricePence:null,lastSeenAt:150}),currentOffer:offer("out_of_stock",{pricePence:4999,lastSeenAt:200}),now:200});
+  assert.equal(signal.state,"whisper");
+  assert.equal(signal.kind,"catalogue_price_change");
+});
+
 test("market retailers carry market_stock alert class",()=>{
   const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200});
   assert.equal(signal.alertClass,"market_stock");
   assert.equal(alertClass(signal),"market_stock");
 });
+
 test("primary RRP retailers carry primary_drop alert class",()=>{
   const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon",{retailerId:"smyths-uk",retailerName:"Smyths Toys UK"}),now:200});
   assert.equal(signal.alertClass,"primary_drop");
   assert.equal(signal.signalCapabilities.dropSentinel,true);
   assert.equal(alertClass(signal),"primary_drop");
 });
+
 test("signals expose and persist retailer SKU identity",()=>{
   const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200});
   assert.equal(signal.retailerSku,"SKU-123");
   assert.equal(retailerSku(signal),"SKU-123");
 });
+
 test("signals carry a canonical product navigation target",()=>{
-  const signal=deriveSignal({previousOffer:offer("out_of_stock"),currentOffer:offer("in_stock"),now:200});
+  const signal=deriveSignal({previousOffer:offer("out_of_stock",{lastSeenAt:150}),currentOffer:offer("in_stock",{lastSeenAt:200}),now:200});
+  assert.equal(signal.state,"manifested");
   assert.deepEqual(signal.target,{type:"product",productId:"prd_1",offerId:"off_1",retailerId:"chaos-cards",productUrl:"https://example.test/p",query:"Example ETB"});
 });

@@ -91,7 +91,7 @@ test("quiet-baseline family activation can be confirmed on the next observation 
   assert.equal(repeated.clusters.length, 0);
 });
 
-test("first weak sentinel observation stays Whisper while repeated corroborated preparation becomes Echo", () => {
+test("weak sentinel observation is Whisper and unchanged repetition does not manufacture Echo", () => {
   const first = deriveSignal({ previousOffer: null, currentOffer: offer("out_of_stock"), now: 100 });
   assert.equal(first.state, "whisper");
   assert.equal(first.pricePence, null);
@@ -99,27 +99,21 @@ test("first weak sentinel observation stays Whisper while repeated corroborated 
   assert.equal(first.markupPercent, null);
 
   const second = deriveSignal({ previousOffer: offer("out_of_stock", { firstSeenAt: 100, lastSeenAt: 100 }), currentOffer: offer("out_of_stock", { firstSeenAt: 100, lastSeenAt: 200 }), now: 200 });
-  assert.equal(second.state, "echo");
-  assert.equal(second.kind, "retailer_preparation");
-  assert.equal(second.pricePence, null);
-  assert.ok(second.evidence.some((entry) => entry.kind === "price_quality" && entry.value === "placeholder"));
-  assert.ok(second.evidence.some((entry) => entry.kind === "retailer_preparation_repeated"));
+  assert.equal(second, null);
 });
 
-test("a verified official retailer product page is immediate Echo evidence even before stock is verified", () => {
+test("a verified official retailer product page is immediate Whisper evidence before stock is verified", () => {
   const current = offer("out_of_stock", {
     pricePence: 4999,
-    evidence: [
-      { kind: "official_retailer_product_page", value: "https://example.test/delta-reign-etb" },
-    ],
+    evidence: [{ kind: "official_retailer_product_page", value: "https://example.test/delta-reign-etb" }],
   });
   const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
-  assert.equal(signal.state, "echo");
-  assert.equal(signal.kind, "retailer_preparation");
-  assert.ok(signal.evidence.some((entry) => entry.kind === "retailer_preparation_official_listing"));
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_new");
+  assert.ok(signal.evidence.some((entry) => entry.kind === "official_retailer_product_page"));
 });
 
-test("official preorder metadata remains Echo until purchase availability is independently verified", () => {
+test("official preorder metadata remains Whisper until purchase availability is independently verified", () => {
   const current = offer("preorder", {
     pricePence: 4999,
     evidence: [
@@ -128,25 +122,24 @@ test("official preorder metadata remains Echo until purchase availability is ind
     ],
   });
   const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
-  assert.equal(signal.state, "echo");
+  assert.equal(signal.state, "whisper");
   assert.notEqual(signal.state, "manifested");
 });
 
-test("cluster leader creates the representative Echo", () => {
+test("preparation cluster leader remains a Whisper product observation, not Echo", () => {
   const current = offer("out_of_stock", {
     evidence: [...structured("SKU-1"), { kind: "retailer_preparation_cluster", value: "prep_delta_reign", leaderOfferId: "off_1" }],
   });
   const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
-  assert.equal(signal.state, "echo");
-  assert.equal(signal.kind, "retailer_preparation");
+  assert.equal(signal.state, "whisper");
 });
 
-test("non-leader cluster SKU remains an observation instead of a duplicate lifecycle alert", () => {
+test("preparation cluster membership does not suppress a legitimate new-SKU Whisper", () => {
   const current = offer("out_of_stock", {
     evidence: [...structured("SKU-1"), { kind: "retailer_preparation_cluster", value: "prep_delta_reign", leaderOfferId: "off_other" }],
   });
   const signal = deriveSignal({ previousOffer: null, currentOffer: current, now: 200 });
-  assert.equal(signal, null);
+  assert.equal(signal.state, "whisper");
 });
 
 test("placeholder price can never Manifest from stock metadata alone", () => {
@@ -156,10 +149,11 @@ test("placeholder price can never Manifest from stock metadata alone", () => {
   assert.equal(signal?.pricePence, null);
 });
 
-test("placeholder resolving to a real commercial price before availability is Echo evidence", () => {
+test("placeholder resolving to a real commercial price before availability is Whisper price intelligence", () => {
   const previous = offer("out_of_stock", { pricePence: 1, firstSeenAt: 100, lastSeenAt: 180 });
   const current = offer("out_of_stock", { pricePence: 4999, firstSeenAt: 100, lastSeenAt: 200 });
   const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: 200 });
-  assert.equal(signal.state, "echo");
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_price_change");
   assert.ok(signal.evidence.some((entry) => entry.kind === "retailer_preparation_price_transition" && entry.value === "placeholder_to_commercial"));
 });

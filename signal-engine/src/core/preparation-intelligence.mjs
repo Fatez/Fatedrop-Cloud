@@ -18,9 +18,6 @@ const PREPARATION_METADATA_EVIDENCE = new Set([
   "preorder_metadata",
   "future_release_known",
   "retailer_backend_exposed",
-  "network_readiness",
-  "queue_readiness",
-  "security_readiness",
 ]);
 
 function evidenceKinds(evidence = []) {
@@ -58,7 +55,7 @@ export function effectivePurchasable(offer) {
 
   // PREORDER is a commercial lifecycle state only when a real purchase path is
   // independently verified. Retailer copy such as "Preorder" or a future
-  // release date remains preparation evidence and can never Manifest by itself.
+  // release date remains early product intelligence and can never Manifest by itself.
   if (offer.stockStatus === "preorder") return purchaseVerified;
   if (!isPurchasable(offer.stockStatus)) return false;
   if (purchaseVerificationRequired && !purchaseVerified) return false;
@@ -70,6 +67,12 @@ export function effectivePurchasable(offer) {
   return true;
 }
 
+// Compatibility for the P0 branch while engine call sites are kept stable.
+// Lifecycle purchase truth remains the established effectivePurchasable contract.
+export function verifiedPurchasable(offer) {
+  return effectivePurchasable(offer);
+}
+
 export function classifyRetailerPreparation({ previousOffer = null, currentOffer, now = Math.floor(Date.now() / 1000), repeatedAfterSeconds = 60 } = {}) {
   const evidence = Array.isArray(currentOffer?.evidence) ? currentOffer.evidence : [];
   const kinds = evidenceKinds(evidence);
@@ -79,9 +82,6 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
   const retailerPressure = deriveRetailerPressure({ previousOffer, currentOffer, now });
 
-  // Preserve the established official-product-page behaviour for retailers that
-  // already emit it. Smyths catalogue evidence is intentionally edge-triggered:
-  // a newly staged catalogue listing can Echo once, then unchanged scans stay quiet.
   const officialProductPageVerified = kinds.has("official_retailer_product_page");
   const officialCatalogueVerified = kinds.has("official_retailer_catalogue_listing");
   const officialCataloguePreviouslyVerified = previousKinds.has("official_retailer_catalogue_listing");
@@ -100,9 +100,7 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   const clusterMember = Boolean(clusterId);
   const clusterLeader = clusterMember && (cluster?.clusterLeader === true || cluster?.leaderOfferId === currentOffer?.offerId);
   const clusterStrong = clusterLeader;
-  const suppressStandaloneLifecycle = clusterMember && !clusterLeader;
   const metadataKinds = [...kinds].filter((kind) => PREPARATION_METADATA_EVIDENCE.has(kind));
-  const notConfirmedPurchasable = !effectivePurchasable(currentOffer);
 
   let score = 0;
   if (identityValid) score += 1;
@@ -114,23 +112,18 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  const corroborated = officialListingVerified || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
-  const echoEligible = !suppressStandaloneLifecycle
-    && notConfirmedPurchasable
-    && !purchaseVerified
-    && identityValid
-    && structuredCatalogue
-    && corroborated
-    && score >= 5;
-
-  // Retailer Pressure is advisory intelligence only. It is deliberately excluded
-  // from Echo eligibility and purchasability so a high pressure score can never
-  // manufacture lifecycle truth.
-  const lifecycleConfidence = echoEligible ? Math.min(0.98, 0.72 + (score * 0.04)) : Math.min(0.75, 0.25 + (score * 0.06));
+  // Canonical lifecycle boundary:
+  // product/catalogue preparation belongs to Whisper. Echo is emitted only by
+  // the dedicated retailer-readiness path (queue/security/access-control) in
+  // network-readiness.mjs. Preparation scoring remains useful advisory context
+  // and may influence Retailer Pressure, but it cannot promote a catalogue
+  // observation into Echo.
+  const echoEligible = false;
+  const lifecycleConfidence = Math.min(0.75, 0.25 + (score * 0.06));
 
   return {
     echoEligible,
-    suppressStandaloneLifecycle,
+    suppressStandaloneLifecycle: false,
     clusterMember,
     clusterLeader,
     clusterId: clusterId == null ? null : String(clusterId),
@@ -149,7 +142,6 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
       ...(repeated ? [{ kind: "retailer_preparation_repeated", value: "confirmed_across_observations", observedAt: now }] : []),
       ...(placeholderResolved ? [{ kind: "retailer_preparation_price_transition", value: "placeholder_to_commercial", observedAt: now }] : []),
       ...(clusterStrong ? [{ kind: "retailer_preparation_cluster_leader", value: String(clusterId), observedAt: now }] : []),
-      ...(suppressStandaloneLifecycle ? [{ kind: "retailer_preparation_cluster_member", value: String(clusterId), observedAt: now }] : []),
       ...metadataKinds.map((kind) => ({ kind: "retailer_preparation_metadata", value: kind, observedAt: now })),
       ...retailerPressureEvidence(retailerPressure, now),
     ],

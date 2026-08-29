@@ -7,8 +7,8 @@ import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
 import { resolveRetailerDelivery } from "./delivery-policies.mjs";
 import { buildRetailerPreparationClusters, preparationClusterEvidence } from "./preparation-cluster.mjs";
-import { effectivePurchasable } from "./preparation-intelligence.mjs";
-import { deriveSignal } from "./signals.mjs";
+import { verifiedPurchasable } from "./preparation-intelligence.mjs";
+import { deriveSignals } from "./signals.mjs";
 import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } from "./normalize.mjs";
 import { preloadPreviousState } from "./previous-state.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
@@ -132,11 +132,25 @@ function dedupeCanonicalProducts(products) {
   return [...byId.values()];
 }
 
+function evidenceKindSet(offer) {
+  return new Set((Array.isArray(offer?.evidence) ? offer.evidence : [])
+    .map((entry) => String(entry?.kind || "").trim())
+    .filter(Boolean));
+}
+
+function evidenceKindsChanged(previousOffer, currentOffer) {
+  const previousKinds = evidenceKindSet(previousOffer);
+  const currentKinds = evidenceKindSet(currentOffer);
+  if (previousKinds.size !== currentKinds.size) return true;
+  return [...previousKinds].some((kind) => !currentKinds.has(kind));
+}
+
 function shouldPersistObservation(previousOffer, currentOffer) {
   if (!previousOffer) return true;
   return previousOffer.stockStatus !== currentOffer.stockStatus
     || previousOffer.pricePence !== currentOffer.pricePence
-    || previousOffer.stockQuantity !== currentOffer.stockQuantity;
+    || previousOffer.stockQuantity !== currentOffer.stockQuantity
+    || evidenceKindsChanged(previousOffer, currentOffer);
 }
 
 async function persistRrpLearningActions(store, actions) {
@@ -339,13 +353,13 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       }
     }
 
-    if (!offer.everAvailableAt && effectivePurchasable(offer)) offer.everAvailableAt = now;
+    if (!offer.everAvailableAt && verifiedPurchasable(offer)) offer.everAvailableAt = now;
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
-    const signal = deriveSignal({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
+    const derivedSignals = deriveSignals({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
     products.push(product);
     offers.push(offer);
     if (shouldPersistObservation(previousOffer, offer)) observations.push(observation);
-    if (signal) signals.push(signal);
+    if (derivedSignals.length) signals.push(...derivedSignals);
   }
 
   const completedAt = Math.floor(Date.now() / 1000);
