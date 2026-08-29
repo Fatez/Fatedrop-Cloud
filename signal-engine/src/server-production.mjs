@@ -5,6 +5,7 @@ import { ensureCuratedNetworkRetailerBranchSeeds } from "./encounters/curated-ne
 import { ensureCuratedRetailerBranchSeeds } from "./encounters/curated-retailer-branch-seeds.mjs";
 import { runCuratedRetailerBranchSync } from "./encounters/curated-retailer-branch-sync.mjs";
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
+import { startOperatorLocalRadarIntake } from "./encounters/operator-local-radar-intake.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
 import { reconcileTotalCardsPhysicalAvailability } from "./encounters/total-cards-local-availability.mjs";
 import "./notifications/lifecycle-push-heartbeat.mjs";
@@ -27,6 +28,7 @@ const TOTAL_CARDS_LOCAL_START_DELAY_MS = 120 * 1000;
 const ASDA_DENSITY_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ASDA_DENSITY_START_DELAY_MS = 180 * 1000;
 const localBranchStore = createStore();
+startOperatorLocalRadarIntake({ store: localBranchStore });
 let qualifyingRetailerCandidates = false;
 let syncingCuratedBranches = false;
 let syncingLocalBranches = false;
