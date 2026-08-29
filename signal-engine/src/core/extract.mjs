@@ -1,9 +1,31 @@
 import { load } from "cheerio";
 import { classifyStockStatus } from "./status.mjs";
 import { canonicalKey, normalizeWhitespace, parseMoneyToPence, productTypeFromTitle, stableId } from "./normalize.mjs";
+import { retailerLifecyclePolicy } from "./retailer-lifecycle-policy.mjs";
 
 function absoluteUrl(href, baseUrl) {
   try { return new URL(href, baseUrl).toString(); } catch { return null; }
+}
+
+function purchaseControlEvidence($, scope) {
+  let evidence = null;
+  scope.find('button,input[type="submit"],a[role="button"],a').each((_, node) => {
+    if (evidence) return;
+    const control = $(node);
+    const label = normalizeWhitespace(
+      control.text() || control.attr("value") || control.attr("aria-label") || control.attr("title") || ""
+    );
+    if (!/\badd to basket\b|\badd to cart\b|\bbuy now\b/i.test(label)) return;
+    const disabled = control.is("[disabled]")
+      || String(control.attr("aria-disabled") || "").toLowerCase() === "true"
+      || /(?:^|\s)(?:disabled|is-disabled)(?:\s|$)/i.test(control.attr("class") || "");
+    if (disabled) return;
+    evidence = {
+      kind: /\bbuy now\b/i.test(label) ? "purchase_path_verified" : "add_to_cart_verified",
+      value: label,
+    };
+  });
+  return evidence;
 }
 
 function jsonLdProducts($) {
@@ -61,7 +83,15 @@ function cardProducts($, config, pageUrl) {
     const priceText = card.find(config.priceSelector || "[class*=price], [data-price]").first().text() || text;
     const image = card.find("img").first();
     seen.add(url);
-    products.push({ title, url, imageUrl: absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl), sku: card.attr("data-sku") || null, pricePence: parseMoneyToPence(priceText), rawText: text });
+    products.push({
+      title,
+      url,
+      imageUrl: absoluteUrl(image.attr("src") || image.attr("data-src"), pageUrl),
+      sku: card.attr("data-sku") || null,
+      pricePence: parseMoneyToPence(priceText),
+      rawText: text,
+      purchaseEvidence: purchaseControlEvidence($, card),
+    });
   });
   return products;
 }
@@ -74,6 +104,20 @@ function normalizeExtractedProduct(raw, retailer, pageUrl, evidenceKind = "catal
   const stock = classifyStockStatus(text);
   const productType = productTypeFromTitle(raw.title);
   const retailerSku = raw.sku || url.match(retailer.skuPattern)?.[1] || stableId("sku", retailer.id, url).slice(-16);
+  const lifecyclePolicy = retailerLifecyclePolicy(retailer.id);
+  const evidence = [{ kind: evidenceKind, value: stock.evidence, pageUrl }];
+  if (evidenceKind === "catalogue" && lifecyclePolicy.officialCatalogueListingEvidence) {
+    evidence.push({ kind: "official_retailer_catalogue_listing", value: url, pageUrl });
+  }
+  if (evidenceKind === "product_page_probe" && lifecyclePolicy.officialProductPageEvidence) {
+    evidence.push({ kind: "official_retailer_product_page", value: url, pageUrl });
+  }
+  if (lifecyclePolicy.requireVerifiedPurchaseEvidence) {
+    evidence.push({ kind: "purchase_verification_required", value: "retailer_policy", pageUrl });
+  }
+  if (raw.purchaseEvidence?.kind) {
+    evidence.push({ ...raw.purchaseEvidence, pageUrl });
+  }
   return {
     retailerSku,
     title: normalizeWhitespace(raw.title),
@@ -85,7 +129,7 @@ function normalizeExtractedProduct(raw, retailer, pageUrl, evidenceKind = "catal
     stockStatus: stock.status,
     stockConfidence: stock.confidence,
     stockQuantity: stock.quantity ?? null,
-    evidence: [{ kind: evidenceKind, value: stock.evidence, pageUrl }],
+    evidence,
   };
 }
 
@@ -104,6 +148,10 @@ export function extractCatalogueProducts({ html, pageUrl, retailer }) {
       ...product,
       imageUrl: product.imageUrl || existing?.imageUrl || null,
       pricePence: product.pricePence ?? existing?.pricePence ?? null,
+      evidence: [
+        ...(Array.isArray(existing?.evidence) ? existing.evidence : []),
+        ...(Array.isArray(product.evidence) ? product.evidence : []),
+      ],
     });
   }
   return [...merged.values()];
@@ -128,7 +176,7 @@ export function extractDirectProductPage({ html, pageUrl, retailer }) {
   const pricePence = parseMoneyToPence(priceCandidate || nowPrice);
   const sku = normalizeWhitespace(
     scope.find("[data-product-sku],.productView-info-value").filter((_, node) => /[A-Z0-9-]{4,}/i.test($(node).text())).first().text()
-  ) || text.match(/\bCode:\s*([A-Z0-9-]{4,})/i)?.[1] || null;
+  ) || text.match(/\b(?:Code|Ref):\s*([A-Z0-9-]{4,})/i)?.[1] || null;
   const image = scope.find("img").filter((_, node) => /product|booster|trainer|collection|tin|pack/i.test(`${$(node).attr("alt") || ""} ${$(node).attr("class") || ""}`)).first();
 
   return normalizeExtractedProduct({
@@ -138,6 +186,7 @@ export function extractDirectProductPage({ html, pageUrl, retailer }) {
     sku,
     pricePence,
     rawText: text,
+    purchaseEvidence: purchaseControlEvidence($, scope),
   }, retailer, pageUrl, "product_page_probe");
 }
 

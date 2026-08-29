@@ -9,10 +9,6 @@ const VERIFIED_PURCHASE_EVIDENCE = new Set([
   "purchase_path_verified",
 ]);
 
-const VERIFIED_OFFICIAL_LISTING_EVIDENCE = new Set([
-  "official_retailer_product_page",
-]);
-
 const PREPARATION_METADATA_EVIDENCE = new Set([
   "stock_object_present",
   "inventory_metadata",
@@ -55,13 +51,16 @@ export function hasVerifiedPurchaseEvidence(evidence = []) {
 
 export function effectivePurchasable(offer) {
   if (!offer) return false;
-  const purchaseVerified = hasVerifiedPurchaseEvidence(offer.evidence);
+  const kinds = evidenceKinds(offer.evidence);
+  const purchaseVerified = [...VERIFIED_PURCHASE_EVIDENCE].some((kind) => kinds.has(kind));
+  const purchaseVerificationRequired = kinds.has("purchase_verification_required");
 
   // PREORDER is a commercial lifecycle state only when a real purchase path is
   // independently verified. Retailer copy such as "Preorder" or a future
   // release date remains preparation evidence and can never Manifest by itself.
   if (offer.stockStatus === "preorder") return purchaseVerified;
   if (!isPurchasable(offer.stockStatus)) return false;
+  if (purchaseVerificationRequired && !purchaseVerified) return false;
 
   const price = classifyObservedPrice({ pricePence: offer.pricePence, retailerId: offer.retailerId, evidence: offer.evidence });
   if (price.priceQuality === PriceQuality.PLACEHOLDER || price.priceQuality === PriceQuality.INVALID) {
@@ -73,10 +72,20 @@ export function effectivePurchasable(offer) {
 export function classifyRetailerPreparation({ previousOffer = null, currentOffer, now = Math.floor(Date.now() / 1000), repeatedAfterSeconds = 60 } = {}) {
   const evidence = Array.isArray(currentOffer?.evidence) ? currentOffer.evidence : [];
   const kinds = evidenceKinds(evidence);
+  const previousKinds = evidenceKinds(previousOffer?.evidence);
   const price = classifyObservedPrice({ pricePence: currentOffer?.pricePence, retailerId: currentOffer?.retailerId, evidence });
   const previousPrice = classifyObservedPrice({ pricePence: previousOffer?.pricePence, retailerId: previousOffer?.retailerId, evidence: previousOffer?.evidence });
   const purchaseVerified = hasVerifiedPurchaseEvidence(evidence);
-  const officialListingVerified = [...VERIFIED_OFFICIAL_LISTING_EVIDENCE].some((kind) => kinds.has(kind));
+
+  // Preserve the established official-product-page behaviour for retailers that
+  // already emit it. Smyths catalogue evidence is intentionally edge-triggered:
+  // a newly staged catalogue listing can Echo once, then unchanged scans stay quiet.
+  const officialProductPageVerified = kinds.has("official_retailer_product_page");
+  const officialCatalogueVerified = kinds.has("official_retailer_catalogue_listing");
+  const officialCataloguePreviouslyVerified = previousKinds.has("official_retailer_catalogue_listing");
+  const officialCatalogueNew = officialCatalogueVerified && !officialCataloguePreviouslyVerified;
+  const officialListingVerified = officialProductPageVerified || officialCatalogueNew;
+
   const structuredCatalogue = hasStructuredCatalogueEvidence(kinds);
   const identityValid = Boolean(currentOffer?.retailerId && currentOffer?.retailerSku && currentOffer?.title && currentOffer?.url);
   const repeated = repeatedObservationThresholdCrossed(previousOffer, now, repeatedAfterSeconds)
@@ -103,9 +112,6 @@ export function classifyRetailerPreparation({ previousOffer = null, currentOffer
   if (clusterStrong) score += 3;
   score += Math.min(3, metadataKinds.length);
 
-  // An official retailer product page is itself strong retailer-side readiness
-  // evidence. It can create an Echo immediately, but never proves purchasability.
-  // Manifested still requires the independent purchase-availability boundary.
   const corroborated = officialListingVerified || repeated || placeholderResolved || clusterStrong || metadataKinds.length >= 2;
   const echoEligible = !suppressStandaloneLifecycle
     && notConfirmedPurchasable
