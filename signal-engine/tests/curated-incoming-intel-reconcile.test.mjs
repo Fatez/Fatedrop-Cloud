@@ -57,13 +57,14 @@ test("curated official incoming evidence becomes branch-specific advisory Echo o
 
   assert.equal(result.status, "ok");
   assert.equal(result.matchedBranches, 2);
+  assert.equal(result.retailerChainRecords, 0);
   assert.equal(result.saved, 2);
   assert.equal(result.unmatchedTargets.length, 0);
   assert.deepEqual(new Set(saved.map((row) => row.locationId)), new Set(["loc-watford", "loc-basildon"]));
   for (const row of saved) {
     assert.equal(row.kind, "echo");
     assert.equal(row.retailerId, "entertainer-uk");
-    assert.ok(row.locationId, "incoming retailer evidence must resolve to an exact canonical branch before this reconciler persists it");
+    assert.ok(row.locationId, "ordinary official-page intel still requires an exact branch before persistence");
     assert.equal(row.productIdentityId, null, "styles-vary incoming evidence must not guess a canonical product variant");
     assert.equal(row.evidence.advisory, true);
     assert.equal(row.evidence.scope, "exact_branch_advisory");
@@ -75,7 +76,7 @@ test("curated official incoming evidence becomes branch-specific advisory Echo o
   }
 });
 
-test("unmatched or ambiguous target branches fail closed instead of becoming chain-wide intelligence", async () => {
+test("weak or unresolved official-page targets fail closed instead of becoming chain-wide intelligence", async () => {
   const saved = [];
   const store = {
     async listRetailerLocations() {
@@ -92,8 +93,67 @@ test("unmatched or ambiguous target branches fail closed instead of becoming cha
     now: Date.parse("2026-08-26T16:00:00+01:00"),
   });
   assert.equal(result.saved, 0);
+  assert.equal(result.retailerChainRecords, 0);
   assert.equal(result.unmatchedTargets.length, 2);
   assert.deepEqual(new Set(result.unmatchedTargets.map((row) => row.reason)), new Set(["ambiguous_branch_match", "branch_not_found"]));
+});
+
+test("strong retailer staff Echo persists as retailer-chain intelligence with zero resolved branches", async () => {
+  const saved = [];
+  const store = {
+    async listRetailerLocations() { return []; },
+    async upsertLocalStockObservations(rows) { saved.push(...rows); return { saved: rows.length, duplicates: 0 }; },
+  };
+  const result = await reconcileCuratedIncomingIntel({
+    store,
+    entries: [entry({
+      retailerId: "smyths-uk",
+      sourceType: "retailer_staff_report",
+      sourceId: "operator:smyths-manager:2026-08-29",
+      targetBranches: [],
+      rawProductTitle: "Pokémon TCG: Destined Rivals ETBs + Temporal Forces",
+    })],
+    now: Date.parse("2026-08-26T16:00:00+01:00"),
+  });
+
+  assert.equal(result.matchedBranches, 0);
+  assert.equal(result.retailerChainRecords, 1);
+  assert.equal(result.saved, 1);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].retailerId, "smyths-uk");
+  assert.equal(saved[0].locationId, null);
+  assert.equal(saved[0].kind, "echo");
+  assert.equal(saved[0].evidence.scope, "retailer_chain");
+  assert.equal(saved[0].evidence.localIntel, true);
+  assert.equal(saved[0].evidence.advisory, true);
+  assert.equal(saved[0].evidence.availabilityVerified, false);
+  assert.equal(saved[0].evidence.branchVerified, false);
+});
+
+test("strong chain Echo persists once at retailer level and only fans out to branches that actually resolve", async () => {
+  const saved = [];
+  const store = {
+    async listRetailerLocations() { return [LOCATIONS[0]]; },
+    async upsertLocalStockObservations(rows) { saved.push(...rows); return { saved: rows.length, duplicates: 0 }; },
+  };
+  const result = await reconcileCuratedIncomingIntel({
+    store,
+    entries: [entry({
+      sourceType: "retailer_staff_report",
+      sourceId: "staff:test",
+      targetBranches: ["The Entertainer Watford", "The Entertainer Neverwhere"],
+    })],
+    now: Date.parse("2026-08-26T16:00:00+01:00"),
+  });
+
+  assert.equal(result.matchedBranches, 1);
+  assert.equal(result.retailerChainRecords, 1);
+  assert.equal(result.saved, 2);
+  assert.equal(result.unmatchedTargets.length, 1);
+  assert.equal(saved.filter((row) => row.locationId === null).length, 1);
+  assert.equal(saved.filter((row) => row.locationId === "loc-watford").length, 1);
+  assert.equal(saved.find((row) => row.locationId === null).evidence.scope, "retailer_chain");
+  assert.equal(saved.find((row) => row.locationId === "loc-watford").evidence.scope, "exact_branch_advisory");
 });
 
 test("expired curated evidence is not persisted", async () => {
@@ -109,6 +169,7 @@ test("expired curated evidence is not persisted", async () => {
   });
   assert.equal(result.activeEntries, 0);
   assert.equal(result.matchedBranches, 0);
+  assert.equal(result.retailerChainRecords, 0);
   assert.equal(writes, 0);
 });
 
