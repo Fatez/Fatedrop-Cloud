@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { extractDirectProductPage } from "../src/core/extract.mjs";
 import { verifiedPurchasable } from "../src/core/preparation-intelligence.mjs";
 import { deriveSignal, deriveSignals, WHISPER_RECYCLE_SECONDS } from "../src/core/signals.mjs";
 
@@ -26,6 +27,15 @@ function offer(extra = {}) {
     firstSeenAt: 100,
     lastSeenAt: 100,
     ...extra,
+  };
+}
+
+function genericHtmlRetailer() {
+  return {
+    id: "generic-html-test",
+    name: "Generic HTML Test",
+    productUrlPattern: /\/pokemon\//i,
+    skuPattern: /\/pokemon\/([a-z0-9-]+)/i,
   };
 }
 
@@ -74,6 +84,55 @@ test("retailer in-stock wording that explicitly requires purchase verification r
   });
   assert.equal(signal.state, "whisper");
   assert.equal(signal.stockStatus, "in_stock");
+});
+
+test("generic HTML in-stock wording is Oru until an enabled purchase control is observed", () => {
+  const raw = extractDirectProductPage({
+    retailer: genericHtmlRetailer(),
+    pageUrl: "https://example.com/pokemon/booster-box",
+    html: `
+      <main>
+        <h1>Pokemon Scarlet & Violet Booster Box</h1>
+        <div>Code: TEST-001</div>
+        <div class="price">£49.99</div>
+        <div>In stock</div>
+      </main>
+    `,
+  });
+  assert.equal(raw.stockStatus, "in_stock");
+  assert.ok(raw.evidence.some((entry) => entry.kind === "purchase_verification_required"));
+  const signal = deriveSignal({
+    previousOffer: null,
+    currentOffer: offer({ ...raw, offerId: "off_html_unverified", productId: "prd_html_unverified", retailerId: "generic-html-test", retailerName: "Generic HTML Test" }),
+    now: 200,
+  });
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "catalogue_new");
+});
+
+test("generic HTML in-stock wording promotes to Koru only when purchase control is enabled", () => {
+  const raw = extractDirectProductPage({
+    retailer: genericHtmlRetailer(),
+    pageUrl: "https://example.com/pokemon/booster-box",
+    html: `
+      <main>
+        <h1>Pokemon Scarlet & Violet Booster Box</h1>
+        <div>Code: TEST-001</div>
+        <div class="price">£49.99</div>
+        <div>In stock</div>
+        <button>Add to cart</button>
+      </main>
+    `,
+  });
+  assert.ok(raw.evidence.some((entry) => entry.kind === "purchase_verification_required"));
+  assert.ok(raw.evidence.some((entry) => entry.kind === "add_to_cart_verified"));
+  const signal = deriveSignal({
+    previousOffer: null,
+    currentOffer: offer({ ...raw, offerId: "off_html_verified", productId: "prd_html_verified", retailerId: "generic-html-test", retailerName: "Generic HTML Test" }),
+    now: 200,
+  });
+  assert.equal(signal.state, "manifested");
+  assert.equal(signal.kind, "new_listing_live");
 });
 
 test("verified purchase transition uses the Manifested fast path without inventing an Echo", () => {
