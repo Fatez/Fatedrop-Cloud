@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { verifiedPurchasable } from "../src/core/preparation-intelligence.mjs";
-import { deriveSignal, deriveSignals } from "../src/core/signals.mjs";
+import { deriveSignal, deriveSignals, WHISPER_RECYCLE_SECONDS } from "../src/core/signals.mjs";
 
 function offer(extra = {}) {
   return {
@@ -194,4 +194,65 @@ test("purchase-verification-required state remains unavailable until real proof 
       { kind: "purchase_path_verified", value: "enabled_add_to_cart" },
     ],
   })), true);
+});
+
+test("unchanged unresolved Oru stock watch stays quiet inside the 12-hour cooldown", () => {
+  const lastWhisperAt = 10_000;
+  const previous = offer({
+    stockStatus: "in_stock",
+    lastWhisperAt,
+    evidence: [
+      { kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" },
+      { kind: "purchase_verification_required", value: "purchase_control" },
+    ],
+  });
+  const current = offer({ stockStatus: "in_stock", evidence: previous.evidence });
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: lastWhisperAt + WHISPER_RECYCLE_SECONDS - 1 });
+  assert.equal(signal, null);
+});
+
+test("unchanged unresolved actionable Oru stock watch re-alerts after 12 hours", () => {
+  const lastWhisperAt = 10_000;
+  const previous = offer({
+    stockStatus: "in_stock",
+    lastWhisperAt,
+    evidence: [
+      { kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" },
+      { kind: "purchase_verification_required", value: "purchase_control" },
+    ],
+  });
+  const current = offer({ stockStatus: "in_stock", evidence: previous.evidence });
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: lastWhisperAt + WHISPER_RECYCLE_SECONDS });
+  assert.equal(signal.state, "whisper");
+  assert.equal(signal.kind, "stock_watch_refresh");
+});
+
+test("unchanged out-of-stock catalogue does not spam a 12-hour Oru refresh", () => {
+  const lastWhisperAt = 10_000;
+  const previous = offer({ stockStatus: "out_of_stock", lastWhisperAt });
+  const current = offer({ stockStatus: "out_of_stock", evidence: previous.evidence });
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: lastWhisperAt + WHISPER_RECYCLE_SECONDS });
+  assert.equal(signal, null);
+});
+
+test("verified purchase proof takes Koru over a due Oru recycle", () => {
+  const lastWhisperAt = 10_000;
+  const previous = offer({
+    stockStatus: "in_stock",
+    lastWhisperAt,
+    evidence: [
+      { kind: "official_retailer_product_page", value: "https://example.com/pokemon-booster-box" },
+      { kind: "purchase_verification_required", value: "purchase_control" },
+    ],
+  });
+  const current = offer({
+    stockStatus: "in_stock",
+    evidence: [
+      ...previous.evidence,
+      { kind: "add_to_cart_verified", value: "enabled" },
+    ],
+  });
+  const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: lastWhisperAt + WHISPER_RECYCLE_SECONDS });
+  assert.equal(signal.state, "manifested");
+  assert.equal(signal.kind, "availability_live");
 });
