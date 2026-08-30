@@ -219,11 +219,37 @@ export async function listOperatorIssues(fetchImpl = fetch) {
 const processedFingerprints = new Map();
 let polling = false;
 let watcherStarted = false;
+const operatorHealth = {
+  started: false,
+  lastPollStartedAt: null,
+  lastPollCompletedAt: null,
+  lastStatus: "not_started",
+  issuesSeen: 0,
+  published: 0,
+  held: 0,
+  retry: 0,
+  invalid: 0,
+  lastErrorCode: null,
+};
+
+export function getOperatorLocalRadarHealth() {
+  return {
+    ...operatorHealth,
+    intervalSeconds: Math.floor(POLL_INTERVAL_MS / 1000),
+    startDelaySeconds: Math.floor(POLL_START_DELAY_MS / 1000),
+    canonicalStoreConfigured: Boolean(env.databaseUrl && env.store === "postgres"),
+    webBridgeConfigured: Boolean(
+      text(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL, 1000)
+      && text(process.env.FATEDROP_METRICS_INGEST_SECRET, 1000)
+    ),
+  };
+}
 
 export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.now() } = {}) {
   if (!store) return { status: "disabled", reason: "store_required" };
   if (polling) return { status: "busy" };
   polling = true;
+  operatorHealth.lastPollStartedAt = Math.floor(now / 1000);
   try {
     const issues = await listOperatorIssues(fetchImpl);
     const results = [];
@@ -240,9 +266,25 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
         processedFingerprints.set(issue.number, fingerprint);
       }
     }
+    operatorHealth.lastPollCompletedAt = Math.floor(now / 1000);
+    operatorHealth.lastStatus = "ok";
+    operatorHealth.issuesSeen = issues.length;
+    operatorHealth.published = results.filter((result) => result.status === "published").length;
+    operatorHealth.held = results.filter((result) => result.status === "held").length;
+    operatorHealth.retry = results.filter((result) => result.status === "retry").length;
+    operatorHealth.invalid = results.filter((result) => result.status === "invalid").length;
+    operatorHealth.lastErrorCode = null;
     if (results.length) console.log("[signal-engine] Local Radar operator intake", results);
     return { status: "ok", issues: issues.length, results };
   } catch (error) {
+    operatorHealth.lastPollCompletedAt = Math.floor(now / 1000);
+    operatorHealth.lastStatus = "failed";
+    operatorHealth.issuesSeen = 0;
+    operatorHealth.published = 0;
+    operatorHealth.held = 0;
+    operatorHealth.retry = 0;
+    operatorHealth.invalid = 0;
+    operatorHealth.lastErrorCode = "poll_failed";
     console.error("[signal-engine] Local Radar operator intake failed", { error: String(error?.message || error) });
     return { status: "failed", error: String(error?.message || error) };
   } finally {
@@ -256,6 +298,8 @@ export function startOperatorLocalRadarIntake({ store, fetchImpl = fetch } = {})
   if (!store) return { started: false, reason: "store_required" };
 
   watcherStarted = true;
+  operatorHealth.started = true;
+  operatorHealth.lastStatus = "awaiting_first_poll";
   const timer = setTimeout(() => { void pollOperatorIssues({ store, fetchImpl }); }, POLL_START_DELAY_MS);
   timer.unref();
   const interval = setInterval(() => { void pollOperatorIssues({ store, fetchImpl }); }, POLL_INTERVAL_MS);
