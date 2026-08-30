@@ -1,0 +1,15 @@
+{
+  "attempt": 1,
+  "httpStatus": 200,
+  "success": true,
+  "available": true,
+  "count": 0,
+  "stages": {
+    "WHISPER": 0,
+    "ECHO": 0,
+    "MANIFESTED": 0,
+    "VANISHED": 0
+  },
+  "historyOnlyLeak": 0,
+  "generatedAt": "2026-08-30T19:00:50.000Z"
+}
