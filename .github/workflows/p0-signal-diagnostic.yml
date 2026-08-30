@@ -12,13 +12,36 @@ permissions:
   contents: read
 
 jobs:
-  test-subshard:
-    name: Signal candidate ${{ matrix.subshard }}
+  select-candidate-2:
+    name: Select failing candidate files
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.select.outputs.files }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: select
+        shell: bash
+        run: |
+          mapfile -t all < <(find signal-engine/tests -maxdepth 1 -name '*.test.mjs' -print | sed 's#^signal-engine/##' | sort)
+          selected=()
+          for i in "${!all[@]}"; do
+            if (( i % 64 == 4 && (i / 64) % 4 == 2 )); then
+              selected+=("${all[$i]}")
+            fi
+          done
+          files=$(node -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' "${selected[@]}")
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+          printf 'Candidate 2 files: %s\n' "$files"
+
+  probe-candidate-2:
+    name: Probe ${{ matrix.file }}
+    needs: select-candidate-2
+    if: ${{ needs.select-candidate-2.outputs.files != '[]' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        subshard: [0, 1, 2, 3]
+        file: ${{ fromJson(needs.select-candidate-2.outputs.files) }}
     defaults:
       run:
         working-directory: signal-engine
@@ -30,16 +53,5 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Run isolated candidate
-        shell: bash
-        env:
-          SUBSHARD: ${{ matrix.subshard }}
-        run: |
-          mapfile -t all < <(find tests -maxdepth 1 -name '*.test.mjs' -print | sort)
-          selected=()
-          for i in "${!all[@]}"; do
-            if (( i % 64 == 4 && (i / 64) % 4 == SUBSHARD )); then selected+=("${all[$i]}"); fi
-          done
-          printf 'Candidate %s files:\n%s\n' "$SUBSHARD" "${selected[*]}"
-          if (( ${#selected[@]} == 0 )); then exit 0; fi
-          node --test "${selected[@]}"
+      - name: Run isolated failing candidate
+        run: node --test "${{ matrix.file }}"
