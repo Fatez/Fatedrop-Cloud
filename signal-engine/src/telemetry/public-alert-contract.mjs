@@ -25,6 +25,11 @@ function nullableNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function isoTimestamp(value) {
+  const seconds = nullableNumber(value);
+  return seconds != null && seconds > 0 ? new Date(seconds * 1000).toISOString() : null;
+}
+
 function jsonArray(value) {
   if (Array.isArray(value)) return value;
   if (typeof value !== 'string') return [];
@@ -70,6 +75,40 @@ function observedDuration(seconds) {
   const days = Math.floor(hours / 24);
   const hourRemainder = hours % 24;
   return hourRemainder ? `${days}d ${hourRemainder}h` : `${days}d`;
+}
+
+function liveWindow(row) {
+  if (row.state !== 'vanished') return null;
+
+  const manifestedAtSeconds = nullableNumber(row.live_manifested_at);
+  const lastConfirmedLiveAtSeconds = nullableNumber(row.last_confirmed_live_at);
+  const vanishedAtSeconds = nullableNumber(row.detected_at);
+  const rawDuration = nullableNumber(row.observed_duration_seconds);
+
+  const vanishedSupported = vanishedAtSeconds != null && vanishedAtSeconds > 0;
+  const manifestedSupported = vanishedSupported
+    && manifestedAtSeconds != null
+    && manifestedAtSeconds > 0
+    && manifestedAtSeconds < vanishedAtSeconds;
+  const lastConfirmedSupported = vanishedSupported
+    && lastConfirmedLiveAtSeconds != null
+    && lastConfirmedLiveAtSeconds > 0
+    && lastConfirmedLiveAtSeconds < vanishedAtSeconds
+    && (!manifestedSupported || lastConfirmedLiveAtSeconds >= manifestedAtSeconds);
+  const durationSupported = manifestedSupported && rawDuration != null && rawDuration >= 0;
+
+  const manifestedAt = manifestedSupported ? isoTimestamp(manifestedAtSeconds) : null;
+  const lastConfirmedLiveAt = lastConfirmedSupported ? isoTimestamp(lastConfirmedLiveAtSeconds) : null;
+  const vanishedAt = vanishedSupported ? isoTimestamp(vanishedAtSeconds) : null;
+  const observedDurationSeconds = durationSupported ? Math.floor(rawDuration) : null;
+
+  return {
+    manifestedAt,
+    lastConfirmedLiveAt,
+    vanishedAt,
+    observedDurationSeconds,
+    historyComplete: Boolean(manifestedAt && lastConfirmedLiveAt && vanishedAt && observedDurationSeconds != null),
+  };
 }
 
 function classifyProduct(row) {
@@ -260,6 +299,7 @@ function toCanonicalAlert(row) {
   const priceIntelligence = intelligence(row);
   const links = preparedLinks(row, fateStage);
   const productIntelligence = classifyProduct(row);
+  const window = liveWindow(row);
   return {
     id: row.id,
     type: row.state.toUpperCase(),
@@ -270,8 +310,9 @@ function toCanonicalAlert(row) {
     title: row.title,
     message: row.reason,
     retailer: row.retailer_name,
-    detectedAt: new Date(Number(row.detected_at) * 1000).toISOString(),
-    observedDurationSeconds: row.state === 'vanished' ? row.observed_duration_seconds : null,
+    detectedAt: isoTimestamp(row.detected_at),
+    observedDurationSeconds: window?.observedDurationSeconds ?? null,
+    liveWindow: window,
     productIntelligence,
     confirmed: fateStage === 'MANIFESTED',
     confirmedRestock: fateStage === 'MANIFESTED',
@@ -298,6 +339,8 @@ const ALERT_SQL = `
     s.id,s.state,s.product_id,s.offer_id,s.retailer_id,s.retailer_name,s.title,s.product_type,s.url,s.image_url,s.price_pence,
     s.rrp_pence AS signal_rrp_pence,p.official_rrp_pence AS canonical_rrp_pence,
     s.delivered_price_pence,s.stock_status,s.confidence,s.detected_at,
+    live_window.manifested_at AS live_manifested_at,
+    persisted_live.last_confirmed_live_at,
     (CASE WHEN s.state='vanished' AND live_window.manifested_at IS NOT NULL THEN GREATEST(0,s.detected_at-live_window.manifested_at) ELSE NULL END)::integer AS observed_duration_seconds,
     s.reason,s.evidence,
     best.offer_id AS lowest_offer_id,best.retailer_id AS lowest_retailer_id,best.retailer_name AS lowest_retailer_name,best.url AS lowest_url,
@@ -350,7 +393,9 @@ const ALERT_SQL = `
     LIMIT 1
   ) live_window ON true
   LEFT JOIN LATERAL (
-    SELECT true AS persisted_prior_live
+    SELECT
+      true AS persisted_prior_live,
+      (evidence_item->>'observedAt')::bigint AS last_confirmed_live_at
     FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) evidence_item
     WHERE s.state='vanished'
       AND evidence_item->>'kind'='prior_live_confirmation'
@@ -358,6 +403,7 @@ const ALERT_SQL = `
       AND COALESCE(evidence_item->>'observedAt','') ~ '^[0-9]+$'
       AND (evidence_item->>'observedAt')::bigint > 0
       AND (evidence_item->>'observedAt')::bigint < s.detected_at
+    ORDER BY (evidence_item->>'observedAt')::bigint DESC
     LIMIT 1
   ) persisted_live ON true
   LEFT JOIN LATERAL (
