@@ -395,6 +395,12 @@ const ALERT_SQL = `
     ) a
   ) alternatives ON true
   WHERE ($1::text IS NULL OR s.id=$1)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) delivery_policy
+      WHERE delivery_policy->>'kind'='delivery_policy'
+        AND delivery_policy->>'value'='history_only'
+    )
     AND (s.state <> 'vanished' OR live_window.manifested_at IS NOT NULL OR persisted_live.persisted_prior_live IS TRUE)
     AND s.state IN ('whisper','echo','manifested','vanished')
   ORDER BY s.detected_at DESC
