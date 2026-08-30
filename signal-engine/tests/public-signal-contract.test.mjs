@@ -24,8 +24,26 @@ test('public signal feed is Cloud-owned, versioned, no-store and canonical for V
 test('public signal summary exposes only safe dashboard aggregates', () => {
   assert.match(publicContract, /lifecycle: summary\.lifecycle/);
   assert.match(publicContract, /delivery: safeDelivery\(summary\.delivery\)/);
+  assert.match(publicContract, /diagnostics: safeDiagnostics\(summary\.diagnostics\)/);
+  assert.match(publicContract, /orphanedDiscordSignals: safeCount\(reliability\.orphanedDiscordSignals\)/);
+  assert.match(publicContract, /totalRetailers: safeCount\(monitors\.totalRetailers\)/);
+  assert.match(publicContract, /sampleSize: safeCount\(discordLatency\.sampleSize\)/);
+  assert.match(publicContract, /pending: safeCount\(discovery\.pending\)/);
   assert.doesNotMatch(publicContract, /diagnostics: summary\.diagnostics/);
   assert.doesNotMatch(publicContract, /monitorRows/);
+
+  for (const privateField of [
+    'orphanedSignalIds',
+    'staleRetailerIds',
+    'unhealthyRetailerIds',
+    'blockedRetailerIds',
+    'event_id',
+    'raw_data',
+    'sourceUrl',
+    'DATABASE_URL',
+  ]) {
+    assert.doesNotMatch(publicContract, new RegExp(privateField));
+  }
 });
 
 test('private signal health aggregation applies the same valid-Vanished rule everywhere', () => {
