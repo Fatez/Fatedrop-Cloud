@@ -165,7 +165,9 @@ export async function handlePublicSignals(req, res, { store } = {}) {
   const detail = String(url.searchParams.get('detail') || '').trim().toLowerCase();
   if (detail === 'alerts') {
     const id = url.searchParams.get('id')?.trim() || null;
-    const alerts = await listCanonicalPublicAlerts(store, { id, limit });
+    const requestedState = String(url.searchParams.get('state') || '').trim().toLowerCase();
+    const state = PUBLIC_SIGNAL_STATES.includes(requestedState) ? requestedState : null;
+    const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });
     return json(res, 200, {
       success: Array.isArray(alerts),
       available: Array.isArray(alerts),

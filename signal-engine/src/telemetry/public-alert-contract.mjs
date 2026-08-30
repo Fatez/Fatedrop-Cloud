@@ -395,6 +395,7 @@ const ALERT_SQL = `
     ) a
   ) alternatives ON true
   WHERE ($1::text IS NULL OR s.id=$1)
+    AND ($2::text IS NULL OR s.state=$2)
     AND NOT EXISTS (
       SELECT 1
       FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) delivery_policy
@@ -404,13 +405,15 @@ const ALERT_SQL = `
     AND (s.state <> 'vanished' OR live_window.manifested_at IS NOT NULL OR persisted_live.persisted_prior_live IS TRUE)
     AND s.state IN ('whisper','echo','manifested','vanished')
   ORDER BY s.detected_at DESC
-  LIMIT $2`;
+  LIMIT $3`;
 
-export async function listCanonicalPublicAlerts(store, { id = null, limit = 50 } = {}) {
+export async function listCanonicalPublicAlerts(store, { id = null, state = null, limit = 50 } = {}) {
   if (!store || typeof store.pool !== 'function') return null;
   const pool = await store.pool();
   const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));
-  const { rows } = await pool.query(ALERT_SQL, [id || null, safeLimit]);
+  const normalizedState = String(state || '').trim().toLowerCase();
+  const safeState = PUBLIC_STAGES.has(normalizedState) ? normalizedState : null;
+  const { rows } = await pool.query(ALERT_SQL, [id || null, safeState, safeLimit]);
   return rows
     .filter((row) => PUBLIC_STAGES.has(String(row.state)))
     .map(toCanonicalAlert);
@@ -421,7 +424,8 @@ export async function handlePublicAlerts(req, res, { store } = {}) {
   const requestedLimit = Number.parseInt(url.searchParams.get('limit') || '50', 10);
   const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 50));
   const id = url.searchParams.get('id')?.trim() || null;
-  const alerts = await listCanonicalPublicAlerts(store, { id, limit });
+  const state = url.searchParams.get('state')?.trim().toLowerCase() || null;
+  const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });
   if (!alerts) {
     return json(res, 200, {
       success: false,
