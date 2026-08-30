@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
+import { operatorLocalRadarBridgeConfig } from "../src/encounters/operator-local-radar-bridge-health.mjs";
+
 const intake = fs.readFileSync(new URL("../src/encounters/operator-local-radar-intake.mjs", import.meta.url), "utf8");
 const bridge = fs.readFileSync(new URL("../src/encounters/operator-local-radar-bridge-health.mjs", import.meta.url), "utf8");
 const publicContract = fs.readFileSync(new URL("../src/telemetry/public-signal-contract.mjs", import.meta.url), "utf8");
+const productionMonitor = fs.readFileSync(new URL("../../.github/workflows/monitor-local-radar-operator-production.yml", import.meta.url), "utf8");
 
 test("operator intake records a redacted heartbeat without changing alert truth", () => {
   assert.match(intake, /export function getOperatorLocalRadarHealth\(\)/);
@@ -33,6 +36,35 @@ test("production watcher probes the exact Web operator route without sending an 
   assert.doesNotMatch(bridge, /body:/);
 });
 
+test("production Web origin may default safely but the shared secret remains mandatory", () => {
+  const original = {
+    railway: process.env.RAILWAY_ENVIRONMENT_NAME,
+    website: process.env.FATEDROP_WEBSITE_SNAPSHOT_URL,
+    secret: process.env.FATEDROP_METRICS_INGEST_SECRET,
+  };
+  try {
+    process.env.RAILWAY_ENVIRONMENT_NAME = "production";
+    delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    process.env.FATEDROP_METRICS_INGEST_SECRET = "test-only-secret";
+    const configured = operatorLocalRadarBridgeConfig();
+    assert.equal(configured.snapshotUrl, "https://fatedrop.co.uk");
+    assert.equal(configured.urlSource, "production_default");
+    assert.equal(configured.configured, true);
+
+    delete process.env.FATEDROP_METRICS_INGEST_SECRET;
+    const missingSecret = operatorLocalRadarBridgeConfig();
+    assert.equal(missingSecret.snapshotUrl, "https://fatedrop.co.uk");
+    assert.equal(missingSecret.configured, false);
+  } finally {
+    if (original.railway === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME;
+    else process.env.RAILWAY_ENVIRONMENT_NAME = original.railway;
+    if (original.website === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = original.website;
+    if (original.secret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
+    else process.env.FATEDROP_METRICS_INGEST_SECRET = original.secret;
+  }
+});
+
 test("public Signal summary exposes only aggregate operator health", () => {
   assert.match(publicContract, /localRadarOperator: safeOperatorHealth\(\)/);
   assert.match(publicContract, /available: health\.started === true/);
@@ -56,4 +88,19 @@ test("public Signal summary exposes only aggregate operator health", () => {
     const safeFunction = publicContract.slice(publicContract.indexOf("function safeOperatorHealth"));
     assert.doesNotMatch(safeFunction, new RegExp(forbidden));
   }
+});
+
+test("production operator monitor is read-only and checks only redacted public health", () => {
+  assert.match(productionMonitor, /https:\/\/fatedrop-cloud-production\.up\.railway\.app\/api\/signal-summary/);
+  assert.match(productionMonitor, /localRadarOperator/);
+  assert.match(productionMonitor, /health\.available === true/);
+  assert.match(productionMonitor, /health\.status === 'ok'/);
+  assert.match(productionMonitor, /health\.canonicalStoreConfigured === true/);
+  assert.match(productionMonitor, /health\.webBridgeConfigured === true/);
+  assert.doesNotMatch(productionMonitor, /^\s*pull_request:/m);
+  assert.doesNotMatch(productionMonitor, /local-radar-operator-alert/);
+  assert.doesNotMatch(productionMonitor, /method:.*POST/i);
+  assert.doesNotMatch(productionMonitor, /-X\s+POST/i);
+  assert.doesNotMatch(productionMonitor, /Authorization:/i);
+  assert.doesNotMatch(productionMonitor, /issues\/|create_issue|graphql/i);
 });
