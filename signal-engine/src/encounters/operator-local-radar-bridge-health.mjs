@@ -1,4 +1,5 @@
 const PRODUCTION_WEB_ORIGIN = "https://fatedrop.co.uk";
+export const OPERATOR_LOCAL_RADAR_BRIDGE_CONTRACT_VERSION = 2;
 
 function text(value, max = 1000) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -13,9 +14,11 @@ export function operatorLocalRadarBridgeConfig() {
   const snapshotUrl = configuredUrl || productionFallback;
   const secret = text(process.env.FATEDROP_METRICS_INGEST_SECRET);
   return {
+    contractVersion: OPERATOR_LOCAL_RADAR_BRIDGE_CONTRACT_VERSION,
     snapshotUrl,
     secret,
     configured: Boolean(snapshotUrl && secret),
+    secretConfigured: Boolean(secret),
     urlSource: configuredUrl ? "environment" : (productionFallback ? "production_default" : "missing"),
   };
 }
