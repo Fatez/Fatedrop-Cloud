@@ -12,11 +12,12 @@ jobs:
   evidence:
     runs-on: ubuntu-latest
     steps:
-      - name: Sample live JP KR CN reference coverage
+      - name: Inspect natural international alerts created after authority merge
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
+          const mergedAt = Date.parse('2026-08-30T16:18:21Z');
           const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
           const numeric = (value) => value != null && Number.isFinite(Number(value));
           const marketFor = (title) => {
@@ -34,32 +35,29 @@ jobs:
             return map;
           }, new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)));
 
-          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-international-live-verification/1.0' } });
+          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-international-post-merge-evidence/1.0' } });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const payload = await response.json();
           const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
-          const imports = alerts.map((alert) => ({
+          const postMerge = alerts.filter((alert) => {
+            const at = Date.parse(String(alert?.detectedAt || ''));
+            return Number.isFinite(at) && at >= mergedAt;
+          });
+          const imports = postMerge.map((alert) => ({
             alert,
             title: String(alert?.product?.title || alert?.title || ''),
           })).map((row) => ({ ...row, market: marketFor(row.title) })).filter((row) => row.market);
-          const unique = [...new Map(imports.map((row) => [row.title, row])).values()];
-          const resolved = unique.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent));
-          const unresolved = unique.filter(({ alert }) => !(numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent)));
-          const opened = unique.filter(({ title }) => /\bopened live(?: on stream)?\b/i.test(title));
-          const openedResolved = opened.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence));
-          const terastal = unique.filter(({ title }) => /terastal grand gathering/i.test(title));
-          const terastalResolved = terastal.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent));
+          const resolved = imports.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent));
+          const opened = imports.filter(({ title }) => /\bopened live(?: on stream)?\b/i.test(title));
           console.log(JSON.stringify({
             success: payload?.success === true,
             returnedAlerts: alerts.length,
-            uniqueImportProducts: unique.length,
-            resolvedImportProducts: resolved.length,
-            unresolvedImportProducts: unresolved.length,
-            resolvedByMarket: countBy(resolved, (row) => row.market),
-            unresolvedByMarket: countBy(unresolved, (row) => row.market),
-            openedLiveProducts: opened.length,
-            openedLiveResolved: openedResolved.length,
-            terastalGrandGatheringProducts: terastal.length,
-            terastalGrandGatheringResolved: terastalResolved.length,
+            postMergeAlerts: postMerge.length,
+            postMergeImportAlerts: imports.length,
+            postMergeResolvedImports: resolved.length,
+            postMergeResolvedByMarket: countBy(resolved, (row) => row.market),
+            postMergeUnresolvedByMarket: countBy(imports.filter((row) => !resolved.includes(row)), (row) => row.market),
+            postMergeOpenedLiveImports: opened.length,
+            postMergeOpenedLiveResolved: opened.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence)).length
           }));
           NODE
