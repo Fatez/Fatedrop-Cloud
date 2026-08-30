@@ -57,9 +57,16 @@ function constantTimeEqual(left, right) {
 }
 
 function diagnosticAuthorized(req) {
-  if (!env.apiToken) return false;
   const provided = bearerToken(req);
-  return Boolean(provided) && constantTimeEqual(provided, env.apiToken);
+  if (!provided) return false;
+  const configuredTokens = Array.isArray(env.apiTokens) ? env.apiTokens : [env.apiToken].filter(Boolean);
+  if (configuredTokens.length === 0) return false;
+  let matched = false;
+  for (const token of configuredTokens) {
+    const tokenMatches = constantTimeEqual(provided, token);
+    matched = tokenMatches || matched;
+  }
+  return matched;
 }
 
 async function readJsonBody(req, { maxBytes = 16 * 1024 } = {}) {
