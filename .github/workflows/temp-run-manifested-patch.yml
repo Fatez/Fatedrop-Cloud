@@ -1,0 +1,34 @@
+name: Run Manifested Patch Script
+
+on:
+  push:
+    branches:
+      - fix/p0-manifested-live-window-anchor-2026-08-30
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/p0-manifested-live-window-anchor-2026-08-30
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Apply patch
+        run: python3 .github/scripts/temp_patch_manifested.py
+      - name: Run focused lifecycle tests
+        working-directory: signal-engine
+        run: node --test tests/signals.test.mjs tests/discord.test.mjs
+      - name: Commit product patch and remove temporary patch tooling
+        shell: bash
+        run: |
+          rm -f .github/workflows/temp-patch-manifested-live-window.yml .github/workflows/temp-patch-manifested-live-window-v2.yml .github/workflows/temp-run-manifested-patch.yml .github/scripts/temp_patch_manifested.py
+          git config user.name Fatez
+          git config user.email cdotkeeley@gmail.com
+          git add -A
+          git commit -m "fix: restore manifested live-window anchors"
+          git push origin HEAD:fix/p0-manifested-live-window-anchor-2026-08-30
