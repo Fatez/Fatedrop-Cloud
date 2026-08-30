@@ -13,73 +13,64 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Inspect production duplicate identity RRP gaps
+      - name: Compare missing Whisper RRP against Asmodee authority
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import { describeProductIdentity } from './signal-engine/src/core/product-identity.mjs';
+          import { collectAsmodeeRrpRecords, chooseCanonicalMatch } from './signal-engine/src/rrp/asmodee-authority.mjs';
 
-          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
-          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-RRP-duplicate-evidence/1.0' } });
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const alertsUrl = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
+          const response = await fetch(alertsUrl, { headers: { 'user-agent': 'FateDrop-RRP-Asmodee-evidence/1.0' } });
+          if (!response.ok) throw new Error(`Cloud HTTP ${response.status}`);
           const payload = await response.json();
           const numeric = (value) => value != null && Number.isFinite(Number(value));
           const whispers = (Array.isArray(payload.alerts) ? payload.alerts : [])
             .filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
-
-          function signature(alert) {
-            const d = describeProductIdentity({
-              title: alert?.product?.title || alert?.title || '',
-              productType: alert?.product?.productType || null,
-              tcg: 'pokemon',
-            });
-            return JSON.stringify({
-              tcg: d.tcg,
-              productType: d.productType,
-              coreSignature: d.coreSignature,
-              exclusive: d.exclusive || 'standard',
-              language: d.language,
-              region: d.region,
-              edition: d.edition,
-              unitKind: d.unitKind,
-              formatVariant: d.formatVariant,
-              presentation: d.presentation,
-              packCount: d.packCount,
-              caseQuantity: d.caseQuantity,
-            });
-          }
-
-          const groups = new Map();
-          for (const alert of whispers) {
-            const key = signature(alert);
-            const bucket = groups.get(key) || [];
-            bucket.push(alert);
-            groups.set(key, bucket);
-          }
-
-          const duplicateGroups = [...groups.values()].filter((rows) => new Set(rows.map((x) => x.productId)).size > 1);
-          const mixedRrpGroups = duplicateGroups.filter((rows) => {
-            const statuses = new Set(rows.map((alert) => numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
-            return statuses.size > 1;
-          });
           const missing = whispers.filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
-          const missingInDuplicateGroups = new Set(duplicateGroups.flatMap((rows) => rows
-            .filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0))
-            .map((alert) => alert.id)));
-          const missingWithRrpSibling = new Set(mixedRrpGroups.flatMap((rows) => rows
-            .filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0))
-            .map((alert) => alert.id)));
+          const products = [...new Map(missing.map((alert) => [alert.productId, {
+            id: alert.productId,
+            title: alert?.product?.title || alert?.title || '',
+            product_type: alert?.product?.productType || 'other',
+            tcg: 'pokemon',
+          }])).values()];
+
+          const authority = await collectAsmodeeRrpRecords({
+            fetchImpl: fetch,
+            collectionMaxPages: 8,
+            productConcurrency: 4,
+            fetchAttempts: 2,
+          });
+          const matchedProductIds = new Set();
+          const rrpValuesByProduct = new Map();
+          let matchedAuthorityRecords = 0;
+          for (const record of authority.records || []) {
+            const match = chooseCanonicalMatch(record, products, new Map());
+            if (!match?.product?.id) continue;
+            matchedAuthorityRecords += 1;
+            matchedProductIds.add(match.product.id);
+            const values = rrpValuesByProduct.get(match.product.id) || new Set();
+            values.add(record.officialRrpPence);
+            rrpValuesByProduct.set(match.product.id, values);
+          }
+          const conflictingMatches = [...rrpValuesByProduct.values()].filter((values) => values.size > 1).length;
+          const matchedByType = {};
+          for (const product of products) {
+            if (!matchedProductIds.has(product.id)) continue;
+            matchedByType[product.product_type] = (matchedByType[product.product_type] || 0) + 1;
+          }
 
           console.log(JSON.stringify({
             success: payload?.success === true,
             whispers: whispers.length,
-            missingRrp: missing.length,
-            deterministicDuplicateIdentityGroups: duplicateGroups.length,
-            alertsInDuplicateIdentityGroups: duplicateGroups.reduce((sum, rows) => sum + rows.length, 0),
-            missingRrpAlertsInDuplicateIdentityGroups: missingInDuplicateGroups.size,
-            duplicateGroupsWithMixedRrpCoverage: mixedRrpGroups.length,
-            missingRrpAlertsWithVerifiedRrpSibling: missingWithRrpSibling.size,
-            largestDuplicateIdentityGroup: duplicateGroups.reduce((max, rows) => Math.max(max, new Set(rows.map((x) => x.productId)).size), 0),
+            missingRrpAlerts: missing.length,
+            uniqueMissingRrpProducts: products.length,
+            asmodeeAuthorityRecords: authority.records?.length || 0,
+            asmodeeProductUrls: authority.productUrls?.length || 0,
+            asmodeeErrors: authority.errors?.length || 0,
+            missingProductsWithDeterministicAsmodeeMatch: matchedProductIds.size,
+            matchedAuthorityRecords,
+            conflictingMatchedRrpProducts: conflictingMatches,
+            matchedMissingProductsByType: matchedByType,
           }));
           NODE
