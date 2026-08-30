@@ -1,5 +1,8 @@
+import { createHmac } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
+
+const PRIVATE_DIAGNOSTIC_AUTH_CONTEXT = "fatedrop:private-diagnostics:v1";
 
 try {
   process.loadEnvFile();
@@ -18,6 +21,14 @@ function int(name, fallback) {
 }
 function explicitlyConfigured(name) {
   return Object.prototype.hasOwnProperty.call(process.env, name) && String(process.env[name] ?? "").trim() !== "";
+}
+
+export function derivedSignalApiToken({ signalApiToken = "", metricsIngestSecret = "" } = {}) {
+  const dedicated = String(signalApiToken || "").trim();
+  if (dedicated) return dedicated;
+  const shared = String(metricsIngestSecret || "").trim();
+  if (!shared) return "";
+  return createHmac("sha256", shared).update(PRIVATE_DIAGNOSTIC_AUTH_CONTEXT).digest("hex");
 }
 
 export function defaultProductionPostgresFeatureEnabled({ railwayEnvironmentName = "", store = "file", databaseUrl = "" } = {}) {
@@ -73,7 +84,10 @@ const discordConfigured = Boolean(
 
 export const env = {
   port: int("PORT", 8787),
-  apiToken: process.env.FATEDROP_SIGNAL_API_TOKEN || "",
+  apiToken: derivedSignalApiToken({
+    signalApiToken: process.env.FATEDROP_SIGNAL_API_TOKEN,
+    metricsIngestSecret: process.env.FATEDROP_METRICS_INGEST_SECRET,
+  }),
   ingestSecret: process.env.FATEDROP_SIGNAL_INGEST_SECRET || "",
   store: signalStore,
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
