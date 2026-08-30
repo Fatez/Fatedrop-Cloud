@@ -1,4 +1,4 @@
-name: TEMP RRP Production Evidence
+name: TEMP International MSRP Production Evidence
 
 on:
   push:
@@ -13,95 +13,54 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: signal-engine/package-lock.json
-      - name: Install Signal Engine dependencies
-        working-directory: signal-engine
-        run: npm ci
-      - name: Classify missing Whisper RRP identity gaps
+      - name: Inspect unresolved JP KR CN source-market references
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
-          import { collectAsmodeeRrpRecords, chooseCanonicalMatch } from './signal-engine/src/rrp/asmodee-authority.mjs';
-          import { describeProductIdentity } from './signal-engine/src/core/product-identity.mjs';
+          import { resolveInternationalMsrp } from './signal-engine/src/rrp/international-msrp-authority.mjs';
 
-          const alertsUrl = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
-          const response = await fetch(alertsUrl, { headers: { 'user-agent': 'FateDrop-RRP-mismatch-evidence/1.0' } });
+          const response = await fetch('https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100', {
+            headers: { 'user-agent': 'FateDrop-international-msrp-evidence/1.0' },
+          });
           if (!response.ok) throw new Error(`Cloud HTTP ${response.status}`);
           const payload = await response.json();
-          const numeric = (value) => value != null && Number.isFinite(Number(value));
-          const whispers = (Array.isArray(payload.alerts) ? payload.alerts : []).filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
-          const missing = whispers.filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
-          const products = [...new Map(missing.map((alert) => [alert.productId, {
-            id: alert.productId,
-            title: alert?.product?.title || alert?.title || '',
-            product_type: alert?.product?.productType || 'other',
-            tcg: 'pokemon',
-          }])).values()];
+          const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
+          const imports = alerts.filter((alert) => /\b(?:japanese|japan|jpn|korean|korea|simplified chinese|chinese simplified|traditional chinese|taiwan|hong kong)\b/i.test(String(alert?.product?.title || alert?.title || '')));
+          const rows = imports.map((alert) => {
+            const title = String(alert?.product?.title || alert?.title || '');
+            const result = resolveInternationalMsrp({ title, productType: alert?.product?.productType || null });
+            return {
+              title,
+              productType: alert?.product?.productType || null,
+              resolved: result.resolved === true,
+              market: result.sourceMarket || null,
+              reason: result.reason || null,
+              kind: result.kind || null,
+              sourceCurrency: result.sourceCurrency || null,
+              sourceMsrp: result.sourceMsrp || null,
+              unitCount: result.unitCount || null,
+            };
+          });
 
-          function normalizeSourceTitle(record = {}) {
-            let title = String(record.title || '').replace(/\s*\(1\)\s*$/, '').trim();
-            const unitCount = Number.isInteger(record.rrpUnitCount) && record.rrpUnitCount > 1 ? record.rrpUnitCount : null;
-            if (unitCount && /\bCDU\s*\(\d+\)\s*$/i.test(title)) {
-              const qty = Number.parseInt(title.match(/\((\d+)\)\s*$/)?.[1] || '', 10);
-              if (qty === unitCount) title = title.replace(/\s*\(\d+\)\s*$/, '').trim();
-            }
-            if (unitCount && /\bbooster(?:\s+display)?\s+cdu\s*$/i.test(title)) return title.replace(/\bbooster(?:\s+display)?\s+cdu\s*$/i, 'Booster Pack').trim();
-            if (unitCount && /\bcdu\s*$/i.test(title)) title = title.replace(/\s+cdu\s*$/i, '').trim();
-            return title;
-          }
-          const stripNumbers = (core) => String(core || '').split(/\s+/).filter((token) => token && !/^\d+(?:\.\d+)?$/.test(token)).sort().join(' ');
-          const sameDimensions = (a, b) => a.productType === b.productType
-            && (a.exclusive || 'standard') === (b.exclusive || 'standard')
-            && a.unitKind === b.unitKind
-            && a.formatVariant === b.formatVariant
-            && a.presentation === b.presentation
-            && a.language === b.language
-            && a.region === b.region
-            && a.edition === b.edition
-            && a.packCount === b.packCount
-            && a.caseQuantity === b.caseQuantity;
-
-          const authority = await collectAsmodeeRrpRecords({ fetchImpl: fetch });
-          const exactMatched = new Set();
-          const numericNoiseCandidates = new Set();
-          const sameTypeCoreOverlap = new Set();
-
-          for (const record of authority.records || []) {
-            const exact = chooseCanonicalMatch(record, products, new Map());
-            if (exact?.product?.id) exactMatched.add(exact.product.id);
-            const sourceIdentity = describeProductIdentity({ title: normalizeSourceTitle(record), tcg: 'pokemon' });
-            for (const product of products) {
-              const targetIdentity = describeProductIdentity({ title: product.title, productType: product.product_type, tcg: 'pokemon' });
-              if (sourceIdentity.productType !== targetIdentity.productType) continue;
-              const left = new Set(sourceIdentity.core.split(/\s+/).filter(Boolean));
-              const right = new Set(targetIdentity.core.split(/\s+/).filter(Boolean));
-              const intersection = [...left].filter((token) => right.has(token)).length;
-              const union = new Set([...left, ...right]).size;
-              const overlap = union ? intersection / union : 0;
-              if (overlap >= 0.8) sameTypeCoreOverlap.add(product.id);
-              if (sameDimensions(sourceIdentity, targetIdentity)
-                && stripNumbers(sourceIdentity.core) === stripNumbers(targetIdentity.core)
-                && sourceIdentity.coreSignature !== targetIdentity.coreSignature) {
-                numericNoiseCandidates.add(product.id);
-              }
-            }
-          }
+          const unique = [...new Map(rows.map((row) => [row.title, row])).values()];
+          const unresolved = unique.filter((row) => !row.resolved);
+          const resolved = unique.filter((row) => row.resolved);
+          const counts = (list, key) => Object.fromEntries([...list.reduce((map, row) => {
+            const value = String(row[key] ?? 'unknown');
+            map.set(value, (map.get(value) || 0) + 1);
+            return map;
+          }, new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)));
 
           console.log(JSON.stringify({
             success: payload?.success === true,
-            whispers: whispers.length,
-            missingRrpProducts: products.length,
-            asmodeeDiscovered: authority.discovered || 0,
-            asmodeeAuthorityRecords: authority.records?.length || 0,
-            asmodeeErrors: authority.errors?.length || 0,
-            asmodeeErrorCounts: authority.errorCounts || {},
-            exactAsmodeeMatchesAmongMissing: exactMatched.size,
-            missingProductsMatchingIfOnlyNumericCoreNoiseRemoved: numericNoiseCandidates.size,
-            missingProductsWithSameTypeAndAtLeast80PctCoreOverlap: sameTypeCoreOverlap.size,
+            returnedAlerts: alerts.length,
+            importAlerts: imports.length,
+            uniqueImportProducts: unique.length,
+            resolvedImportProducts: resolved.length,
+            unresolvedImportProducts: unresolved.length,
+            resolvedByMarket: counts(resolved, 'market'),
+            unresolvedByReason: counts(unresolved, 'reason'),
+            unresolvedProducts: unresolved.map((row) => ({ title: row.title, productType: row.productType, market: row.market, reason: row.reason })),
           }));
           NODE
