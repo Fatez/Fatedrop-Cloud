@@ -1,0 +1,37 @@
+name: P0 Local Radar Store Registry Live
+
+on:
+  push:
+    branches:
+      - diagnostic/local-radar-store-registry-2026-08-30
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect live canonical retailer branch counts
+        shell: bash
+        run: |
+          set -euo pipefail
+          code="$(curl --silent --show-error --retry 5 --retry-delay 2 --output /tmp/retailers.json --write-out '%{http_code}' 'https://fatedrop-cloud-production.up.railway.app/api/retailers')"
+          echo "retailers HTTP $code"
+          test "$code" = "200"
+          node <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync('/tmp/retailers.json','utf8'));
+          const rows = Array.isArray(body.retailers) ? body.retailers : [];
+          const physical = rows
+            .filter(r => Number(r.physicalLocations || 0) > 0)
+            .map(r => ({ id:r.id, name:r.name, physicalLocations:Number(r.physicalLocations || 0), monitoringConfigured:r?.monitoring?.configured === true }))
+            .sort((a,b) => b.physicalLocations - a.physicalLocations || a.name.localeCompare(b.name));
+          console.log('canonicalStoreRegistry', {
+            retailers: rows.length,
+            retailersWithPhysicalLocations: physical.length,
+            totalCanonicalPhysicalLocations: physical.reduce((sum,r) => sum+r.physicalLocations,0),
+          });
+          console.log('physicalRetailers', physical);
+          NODE
