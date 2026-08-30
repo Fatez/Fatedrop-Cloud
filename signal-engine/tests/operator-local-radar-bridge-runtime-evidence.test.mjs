@@ -5,13 +5,14 @@ import test from "node:test";
 const moduleHref = new URL("../src/encounters/operator-local-radar-bridge-health.mjs", import.meta.url).href;
 
 function runIsolated(script, overrides) {
-  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script, moduleHref], {
+  const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     encoding: "utf8",
     env: {
       ...process.env,
       RAILWAY_ENVIRONMENT_NAME: "production",
       FATEDROP_WEBSITE_SNAPSHOT_URL: "",
       FATEDROP_METRICS_INGEST_SECRET: "",
+      FATEDROP_TEST_MODULE_HREF: moduleHref,
       ...overrides,
     },
   });
@@ -21,7 +22,7 @@ function runIsolated(script, overrides) {
 
 test("production bridge evidence distinguishes a missing secret without exposing it", () => {
   const evidence = runIsolated(`
-    const mod = await import(process.argv[1]);
+    const mod = await import(process.env.FATEDROP_TEST_MODULE_HREF);
     let fetchCalls = 0;
     const config = mod.operatorLocalRadarBridgeConfig();
     const probe = await mod.probeOperatorLocalRadarBridge(async () => {
@@ -53,7 +54,7 @@ test("production bridge evidence distinguishes a missing secret without exposing
 
 test("configured production bridge still probes the authenticated Web readiness boundary", () => {
   const evidence = runIsolated(`
-    const mod = await import(process.argv[1]);
+    const mod = await import(process.env.FATEDROP_TEST_MODULE_HREF);
     let request = null;
     const probe = await mod.probeOperatorLocalRadarBridge(async (url, options) => {
       request = {
