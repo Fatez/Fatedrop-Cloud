@@ -13,40 +13,45 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Compare Shopify scanner URL variants and FateDrop live catalogue
+      - name: Trace exact Card Collective variants across scanner pages
         shell: bash
         run: |
           set -euo pipefail
-          COLLECTION='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250'
-          PAGE_ONE='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=1'
-          PAGE_ONE_BUST='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=1&_fatedrop_diag=1'
-          HANDLE='pokemon-tcg-terastal-grand-gathering-booster-box-simplified-chinese'
+          SKU_SEALED='58272935772541'
+          SKU_OPENED='58272935805309'
           CLOUD='https://fatedrop-cloud-production.up.railway.app/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25'
 
-          curl --fail --silent --show-error --location --retry 3 "$COLLECTION" -o /tmp/collection.json
-          curl --fail --silent --show-error --location --retry 3 "$PAGE_ONE" -o /tmp/page-one.json
-          curl --fail --silent --show-error --location --retry 3 "$PAGE_ONE_BUST" -o /tmp/page-one-bust.json
-          curl --fail --silent --show-error --location --retry 3 "https://card-collective.com/products/${HANDLE}.js?country=GB" -o /tmp/product-gb.json
+          for page in 1 2 3 4 5 6; do
+            curl --fail --silent --show-error --location --retry 3 \
+              "https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=${page}" \
+              -o "/tmp/page-${page}.json"
+          done
           curl --fail --silent --show-error --location --retry 3 "$CLOUD" -o /tmp/cloud.json
 
           node <<'NODE'
           const fs = require('fs');
-          const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
-          const noPage = read('/tmp/collection.json');
-          const pageOne = read('/tmp/page-one.json');
-          const pageOneBust = read('/tmp/page-one-bust.json');
-          const gb = read('/tmp/product-gb.json');
-          const cloud = read('/tmp/cloud.json');
-          const needle = /terastal grand gathering booster box/i;
-          const compactVariants = (p) => (p?.variants || []).map((v) => ({ id:String(v.id||''), title:v.title||null, price:v.price??null, available:v.available??null }));
-          const product = (payload) => (payload.products || []).find((p) => needle.test(String(p.title || '')));
-          const compactProduct = (p) => p ? { title:p.title, handle:p.handle, variants:compactVariants(p) } : null;
-          const cloudRows = (cloud.products || []).filter((p) => needle.test(String(p.title || ''))).map((p) => ({ sku:p.sku||null, title:p.title||null, price:p.price??null, availability:p.availability||null, lastSeen:p.lastSeen||null }));
-          console.log(JSON.stringify({
-            noPage: compactProduct(product(noPage)),
-            pageOne: compactProduct(product(pageOne)),
-            pageOneCacheBust: compactProduct(product(pageOneBust)),
-            localizedGb: compactProduct(gb),
-            fateDrop: { total: cloud.total ?? null, rows: cloudRows },
-          }, null, 2));
+          const wanted = new Set(['58272935772541','58272935805309']);
+          const occurrences = [];
+          for (let page = 1; page <= 6; page += 1) {
+            const payload = JSON.parse(fs.readFileSync(`/tmp/page-${page}.json`, 'utf8'));
+            for (const product of payload.products || []) {
+              for (const variant of product.variants || []) {
+                if (!wanted.has(String(variant.id || ''))) continue;
+                occurrences.push({
+                  page,
+                  productTitle: product.title || null,
+                  handle: product.handle || null,
+                  id: String(variant.id || ''),
+                  variantTitle: variant.title || null,
+                  price: variant.price ?? null,
+                  available: variant.available ?? null,
+                });
+              }
+            }
+          }
+          const cloud = JSON.parse(fs.readFileSync('/tmp/cloud.json', 'utf8'));
+          const cloudRows = (cloud.products || []).filter((p) => wanted.has(String(p.sku || ''))).map((p) => ({
+            sku:p.sku||null,title:p.title||null,price:p.price??null,availability:p.availability||null,lastSeen:p.lastSeen||null,
+          }));
+          console.log(JSON.stringify({ occurrences, fateDrop: cloudRows }, null, 2));
           NODE
