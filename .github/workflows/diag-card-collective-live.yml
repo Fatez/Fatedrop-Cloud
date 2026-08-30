@@ -13,45 +13,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Trace exact Card Collective variants across scanner pages
+      - name: Identify production writer and compare exact variant
         shell: bash
         run: |
           set -euo pipefail
-          SKU_SEALED='58272935772541'
-          SKU_OPENED='58272935805309'
-          CLOUD='https://fatedrop-cloud-production.up.railway.app/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25'
+          CLOUD_BASE='https://fatedrop-cloud-production.up.railway.app'
+          CLOUD="${CLOUD_BASE}/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25"
+          FATE_VERDICT="${CLOUD_BASE}/api/fatefind/matches"
+          PAGE_ONE='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=1'
 
-          for page in 1 2 3 4 5 6; do
-            curl --fail --silent --show-error --location --retry 3 \
-              "https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=${page}" \
-              -o "/tmp/page-${page}.json"
-          done
+          curl --fail --silent --show-error --location --retry 3 "$PAGE_ONE" -o /tmp/page-one.json
           curl --fail --silent --show-error --location --retry 3 "$CLOUD" -o /tmp/cloud.json
+          curl --fail --silent --show-error --location --retry 3 \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Terastal Grand Gathering"}' \
+            "$FATE_VERDICT" -o /tmp/verdict.json
 
           node <<'NODE'
           const fs = require('fs');
+          const feed = JSON.parse(fs.readFileSync('/tmp/page-one.json','utf8'));
+          const cloud = JSON.parse(fs.readFileSync('/tmp/cloud.json','utf8'));
+          const verdict = JSON.parse(fs.readFileSync('/tmp/verdict.json','utf8'));
           const wanted = new Set(['58272935772541','58272935805309']);
-          const occurrences = [];
-          for (let page = 1; page <= 6; page += 1) {
-            const payload = JSON.parse(fs.readFileSync(`/tmp/page-${page}.json`, 'utf8'));
-            for (const product of payload.products || []) {
-              for (const variant of product.variants || []) {
-                if (!wanted.has(String(variant.id || ''))) continue;
-                occurrences.push({
-                  page,
-                  productTitle: product.title || null,
-                  handle: product.handle || null,
-                  id: String(variant.id || ''),
-                  variantTitle: variant.title || null,
-                  price: variant.price ?? null,
-                  available: variant.available ?? null,
-                });
-              }
-            }
+          const source = [];
+          for (const product of feed.products || []) for (const variant of product.variants || []) {
+            if (wanted.has(String(variant.id || ''))) source.push({ sku:String(variant.id), price:variant.price, available:variant.available });
           }
-          const cloud = JSON.parse(fs.readFileSync('/tmp/cloud.json', 'utf8'));
-          const cloudRows = (cloud.products || []).filter((p) => wanted.has(String(p.sku || ''))).map((p) => ({
-            sku:p.sku||null,title:p.title||null,price:p.price??null,availability:p.availability||null,lastSeen:p.lastSeen||null,
-          }));
-          console.log(JSON.stringify({ occurrences, fateDrop: cloudRows }, null, 2));
+          const canonical = (cloud.products || []).filter((p)=>wanted.has(String(p.sku||''))).map((p)=>({sku:p.sku,price:p.price,availability:p.availability,lastSeen:p.lastSeen}));
+          console.log(JSON.stringify({ productionRuntime: verdict.runtime || null, source, canonical }, null, 2));
           NODE
