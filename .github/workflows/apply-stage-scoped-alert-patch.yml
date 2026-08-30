@@ -1,0 +1,90 @@
+name: Apply Stage Scoped Alert Patch
+
+on:
+  push:
+    branches:
+      - fix/p0-stage-scoped-alert-windows-2026-08-30
+    paths:
+      - .github/workflows/apply-stage-scoped-alert-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/p0-stage-scoped-alert-windows-2026-08-30
+
+      - name: Apply narrow stage-scoped alert changes
+        shell: bash
+        run: |
+          python <<'PY'
+          from pathlib import Path
+
+          alert_path = Path('signal-engine/src/telemetry/public-alert-contract.mjs')
+          text = alert_path.read_text()
+          replacements = [
+              (
+                  "  WHERE ($1::text IS NULL OR s.id=$1)\n    AND NOT EXISTS (",
+                  "  WHERE ($1::text IS NULL OR s.id=$1)\n    AND ($2::text IS NULL OR s.state=$2)\n    AND NOT EXISTS (",
+              ),
+              (
+                  "  ORDER BY s.detected_at DESC\n  LIMIT $2`;",
+                  "  ORDER BY s.detected_at DESC\n  LIMIT $3`;",
+              ),
+              (
+                  "export async function listCanonicalPublicAlerts(store, { id = null, limit = 50 } = {}) {\n  if (!store || typeof store.pool !== 'function') return null;\n  const pool = await store.pool();\n  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));\n  const { rows } = await pool.query(ALERT_SQL, [id || null, safeLimit]);",
+                  "export async function listCanonicalPublicAlerts(store, { id = null, state = null, limit = 50 } = {}) {\n  if (!store || typeof store.pool !== 'function') return null;\n  const pool = await store.pool();\n  const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));\n  const normalizedState = String(state || '').trim().toLowerCase();\n  const safeState = PUBLIC_STAGES.has(normalizedState) ? normalizedState : null;\n  const { rows } = await pool.query(ALERT_SQL, [id || null, safeState, safeLimit]);",
+              ),
+              (
+                  "  const id = url.searchParams.get('id')?.trim() || null;\n  const alerts = await listCanonicalPublicAlerts(store, { id, limit });",
+                  "  const id = url.searchParams.get('id')?.trim() || null;\n  const state = url.searchParams.get('state')?.trim().toLowerCase() || null;\n  const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });",
+              ),
+          ]
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'missing expected public-alert fragment: {old[:80]!r}')
+              text = text.replace(old, new, 1)
+          alert_path.write_text(text)
+
+          signal_path = Path('signal-engine/src/telemetry/public-signal-contract.mjs')
+          text = signal_path.read_text()
+          old = "    const id = url.searchParams.get('id')?.trim() || null;\n    const alerts = await listCanonicalPublicAlerts(store, { id, limit });"
+          new = "    const id = url.searchParams.get('id')?.trim() || null;\n    const requestedState = String(url.searchParams.get('state') || '').trim().toLowerCase();\n    const state = PUBLIC_SIGNAL_STATES.includes(requestedState) ? requestedState : null;\n    const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });"
+          if old not in text:
+              raise SystemExit('missing expected public-signal alert fragment')
+          signal_path.write_text(text.replace(old, new, 1))
+
+          test_path = Path('signal-engine/tests/public-alert-contract.test.mjs')
+          text = test_path.read_text()
+          marker = "test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {"
+          if marker not in text:
+              raise SystemExit('missing history-only alert regression test marker')
+          addition = """
+
+test('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {
+  assert.match(alertSource, /\(\$2::text IS NULL OR s\.state=\$2\)/);
+  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeState, safeLimit\]\)/);
+  assert.match(signalSource, /PUBLIC_SIGNAL_STATES\.includes\(requestedState\)/);
+  assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ id, state, limit \}\)/);
+});
+"""
+          if "stage before LIMIT" not in text:
+              text += addition
+          test_path.write_text(text)
+
+          Path('.github/workflows/apply-stage-scoped-alert-patch.yml').unlink()
+          PY
+
+      - name: Commit patch and remove helper workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "P0: support stage-scoped canonical alert windows"
+          git push origin HEAD:fix/p0-stage-scoped-alert-windows-2026-08-30
