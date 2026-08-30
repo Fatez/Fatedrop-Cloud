@@ -1,0 +1,52 @@
+name: TEMP RRP Production Evidence
+
+on:
+  push:
+    branches:
+      - "diag/rrp-production-evidence-2026-08-30"
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect production canonical Whisper RRP coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+          for (let attempt = 1; attempt <= 12; attempt += 1) {
+            try {
+              const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-RRP-production-evidence/1.0' } });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const payload = await response.json();
+              const all = Array.isArray(payload.alerts) ? payload.alerts : [];
+              const whispers = all.filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
+              const withRrp = whispers.filter((alert) => Number.isFinite(Number(alert?.priceIntelligence?.rrpPence)) && Number(alert.priceIntelligence.rrpPence) > 0);
+              const withDelta = whispers.filter((alert) => Number.isFinite(Number(alert?.priceIntelligence?.rrpDeltaPercent)));
+              const bodiesWithRrp = whispers.filter((alert) => /RRP/.test(String(alert?.notification?.body || '')));
+              const output = {
+                attempt,
+                success: payload?.success === true,
+                returnedAlerts: all.length,
+                whispers: whispers.length,
+                whispersWithRrp: withRrp.length,
+                whispersWithRrpDeltaPercent: withDelta.length,
+                whisperNotificationBodiesWithRrp: bodiesWithRrp.length,
+                rrpCoveragePercent: whispers.length ? Math.round((withRrp.length / whispers.length) * 1000) / 10 : null,
+                deltaCoveragePercent: whispers.length ? Math.round((withDelta.length / whispers.length) * 1000) / 10 : null,
+              };
+              console.log(JSON.stringify(output));
+              if (whispers.length > 0) process.exit(0);
+            } catch (error) {
+              console.log(JSON.stringify({ attempt, error: String(error?.message || error) }));
+            }
+            await sleep(15000);
+          }
+          process.exit(1);
+          NODE
