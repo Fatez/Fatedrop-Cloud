@@ -87,11 +87,11 @@ function canonicalAlertFromRow(row) {
     productIntelligence,
     confirmed: false,
     confirmedRestock: false,
-    productUrl: sourceUrl,
+    productUrl: null,
     product: {
       title,
       productType: null,
-      url: sourceUrl,
+      url: null,
       imageUrl: null,
       pricePence: null,
       rrpPence: null,
@@ -133,7 +133,7 @@ function canonicalAlertFromRow(row) {
       data: {
         route: 'alerts',
         alertId: String(row.id),
-        productUrl: sourceUrl,
+        productUrl: null,
         stage,
         verdict: 'NO_FAIR_COMPARISON',
         lowestKnownUrl: null,
