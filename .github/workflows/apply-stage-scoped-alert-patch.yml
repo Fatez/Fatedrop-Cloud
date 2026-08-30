@@ -63,15 +63,7 @@ jobs:
           marker = "test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {"
           if marker not in text:
               raise SystemExit('missing history-only alert regression test marker')
-          addition = """
-
-test('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {
-  assert.match(alertSource, /\(\$2::text IS NULL OR s\.state=\$2\)/);
-  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeState, safeLimit\]\)/);
-  assert.match(signalSource, /PUBLIC_SIGNAL_STATES\.includes\(requestedState\)/);
-  assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ id, state, limit \}\)/);
-});
-"""
+          addition = "\n\ntest('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {\n  assert.match(alertSource, /\\(\\$2::text IS NULL OR s\\.state=\\$2\\)/);\n  assert.match(alertSource, /pool\\.query\\(ALERT_SQL, \\[id \\|\\| null, safeState, safeLimit\\]\\)/);\n  assert.match(signalSource, /PUBLIC_SIGNAL_STATES\\.includes\\(requestedState\\)/);\n  assert.match(signalSource, /listCanonicalPublicAlerts\\(store, \\{ id, state, limit \\}\\)/);\n});\n"
           if "stage before LIMIT" not in text:
               text += addition
           test_path.write_text(text)
