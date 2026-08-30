@@ -24,14 +24,17 @@ export function operatorLocalRadarBridgeConfig() {
 }
 
 export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
-  const { snapshotUrl, secret, configured } = operatorLocalRadarBridgeConfig();
-  if (!configured) {
-    return { configured: false, reachable: false, status: "not_configured" };
+  const config = operatorLocalRadarBridgeConfig();
+  if (!config.snapshotUrl) {
+    return { configured: false, reachable: false, status: "missing_url" };
+  }
+  if (!config.secretConfigured) {
+    return { configured: false, reachable: false, status: "missing_secret" };
   }
 
   let target;
   try {
-    target = new URL("/api/dashboard/local-radar-operator-alert", snapshotUrl).toString();
+    target = new URL("/api/dashboard/local-radar-operator-alert", config.snapshotUrl).toString();
   } catch {
     return { configured: false, reachable: false, status: "invalid_url" };
   }
@@ -40,7 +43,7 @@ export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
     const response = await fetchImpl(target, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${secret}`,
+        Authorization: `Bearer ${config.secret}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(8_000),
