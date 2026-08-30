@@ -13,49 +13,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
-      - name: Inspect recent production lifecycle threads
+      - name: Inspect Perfect Order lifecycle history
         shell: bash
         run: |
           set -euo pipefail
           CLOUD='https://fatedrop-cloud-production.up.railway.app'
-          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?detail=alerts&limit=100" -o /tmp/alerts.json
-          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?limit=100" -o /tmp/signals.json
-          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/catalogue?q=perfect&limit=100" -o /tmp/perfect.json || true
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?state=manifested&limit=100" -o /tmp/manifested.json
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?state=vanished&limit=100" -o /tmp/vanished.json
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/catalogue?q=perfect&limit=100" -o /tmp/perfect.json
 
           node <<'NODE'
           const fs = require('fs');
-          const alerts = JSON.parse(fs.readFileSync('/tmp/alerts.json','utf8'));
-          const signals = JSON.parse(fs.readFileSync('/tmp/signals.json','utf8'));
-          let perfect = {};
-          try { perfect = JSON.parse(fs.readFileSync('/tmp/perfect.json','utf8')); } catch {}
-
-          const rows = Array.isArray(alerts.alerts) ? alerts.alerts : [];
-          const vanished = rows.filter((row) => row.fateStage === 'VANISHED').map((row) => {
-            const thread = Array.isArray(row.signalThread) ? row.signalThread : [];
-            const manifested = thread.filter((entry) => entry.fateStage === 'MANIFESTED');
-            return {
-              id: row.id,
-              title: row.title,
-              retailer: row.retailer,
-              detectedAt: row.detectedAt,
-              observedDurationSeconds: row.observedDurationSeconds ?? null,
-              threadStages: thread.map((entry) => entry.fateStage),
-              manifestedCount: manifested.length,
-              latestManifestedAt: manifested.at(-1)?.occurredAt ?? null,
-              thread: thread.map((entry) => ({ stage: entry.fateStage, at: entry.occurredAt, status: entry.stockStatus })),
-            };
-          });
-
-          const orphanLike = vanished.filter((row) => row.manifestedCount === 0 || row.observedDurationSeconds == null);
-          const recentSignals = Array.isArray(signals.signals) ? signals.signals : [];
-          const perfectRows = Array.isArray(perfect.products) ? perfect.products : [];
+          const manifested = JSON.parse(fs.readFileSync('/tmp/manifested.json','utf8'));
+          const vanished = JSON.parse(fs.readFileSync('/tmp/vanished.json','utf8'));
+          const catalogue = JSON.parse(fs.readFileSync('/tmp/perfect.json','utf8'));
+          const wanted = (value) => /perfect order/i.test(String(value || ''));
+          const compactSignal = (row) => ({ id: row.id, state: row.state, title: row.title, retailer: row.retailerName, offerId: row.offerId, detectedAt: row.detectedAt, stockStatus: row.stockStatus });
+          const perfectManifested = (manifested.signals || []).filter((row) => wanted(row.title)).map(compactSignal);
+          const perfectVanished = (vanished.signals || []).filter((row) => wanted(row.title)).map(compactSignal);
+          const magic = (catalogue.products || []).filter((row) => row.retailer === 'Magic Madhouse' && wanted(row.title)).map((row) => ({ title: row.title, sku: row.sku, offerId: row.offerId || null, availability: row.availability, lastSeen: row.lastSeen, firstSeen: row.firstSeen || null }));
           console.log(JSON.stringify({
-            generatedAt: alerts.generatedAt,
-            alertCount: rows.length,
-            vanishedCount: vanished.length,
-            vanished,
-            orphanLike,
-            recentManifested: recentSignals.filter((row) => row.state === 'manifested').slice(0,30).map((row) => ({ title: row.title, retailer: row.retailerName, detectedAt: row.detectedAt, offerId: row.offerId })),
-            perfectCatalogue: perfectRows.map((row) => ({ title: row.title, retailer: row.retailer, sku: row.sku, availability: row.availability, lastSeen: row.lastSeen })),
+            manifestedTotal: manifested.count,
+            vanishedTotal: vanished.count,
+            perfectManifested,
+            perfectVanished,
+            magicMadhousePerfectOrder: magic,
           }, null, 2));
           NODE
