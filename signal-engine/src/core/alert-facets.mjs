@@ -181,9 +181,7 @@ function languageFromDescriptor(language, region, sourceMarket, retailerCountryC
   if (normalizedLanguage) {
     return { languageGroup: "other", languageCode: normalizedLanguage.replaceAll("_", "-"), marketCode: normalizedRegion || null, confidence: 0.95, source: "explicit_language" };
   }
-  if (String(retailerCountryCode || "").trim().toUpperCase() === "GB") {
-    return { languageGroup: "english", languageCode: "en", marketCode: "GB", confidence: 0.72, source: "uk_catalogue_default" };
-  }
+  void retailerCountryCode;
   return { languageGroup: "unknown", languageCode: null, marketCode: null, confidence: 0, source: "unknown" };
 }
 
