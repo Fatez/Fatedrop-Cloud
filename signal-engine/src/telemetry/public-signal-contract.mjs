@@ -209,6 +209,67 @@ function safeDelivery(delivery = {}) {
   }));
 }
 
+function safeCount(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : 0;
+}
+
+function safeTimestamp(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function safeNullableNumber(value) {
+  if (value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeDiagnostics(diagnostics = {}) {
+  const reliability = diagnostics.reliability || {};
+  const monitors = diagnostics.monitors || {};
+  const discordLatency = diagnostics.discordLatency || {};
+  const discovery = diagnostics.discovery || {};
+
+  return {
+    absentLifecycleStages: Array.isArray(diagnostics.absentLifecycleStages)
+      ? diagnostics.absentLifecycleStages.filter((value) => typeof value === 'string')
+      : [],
+    discordDeliveryIssues: safeCount(diagnostics.discordDeliveryIssues),
+    duplicateSignalsSuppressed: safeCount(diagnostics.duplicateSignalsSuppressed),
+    reliability: {
+      orphanedDiscordSignals: safeCount(reliability.orphanedDiscordSignals),
+      telemetryStoppedWhileSignalsContinue: reliability.telemetryStoppedWhileSignalsContinue === true,
+      recentSignals: safeCount(reliability.recentSignals),
+      recentDiscordAttempts: safeCount(reliability.recentDiscordAttempts),
+      latestSignalAt: safeTimestamp(reliability.latestSignalAt),
+      latestDiscordAttemptAt: safeTimestamp(reliability.latestDiscordAttemptAt),
+    },
+    monitors: {
+      totalRetailers: safeCount(monitors.totalRetailers),
+      freshRetailers: safeCount(monitors.freshRetailers),
+      staleRetailers: safeCount(monitors.staleRetailers),
+      unhealthyRetailers: safeCount(monitors.unhealthyRetailers),
+      blockedRetailers: safeCount(monitors.blockedRetailers),
+    },
+    discordLatency: {
+      sampleSize: safeCount(discordLatency.sampleSize),
+      medianSeconds: safeNullableNumber(discordLatency.medianSeconds),
+      p95Seconds: safeNullableNumber(discordLatency.p95Seconds),
+    },
+    discovery: {
+      available: discovery.available === true,
+      pending: safeCount(discovery.pending),
+      retry: safeCount(discovery.retry),
+      processed: safeCount(discovery.processed),
+      failed: safeCount(discovery.failed),
+      latestObservedAt: safeTimestamp(discovery.latestObservedAt),
+      latestProcessedAt: safeTimestamp(discovery.latestProcessedAt),
+      oldestActiveAt: safeTimestamp(discovery.oldestActiveAt),
+    },
+  };
+}
+
 export async function handlePublicSignalSummary(req, res, { store } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get('days') || '7', 10) || 7));
@@ -232,5 +293,6 @@ export async function handlePublicSignalSummary(req, res, { store } = {}) {
     day0: summary.day0,
     lifecycle: summary.lifecycle,
     delivery: safeDelivery(summary.delivery),
+    diagnostics: safeDiagnostics(summary.diagnostics),
   });
 }
