@@ -13,7 +13,7 @@ permissions:
 jobs:
   build-official-fast:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 8
     defaults:
       run:
         working-directory: signal-engine
@@ -31,7 +31,9 @@ jobs:
           from pathlib import Path
           p = Path('src/encounters/build-uk-physical-store-master.mjs')
           s = p.read_text()
-          s = s.replace('const maxSitemaps = config.maxSitemaps ?? 80;', 'const maxSitemaps = config.maxSitemaps ?? 18;')
+          s = s.replace('const DEFAULT_TIMEOUT_MS = 15_000;', 'const DEFAULT_TIMEOUT_MS = 6_000;')
+          s = s.replace('const maxSitemaps = config.maxSitemaps ?? 80;', 'const maxSitemaps = config.maxSitemaps ?? 8;')
+          s = s.replace('const maxPages = config.maxDirectoryPages ?? 120;', 'const maxPages = config.maxDirectoryPages ?? 24;')
           s = s.replace(
               'const officialExisting = await collectExistingOfficialCrawlers(qa);\n  all.push(...officialExisting);',
               'const officialExisting = [];\n  qa.discovery.push({ retailer: "ASDA / Entertainer", candidates: 0, source: "fast-pass skipped: grocery baseline/curated rows handled separately" });'
