@@ -23,12 +23,17 @@ function explicitlyConfigured(name) {
   return Object.prototype.hasOwnProperty.call(process.env, name) && String(process.env[name] ?? "").trim() !== "";
 }
 
-export function derivedSignalApiToken({ signalApiToken = "", metricsIngestSecret = "" } = {}) {
+export function privateDiagnosticApiTokens({ signalApiToken = "", metricsIngestSecret = "" } = {}) {
   const dedicated = String(signalApiToken || "").trim();
-  if (dedicated) return dedicated;
   const shared = String(metricsIngestSecret || "").trim();
-  if (!shared) return "";
-  return createHmac("sha256", shared).update(PRIVATE_DIAGNOSTIC_AUTH_CONTEXT).digest("hex");
+  const derived = shared
+    ? createHmac("sha256", shared).update(PRIVATE_DIAGNOSTIC_AUTH_CONTEXT).digest("hex")
+    : "";
+  return [...new Set([dedicated, derived].filter(Boolean))];
+}
+
+export function derivedSignalApiToken(options = {}) {
+  return privateDiagnosticApiTokens(options)[0] || "";
 }
 
 export function defaultProductionPostgresFeatureEnabled({ railwayEnvironmentName = "", store = "file", databaseUrl = "" } = {}) {
@@ -81,13 +86,15 @@ const discordConfigured = Boolean(
   (discordBotToken || Object.values(discordBotTokens).some(Boolean))
   && (discordPremiumDropsChannelId || Object.values(discordChannelIds).some(Boolean)),
 );
+const diagnosticApiTokens = privateDiagnosticApiTokens({
+  signalApiToken: process.env.FATEDROP_SIGNAL_API_TOKEN,
+  metricsIngestSecret: process.env.FATEDROP_METRICS_INGEST_SECRET,
+});
 
 export const env = {
   port: int("PORT", 8787),
-  apiToken: derivedSignalApiToken({
-    signalApiToken: process.env.FATEDROP_SIGNAL_API_TOKEN,
-    metricsIngestSecret: process.env.FATEDROP_METRICS_INGEST_SECRET,
-  }),
+  apiToken: diagnosticApiTokens[0] || "",
+  apiTokens: Object.freeze(diagnosticApiTokens),
   ingestSecret: process.env.FATEDROP_SIGNAL_INGEST_SECRET || "",
   store: signalStore,
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
@@ -140,7 +147,7 @@ export const env = {
     totalCards: bool("FATEDROP_RETAILER_TOTAL_CARDS", true),
     titanCards: bool("FATEDROP_RETAILER_TITAN_CARDS", true),
     eternaCards: bool("FATEDROP_RETAILER_ETERNA_CARDS", true),
-    cardCollective: bool("FATEDROP_RETAILER_CARD_COLLECTIVE", true),
+    cardCollective: bool("FATEDROP_RETAILER_CARD_COLLECTIVE_UK", true),
     jetCards: bool("FATEDROP_RETAILER_JET_CARDS", true),
     gatheringGames: bool("FATEDROP_RETAILER_GATHERING_GAMES", true),
     zatuGames: bool("FATEDROP_RETAILER_ZATU_GAMES", true),
