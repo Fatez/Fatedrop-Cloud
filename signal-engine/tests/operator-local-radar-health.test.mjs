@@ -30,8 +30,13 @@ test("production watcher probes the exact Web operator route without sending an 
   assert.match(intake, /probeOperatorLocalRadarBridge\(\)/);
   assert.match(bridge, /method: "GET"/);
   assert.match(bridge, /\/api\/dashboard\/local-radar-operator-alert/);
-  assert.match(bridge, /Authorization: `Bearer \$\{secret\}`/);
+  assert.match(bridge, /Authorization: `Bearer \$\{config\.secret\}`/);
   assert.match(bridge, /response\.status === 204/);
+  assert.match(bridge, /status: "missing_url"/);
+  assert.match(bridge, /status: "missing_secret"/);
+  assert.match(bridge, /status: "unauthorized"/);
+  assert.match(bridge, /status: "push_unhealthy"/);
+  assert.match(bridge, /status: "unreachable"/);
   assert.doesNotMatch(bridge, /method: "POST"/);
   assert.doesNotMatch(bridge, /body:/);
 });
@@ -47,13 +52,18 @@ test("production Web origin may default safely but the shared secret remains man
     delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
     process.env.FATEDROP_METRICS_INGEST_SECRET = "test-only-secret";
     const configured = operatorLocalRadarBridgeConfig();
+    assert.equal(configured.contractVersion, 2);
     assert.equal(configured.snapshotUrl, "https://fatedrop.co.uk");
     assert.equal(configured.urlSource, "production_default");
+    assert.equal(configured.secretConfigured, true);
     assert.equal(configured.configured, true);
 
     delete process.env.FATEDROP_METRICS_INGEST_SECRET;
     const missingSecret = operatorLocalRadarBridgeConfig();
+    assert.equal(missingSecret.contractVersion, 2);
     assert.equal(missingSecret.snapshotUrl, "https://fatedrop.co.uk");
+    assert.equal(missingSecret.urlSource, "production_default");
+    assert.equal(missingSecret.secretConfigured, false);
     assert.equal(missingSecret.configured, false);
   } finally {
     if (original.railway === undefined) delete process.env.RAILWAY_ENVIRONMENT_NAME;
