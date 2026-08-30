@@ -29,13 +29,13 @@ test("alert facets distinguish collector language markets without inventing ambi
   assert.equal(deriveAlertFacets({ title: "Pokemon Booster Box [CHT]", retailerCountryCode: "GB" }).languageGroup, "traditional_chinese");
 });
 
-test("unmarked UK catalogue products are an explicit lower-confidence English inference", () => {
+test("retailer geography never invents product language", () => {
   const facets = deriveAlertFacets({ title: "Pokemon Destined Rivals Elite Trainer Box", retailerCountryCode: "GB" });
-  assert.equal(facets.languageGroup, "english");
-  assert.equal(facets.languageCode, "en");
-  assert.equal(facets.marketCode, "GB");
-  assert.equal(facets.confidence.language, 0.72);
-  assert.equal(facets.source.language, "uk_catalogue_default");
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.languageCode, null);
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.confidence.language, 0);
+  assert.equal(facets.source.language, "unknown");
   assert.equal(facets.setKey, "destined-rivals");
 });
 
