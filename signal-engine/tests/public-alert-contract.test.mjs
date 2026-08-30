@@ -28,6 +28,14 @@ test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history'
   assert.match(alertSource, /NO_FAIR_COMPARISON/);
 });
 
+test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
+  assert.match(alertSource, /delivery_policy->>'kind'='delivery_policy'/);
+  assert.match(alertSource, /delivery_policy->>'value'='history_only'/);
+  assert.match(alertSource, /AND NOT EXISTS \(\s*SELECT 1\s*FROM jsonb_array_elements/);
+  assert.match(alertSource, /hs\.state='manifested'/);
+  assert.match(alertSource, /ORDER BY hs\.detected_at DESC/);
+});
+
 test('Vanished stays fail-closed but accepts canonical persisted prior-live proof when baseline suppressed the Manifested alert row', () => {
   assert.match(alertSource, /evidence_item->>'kind'='prior_live_confirmation'/);
   assert.match(alertSource, /evidence_item->>'value'='persisted_purchasable_offer'/);
