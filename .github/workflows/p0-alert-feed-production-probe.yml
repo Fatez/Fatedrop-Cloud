@@ -4,54 +4,77 @@ on:
   push:
     branches:
       - probe/p0-alert-feed-production-2026-08-30
+    paths:
+      - .github/workflows/p0-alert-feed-production-probe.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Probe deployed canonical alert feed
         shell: bash
         run: |
           node <<'NODE'
+          const fs = require('node:fs');
           const url = 'https://fatedrop-cloud-production.up.railway.app/api/signal-summary?detail=alerts&limit=100';
           const historyOnlyReasons = new Set([
             'Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery',
             'Verified live offer had no active Manifested lifecycle anchor; current confirmation starts a truthful live window',
           ]);
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          let last = null;
-          for (let attempt = 1; attempt <= 20; attempt += 1) {
-            try {
-              const response = await fetch(url, { headers: { accept: 'application/json' } });
-              const payload = await response.json();
-              const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
-              const stages = { WHISPER: 0, ECHO: 0, MANIFESTED: 0, VANISHED: 0 };
-              let historyOnlyLeak = 0;
-              for (const alert of alerts) {
-                if (Object.hasOwn(stages, alert.fateStage)) stages[alert.fateStage] += 1;
-                if (historyOnlyReasons.has(String(alert.message || ''))) historyOnlyLeak += 1;
+          (async () => {
+            let last = null;
+            let ok = false;
+            for (let attempt = 1; attempt <= 20; attempt += 1) {
+              try {
+                const response = await fetch(url, { headers: { accept: 'application/json' } });
+                const payload = await response.json();
+                const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
+                const stages = { WHISPER: 0, ECHO: 0, MANIFESTED: 0, VANISHED: 0 };
+                let historyOnlyLeak = 0;
+                for (const alert of alerts) {
+                  if (Object.hasOwn(stages, alert.fateStage)) stages[alert.fateStage] += 1;
+                  if (historyOnlyReasons.has(String(alert.message || ''))) historyOnlyLeak += 1;
+                }
+                last = {
+                  attempt,
+                  httpStatus: response.status,
+                  success: payload.success === true,
+                  available: payload.available === true,
+                  count: alerts.length,
+                  stages,
+                  historyOnlyLeak,
+                  generatedAt: payload.generatedAt || null,
+                };
+                console.log(JSON.stringify(last));
+                if (response.ok && payload.success === true && payload.available === true && historyOnlyLeak === 0) {
+                  ok = true;
+                  break;
+                }
+              } catch (error) {
+                last = { attempt, error: String(error?.message || error) };
+                console.log(JSON.stringify(last));
               }
-              last = {
-                attempt,
-                httpStatus: response.status,
-                success: payload.success === true,
-                available: payload.available === true,
-                count: alerts.length,
-                stages,
-                historyOnlyLeak,
-                generatedAt: payload.generatedAt || null,
-              };
-              console.log(JSON.stringify(last));
-              if (response.ok && payload.success === true && payload.available === true && historyOnlyLeak === 0) process.exit(0);
-            } catch (error) {
-              last = { attempt, error: String(error?.message || error) };
-              console.log(JSON.stringify(last));
+              await sleep(15_000);
             }
-            await sleep(15_000);
-          }
-          console.error(JSON.stringify({ productionProbeFailed: true, last }));
-          process.exit(1);
+            fs.writeFileSync('p0-alert-feed-production-result.json', `${JSON.stringify(last, null, 2)}\n`);
+            if (!ok) process.exitCode = 1;
+          })();
           NODE
+
+      - name: Persist redacted aggregate
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f p0-alert-feed-production-result.json ]; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add p0-alert-feed-production-result.json
+          git diff --cached --quiet && exit 0
+          git commit -m "Record redacted production alert feed probe"
+          git push
