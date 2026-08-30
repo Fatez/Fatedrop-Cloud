@@ -49,6 +49,28 @@ test("quiet baseline persists a Manifested history anchor without alert delivery
 
 test("quiet baseline still emits nothing for unavailable stock",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("out_of_stock"),isBaseline:true,now:100}),null));
 
+test("repeated quiet baseline does not move an existing current-session Manifested anchor",()=>{
+  const signal=deriveSignal({
+    previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150,lifecycleHistoryLoaded:true,latestManifestedAt:120,latestVanishedAt:null}),
+    currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),
+    isBaseline:true,
+    now:200,
+  });
+  assert.equal(signal,null);
+});
+
+test("quiet baseline starts a new anchor when the prior Manifested window has already Vanished",()=>{
+  const signal=deriveSignal({
+    previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150,lifecycleHistoryLoaded:true,latestManifestedAt:100,latestVanishedAt:140}),
+    currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),
+    isBaseline:true,
+    now:200,
+  });
+  assert.equal(signal.state,"manifested");
+  assert.equal(signal.kind,"baseline_live_anchor");
+  assert.equal(signal.deliverySuppressed,true);
+});
+
 test("already-live persisted offer without an active Manifested anchor is reconciled once",()=>{
   const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150,lifecycleHistoryLoaded:true,latestManifestedAt:null,latestVanishedAt:null}),currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
   assert.equal(signal.state,"manifested");

@@ -279,6 +279,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   // Not every event must pass through every stage.
   if (isBaseline) {
     if (!nowPurchasable) return null;
+    if (activeManifestedAt(previousOffer) != null) return null;
     state = SignalState.MANIFESTED;
     kind = "baseline_live_anchor";
     reason = "Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery";
