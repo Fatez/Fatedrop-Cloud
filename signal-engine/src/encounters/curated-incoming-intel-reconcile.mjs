@@ -135,12 +135,7 @@ function asObservation(entry, target, location) {
   };
 }
 
-export async function reconcileCuratedIncomingIntel({
-  store,
-  entries = CURATED_INCOMING_INTEL,
-  now = Date.now(),
-} = {}) {
-  if (!store) throw new Error("Curated incoming-intel reconciliation requires a store");
+async function collectCuratedIncomingIntelMatches({ store, entries, now }) {
   const activeEntries = (Array.isArray(entries) ? entries : []).filter((entry) => {
     const expiresAt = Date.parse(entry.expiresAt || "");
     return Number.isFinite(expiresAt) && expiresAt > now;
@@ -175,7 +170,35 @@ export async function reconcileCuratedIncomingIntel({
     }
   }
 
-  const normalized = normalizeLocalStockObservationBatch(observations);
+  return { activeEntries, observations, unmatchedTargets };
+}
+
+export async function inspectCuratedIncomingIntelTargets({
+  store,
+  entries = CURATED_INCOMING_INTEL,
+  now = Date.now(),
+} = {}) {
+  if (!store) throw new Error("Curated incoming-intel inspection requires a store");
+  const matched = await collectCuratedIncomingIntelMatches({ store, entries, now });
+  return {
+    status: "ok",
+    configuredEntries: Array.isArray(entries) ? entries.length : 0,
+    activeEntries: matched.activeEntries.length,
+    matchedBranches: matched.observations.length,
+    unmatchedTargets: matched.unmatchedTargets,
+    persisted: false,
+    truthRule: "Read-only exact-branch reconciliation only. No Local Radar observation, stock state or history is written.",
+  };
+}
+
+export async function reconcileCuratedIncomingIntel({
+  store,
+  entries = CURATED_INCOMING_INTEL,
+  now = Date.now(),
+} = {}) {
+  if (!store) throw new Error("Curated incoming-intel reconciliation requires a store");
+  const matched = await collectCuratedIncomingIntelMatches({ store, entries, now });
+  const normalized = normalizeLocalStockObservationBatch(matched.observations);
   const persisted = normalized.observations.length
     ? await upsertLocalStockObservationsIntoStore(store, normalized.observations)
     : { saved: 0, duplicates: 0, rejected: [] };
@@ -183,12 +206,12 @@ export async function reconcileCuratedIncomingIntel({
   return {
     status: "ok",
     configuredEntries: Array.isArray(entries) ? entries.length : 0,
-    activeEntries: activeEntries.length,
+    activeEntries: matched.activeEntries.length,
     matchedBranches: normalized.observations.length,
     saved: Number(persisted.saved || 0),
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
-    unmatchedTargets,
+    unmatchedTargets: matched.unmatchedTargets,
     truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only and can never create Local Manifested without separate exact-branch verified availability evidence.",
   };
 }
