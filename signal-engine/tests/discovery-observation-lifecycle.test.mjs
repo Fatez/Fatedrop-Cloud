@@ -69,7 +69,9 @@ test("2. rediscovering the same official page does not create a duplicate Whispe
   const second = await ingest(store, [discovery({ discoveredAt: NOW + 120 })], NOW + 120);
   assert.equal(first.signalsCreated, 1);
   assert.equal(second.signalsCreated, 0);
-  assert.equal(second.deduplicatedSignals, 1);
+  // The lifecycle derivation layer now suppresses unchanged repeats before the
+  // persistence deduper sees them, so there is no duplicate signal to count.
+  assert.equal(second.deduplicatedSignals, 0);
   const signals = await store.listSignals({ retailerIds: [RETAILER.id], since: 0, limit: 20 });
   assert.equal(signals.filter((signal) => signal.state === "whisper").length, 1);
 }));

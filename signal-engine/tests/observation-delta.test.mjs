@@ -45,6 +45,7 @@ test("unchanged retailer SKU state does not create another stock observation", a
     stockStatus: "in_stock",
     pricePence: 4999,
     stockQuantity: 3,
+    evidence: [{ kind: "test", value: "fixture" }],
     everAvailableAt: 1,
     firstSeenAt: 1,
   };
@@ -60,6 +61,7 @@ test("stock, price or quantity deltas still persist an observation", async () =>
     stockStatus: "out_of_stock",
     pricePence: 4999,
     stockQuantity: 0,
+    evidence: [{ kind: "test", value: "fixture" }],
     everAvailableAt: null,
     firstSeenAt: 1,
   };
