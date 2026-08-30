@@ -1,4 +1,5 @@
 const PRODUCTION_WEB_ORIGIN = "https://fatedrop.co.uk";
+export const OPERATOR_LOCAL_RADAR_BRIDGE_CONTRACT_VERSION = 2;
 
 function text(value, max = 1000) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -13,22 +14,27 @@ export function operatorLocalRadarBridgeConfig() {
   const snapshotUrl = configuredUrl || productionFallback;
   const secret = text(process.env.FATEDROP_METRICS_INGEST_SECRET);
   return {
+    contractVersion: OPERATOR_LOCAL_RADAR_BRIDGE_CONTRACT_VERSION,
     snapshotUrl,
     secret,
     configured: Boolean(snapshotUrl && secret),
+    secretConfigured: Boolean(secret),
     urlSource: configuredUrl ? "environment" : (productionFallback ? "production_default" : "missing"),
   };
 }
 
 export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
-  const { snapshotUrl, secret, configured } = operatorLocalRadarBridgeConfig();
-  if (!configured) {
-    return { configured: false, reachable: false, status: "not_configured" };
+  const config = operatorLocalRadarBridgeConfig();
+  if (!config.snapshotUrl) {
+    return { configured: false, reachable: false, status: "missing_url" };
+  }
+  if (!config.secretConfigured) {
+    return { configured: false, reachable: false, status: "missing_secret" };
   }
 
   let target;
   try {
-    target = new URL("/api/dashboard/local-radar-operator-alert", snapshotUrl).toString();
+    target = new URL("/api/dashboard/local-radar-operator-alert", config.snapshotUrl).toString();
   } catch {
     return { configured: false, reachable: false, status: "invalid_url" };
   }
@@ -37,7 +43,7 @@ export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
     const response = await fetchImpl(target, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${secret}`,
+        Authorization: `Bearer ${config.secret}`,
         Accept: "application/json",
       },
       signal: AbortSignal.timeout(8_000),
