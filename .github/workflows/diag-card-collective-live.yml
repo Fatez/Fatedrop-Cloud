@@ -1,4 +1,4 @@
-name: Diagnose Card Collective Live Price Stock
+name: Diagnose Manifested Vanished Threads
 
 on:
   push:
@@ -11,56 +11,51 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 4
     steps:
-      - name: Wait for GB-market fix and exact Card Collective canonical correction
+      - name: Inspect recent production lifecycle threads
         shell: bash
         run: |
           set -euo pipefail
-          CLOUD_BASE='https://fatedrop-cloud-production.up.railway.app'
-          CATALOGUE="${CLOUD_BASE}/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25"
-          EXPECTED_COMMIT='2cc0191f9853e25ee89c431a16a6b54f78a158d9'
-          SEALED='58272935772541'
-          OPENED='58272935805309'
+          CLOUD='https://fatedrop-cloud-production.up.railway.app'
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?detail=alerts&limit=100" -o /tmp/alerts.json
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/signals?limit=100" -o /tmp/signals.json
+          curl --fail --silent --show-error --location --retry 3 "${CLOUD}/api/catalogue?q=perfect&limit=100" -o /tmp/perfect.json || true
 
-          for attempt in $(seq 1 36); do
-            curl --fail --silent --show-error --location --retry 2 \
-              -H 'content-type: application/json' \
-              --data '{"mode":"verdict","query":"Terastal Grand Gathering"}' \
-              "${CLOUD_BASE}/api/fatefind/matches" -o /tmp/runtime.json || true
-            curl --fail --silent --show-error --location --retry 2 "$CATALOGUE" -o /tmp/catalogue.json || true
-
-            if node - "$EXPECTED_COMMIT" "$SEALED" "$OPENED" <<'NODE'
+          node <<'NODE'
           const fs = require('fs');
-          const [expectedCommit, sealedSku, openedSku] = process.argv.slice(2);
-          let runtime = {}; let catalogue = {};
-          try { runtime = JSON.parse(fs.readFileSync('/tmp/runtime.json','utf8')); } catch {}
-          try { catalogue = JSON.parse(fs.readFileSync('/tmp/catalogue.json','utf8')); } catch {}
-          const commit = String(runtime?.runtime?.gitCommitSha || '');
-          const rows = Array.isArray(catalogue?.products) ? catalogue.products : [];
-          const sealed = rows.find((row) => String(row?.sku || '') === sealedSku) || null;
-          const opened = rows.find((row) => String(row?.sku || '') === openedSku) || null;
-          const ok = commit === expectedCommit
-            && sealed?.price === 69.95
-            && sealed?.availability === 'IN_STOCK'
-            && opened?.price === 69.95
-            && opened?.availability === 'OUT_OF_STOCK';
-          console.log(JSON.stringify({
-            commit,
-            expectedCommit,
-            sealed: sealed && { sku: sealed.sku, price: sealed.price, availability: sealed.availability, lastSeen: sealed.lastSeen },
-            opened: opened && { sku: opened.sku, price: opened.price, availability: opened.availability, lastSeen: opened.lastSeen },
-            verified: ok,
-          }));
-          process.exit(ok ? 0 : 1);
-          NODE
-            then
-              echo "Production GB Shopify price/stock verification passed."
-              exit 0
-            fi
-            echo "Attempt ${attempt}/36 not verified yet; waiting 10s for deploy/scan."
-            sleep 10
-          done
+          const alerts = JSON.parse(fs.readFileSync('/tmp/alerts.json','utf8'));
+          const signals = JSON.parse(fs.readFileSync('/tmp/signals.json','utf8'));
+          let perfect = {};
+          try { perfect = JSON.parse(fs.readFileSync('/tmp/perfect.json','utf8')); } catch {}
 
-          echo "Production did not reach the expected GB-market canonical state inside the bounded verification window."
-          exit 1
+          const rows = Array.isArray(alerts.alerts) ? alerts.alerts : [];
+          const vanished = rows.filter((row) => row.fateStage === 'VANISHED').map((row) => {
+            const thread = Array.isArray(row.signalThread) ? row.signalThread : [];
+            const manifested = thread.filter((entry) => entry.fateStage === 'MANIFESTED');
+            return {
+              id: row.id,
+              title: row.title,
+              retailer: row.retailer,
+              detectedAt: row.detectedAt,
+              observedDurationSeconds: row.observedDurationSeconds ?? null,
+              threadStages: thread.map((entry) => entry.fateStage),
+              manifestedCount: manifested.length,
+              latestManifestedAt: manifested.at(-1)?.occurredAt ?? null,
+              thread: thread.map((entry) => ({ stage: entry.fateStage, at: entry.occurredAt, status: entry.stockStatus })),
+            };
+          });
+
+          const orphanLike = vanished.filter((row) => row.manifestedCount === 0 || row.observedDurationSeconds == null);
+          const recentSignals = Array.isArray(signals.signals) ? signals.signals : [];
+          const perfectRows = Array.isArray(perfect.products) ? perfect.products : [];
+          console.log(JSON.stringify({
+            generatedAt: alerts.generatedAt,
+            alertCount: rows.length,
+            vanishedCount: vanished.length,
+            vanished,
+            orphanLike,
+            recentManifested: recentSignals.filter((row) => row.state === 'manifested').slice(0,30).map((row) => ({ title: row.title, retailer: row.retailerName, detectedAt: row.detectedAt, offerId: row.offerId })),
+            perfectCatalogue: perfectRows.map((row) => ({ title: row.title, retailer: row.retailer, sku: row.sku, availability: row.availability, lastSeen: row.lastSeen })),
+          }, null, 2));
+          NODE
