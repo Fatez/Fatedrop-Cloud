@@ -55,3 +55,11 @@ test('Cloud alert output preserves the final four-stage lifecycle and prepared l
   assert.match(alertSource, /VIEW LAST PRODUCT PAGE/);
   assert.match(alertSource, /linksPrepared: true/);
 });
+
+
+test('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {
+  assert.match(alertSource, /\(\$2::text IS NULL OR s\.state=\$2\)/);
+  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeState, safeLimit\]\)/);
+  assert.match(signalSource, /PUBLIC_SIGNAL_STATES\.includes\(requestedState\)/);
+  assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ id, state, limit \}\)/);
+});
