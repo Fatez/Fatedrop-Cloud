@@ -1,0 +1,41 @@
+name: Build UK Grocery Baseline
+
+on:
+  pull_request:
+    paths:
+      - "signal-engine/src/encounters/build-uk-grocery-baseline.mjs"
+      - ".github/workflows/build-uk-grocery-baseline.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-grocery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Build current public grocery branch baseline
+        run: node src/encounters/build-uk-grocery-baseline.mjs
+        env:
+          NODE_ENV: test
+      - name: Audit output
+        run: |
+          wc -l artifacts-grocery/grocery-baseline.csv
+          cat artifacts-grocery/grocery-baseline-qa.json
+      - name: Upload grocery baseline
+        uses: actions/upload-artifact@v4
+        with:
+          name: fatedrop-uk-grocery-baseline
+          path: |
+            signal-engine/artifacts-grocery/grocery-baseline.csv
+            signal-engine/artifacts-grocery/grocery-baseline-qa.json
+          if-no-files-found: error
+          retention-days: 14

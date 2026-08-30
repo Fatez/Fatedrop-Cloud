@@ -1,0 +1,67 @@
+name: Build UK Official Chain Fast Pass
+
+on:
+  pull_request:
+    paths:
+      - "signal-engine/src/encounters/build-uk-physical-store-master.mjs"
+      - ".github/workflows/build-uk-official-chain-fast.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-official-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Configure temporary fast-pass working copy
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/encounters/build-uk-physical-store-master.mjs')
+          s = p.read_text()
+          s = s.replace('const DEFAULT_TIMEOUT_MS = 15_000;', 'const DEFAULT_TIMEOUT_MS = 6_000;')
+          s = s.replace('const maxSitemaps = config.maxSitemaps ?? 80;', 'const maxSitemaps = config.maxSitemaps ?? 8;')
+          s = s.replace('const maxPages = config.maxDirectoryPages ?? 120;', 'const maxPages = config.maxDirectoryPages ?? 24;')
+          s = s.replace(
+              'const officialExisting = await collectExistingOfficialCrawlers(qa);\n  all.push(...officialExisting);',
+              'const officialExisting = [];\n  qa.discovery.push({ retailer: "ASDA / Entertainer", candidates: 0, source: "fast-pass skipped: grocery baseline/curated rows handled separately" });'
+          )
+          old = '''  for (const config of DIRECTORY_CONFIGS) {\n    const rows = await collectDirectoryRetailer(config, qa);\n    all.push(...rows);\n  }'''
+          new = '''  const directoryBatches = await Promise.all(DIRECTORY_CONFIGS.map((config) => collectDirectoryRetailer(config, qa)));\n  for (const batch of directoryBatches) all.push(...batch);'''
+          if old not in s:
+              raise SystemExit('directory loop transform target not found')
+          s = s.replace(old, new)
+          p.write_text(s)
+          PY
+      - name: Run safety tests
+        run: node --test tests/uk-physical-store-master.test.mjs
+      - name: Harvest current official non-grocery chains
+        run: node src/encounters/build-uk-physical-store-master.mjs
+        env:
+          NODE_ENV: test
+      - name: Show summary
+        run: |
+          wc -l artifacts/uk-physical-store-master.csv
+          cat artifacts/uk-physical-store-retailer-summary.csv
+      - name: Upload official fast pass
+        uses: actions/upload-artifact@v4
+        with:
+          name: fatedrop-uk-official-chain-fast
+          path: |
+            signal-engine/artifacts/uk-physical-store-master.csv
+            signal-engine/artifacts/uk-physical-store-retailer-summary.csv
+            signal-engine/artifacts/uk-physical-store-qa.json
+          if-no-files-found: error
+          retention-days: 14
