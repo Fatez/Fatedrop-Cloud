@@ -147,7 +147,7 @@ export const env = {
     totalCards: bool("FATEDROP_RETAILER_TOTAL_CARDS", true),
     titanCards: bool("FATEDROP_RETAILER_TITAN_CARDS", true),
     eternaCards: bool("FATEDROP_RETAILER_ETERNA_CARDS", true),
-    cardCollective: bool("FATEDROP_RETAILER_CARD_COLLECTIVE_UK", true),
+    cardCollective: bool("FATEDROP_RETAILER_CARD_COLLECTIVE", true),
     jetCards: bool("FATEDROP_RETAILER_JET_CARDS", true),
     gatheringGames: bool("FATEDROP_RETAILER_GATHERING_GAMES", true),
     zatuGames: bool("FATEDROP_RETAILER_ZATU_GAMES", true),
