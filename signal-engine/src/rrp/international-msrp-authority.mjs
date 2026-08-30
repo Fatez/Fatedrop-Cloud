@@ -40,6 +40,14 @@ const CN_CATALOGUE = "https://www.pokemon.cn/products_category/products";
 
 const AUTHORITIES = Object.freeze([
   // Japan — exact manufacturer suggested retail prices from Pokémon Card Game Japan.
+  // Historical pre-tax pages are represented at the tax-inclusive consumer MSRP
+  // applicable on their release date, and retain the official manufacturer URL.
+  { id: "jp-pokemon-center-fukuoka-special-box", market: "JP", currency: "JPY", aliases: ["pokemon center fukuoka special box", "fukuoka special box"], directMsrp: 2090, directProductTypes: ["collection_box", "other"], sourceUrl: "https://www.pokemon-card.com/info/005053.html", sourceObservedAt: "2025-06-13T00:00:00Z" },
+  { id: "jp-premium-trainer-box-mega", market: "JP", currency: "JPY", aliases: ["premium trainer box mega", "premium trainer box"], directMsrp: 6350, directProductTypes: ["collection_box", "other"], sourceUrl: "https://www.pokemon-card.com/ex/m1/", sourceObservedAt: "2025-08-01T00:00:00Z" },
+  { id: "jp-tag-team-gx-all-stars", market: "JP", currency: "JPY", aliases: ["tag team gx all stars", "tag team all stars", "tag all stars"], unitMsrp: 550, boxPacks: 10, cardsPerPack: 11, sourceUrl: "https://www.pokemon-card.com/ex/sm12a/index.html", packagingSourceUrl: "https://www.plazajapan.com/blog/the-sun-moon-era-signs-off-in-style-with-tag-all-stars/", sourceObservedAt: "2019-10-04T00:00:00Z", priceBasisNote: "The official launch MSRP was ¥500 plus tax; ¥550 is the tax-inclusive release reference." },
+  { id: "jp-remix-bout", market: "JP", currency: "JPY", aliases: ["remix bout"], unitMsrp: 162, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/ex/sm11a/index.html", packagingSourceUrl: "https://www.discovery-japan.me/category/select/pid/23651/language/en/currency/GBP", sourceObservedAt: "2019-07-05T00:00:00Z", priceBasisNote: "The official launch MSRP was ¥150 plus tax; ¥162 is the tax-inclusive release reference." },
+  { id: "jp-legendary-heartbeat", market: "JP", currency: "JPY", aliases: ["legendary heartbeat"], unitMsrp: 253, boxPacks: 20, cardsPerPack: 7, sourceUrl: "https://www.pokemon-card.com/products/s/s3a.html", packagingSourceUrl: "https://stockx.com/2020-pokemon-tcg-sword-shield-s3a-legendary-heartbeat-booster-box", sourceObservedAt: "2020-07-10T00:00:00Z" },
+  { id: "jp-vmax-rising", market: "JP", currency: "JPY", aliases: ["vmax rising"], unitMsrp: 165, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/products/s/s1a.html", packagingSourceUrl: "https://www.pokemon-card.com/products/s/s1a.html", sourceObservedAt: "2020-02-07T00:00:00Z" },
   { id: "jp-abyss-eye", market: "JP", currency: "JPY", aliases: ["abyss eye"], unitMsrp: 200, cardsPerPack: 5, sourceUrl: "https://www.pokemon-card.com/ex/m5/", sourceObservedAt: "2026-05-22T00:00:00Z" },
   { id: "jp-emerald-storm", market: "JP", currency: "JPY", aliases: ["emerald storm", "storm emerald"], unitMsrp: 200, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2026-07-31T00:00:00Z" },
   { id: "jp-ninja-spinner", market: "JP", currency: "JPY", aliases: ["ninja spinner"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2026-03-13T00:00:00Z" },
@@ -50,14 +58,20 @@ const AUTHORITIES = Object.freeze([
   { id: "jp-mega-symphonia", market: "JP", currency: "JPY", aliases: ["mega symphonia"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-08-01T00:00:00Z" },
   { id: "jp-team-rocket-glory", market: "JP", currency: "JPY", aliases: ["glory of team rocket", "team rocket glory"], unitMsrp: 180, cardsPerPack: 5, sourceUrl: JP_CATALOGUE, sourceObservedAt: "2025-04-18T00:00:00Z" },
 
-  // Korea — official Pokémon Card Korea pages publish both pack and 30-pack box prices.
+  // Korea — official Pokémon Card Korea pages publish pack and box prices.
+  { id: "kr-pokemon-151", market: "KR", currency: "KRW", aliases: ["pokemon card 151", "pokemon 151"], unitMsrp: 2500, boxMsrp: 50000, boxPacks: 20, cardsPerPack: 7, sourceUrl: "https://pokemoncard.co.kr/card/551", sourceObservedAt: "2023-07-28T00:00:00Z" },
+  { id: "kr-terastal-festival-ex", market: "KR", currency: "KRW", aliases: ["terastal festival ex", "terastal festival"], unitMsrp: 5000, boxMsrp: 50000, boxPacks: 10, cardsPerPack: 10, sourceUrl: "https://pokemoncard.co.kr/card/708", sourceObservedAt: "2024-12-27T00:00:00Z" },
+  { id: "kr-battle-partners", market: "KR", currency: "KRW", aliases: ["battle partners"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/731", sourceObservedAt: "2025-03-21T00:00:00Z" },
+  { id: "kr-heat-wave-arena", market: "KR", currency: "KRW", aliases: ["heat wave arena"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/772", sourceObservedAt: "2025-05-16T00:00:00Z" },
+  { id: "kr-team-rocket-glory", market: "KR", currency: "KRW", aliases: ["glory of team rocket", "team rocket glory"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/785", sourceObservedAt: "2025-06-20T00:00:00Z" },
   { id: "kr-inferno-x", market: "KR", currency: "KRW", aliases: ["inferno x"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/838", sourceObservedAt: "2025-11-28T00:00:00Z" },
   { id: "kr-mega-symphonia", market: "KR", currency: "KRW", aliases: ["mega symphonia"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/815", sourceObservedAt: "2025-09-26T00:00:00Z" },
   { id: "kr-nihil-zero", market: "KR", currency: "KRW", aliases: ["nihil zero", "nullifying zero"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/869", sourceObservedAt: "2026-03-13T00:00:00Z" },
   { id: "kr-ninja-spinner", market: "KR", currency: "KRW", aliases: ["ninja spinner"], unitMsrp: 1000, boxMsrp: 30000, boxPacks: 30, cardsPerPack: 5, sourceUrl: "https://pokemoncard.co.kr/card/887", sourceObservedAt: "2026-05-01T00:00:00Z" },
 
   // Mainland China — official Pokémon China suggested retail prices. Sets with
-  // both 5-card and 20-card pack formats stay separate value families.
+  // multiple card-count pack formats stay separate value families.
+  { id: "cn-terastal-grand-gathering", market: "CN", currency: "CNY", aliases: ["terastal grand gathering"], unitMsrp: 30, cardsPerPack: 10, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-06-12T00:00:00Z" },
   { id: "cn-blade-awakened", market: "CN", currency: "CNY", aliases: ["blade awakened"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: "https://www.pokemon.cn/tcg/product/19812.html", sourceObservedAt: "2026-01-16T00:00:00Z" },
   { id: "cn-brilliant-illusions", market: "CN", currency: "CNY", aliases: ["brilliant illusions"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-03-13T00:00:00Z" },
   { id: "cn-chasing-glory-together", market: "CN", currency: "CNY", aliases: ["chasing glory together"], formats: { standard: { unitMsrp: 10, cardsPerPack: 5 }, jumbo: { unitMsrp: 50, cardsPerPack: 20 } }, sourceUrl: CN_CATALOGUE, sourceObservedAt: "2026-07-16T00:00:00Z" },
@@ -115,7 +129,15 @@ function formatKeyFor(authority, title = "") {
 
 function authorityFor(market, title = "") {
   const text = fold(title);
-  return AUTHORITIES.find((entry) => entry.market === market && entry.aliases.some((alias) => text.includes(fold(alias)))) || null;
+  const matches = AUTHORITIES.flatMap((entry) => {
+    if (entry.market !== market) return [];
+    const matchedAliases = entry.aliases.filter((alias) => text.includes(fold(alias)));
+    if (!matchedAliases.length) return [];
+    const specificity = Math.max(...matchedAliases.map((alias) => fold(alias).length));
+    return [{ entry, specificity }];
+  });
+  matches.sort((left, right) => right.specificity - left.specificity || left.entry.id.localeCompare(right.entry.id));
+  return matches[0]?.entry || null;
 }
 
 function nativeLabel(amount, currency) {
@@ -157,21 +179,37 @@ export function resolveInternationalMsrp(input = {}) {
     return { recognized: true, resolved: false, reason: "source_market_pack_format_unresolved", sourceMarket: market };
   }
   const format = authority.formats ? authority.formats[formatKey] : authority;
-  const unitMsrp = Number(format?.unitMsrp);
+  const productType = input.productType || input.linkedProduct?.productType || "";
+  const directMsrp = Number(authority.directMsrp);
+  const isDirectProduct = Number.isFinite(directMsrp) && directMsrp > 0;
+  let unitMsrp = isDirectProduct ? directMsrp : Number(format?.unitMsrp);
   if (!Number.isFinite(unitMsrp) || unitMsrp <= 0) {
     return { recognized: true, resolved: false, reason: "source_market_msrp_invalid", sourceMarket: market };
   }
 
-  const productType = input.productType || input.linkedProduct?.productType || "";
   const explicitQuantity = quantityFromTitle(title);
   let quantity = 1;
   let sourceMsrp = unitMsrp;
   let referenceKind = "source_market_msrp";
+  let referenceUnitKind = "booster_pack";
 
-  if (productType === "booster_box") {
+  if (isDirectProduct) {
+    const allowedTypes = Array.isArray(authority.directProductTypes) ? authority.directProductTypes : [];
+    if (allowedTypes.length && !allowedTypes.includes(productType)) {
+      return { recognized: true, resolved: false, reason: "source_market_configuration_unverified", sourceMarket: market };
+    }
+    sourceMsrp = directMsrp;
+    unitMsrp = directMsrp;
+    quantity = 1;
+    referenceUnitKind = productType || "product";
+  } else if (productType === "booster_box") {
     if (Number.isFinite(authority.boxMsrp) && authority.boxMsrp > 0 && Number.isFinite(authority.boxPacks) && authority.boxPacks > 0) {
       quantity = authority.boxPacks;
       sourceMsrp = authority.boxMsrp;
+    } else if (Number.isFinite(authority.boxPacks) && authority.boxPacks > 0) {
+      quantity = authority.boxPacks;
+      sourceMsrp = unitMsrp * quantity;
+      referenceKind = "source_market_component_reference";
     } else if (explicitQuantity) {
       quantity = explicitQuantity;
       sourceMsrp = unitMsrp * quantity;
@@ -201,9 +239,12 @@ export function resolveInternationalMsrp(input = {}) {
   }
 
   const marketLabel = MARKET_LABEL[market] || market;
-  const sourceText = quantity > 1
-    ? `${nativeLabel(sourceMsrp, authority.currency)} for ${quantity} comparable booster packs`
-    : `${nativeLabel(sourceMsrp, authority.currency)} per booster pack`;
+  const sourceText = isDirectProduct
+    ? `${nativeLabel(sourceMsrp, authority.currency)} for the complete product`
+    : quantity > 1
+      ? `${nativeLabel(sourceMsrp, authority.currency)} for ${quantity} comparable booster packs`
+      : `${nativeLabel(sourceMsrp, authority.currency)} per booster pack`;
+  const priceBasisNote = authority.priceBasisNote ? ` ${authority.priceBasisNote}` : "";
   const referenceFamilyKey = `source-msrp:${authority.id}:${formatKey || "standard"}`;
 
   return {
@@ -214,9 +255,9 @@ export function resolveInternationalMsrp(input = {}) {
     rrpSource: `official-msrp:${market.toLowerCase()}:${authority.id}:${formatKey || "standard"}:${authority.sourceUrl}`,
     rrpObservedAt: epoch(authority.sourceObservedAt),
     unitCount: quantity,
-    unitKind: "booster_pack",
+    unitKind: referenceUnitKind,
     unitRrpPence,
-    referenceBasis: `Official ${marketLabel} MSRP ${sourceText}; converted to GBP using FateDrop FX snapshot ${fx.observedAt.slice(0, 10)}. This is a source-market reference, not a UK RRP.`,
+    referenceBasis: `Official ${marketLabel} MSRP ${sourceText}.${priceBasisNote} Converted to GBP using FateDrop FX snapshot ${fx.observedAt.slice(0, 10)}. This is a source-market reference, not a UK RRP.`,
     // Current value-family plumbing keys off matchedProductIds. This names the
     // external authority explicitly and cannot collide with prd_* product IDs.
     matchedProductIds: [`external-reference:${referenceFamilyKey}`],
@@ -225,10 +266,11 @@ export function resolveInternationalMsrp(input = {}) {
     sourceCurrency: authority.currency,
     sourceMsrp,
     sourceUnitMsrp: unitMsrp,
-    sourceCardsPerPack: Number.isFinite(format.cardsPerPack) ? format.cardsPerPack : null,
+    sourceCardsPerPack: isDirectProduct ? null : (Number.isFinite(format.cardsPerPack) ? format.cardsPerPack : null),
     fxGbpPerUnit: fx.gbpPerUnit,
     fxObservedAt: epoch(fx.observedAt),
     sourceUrl: authority.sourceUrl,
+    sourcePackagingUrl: authority.packagingSourceUrl || null,
   };
 }
 
