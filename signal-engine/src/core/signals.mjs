@@ -5,6 +5,11 @@ import { PriceQuality } from "./price-quality.mjs";
 import { classifyProductAlert } from "./product-alert-intelligence.mjs";
 import { signalCapabilities } from "./signal-policy.mjs";
 import { resolveSignalReference } from "./signal-reference.mjs";
+import { alertFacetEvidence, deriveAlertFacets } from "./alert-facets.mjs";
+import {
+  defaultSignalDeliveryPolicy,
+  SIGNAL_DELIVERY_POLICIES,
+} from "./signal-visibility-policy.mjs";
 
 export const WHISPER_RECYCLE_SECONDS = 12 * 60 * 60;
 
@@ -38,7 +43,19 @@ const WHISPER_RECYCLABLE_STATUSES = new Set([
   StockStatus.UNKNOWN,
 ]);
 
-function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null, deliverySuppressed = false }) {
+function signalEvidence(evidence, {
+  kind,
+  state,
+  alertClass,
+  retailerSku,
+  observedAt,
+  priorLiveConfirmation = null,
+  preparation = null,
+  productAlert = null,
+  facets = null,
+  deliveryPolicy = SIGNAL_DELIVERY_POLICIES.INTERRUPT,
+  deliveryPolicyReason = null,
+}) {
   const price = preparation?.price ?? null;
   return [
     ...(Array.isArray(evidence) ? evidence : []),
@@ -60,6 +77,7 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
       { kind: "product_alert_confidence", value: String(productAlert.confidence), observedAt },
       ...productAlert.evidence.map((value) => ({ kind: "product_alert_evidence", value, observedAt })),
     ] : []),
+    ...(facets ? alertFacetEvidence(facets, observedAt) : []),
     { kind: "signal_kind", value: kind, lifecycle: state, observedAt },
     { kind: "signal_alert_class", value: alertClass, observedAt },
     ...(retailerSku ? [{ kind: "retailer_sku", value: retailerSku, observedAt }] : []),
@@ -71,7 +89,8 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
       stockStatus: priorLiveConfirmation.stockStatus,
       confidence: priorLiveConfirmation.confidence,
     }] : []),
-    ...(deliverySuppressed ? [{ kind: "delivery_policy", value: "history_only", observedAt }] : []),
+    { kind: "delivery_policy", value: deliveryPolicy, observedAt },
+    ...(deliveryPolicyReason ? [{ kind: "delivery_policy_reason", value: deliveryPolicyReason, observedAt }] : []),
   ];
 }
 
@@ -179,7 +198,20 @@ function needsReconciledManifestedAnchor(previousOffer, currentOffer) {
     && activeManifestedAt(previousOffer) == null;
 }
 
-function buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive = null, deliverySuppressed = false }) {
+function buildSignal({
+  state,
+  kind,
+  reason,
+  currentOffer,
+  previousOffer,
+  preparation,
+  productAlert,
+  policy,
+  now,
+  priorLive = null,
+  deliveryPolicy = SIGNAL_DELIVERY_POLICIES.INTERRUPT,
+  deliveryPolicyReason = null,
+}) {
   const currentStatus = currentOffer.stockStatus;
   const previousStatus = previousOffer?.stockStatus ?? null;
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
@@ -189,6 +221,13 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
   const deliveredPricePence = currentOffer.postagePence == null || commercialPricePence == null
     ? null
     : commercialPricePence + currentOffer.postagePence;
+  const facets = currentOffer.facets || deriveAlertFacets({
+    title: currentOffer.title,
+    language: currentOffer.language,
+    region: currentOffer.region,
+    retailerCountryCode: currentOffer.retailerCountryCode,
+    evidence: currentOffer.evidence,
+  });
 
   return {
     id,
@@ -199,6 +238,7 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
     productCategory: productAlert.category,
     productSubcategory: productAlert.subcategory,
     productCategoryConfidence: productAlert.confidence,
+    facets,
     productId: currentOffer.productId,
     offerId: currentOffer.offerId,
     retailerId: currentOffer.retailerId,
@@ -209,6 +249,7 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
     url: currentOffer.url,
     imageUrl: currentOffer.imageUrl ?? null,
     rawObservedPricePence: preparation.price.rawObservedPricePence,
+    previousPricePence: Number.isFinite(previousOffer?.pricePence) ? previousOffer.pricePence : null,
     priceQuality: preparation.price.priceQuality,
     priceConfidence: preparation.price.priceConfidence,
     pricePence: commercialPricePence,
@@ -221,7 +262,8 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
     confidence: currentOffer.stockConfidence ?? 0.5,
     detectedAt: now,
     reason,
-    deliverySuppressed,
+    deliveryPolicy,
+    deliverySuppressed: deliveryPolicy !== SIGNAL_DELIVERY_POLICIES.INTERRUPT,
     target: {
       type: "product",
       productId: currentOffer.productId,
@@ -242,7 +284,9 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
       priorLiveConfirmation: priorLive,
       preparation,
       productAlert,
-      deliverySuppressed,
+      facets,
+      deliveryPolicy,
+      deliveryPolicyReason,
     }),
   };
 }
@@ -262,7 +306,8 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   let kind = null;
   let reason = null;
   let priorLive = null;
-  let deliverySuppressed = false;
+  let deliveryPolicy = null;
+  let deliveryPolicyReason = null;
 
   // CANONICAL FATEDROP LIFECYCLE CONTRACT (restored from the original Aug-21 lock):
   // WHISPER / ORU = broad, lenient product-side early intelligence: new catalogue
@@ -283,12 +328,14 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
     state = SignalState.MANIFESTED;
     kind = "baseline_live_anchor";
     reason = "Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery";
-    deliverySuppressed = true;
+    deliveryPolicy = SIGNAL_DELIVERY_POLICIES.HISTORY_ONLY;
+    deliveryPolicyReason = "quiet_baseline_anchor";
   } else if (needsReconciledManifestedAnchor(previousOffer, currentOffer)) {
     state = SignalState.MANIFESTED;
     kind = "reconciled_live_anchor";
     reason = "Verified live offer had no active Manifested lifecycle anchor; current confirmation starts a truthful live window";
-    deliverySuppressed = true;
+    deliveryPolicy = SIGNAL_DELIVERY_POLICIES.HISTORY_ONLY;
+    deliveryPolicyReason = "reconciled_live_anchor";
   } else if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
@@ -339,7 +386,24 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   }
 
   if (!state || !kind) return null;
-  return buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive, deliverySuppressed });
+  deliveryPolicy ||= defaultSignalDeliveryPolicy({ state, kind });
+  if (!deliveryPolicyReason && deliveryPolicy === SIGNAL_DELIVERY_POLICIES.INBOX_ONLY) {
+    deliveryPolicyReason = "low_value_whisper_metadata";
+  }
+  return buildSignal({
+    state,
+    kind,
+    reason,
+    currentOffer,
+    previousOffer,
+    preparation,
+    productAlert,
+    policy,
+    now,
+    priorLive,
+    deliveryPolicy,
+    deliveryPolicyReason,
+  });
 }
 
 // Compatibility for the engine's P0 branch wiring. Catalogue classification still

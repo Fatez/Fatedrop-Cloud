@@ -7,6 +7,7 @@ const POLICIES = Object.freeze([
   { method: "GET", path: "/api/true-price", limit: 90, windowMs: DEFAULT_WINDOW_MS, name: "true-price" },
   { method: "GET", path: "/api/catalogue", limit: 120, windowMs: DEFAULT_WINDOW_MS, name: "catalogue" },
   { method: "GET", path: "/api/signals", limit: 120, windowMs: DEFAULT_WINDOW_MS, name: "signals" },
+  { method: "GET", path: "/api/alert-facets", limit: 120, windowMs: DEFAULT_WINDOW_MS, name: "alert-facets" },
   { method: "GET", prefix: "/api/encounters", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "encounters" },
   { method: "GET", prefix: "/api/calendar-events", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "calendar-events" },
   { method: "GET", path: "/v1/trader/finder", limit: 30, windowMs: DEFAULT_WINDOW_MS, name: "trader-finder" },

@@ -1,3 +1,12 @@
+import { deriveAlertFacets, listAlertFacetOptions } from '../core/alert-facets.mjs';
+import {
+  effectiveSignalDeliveryPolicy,
+  publicSignalSqlFilter,
+  signalDeliveryPolicySql,
+  signalKindFrom,
+  validVanishedSqlFilter,
+} from '../core/signal-visibility-policy.mjs';
+
 export const PUBLIC_ALERT_CONTRACT_VERSION = 1;
 
 const PUBLIC_STAGES = new Set(['whisper', 'echo', 'manifested', 'vanished']);
@@ -39,6 +48,33 @@ function jsonArray(value) {
   } catch {
     return [];
   }
+}
+
+function evidenceValue(value, kind) {
+  const entry = jsonArray(value).find((candidate) => candidate?.kind === kind);
+  if (entry?.value == null) return null;
+  const normalized = String(entry.value).trim();
+  return normalized || null;
+}
+
+function presentation(row) {
+  return {
+    referenceKind: evidenceValue(row.evidence, 'rrp_value_kind'),
+    referenceBasis: evidenceValue(row.evidence, 'rrp_reference_basis'),
+    sourceMarket: evidenceValue(row.evidence, 'rrp_source_market'),
+    sourceCurrency: evidenceValue(row.evidence, 'rrp_source_currency'),
+    sourceMsrp: evidenceValue(row.evidence, 'rrp_source_msrp'),
+  };
+}
+
+function latestDiscordDelivery(row) {
+  if (!row.discord_delivery_result) return null;
+  return {
+    status: text(row.discord_delivery_result),
+    attemptedAt: isoTimestamp(row.discord_delivery_attempted_at),
+    issue: row.discord_delivery_result === 'sent' ? null : nullableText(row.discord_delivery_detail),
+    providerMessageId: nullableText(row.discord_provider_message_id),
+  };
 }
 
 function percentage(value, reference) {
@@ -288,6 +324,9 @@ function notificationCopy(row, priceIntelligence, links, productIntelligence) {
       lowestKnownUrl: links.lowestKnown?.url ?? null,
       compareQuery: links.compareQuery,
       productCategory: productIntelligence.category,
+      signalKind: signalKindFrom(row) || null,
+      languageGroup: row.alert_facets?.languageGroup || null,
+      setKey: row.alert_facets?.setKey || null,
       observedDurationSeconds: row.observed_duration_seconds,
       linksPrepared: true,
     },
@@ -300,6 +339,9 @@ function toCanonicalAlert(row) {
   const links = preparedLinks(row, fateStage);
   const productIntelligence = classifyProduct(row);
   const window = liveWindow(row);
+  const facets = deriveAlertFacets({ title: row.title, retailerCountryCode: 'GB', evidence: row.evidence });
+  const deliveryPolicy = row.delivery_policy || effectiveSignalDeliveryPolicy(row);
+  row.alert_facets = facets;
   return {
     id: row.id,
     type: row.state.toUpperCase(),
@@ -309,6 +351,10 @@ function toCanonicalAlert(row) {
     retailerId: row.retailer_id,
     title: row.title,
     message: row.reason,
+    signalKind: signalKindFrom(row) || null,
+    deliveryPolicy,
+    interruptEligible: deliveryPolicy === 'interrupt',
+    facets,
     retailer: row.retailer_name,
     detectedAt: isoTimestamp(row.detected_at),
     observedDurationSeconds: window?.observedDurationSeconds ?? null,
@@ -325,7 +371,10 @@ function toCanonicalAlert(row) {
       pricePence: row.price_pence,
       rrpPence: priceIntelligence.rrpPence,
       deliveredPricePence: row.delivered_price_pence,
+      stockStatus: row.stock_status,
     },
+    presentation: presentation(row),
+    delivery: { discord: latestDiscordDelivery(row) },
     priceIntelligence,
     signalThread: signalThread(row),
     preparedLinks: links,
@@ -338,7 +387,8 @@ const ALERT_SQL = `
   SELECT
     s.id,s.state,s.product_id,s.offer_id,s.retailer_id,s.retailer_name,s.title,s.product_type,s.url,s.image_url,s.price_pence,
     s.rrp_pence AS signal_rrp_pence,p.official_rrp_pence AS canonical_rrp_pence,
-    s.delivered_price_pence,s.stock_status,s.confidence,s.detected_at,
+    s.delivered_price_pence,s.postage_pence,s.stock_status,s.previous_stock_status,s.confidence,s.detected_at,
+    ${signalDeliveryPolicySql('s')} AS delivery_policy,
     live_window.manifested_at AS live_manifested_at,
     persisted_live.last_confirmed_live_at,
     (CASE WHEN s.state='vanished' AND live_window.manifested_at IS NOT NULL THEN GREATEST(0,s.detected_at-live_window.manifested_at) ELSE NULL END)::integer AS observed_duration_seconds,
@@ -349,7 +399,9 @@ const ALERT_SQL = `
     official.offer_id AS official_offer_id,official.retailer_id AS official_retailer_id,official.retailer_name AS official_retailer_name,official.url AS official_url,
     official.price_pence AS official_item_price_pence,official.stock_status AS official_stock_status,
     CASE WHEN official.postage_pence IS NOT NULL AND official.price_pence IS NOT NULL THEN official.price_pence + official.postage_pence ELSE NULL END AS official_delivered_price_pence,
-    history.history_json,alternatives.alternatives_json
+    history.history_json,alternatives.alternatives_json,
+    discord_delivery.result AS discord_delivery_result,discord_delivery.detail AS discord_delivery_detail,
+    discord_delivery.provider_message_id AS discord_provider_message_id,discord_delivery.attempted_at AS discord_delivery_attempted_at
   FROM fatedrop_signals s
   LEFT JOIN fatedrop_products p ON p.id=s.product_id
   LEFT JOIN LATERAL (
@@ -440,26 +492,32 @@ const ALERT_SQL = `
       LIMIT 8
     ) a
   ) alternatives ON true
+  LEFT JOIN LATERAL (
+    SELECT delivery.result,delivery.detail,delivery.provider_message_id,delivery.attempted_at
+    FROM fatedrop_signal_delivery_attempts delivery
+    WHERE delivery.signal_id=s.id AND delivery.channel='discord'
+    ORDER BY delivery.attempted_at DESC
+    LIMIT 1
+  ) discord_delivery ON true
   WHERE ($1::text IS NULL OR s.id=$1)
-    AND ($2::text IS NULL OR s.state=$2)
-    AND NOT EXISTS (
-      SELECT 1
-      FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) delivery_policy
-      WHERE delivery_policy->>'kind'='delivery_policy'
-        AND delivery_policy->>'value'='history_only'
-    )
-    AND (s.state <> 'vanished' OR live_window.manifested_at IS NOT NULL OR persisted_live.persisted_prior_live IS TRUE)
+    AND ($2::text[] IS NULL OR s.state=ANY($2))
+    AND ${publicSignalSqlFilter('s')}
+    AND ${validVanishedSqlFilter('s')}
     AND s.state IN ('whisper','echo','manifested','vanished')
   ORDER BY s.detected_at DESC
   LIMIT $3`;
 
-export async function listCanonicalPublicAlerts(store, { id = null, state = null, limit = 50 } = {}) {
+export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, limit = 50 } = {}) {
   if (!store || typeof store.pool !== 'function') return null;
   const pool = await store.pool();
   const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));
   const normalizedState = String(state || '').trim().toLowerCase();
-  const safeState = PUBLIC_STAGES.has(normalizedState) ? normalizedState : null;
-  const { rows } = await pool.query(ALERT_SQL, [id || null, safeState, safeLimit]);
+  const requestedStates = Array.isArray(states)
+    ? [...new Set(states.map((item) => String(item || '').trim().toLowerCase()).filter((item) => PUBLIC_STAGES.has(item)))]
+    : [];
+  if (PUBLIC_STAGES.has(normalizedState)) requestedStates.push(normalizedState);
+  const safeStates = requestedStates.length ? [...new Set(requestedStates)] : null;
+  const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit]);
   return rows
     .filter((row) => PUBLIC_STAGES.has(String(row.state)))
     .map(toCanonicalAlert);
@@ -491,5 +549,16 @@ export async function handlePublicAlerts(req, res, { store } = {}) {
     generatedAt: new Date().toISOString(),
     count: alerts.length,
     alerts,
+  });
+}
+
+export async function handlePublicAlertFacets(_req, res) {
+  return json(res, 200, {
+    success: true,
+    available: true,
+    contractVersion: PUBLIC_ALERT_CONTRACT_VERSION,
+    source: 'FATEDROP_CLOUD',
+    generatedAt: new Date().toISOString(),
+    ...listAlertFacetOptions(),
   });
 }
