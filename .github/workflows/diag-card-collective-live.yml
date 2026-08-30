@@ -1,0 +1,59 @@
+name: Diagnose Card Collective Live Price Stock
+
+on:
+  push:
+    branches:
+      - diag/card-collective-live-price-stock-2026-08-30
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Compare Shopify feed, localized product JSON, and FateDrop live catalogue
+        shell: bash
+        run: |
+          set -euo pipefail
+          COLLECTION='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250'
+          HANDLE='pokemon-tcg-terastal-grand-gathering-booster-box-simplified-chinese'
+          CLOUD='https://fatedrop-cloud-production.up.railway.app/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25'
+
+          curl --fail --silent --show-error --location --retry 3 "$COLLECTION" -o /tmp/collection.json
+          curl --fail --silent --show-error --location --retry 3 "https://card-collective.com/products/${HANDLE}.js?country=GB" -o /tmp/product-gb.json
+          curl --fail --silent --show-error --location --retry 3 "https://card-collective.com/products/${HANDLE}.js?country=CA" -o /tmp/product-ca.json
+          curl --fail --silent --show-error --location --retry 3 "$CLOUD" -o /tmp/cloud.json
+
+          node <<'NODE'
+          const fs = require('fs');
+          const collection = JSON.parse(fs.readFileSync('/tmp/collection.json', 'utf8'));
+          const gb = JSON.parse(fs.readFileSync('/tmp/product-gb.json', 'utf8'));
+          const ca = JSON.parse(fs.readFileSync('/tmp/product-ca.json', 'utf8'));
+          const cloud = JSON.parse(fs.readFileSync('/tmp/cloud.json', 'utf8'));
+
+          const needle = /terastal grand gathering booster box/i;
+          const product = (collection.products || []).find((p) => needle.test(String(p.title || '')));
+          const compactVariants = (p) => (p?.variants || []).map((v) => ({
+            id: String(v.id || ''),
+            title: v.title || null,
+            price: v.price ?? null,
+            available: v.available ?? null,
+          }));
+          const cloudRows = (cloud.products || []).filter((p) => needle.test(String(p.title || ''))).map((p) => ({
+            id: p.id || null,
+            sku: p.sku || null,
+            title: p.title || null,
+            price: p.price ?? null,
+            availability: p.availability || null,
+            lastSeen: p.lastSeen || null,
+          }));
+
+          console.log(JSON.stringify({
+            collection: product ? { title: product.title, handle: product.handle, variants: compactVariants(product) } : null,
+            localizedGb: { title: gb.title || null, handle: gb.handle || null, variants: compactVariants(gb) },
+            localizedCa: { title: ca.title || null, handle: ca.handle || null, variants: compactVariants(ca) },
+            fateDrop: { total: cloud.total ?? null, rows: cloudRows },
+          }, null, 2));
+          NODE
