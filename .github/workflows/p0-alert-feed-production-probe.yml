@@ -21,7 +21,7 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const base = 'https://fatedrop-cloud-production.up.railway.app/api/signal-summary';
+          const base = 'https://fatedrop-cloud-production.up.railway.app/api/signals';
           const historyOnlyReasons = new Set([
             'Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery',
             'Verified live offer had no active Manifested lifecycle anchor; current confirmation starts a truthful live window',
