@@ -1,6 +1,13 @@
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const ORPHAN_GRACE_SECONDS = 120;
 const RELIABILITY_LOOKBACK_SECONDS = 24 * 60 * 60;
+const DELIVERY_ELIGIBLE_SIGNAL_FILTER = `AND NOT EXISTS (
+  SELECT 1
+  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) delivery_policy
+  WHERE delivery_policy->>'kind'='delivery_policy'
+    AND delivery_policy->>'value'='history_only'
+)`;
+
 const VALID_VANISHED_FILTER = `AND (
   s.state <> 'vanished'
   OR (
@@ -111,8 +118,8 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
     pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds FROM (SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord' AND a.attempted_at >= s.detected_at AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER}) sent GROUP BY GROUPING SETS ((state),())`, [day0]),
-    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.detected_at <= $2 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} AND NOT EXISTS (SELECT 1 FROM fatedrop_signal_delivery_attempts a WHERE a.signal_id=s.id AND a.channel='discord') ORDER BY s.detected_at ASC LIMIT 100`, [reliabilitySince, orphanBefore]),
-    pool.query(`SELECT (SELECT MAX(detected_at) FROM fatedrop_signals WHERE detected_at >= $1 AND state IN ('whisper','echo','manifested','vanished')) AS latest_signal_at, (SELECT MAX(attempted_at) FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS latest_discord_attempt_at, (SELECT COUNT(*)::int FROM fatedrop_signals WHERE detected_at >= $1 AND state IN ('whisper','echo','manifested','vanished')) AS recent_signals, (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS recent_discord_attempts`, [reliabilitySince]),
+    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.detected_at <= $2 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} ${DELIVERY_ELIGIBLE_SIGNAL_FILTER} AND NOT EXISTS (SELECT 1 FROM fatedrop_signal_delivery_attempts a WHERE a.signal_id=s.id AND a.channel='discord') ORDER BY s.detected_at ASC LIMIT 100`, [reliabilitySince, orphanBefore]),
+    pool.query(`SELECT (SELECT MAX(s.detected_at) FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${DELIVERY_ELIGIBLE_SIGNAL_FILTER}) AS latest_signal_at, (SELECT MAX(attempted_at) FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS latest_discord_attempt_at, (SELECT COUNT(*)::int FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${DELIVERY_ELIGIBLE_SIGNAL_FILTER}) AS recent_signals, (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS recent_discord_attempts`, [reliabilitySince]),
     pool.query(`SELECT TRUE AS discovery_available,
       COUNT(*) FILTER (WHERE COALESCE(evidence->'canonical_pipeline'->>'status','pending')='pending')::int AS pending,
       COUNT(*) FILTER (WHERE evidence->'canonical_pipeline'->>'status'='retry')::int AS retry,
