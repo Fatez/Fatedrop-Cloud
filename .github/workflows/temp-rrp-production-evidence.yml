@@ -12,48 +12,74 @@ jobs:
   evidence:
     runs-on: ubuntu-latest
     steps:
-      - name: Inspect production canonical Whisper RRP coverage
+      - uses: actions/checkout@v4
+      - name: Inspect production duplicate identity RRP gaps
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-          const numeric = (value) => value != null && Number.isFinite(Number(value));
-          const countsBy = (rows, keyFn) => Object.fromEntries([...rows.reduce((map, row) => {
-            const key = String(keyFn(row) || 'unknown');
-            map.set(key, (map.get(key) || 0) + 1);
-            return map;
-          }, new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)));
+          node --input-type=module <<'NODE'
+          import { describeProductIdentity } from './signal-engine/src/core/product-identity.mjs';
 
-          for (let attempt = 1; attempt <= 8; attempt += 1) {
-            try {
-              const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-RRP-production-evidence/1.0' } });
-              if (!response.ok) throw new Error(`HTTP ${response.status}`);
-              const payload = await response.json();
-              const all = Array.isArray(payload.alerts) ? payload.alerts : [];
-              const whispers = all.filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
-              const withRrp = whispers.filter((alert) => numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0);
-              const withDelta = whispers.filter((alert) => numeric(alert?.priceIntelligence?.rrpDeltaPercent));
-              const withoutRrp = whispers.filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
-              const bodiesWithRrp = whispers.filter((alert) => /RRP/.test(String(alert?.notification?.body || '')));
-              const output = {
-                attempt,
-                success: payload?.success === true,
-                returnedAlerts: all.length,
-                whispers: whispers.length,
-                whispersWithRrp: withRrp.length,
-                whispersWithRrpDeltaPercent: withDelta.length,
-                whisperNotificationBodiesWithRrp: bodiesWithRrp.length,
-                rrpCoveragePercent: whispers.length ? Math.round((withRrp.length / whispers.length) * 1000) / 10 : null,
-                deltaCoveragePercent: whispers.length ? Math.round((withDelta.length / whispers.length) * 1000) / 10 : null,
-                missingRrpByCategory: countsBy(withoutRrp, (alert) => alert?.productIntelligence?.category),
-                missingRrpByProductType: countsBy(withoutRrp, (alert) => alert?.product?.productType),
-              };
-              console.log(JSON.stringify(output));
-            } catch (error) {
-              console.log(JSON.stringify({ attempt, error: String(error?.message || error) }));
-            }
-            if (attempt < 8) await sleep(30000);
+          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
+          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-RRP-duplicate-evidence/1.0' } });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const payload = await response.json();
+          const numeric = (value) => value != null && Number.isFinite(Number(value));
+          const whispers = (Array.isArray(payload.alerts) ? payload.alerts : [])
+            .filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
+
+          function signature(alert) {
+            const d = describeProductIdentity({
+              title: alert?.product?.title || alert?.title || '',
+              productType: alert?.product?.productType || null,
+              tcg: 'pokemon',
+            });
+            return JSON.stringify({
+              tcg: d.tcg,
+              productType: d.productType,
+              coreSignature: d.coreSignature,
+              exclusive: d.exclusive || 'standard',
+              language: d.language,
+              region: d.region,
+              edition: d.edition,
+              unitKind: d.unitKind,
+              formatVariant: d.formatVariant,
+              presentation: d.presentation,
+              packCount: d.packCount,
+              caseQuantity: d.caseQuantity,
+            });
           }
+
+          const groups = new Map();
+          for (const alert of whispers) {
+            const key = signature(alert);
+            const bucket = groups.get(key) || [];
+            bucket.push(alert);
+            groups.set(key, bucket);
+          }
+
+          const duplicateGroups = [...groups.values()].filter((rows) => new Set(rows.map((x) => x.productId)).size > 1);
+          const mixedRrpGroups = duplicateGroups.filter((rows) => {
+            const statuses = new Set(rows.map((alert) => numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
+            return statuses.size > 1;
+          });
+          const missing = whispers.filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
+          const missingInDuplicateGroups = new Set(duplicateGroups.flatMap((rows) => rows
+            .filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0))
+            .map((alert) => alert.id)));
+          const missingWithRrpSibling = new Set(mixedRrpGroups.flatMap((rows) => rows
+            .filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0))
+            .map((alert) => alert.id)));
+
+          console.log(JSON.stringify({
+            success: payload?.success === true,
+            whispers: whispers.length,
+            missingRrp: missing.length,
+            deterministicDuplicateIdentityGroups: duplicateGroups.length,
+            alertsInDuplicateIdentityGroups: duplicateGroups.reduce((sum, rows) => sum + rows.length, 0),
+            missingRrpAlertsInDuplicateIdentityGroups: missingInDuplicateGroups.size,
+            duplicateGroupsWithMixedRrpCoverage: mixedRrpGroups.length,
+            missingRrpAlertsWithVerifiedRrpSibling: missingWithRrpSibling.size,
+            largestDuplicateIdentityGroup: duplicateGroups.reduce((max, rows) => Math.max(max, new Set(rows.map((x) => x.productId)).size), 0),
+          }));
           NODE
