@@ -1,12 +1,6 @@
 name: Monitor FateDrop Local Radar Operator Production
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/monitor-local-radar-operator-production.yml"
-      - "signal-engine/src/encounters/operator-local-radar-intake.mjs"
-      - "signal-engine/src/encounters/operator-local-radar-bridge-health.mjs"
-      - "signal-engine/src/telemetry/public-signal-contract.mjs"
   push:
     branches: [main]
     paths:
