@@ -19,16 +19,23 @@ jobs:
           node <<'NODE'
           const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const numeric = (value) => value != null && Number.isFinite(Number(value));
+          const countsBy = (rows, keyFn) => Object.fromEntries([...rows.reduce((map, row) => {
+            const key = String(keyFn(row) || 'unknown');
+            map.set(key, (map.get(key) || 0) + 1);
+            return map;
+          }, new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)));
 
-          for (let attempt = 1; attempt <= 12; attempt += 1) {
+          for (let attempt = 1; attempt <= 8; attempt += 1) {
             try {
               const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-RRP-production-evidence/1.0' } });
               if (!response.ok) throw new Error(`HTTP ${response.status}`);
               const payload = await response.json();
               const all = Array.isArray(payload.alerts) ? payload.alerts : [];
               const whispers = all.filter((alert) => String(alert?.fateStage || '').toUpperCase() === 'WHISPER');
-              const withRrp = whispers.filter((alert) => Number.isFinite(Number(alert?.priceIntelligence?.rrpPence)) && Number(alert.priceIntelligence.rrpPence) > 0);
-              const withDelta = whispers.filter((alert) => Number.isFinite(Number(alert?.priceIntelligence?.rrpDeltaPercent)));
+              const withRrp = whispers.filter((alert) => numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0);
+              const withDelta = whispers.filter((alert) => numeric(alert?.priceIntelligence?.rrpDeltaPercent));
+              const withoutRrp = whispers.filter((alert) => !(numeric(alert?.priceIntelligence?.rrpPence) && Number(alert.priceIntelligence.rrpPence) > 0));
               const bodiesWithRrp = whispers.filter((alert) => /RRP/.test(String(alert?.notification?.body || '')));
               const output = {
                 attempt,
@@ -40,13 +47,13 @@ jobs:
                 whisperNotificationBodiesWithRrp: bodiesWithRrp.length,
                 rrpCoveragePercent: whispers.length ? Math.round((withRrp.length / whispers.length) * 1000) / 10 : null,
                 deltaCoveragePercent: whispers.length ? Math.round((withDelta.length / whispers.length) * 1000) / 10 : null,
+                missingRrpByCategory: countsBy(withoutRrp, (alert) => alert?.productIntelligence?.category),
+                missingRrpByProductType: countsBy(withoutRrp, (alert) => alert?.product?.productType),
               };
               console.log(JSON.stringify(output));
-              if (whispers.length > 0) process.exit(0);
             } catch (error) {
               console.log(JSON.stringify({ attempt, error: String(error?.message || error) }));
             }
-            await sleep(15000);
+            if (attempt < 8) await sleep(30000);
           }
-          process.exit(1);
           NODE
