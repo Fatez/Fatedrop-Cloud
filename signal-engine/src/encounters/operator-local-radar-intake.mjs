@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
-import { probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
+import { operatorLocalRadarBridgeConfig, probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
 import { reconcileCuratedIncomingIntel } from "./curated-incoming-intel-reconcile.mjs";
 
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
@@ -149,9 +149,8 @@ export function buildOperatorNotification(parsed, reconciliation) {
 }
 
 export async function publishOperatorNotification(notification, fetchImpl = fetch) {
-  const snapshotUrl = text(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL, 1000);
-  const secret = text(process.env.FATEDROP_METRICS_INGEST_SECRET, 1000);
-  if (!snapshotUrl || !secret) return { published: false, reason: "web_bridge_not_configured" };
+  const { snapshotUrl, secret, configured } = operatorLocalRadarBridgeConfig();
+  if (!configured) return { published: false, reason: "web_bridge_not_configured" };
   let target;
   try {
     target = new URL("/api/dashboard/local-radar-operator-alert", snapshotUrl).toString();
@@ -234,15 +233,13 @@ const operatorHealth = {
 };
 
 export function getOperatorLocalRadarHealth() {
+  const bridgeConfig = operatorLocalRadarBridgeConfig();
   return {
     ...operatorHealth,
     intervalSeconds: Math.floor(POLL_INTERVAL_MS / 1000),
     startDelaySeconds: Math.floor(POLL_START_DELAY_MS / 1000),
     canonicalStoreConfigured: Boolean(env.databaseUrl && env.store === "postgres"),
-    webBridgeConfigured: Boolean(
-      text(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL, 1000)
-      && text(process.env.FATEDROP_METRICS_INGEST_SECRET, 1000)
-    ),
+    webBridgeConfigured: bridgeConfig.configured,
   };
 }
 
