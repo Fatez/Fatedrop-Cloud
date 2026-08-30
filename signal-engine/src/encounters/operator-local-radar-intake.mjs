@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
+import { deriveAlertFacets } from "../core/alert-facets.mjs";
 import { operatorLocalRadarBridgeConfig, probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
 import {
   inspectCuratedIncomingIntelTargets,
@@ -145,6 +146,8 @@ export function buildOperatorNotification(parsed, reconciliation) {
   }
   const datePhrase = parsed.notificationDateLabel ? ` ${parsed.notificationDateLabel}` : "";
   const storeWord = branchCount === 1 ? "store" : "stores";
+  const facets = deriveAlertFacets({ title: parsed.entry.rawProductTitle, retailerCountryCode: "GB" });
+  const facetPayload = { languageGroup: facets.languageGroup, setKey: facets.setKey };
   if (parsed.testOnly) {
     return {
       eventId: parsed.eventId,
@@ -160,6 +163,7 @@ export function buildOperatorNotification(parsed, reconciliation) {
       expectedLabel: parsed.entry.expectedLabel,
       branchCount,
       operatorIssue: parsed.issueNumber,
+      ...facetPayload,
     };
   }
   return {
@@ -176,6 +180,7 @@ export function buildOperatorNotification(parsed, reconciliation) {
     expectedLabel: parsed.entry.expectedLabel,
     branchCount,
     operatorIssue: parsed.issueNumber,
+    ...facetPayload,
   };
 }
 

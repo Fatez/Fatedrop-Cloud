@@ -13,6 +13,8 @@ import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } fro
 import { preloadPreviousState } from "./previous-state.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
 import { rememberUnresolvedRrp, rememberVerifiedRrpAlias, resolveRememberedRrpAlias } from "./rrp-learning-runtime.mjs";
+import { deriveAlertFacets } from "./alert-facets.mjs";
+import { applySignalBurstSafety } from "./signal-visibility-policy.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -31,6 +33,8 @@ function normalizeExternalProduct(raw) {
     postagePence: Number.isFinite(raw.postagePence) && raw.postagePence >= 0 ? Math.round(raw.postagePence) : null,
     officialRrpPence: Number.isFinite(raw.officialRrpPence) ? Math.round(raw.officialRrpPence) : null,
     gtin,
+    language: raw.language || null,
+    region: raw.region || null,
     productType,
     canonicalKey: raw.canonicalKey || canonicalKey(title, productType),
     stockStatus: raw.stockStatus || "unknown",
@@ -106,6 +110,9 @@ function rrpEvidence(evidence, resolvedValue) {
   if (resolvedValue.kind) extra.push({ kind: "rrp_value_kind", value: String(resolvedValue.kind) });
   if (resolvedValue.rrpSource) extra.push({ kind: "rrp_value_source", value: String(resolvedValue.rrpSource) });
   if (resolvedValue.referenceBasis) extra.push({ kind: "rrp_reference_basis", value: String(resolvedValue.referenceBasis) });
+  if (resolvedValue.sourceMarket) extra.push({ kind: "rrp_source_market", value: String(resolvedValue.sourceMarket) });
+  if (resolvedValue.sourceCurrency) extra.push({ kind: "rrp_source_currency", value: String(resolvedValue.sourceCurrency) });
+  if (resolvedValue.sourceMsrp != null) extra.push({ kind: "rrp_source_msrp", value: String(resolvedValue.sourceMsrp) });
   if (resolvedValue.learnedAlias === true) extra.push({ kind: "rrp_learning_disposition", value: "resolved_from_memory" });
   return [...base, ...extra];
 }
@@ -125,6 +132,9 @@ function dedupeCanonicalProducts(products) {
       officialRrpPence: existing.officialRrpPence ?? product.officialRrpPence,
       rrpSource: existing.rrpSource ?? product.rrpSource,
       rrpObservedAt: existing.rrpObservedAt ?? product.rrpObservedAt,
+      languageCode: existing.languageCode ?? product.languageCode,
+      regionCode: existing.regionCode ?? product.regionCode,
+      setName: existing.setName ?? product.setName,
       firstSeenAt: Math.min(existing.firstSeenAt ?? product.firstSeenAt, product.firstSeenAt ?? existing.firstSeenAt),
       updatedAt: Math.max(existing.updatedAt ?? 0, product.updatedAt ?? 0),
     });
@@ -291,6 +301,17 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const previousOffer = previousState
       ? previousState.offers.get(offerId) ?? null
       : await store.getOffer(offerId);
+    const offerEvidence = rrpEvidence(raw.evidence, resolvedRrpValue);
+    const facets = deriveAlertFacets({
+      title: raw.title,
+      language: raw.language,
+      region: raw.region,
+      retailerCountryCode: retailer.countryCode || "GB",
+      evidence: offerEvidence,
+    });
+    product.languageCode = facets.languageCode;
+    product.regionCode = facets.marketCode || null;
+    product.setName = facets.setName;
     const offer = {
       offerId,
       productId,
@@ -308,7 +329,11 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       stockStatus: raw.stockStatus,
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
-      evidence: rrpEvidence(raw.evidence, resolvedRrpValue),
+      evidence: offerEvidence,
+      language: raw.language || null,
+      region: raw.region || null,
+      retailerCountryCode: retailer.countryCode || "GB",
+      facets,
       everAvailableAt: previousOffer?.everAvailableAt ?? null,
       firstSeenAt: previousOffer?.firstSeenAt ?? now,
       lastSeenAt: now,
@@ -362,13 +387,15 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     if (derivedSignals.length) signals.push(...derivedSignals);
   }
 
+  const burstSafety = applySignalBurstSafety(signals);
+  signals.splice(0, signals.length, ...burstSafety.signals);
   const completedAt = Math.floor(Date.now() / 1000);
   const uniqueProducts = dedupeCanonicalProducts(products);
   await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
   const rrpLearning = await persistRrpLearningActions(store, rrpLearningActions);
 
   const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, signals, discord };
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, signalSafety: burstSafety.diagnostics, signals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {

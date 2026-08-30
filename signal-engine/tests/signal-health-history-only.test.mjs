@@ -28,9 +28,12 @@ test('Discord reliability ignores canonical history-only lifecycle anchors', asy
   const freshnessSql = seen.find((sql) => sql.includes('latest_signal_at'));
   assert.ok(orphanSql, 'orphan reliability query should execute');
   assert.ok(freshnessSql, 'freshness reliability query should execute');
-  assert.match(orphanSql, /delivery_policy->>'kind'='delivery_policy'/);
-  assert.match(orphanSql, /delivery_policy->>'value'='history_only'/);
-  assert.equal((freshnessSql.match(/delivery_policy->>'value'='history_only'/g) || []).length, 2);
+  assert.match(orphanSql, /policy_item->>'kind'='delivery_policy'/);
+  assert.match(orphanSql, /catalogue_price_change/);
+  assert.match(orphanSql, /= 'interrupt'/);
+  assert.match(orphanSql, /COUNT\(\*\) OVER\(\)::int AS orphan_total/);
+  assert.equal((freshnessSql.match(/policy_item->>'kind'='delivery_policy'/g) || []).length >= 4, true);
+  assert.equal((freshnessSql.match(/= 'interrupt'/g) || []).length, 4);
   assert.match(freshnessSql, /MAX\(s\.detected_at\)/);
   assert.match(freshnessSql, /COUNT\(\*\)::int FROM fatedrop_signals s/);
 });

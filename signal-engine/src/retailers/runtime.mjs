@@ -19,6 +19,7 @@ export function retailerToAdapterConfig(input, { requireMonitored = true, allowU
   const base = {
     id: retailer.id,
     name: retailer.name,
+    countryCode: retailer.countryCode,
     tcg: activeTcgs[0],
     baseUrl: retailer.websiteUrl,
     adapterType: retailer.adapterType,

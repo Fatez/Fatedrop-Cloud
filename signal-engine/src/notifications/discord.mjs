@@ -1,5 +1,6 @@
 import { env } from "../config/env.mjs";
 import { ALERT_CLASSES, signalCapabilities } from "../core/signal-policy.mjs";
+import { effectiveSignalDeliveryPolicy, SIGNAL_DELIVERY_POLICIES } from "../core/signal-visibility-policy.mjs";
 
 const DISCORD_API = "https://discord.com/api/v10";
 const DISCORD_SIGNAL_STATES = new Set(["whisper", "echo", "manifested", "vanished"]);
@@ -210,7 +211,18 @@ export function discordBotTokenForState(state, {
 }
 
 export function isDiscordSignal(signal) {
-  return Boolean(signal && signal.deliverySuppressed !== true && DISCORD_SIGNAL_STATES.has(signal.state));
+  return discordSignalDecision(signal).eligible;
+}
+
+export function discordSignalDecision(signal) {
+  if (!signal || !DISCORD_SIGNAL_STATES.has(signal.state)) {
+    return { eligible: false, reason: "unsupported_state", policy: null };
+  }
+  const policy = effectiveSignalDeliveryPolicy(signal);
+  if (policy !== SIGNAL_DELIVERY_POLICIES.INTERRUPT) {
+    return { eligible: false, reason: `policy_${policy}`, policy };
+  }
+  return { eligible: true, reason: null, policy };
 }
 
 export function buildDiscordSignalMessage(signal) {
@@ -287,7 +299,8 @@ export async function sendDiscordSignal(signal, {
   channelIds = env.discord.channelIds,
   fallbackChannelId = env.discord.premiumDropsChannelId,
 } = {}) {
-  if (!isDiscordSignal(signal)) return { sent: false, reason: "state_not_enabled" };
+  const eligibility = discordSignalDecision(signal);
+  if (!eligibility.eligible) return { sent: false, reason: eligibility.reason };
   const resolvedBotToken = botToken || discordBotTokenForState(signal.state, { botTokens, fallbackBotToken });
   if (!resolvedBotToken) return { sent: false, reason: "missing_bot_token" };
   const resolvedChannelId = channelId || discordChannelForState(signal.state, { channelIds, fallbackChannelId });
@@ -333,7 +346,13 @@ export async function dispatchDiscordSignals(signals, options = {}) {
   const onDeliveryAttempt = options.onDeliveryAttempt;
   const seen = new Set();
   for (const signal of signals || []) {
-    if (!isDiscordSignal(signal)) { summary.skipped += 1; continue; }
+    const attemptedAt = Math.floor(Date.now() / 1000);
+    const eligibility = discordSignalDecision(signal);
+    if (!eligibility.eligible) {
+      summary.skipped += 1;
+      await reportDeliveryAttempt(onDeliveryAttempt, { signalId: signal?.id, channel: "discord", attemptedAt, result: "skipped", providerMessageId: null, detail: eligibility.reason });
+      continue;
+    }
     const key = dedupeKey(signal);
     if (seen.has(key)) {
       summary.skipped += 1;
@@ -341,7 +360,6 @@ export async function dispatchDiscordSignals(signals, options = {}) {
       continue;
     }
     seen.add(key);
-    const attemptedAt = Math.floor(Date.now() / 1000);
     try {
       const result = await sendDiscordSignal(signal, options);
       if (result.sent) {

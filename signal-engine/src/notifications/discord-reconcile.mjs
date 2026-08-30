@@ -1,5 +1,6 @@
 import { dispatchDiscordSignals } from "./discord.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
+import { discordEligibleSignalSqlFilter, signalInterruptEligible } from "../core/signal-visibility-policy.mjs";
 
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const DEFAULT_GRACE_SECONDS = 90;
@@ -88,6 +89,7 @@ export function discordRecoveryDecision({
 } = {}) {
   const state = String(signal?.state || "").toLowerCase();
   if (!LIFECYCLE_STATES.includes(state)) return { recover: false, reason: "unsupported_state" };
+  if (!signalInterruptEligible(signal)) return { recover: false, reason: "policy_not_interrupt_eligible" };
   const detectedAt = Number(signal?.detectedAt);
   if (!Number.isFinite(detectedAt) || detectedAt <= 0) return { recover: false, reason: "invalid_detected_at" };
 
@@ -191,6 +193,7 @@ export async function reconcileMissingDiscordDeliveries({
        WHERE s.detected_at >= $1
          AND s.detected_at <= $2
          AND s.state = ANY($3)
+         AND ${discordEligibleSignalSqlFilter("s")}
          AND NOT EXISTS (
            SELECT 1
            FROM fatedrop_signal_delivery_attempts delivered
