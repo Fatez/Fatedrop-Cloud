@@ -2,11 +2,15 @@ import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
 import { operatorLocalRadarBridgeConfig, probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
-import { reconcileCuratedIncomingIntel } from "./curated-incoming-intel-reconcile.mjs";
+import {
+  inspectCuratedIncomingIntelTargets,
+  reconcileCuratedIncomingIntel,
+} from "./curated-incoming-intel-reconcile.mjs";
 
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
 const ISSUE_PREFIX = "[FATEDROP LOCAL RADAR]";
+const TEST_ISSUE_TITLE = "[FATEDROP LOCAL RADAR] TEST ONLY";
 const POLL_INTERVAL_MS = 120_000;
 const POLL_START_DELAY_MS = 20_000;
 const STRONG_ECHO_SOURCES = new Set([
@@ -68,6 +72,14 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Operator payload must be an object");
   if (Number(payload.schemaVersion) !== 1) throw new Error("Operator payload schemaVersion must be 1");
 
+  const testOnly = payload.testOnly === true;
+  if (testOnly && String(issue.title || "").trim() !== TEST_ISSUE_TITLE) {
+    throw new Error("testOnly operator issues must use the exact TEST ONLY title");
+  }
+  if (!testOnly && String(issue.title || "").trim() === TEST_ISSUE_TITLE) {
+    throw new Error("TEST ONLY operator issues must set testOnly=true");
+  }
+
   const retailerId = text(payload.retailerId, 120);
   const retailerName = text(payload.retailerName, 120);
   const rawProductTitle = text(payload.rawProductTitle, 220);
@@ -100,11 +112,12 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
   return {
     issueNumber,
-    eventId: `local-radar-operator:${issueNumber}`,
+    testOnly,
+    eventId: testOnly ? `local-radar-operator-test:${issueNumber}` : `local-radar-operator:${issueNumber}`,
     retailerName,
     notificationDateLabel,
     entry: {
-      id: `operator-local-radar-${issueNumber}`,
+      id: testOnly ? `operator-local-radar-test-${issueNumber}` : `operator-local-radar-${issueNumber}`,
       retailerId,
       kind,
       rawProductTitle,
@@ -132,8 +145,26 @@ export function buildOperatorNotification(parsed, reconciliation) {
   }
   const datePhrase = parsed.notificationDateLabel ? ` ${parsed.notificationDateLabel}` : "";
   const storeWord = branchCount === 1 ? "store" : "stores";
+  if (parsed.testOnly) {
+    return {
+      eventId: parsed.eventId,
+      testOnly: true,
+      stage: parsed.entry.kind === "echo" ? "ECHO" : "WHISPER",
+      title: "FateDrop · Local Radar · TEST ONLY",
+      body: `TEST ONLY · Operator transport verification matched ${branchCount} canonical ${parsed.retailerName} ${storeWord}. No stock or Local Radar history has been created.`,
+      retailerId: parsed.entry.retailerId,
+      retailerName: parsed.retailerName,
+      productTitle: parsed.entry.rawProductTitle,
+      expectedFrom: parsed.entry.expectedFrom,
+      expectedTo: parsed.entry.expectedTo,
+      expectedLabel: parsed.entry.expectedLabel,
+      branchCount,
+      operatorIssue: parsed.issueNumber,
+    };
+  }
   return {
     eventId: parsed.eventId,
+    testOnly: false,
     stage: parsed.entry.kind === "echo" ? "ECHO" : "WHISPER",
     title: "FateDrop · Local Radar · Incoming stock",
     body: `${parsed.entry.rawProductTitle} expected at ${branchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Check Local Radar to see if a participating store is near you.`,
@@ -178,11 +209,14 @@ export async function publishOperatorNotification(notification, fetchImpl = fetc
 export async function processOperatorIssue({ issue, store, fetchImpl = fetch, now = Date.now() }) {
   if (!store) throw new Error("Operator Local Radar intake requires the canonical store");
   const parsed = parseOperatorIssue(issue, now);
-  const reconciliation = await reconcileCuratedIncomingIntel({ store, entries: [parsed.entry], now });
+  const reconciliation = parsed.testOnly
+    ? await inspectCuratedIncomingIntelTargets({ store, entries: [parsed.entry], now })
+    : await reconcileCuratedIncomingIntel({ store, entries: [parsed.entry], now });
   const notification = buildOperatorNotification(parsed, reconciliation);
   if (!notification) {
     return {
       status: "held",
+      testOnly: parsed.testOnly,
       eventId: parsed.eventId,
       matchedBranches: reconciliation.matchedBranches,
       expectedBranches: parsed.entry.targetBranches.length,
@@ -193,6 +227,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
   const push = await publishOperatorNotification(notification, fetchImpl);
   return {
     status: push.published ? "published" : "retry",
+    testOnly: parsed.testOnly,
     eventId: parsed.eventId,
     matchedBranches: reconciliation.matchedBranches,
     expectedBranches: parsed.entry.targetBranches.length,
