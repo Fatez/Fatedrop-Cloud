@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test-subshard:
-    name: Signal failing-lane subshard ${{ matrix.subshard }}
+    name: Signal candidate ${{ matrix.subshard }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -30,7 +30,7 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Narrow the failing lane
+      - name: Run isolated candidate
         shell: bash
         env:
           SUBSHARD: ${{ matrix.subshard }}
@@ -38,7 +38,8 @@ jobs:
           mapfile -t all < <(find tests -maxdepth 1 -name '*.test.mjs' -print | sort)
           selected=()
           for i in "${!all[@]}"; do
-            if (( i % 16 == 4 && (i / 16) % 4 == SUBSHARD )); then selected+=("${all[$i]}"); fi
+            if (( i % 64 == 4 && (i / 64) % 4 == SUBSHARD )); then selected+=("${all[$i]}"); fi
           done
-          printf 'Failing-lane subshard %s files:\n%s\n' "$SUBSHARD" "${selected[*]}"
+          printf 'Candidate %s files:\n%s\n' "$SUBSHARD" "${selected[*]}"
+          if (( ${#selected[@]} == 0 )); then exit 0; fi
           node --test "${selected[@]}"
