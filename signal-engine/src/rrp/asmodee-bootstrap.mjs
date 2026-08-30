@@ -13,22 +13,38 @@ export async function bootstrapAsmodeeRrp({
   if (!store || typeof store.pool !== "function") return { skipped: true, reason: "persistent_store_not_available" };
 
   const pool = await store.pool();
-  const { rows } = await pool.query(
-    "SELECT count(*)::int AS count, max(rrp_observed_at)::bigint AS latest_observed_at FROM fatedrop_products WHERE rrp_source='asmodee-uk' AND official_rrp_pence IS NOT NULL",
-  );
+  const { rows } = await pool.query(`
+    SELECT
+      COUNT(*) FILTER (
+        WHERE rrp_source='asmodee-uk' AND official_rrp_pence IS NOT NULL
+      )::int AS count,
+      MAX(rrp_observed_at) FILTER (
+        WHERE rrp_source='asmodee-uk' AND official_rrp_pence IS NOT NULL
+      )::bigint AS latest_observed_at,
+      MAX(first_seen_at) FILTER (
+        WHERE LOWER(COALESCE(tcg,'pokemon'))='pokemon'
+          AND (official_rrp_pence IS NULL OR rrp_source IS NULL)
+      )::bigint AS latest_unresolved_first_seen_at
+    FROM fatedrop_products
+  `);
   const existing = Number(rows[0]?.count || 0);
   const latestObservedAt = Number(rows[0]?.latest_observed_at || 0) || null;
+  const latestUnresolvedFirstSeenAt = Number(rows[0]?.latest_unresolved_first_seen_at || 0) || null;
   const safeMaxAge = Number.isFinite(maxAgeSeconds) && maxAgeSeconds >= 0
     ? Math.floor(maxAgeSeconds)
     : DEFAULT_MAX_AGE_SECONDS;
   const ageSeconds = latestObservedAt == null ? null : Math.max(0, now - latestObservedAt);
+  const catalogueAdvancedAfterAuthority = latestObservedAt != null
+    && latestUnresolvedFirstSeenAt != null
+    && latestUnresolvedFirstSeenAt > latestObservedAt;
 
-  if (existing > 0 && latestObservedAt != null && ageSeconds < safeMaxAge) {
+  if (existing > 0 && latestObservedAt != null && ageSeconds < safeMaxAge && !catalogueAdvancedAfterAuthority) {
     return {
       skipped: true,
       reason: "authoritative_evidence_fresh",
       existing,
       latestObservedAt,
+      latestUnresolvedFirstSeenAt,
       ageSeconds,
     };
   }
@@ -36,8 +52,17 @@ export async function bootstrapAsmodeeRrp({
   const result = await syncFn({ databaseUrl, pool, now });
   return {
     skipped: false,
-    refreshReason: existing === 0 ? "not_bootstrapped" : "authoritative_evidence_stale",
-    previous: { existing, latestObservedAt, ageSeconds },
+    refreshReason: existing === 0
+      ? "not_bootstrapped"
+      : catalogueAdvancedAfterAuthority
+        ? "catalogue_advanced_after_authority"
+        : "authoritative_evidence_stale",
+    previous: {
+      existing,
+      latestObservedAt,
+      latestUnresolvedFirstSeenAt,
+      ageSeconds,
+    },
     result,
   };
 }
