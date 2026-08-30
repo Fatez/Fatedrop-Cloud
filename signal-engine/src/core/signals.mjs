@@ -38,7 +38,7 @@ const WHISPER_RECYCLABLE_STATUSES = new Set([
   StockStatus.UNKNOWN,
 ]);
 
-function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null }) {
+function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observedAt, priorLiveConfirmation = null, preparation = null, productAlert = null, deliverySuppressed = false }) {
   const price = preparation?.price ?? null;
   return [
     ...(Array.isArray(evidence) ? evidence : []),
@@ -71,6 +71,7 @@ function signalEvidence(evidence, { kind, state, alertClass, retailerSku, observ
       stockStatus: priorLiveConfirmation.stockStatus,
       confidence: priorLiveConfirmation.confidence,
     }] : []),
+    ...(deliverySuppressed ? [{ kind: "delivery_policy", value: "history_only", observedAt }] : []),
   ];
 }
 
@@ -162,7 +163,23 @@ function priorLiveConfirmation(previousOffer) {
   };
 }
 
-function buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive = null }) {
+function activeManifestedAt(previousOffer) {
+  if (previousOffer?.lifecycleHistoryLoaded !== true) return null;
+  const manifestedAt = Number(previousOffer.latestManifestedAt);
+  const vanishedAt = Number(previousOffer.latestVanishedAt);
+  if (!Number.isFinite(manifestedAt) || manifestedAt <= 0) return null;
+  if (Number.isFinite(vanishedAt) && vanishedAt > 0 && vanishedAt >= manifestedAt) return null;
+  return manifestedAt;
+}
+
+function needsReconciledManifestedAnchor(previousOffer, currentOffer) {
+  return previousOffer?.lifecycleHistoryLoaded === true
+    && effectivePurchasable(previousOffer)
+    && effectivePurchasable(currentOffer)
+    && activeManifestedAt(previousOffer) == null;
+}
+
+function buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive = null, deliverySuppressed = false }) {
   const currentStatus = currentOffer.stockStatus;
   const previousStatus = previousOffer?.stockStatus ?? null;
   const id = stableId("sig", currentOffer.offerId, state, kind, String(now), currentStatus);
@@ -204,6 +221,7 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
     confidence: currentOffer.stockConfidence ?? 0.5,
     detectedAt: now,
     reason,
+    deliverySuppressed,
     target: {
       type: "product",
       productId: currentOffer.productId,
@@ -224,13 +242,12 @@ function buildSignal({ state, kind, reason, currentOffer, previousOffer, prepara
       priorLiveConfirmation: priorLive,
       preparation,
       productAlert,
+      deliverySuppressed,
     }),
   };
 }
 
 export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, now = Math.floor(Date.now() / 1000) }) {
-  if (isBaseline) return null;
-
   const productAlert = classifyProductAlert({ title: currentOffer.title, productType: currentOffer.productType });
   if (productAlert.category !== "SEALED_TCG") return null;
 
@@ -245,6 +262,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   let kind = null;
   let reason = null;
   let priorLive = null;
+  let deliverySuppressed = false;
 
   // CANONICAL FATEDROP LIFECYCLE CONTRACT (restored from the original Aug-21 lock):
   // WHISPER / ORU = broad, lenient product-side early intelligence: new catalogue
@@ -259,7 +277,18 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   // MANIFESTED / KORU = verified genuinely purchasable availability/restock.
   // VANISHED / NYXEN = previously verified purchasable availability lost.
   // Not every event must pass through every stage.
-  if (!previousOffer) {
+  if (isBaseline) {
+    if (!nowPurchasable) return null;
+    state = SignalState.MANIFESTED;
+    kind = "baseline_live_anchor";
+    reason = "Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery";
+    deliverySuppressed = true;
+  } else if (needsReconciledManifestedAnchor(previousOffer, currentOffer)) {
+    state = SignalState.MANIFESTED;
+    kind = "reconciled_live_anchor";
+    reason = "Verified live offer had no active Manifested lifecycle anchor; current confirmation starts a truthful live window";
+    deliverySuppressed = true;
+  } else if (!previousOffer) {
     if (nowPurchasable) {
       state = SignalState.MANIFESTED;
       kind = "new_listing_live";
@@ -309,7 +338,7 @@ export function deriveSignal({ previousOffer, currentOffer, isBaseline = false, 
   }
 
   if (!state || !kind) return null;
-  return buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive });
+  return buildSignal({ state, kind, reason, currentOffer, previousOffer, preparation, productAlert, policy, now, priorLive, deliverySuppressed });
 }
 
 // Compatibility for the engine's P0 branch wiring. Catalogue classification still
