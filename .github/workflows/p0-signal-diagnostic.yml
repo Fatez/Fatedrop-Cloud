@@ -12,13 +12,13 @@ permissions:
   contents: read
 
 jobs:
-  test-shard:
-    name: Signal tests shard ${{ matrix.shard }}
+  test-subshard:
+    name: Signal shard-0 subshard ${{ matrix.subshard }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        subshard: [0, 1, 2, 3]
     defaults:
       run:
         working-directory: signal-engine
@@ -30,15 +30,15 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Run deterministic test shard
+      - name: Run deterministic shard-0 subshard
         shell: bash
         env:
-          SHARD: ${{ matrix.shard }}
+          SUBSHARD: ${{ matrix.subshard }}
         run: |
           mapfile -t all < <(find tests -maxdepth 1 -name '*.test.mjs' -print | sort)
           selected=()
           for i in "${!all[@]}"; do
-            if (( i % 4 == SHARD )); then selected+=("${all[$i]}"); fi
+            if (( i % 4 == 0 && (i / 4) % 4 == SUBSHARD )); then selected+=("${all[$i]}"); fi
           done
-          printf 'Shard %s files:\n%s\n' "$SHARD" "${selected[*]}"
+          printf 'Shard-0 subshard %s files:\n%s\n' "$SUBSHARD" "${selected[*]}"
           node --test "${selected[@]}"
