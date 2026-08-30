@@ -1,15 +1,48 @@
 {
-  "attempt": 1,
   "httpStatus": 200,
   "success": true,
   "available": true,
-  "count": 0,
-  "stages": {
+  "alertCount": 0,
+  "alertStages": {
     "WHISPER": 0,
     "ECHO": 0,
     "MANIFESTED": 0,
     "VANISHED": 0
   },
   "historyOnlyLeak": 0,
-  "generatedAt": "2026-08-30T19:00:50.000Z"
+  "raw": {
+    "whisper": {
+      "httpStatus": 200,
+      "count": 0,
+      "anchorCount": 0,
+      "ordinaryCount": 0,
+      "newestDetectedAt": null,
+      "oldestDetectedAt": null
+    },
+    "echo": {
+      "httpStatus": 200,
+      "count": 0,
+      "anchorCount": 0,
+      "ordinaryCount": 0,
+      "newestDetectedAt": null,
+      "oldestDetectedAt": null
+    },
+    "manifested": {
+      "httpStatus": 200,
+      "count": 0,
+      "anchorCount": 0,
+      "ordinaryCount": 0,
+      "newestDetectedAt": null,
+      "oldestDetectedAt": null
+    },
+    "vanished": {
+      "httpStatus": 200,
+      "count": 0,
+      "anchorCount": 0,
+      "ordinaryCount": 0,
+      "newestDetectedAt": null,
+      "oldestDetectedAt": null
+    }
+  },
+  "generatedAt": "2026-08-30T19:01:53.000Z"
 }
