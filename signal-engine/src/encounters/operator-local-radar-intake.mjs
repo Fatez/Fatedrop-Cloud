@@ -20,6 +20,7 @@ const STRONG_ECHO_SOURCES = new Set([
   "retailer_staff_report",
   "retailer_submission",
   "authorised_feed",
+  "operator_manual",
 ]);
 
 function text(value, max = 500) {
