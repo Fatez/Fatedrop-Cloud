@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
+import { probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
 import { reconcileCuratedIncomingIntel } from "./curated-incoming-intel-reconcile.mjs";
 
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
@@ -251,6 +252,9 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
   polling = true;
   operatorHealth.lastPollStartedAt = Math.floor(now / 1000);
   try {
+    const bridge = process.env.RAILWAY_ENVIRONMENT_NAME === "production"
+      ? await probeOperatorLocalRadarBridge()
+      : { configured: true, reachable: true, status: "not_probed_outside_production" };
     const issues = await listOperatorIssues(fetchImpl);
     const results = [];
     for (const issue of issues) {
@@ -267,15 +271,15 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
       }
     }
     operatorHealth.lastPollCompletedAt = Math.floor(now / 1000);
-    operatorHealth.lastStatus = "ok";
+    operatorHealth.lastStatus = bridge.reachable ? "ok" : "bridge_unavailable";
     operatorHealth.issuesSeen = issues.length;
     operatorHealth.published = results.filter((result) => result.status === "published").length;
     operatorHealth.held = results.filter((result) => result.status === "held").length;
     operatorHealth.retry = results.filter((result) => result.status === "retry").length;
     operatorHealth.invalid = results.filter((result) => result.status === "invalid").length;
-    operatorHealth.lastErrorCode = null;
+    operatorHealth.lastErrorCode = bridge.reachable ? null : `bridge_${bridge.status}`;
     if (results.length) console.log("[signal-engine] Local Radar operator intake", results);
-    return { status: "ok", issues: issues.length, results };
+    return { status: operatorHealth.lastStatus, issues: issues.length, results };
   } catch (error) {
     operatorHealth.lastPollCompletedAt = Math.floor(now / 1000);
     operatorHealth.lastStatus = "failed";
