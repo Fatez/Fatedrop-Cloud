@@ -33,6 +33,9 @@ function dbOffer(row) {
     firstSeenAt: Number(row.first_seen_at),
     lastSeenAt: Number(row.last_seen_at),
     lastWhisperAt: row.last_whisper_at ? Number(row.last_whisper_at) : null,
+    lifecycleHistoryLoaded: true,
+    latestManifestedAt: row.latest_manifested_at ? Number(row.latest_manifested_at) : null,
+    latestVanishedAt: row.latest_vanished_at ? Number(row.latest_vanished_at) : null,
     evidence: Array.isArray(row.observation_evidence) ? row.observation_evidence : [],
   };
 }
@@ -49,7 +52,7 @@ export async function preloadPreviousState(store, identities) {
       : { rows: [] },
     offerIds.length
       ? pool.query(`
-          SELECT o.*, latest.evidence AS observation_evidence, whisper.detected_at AS last_whisper_at
+          SELECT o.*, latest.evidence AS observation_evidence, whisper.detected_at AS last_whisper_at, lifecycle.latest_manifested_at, lifecycle.latest_vanished_at
           FROM fatedrop_retail_offers o
           LEFT JOIN LATERAL (
             SELECT evidence
@@ -66,6 +69,14 @@ export async function preloadPreviousState(store, identities) {
             ORDER BY signal.detected_at DESC
             LIMIT 1
           ) whisper ON true
+          LEFT JOIN LATERAL (
+            SELECT
+              MAX(signal.detected_at) FILTER (WHERE signal.state = 'manifested') AS latest_manifested_at,
+              MAX(signal.detected_at) FILTER (WHERE signal.state = 'vanished') AS latest_vanished_at
+            FROM fatedrop_signals signal
+            WHERE signal.offer_id = o.offer_id
+              AND signal.state IN ('manifested','vanished')
+          ) lifecycle ON true
           WHERE o.offer_id = ANY($1::text[])
         `, [offerIds])
       : { rows: [] },

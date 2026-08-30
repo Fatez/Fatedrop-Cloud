@@ -39,7 +39,27 @@ function priorLive(signal) {
   return signal?.evidence?.find((entry) => entry?.kind === "prior_live_confirmation") ?? null;
 }
 
-test("quiet baseline emits no signal",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100}),null));
+test("quiet baseline persists a Manifested history anchor without alert delivery",()=>{
+  const signal=deriveSignal({previousOffer:null,currentOffer:offer("in_stock"),isBaseline:true,now:100});
+  assert.equal(signal.state,"manifested");
+  assert.equal(signal.kind,"baseline_live_anchor");
+  assert.equal(signal.deliverySuppressed,true);
+  assert.equal(signal.evidence.some((entry)=>entry?.kind==="delivery_policy"&&entry?.value==="history_only"),true);
+});
+
+test("quiet baseline still emits nothing for unavailable stock",()=>assert.equal(deriveSignal({previousOffer:null,currentOffer:offer("out_of_stock"),isBaseline:true,now:100}),null));
+
+test("already-live persisted offer without an active Manifested anchor is reconciled once",()=>{
+  const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150,lifecycleHistoryLoaded:true,latestManifestedAt:null,latestVanishedAt:null}),currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
+  assert.equal(signal.state,"manifested");
+  assert.equal(signal.kind,"reconciled_live_anchor");
+  assert.equal(signal.deliverySuppressed,true);
+});
+
+test("already-live offer with an active Manifested anchor does not duplicate the lifecycle start",()=>{
+  const signal=deriveSignal({previousOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:150,lifecycleHistoryLoaded:true,latestManifestedAt:120,latestVanishedAt:null}),currentOffer:offer("in_stock",{everAvailableAt:50,lastSeenAt:200}),now:200});
+  assert.equal(signal,null);
+});
 
 test("new unavailable retailer SKU whispers with exact catalogue cause",()=>{
   const signal=deriveSignal({previousOffer:null,currentOffer:offer("coming_soon"),now:200});

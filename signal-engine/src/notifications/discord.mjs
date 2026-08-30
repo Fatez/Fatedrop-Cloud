@@ -210,7 +210,7 @@ export function discordBotTokenForState(state, {
 }
 
 export function isDiscordSignal(signal) {
-  return Boolean(signal && DISCORD_SIGNAL_STATES.has(signal.state));
+  return Boolean(signal && signal.deliverySuppressed !== true && DISCORD_SIGNAL_STATES.has(signal.state));
 }
 
 export function buildDiscordSignalMessage(signal) {
