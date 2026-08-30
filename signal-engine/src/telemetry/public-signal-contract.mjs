@@ -1,4 +1,5 @@
 import { listCanonicalPublicAlerts } from './public-alert-contract.mjs';
+import { listCanonicalLocalRadarChainAlerts } from './public-local-radar-chain-alerts.mjs';
 import { loadSignalHealthSummary } from './signal-health-summary.mjs';
 
 const PUBLIC_SIGNAL_STATES = ['whisper', 'echo', 'manifested', 'vanished'];
@@ -107,6 +108,17 @@ function canonicalSignalVisible(signal, allSignals) {
     && Number(item.detectedAt) < at);
 }
 
+function mergeCanonicalAlerts(groups, limit) {
+  const byId = new Map();
+  for (const alert of groups.flat()) {
+    if (!alert?.id || byId.has(alert.id)) continue;
+    byId.set(alert.id, alert);
+  }
+  return [...byId.values()]
+    .sort((a, b) => Date.parse(b.detectedAt || '') - Date.parse(a.detectedAt || ''))
+    .slice(0, limit);
+}
+
 export async function listCanonicalPublicSignals(store, { states = PUBLIC_SIGNAL_STATES, since = 0, limit = 50 } = {}) {
   const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));
   const safeSince = Math.max(0, Math.trunc(Number(since) || 0));
@@ -164,15 +176,20 @@ export async function handlePublicSignals(req, res, { store } = {}) {
   const detail = String(url.searchParams.get('detail') || '').trim().toLowerCase();
   if (detail === 'alerts') {
     const id = url.searchParams.get('id')?.trim() || null;
-    const alerts = await listCanonicalPublicAlerts(store, { id, limit });
+    const [networkAlerts, localRadarAlerts] = await Promise.all([
+      listCanonicalPublicAlerts(store, { id, limit }),
+      listCanonicalLocalRadarChainAlerts(store, { id, limit }),
+    ]);
+    const available = Array.isArray(networkAlerts) && Array.isArray(localRadarAlerts);
+    const alerts = available ? mergeCanonicalAlerts([networkAlerts, localRadarAlerts], limit) : [];
     return json(res, 200, {
-      success: Array.isArray(alerts),
-      available: Array.isArray(alerts),
+      success: available,
+      available,
       contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION,
       source: 'FATEDROP_CLOUD',
-      count: Array.isArray(alerts) ? alerts.length : 0,
+      count: alerts.length,
       generatedAt: new Date().toISOString(),
-      alerts: Array.isArray(alerts) ? alerts : [],
+      alerts,
     });
   }
 

@@ -3,15 +3,29 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const alertSource = await readFile(new URL('../src/telemetry/public-alert-contract.mjs', import.meta.url), 'utf8');
+const chainAlertSource = await readFile(new URL('../src/telemetry/public-local-radar-chain-alerts.mjs', import.meta.url), 'utf8');
 const signalSource = await readFile(new URL('../src/telemetry/public-signal-contract.mjs', import.meta.url), 'utf8');
 
 test('public signal contract exposes opt-in rich Alerts without reopening diagnostics', () => {
   assert.match(signalSource, /detail === 'alerts'/);
   assert.match(signalSource, /listCanonicalPublicAlerts/);
+  assert.match(signalSource, /listCanonicalLocalRadarChainAlerts/);
+  assert.match(signalSource, /mergeCanonicalAlerts/);
   assert.match(signalSource, /contractVersion: PUBLIC_SIGNAL_CONTRACT_VERSION/);
   assert.match(signalSource, /source: 'FATEDROP_CLOUD'/);
   assert.doesNotMatch(signalSource, /api\/status/);
   assert.doesNotMatch(signalSource, /api\/signal-health/);
+});
+
+test('branchless Local Radar advisory Echoes join the same alert feed without claiming branch or physical-stock confirmation', () => {
+  assert.match(chainAlertSource, /FROM fatedrop_signal_events se/);
+  assert.match(chainAlertSource, /se\.location_id IS NULL/);
+  assert.match(chainAlertSource, /evidence_json->>'scope'='retailer_chain'/);
+  assert.match(chainAlertSource, /physicalStockConfirmed: false/);
+  assert.match(chainAlertSource, /branchResolved: false/);
+  assert.match(chainAlertSource, /confirmed: false/);
+  assert.match(chainAlertSource, /confirmedRestock: false/);
+  assert.doesNotMatch(chainAlertSource, /kind IN \('manifested','echo'\)/);
 });
 
 test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history', () => {
