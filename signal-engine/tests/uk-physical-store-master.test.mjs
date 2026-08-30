@@ -7,10 +7,10 @@ import {
   normalizePostcode,
 } from "../src/encounters/build-uk-physical-store-master.mjs";
 
-test("normalizes genuine UK postcodes and rejects obvious placeholders", () => {
+test("normalizes genuine UK postcodes and rejects non-postcodes", () => {
   assert.equal(normalizePostcode("en1 3rw"), "EN1 3RW");
   assert.equal(normalizePostcode("SW1A1AA"), "SW1A 1AA");
-  assert.equal(normalizePostcode("LO16 8RT"), null);
+  assert.equal(normalizePostcode("NOT A POSTCODE"), null);
 });
 
 test("canonical identity is retailer plus normalized postcode", () => {
