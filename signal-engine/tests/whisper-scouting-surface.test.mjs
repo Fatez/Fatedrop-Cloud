@@ -64,7 +64,7 @@ test("new meaningful preparation evidence on an existing non-live SKU surfaces o
   });
   const signal = deriveSignal({ previousOffer: previous, currentOffer: current, now: 200 });
   assert.equal(signal.state, "whisper");
-  assert.equal(signal.kind, "preparation_evidence_change");
+  assert.equal(signal.kind, "product_evidence_change");
 });
 
 test("unchanged preparation evidence does not repeat Whisper", () => {
