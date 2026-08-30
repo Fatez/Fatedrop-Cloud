@@ -1,3 +1,4 @@
+import { getOperatorLocalRadarHealth } from '../encounters/operator-local-radar-intake.mjs';
 import { listCanonicalPublicAlerts } from './public-alert-contract.mjs';
 import { loadSignalHealthSummary } from './signal-health-summary.mjs';
 
@@ -270,6 +271,32 @@ function safeDiagnostics(diagnostics = {}) {
   };
 }
 
+function safeOperatorHealth(now = Math.floor(Date.now() / 1000)) {
+  const health = getOperatorLocalRadarHealth();
+  const completedAt = safeTimestamp(health.lastPollCompletedAt);
+  const ageSeconds = completedAt == null ? null : Math.max(0, now - completedAt);
+  const fresh = ageSeconds != null && ageSeconds <= Math.max(360, safeCount(health.intervalSeconds) * 3);
+  return {
+    available: health.started === true
+      && health.lastStatus === 'ok'
+      && health.canonicalStoreConfigured === true
+      && health.webBridgeConfigured === true
+      && fresh,
+    started: health.started === true,
+    status: typeof health.lastStatus === 'string' ? health.lastStatus : 'unknown',
+    ageSeconds,
+    intervalSeconds: safeCount(health.intervalSeconds),
+    canonicalStoreConfigured: health.canonicalStoreConfigured === true,
+    webBridgeConfigured: health.webBridgeConfigured === true,
+    issuesSeen: safeCount(health.issuesSeen),
+    published: safeCount(health.published),
+    held: safeCount(health.held),
+    retry: safeCount(health.retry),
+    invalid: safeCount(health.invalid),
+    lastErrorCode: typeof health.lastErrorCode === 'string' ? health.lastErrorCode : null,
+  };
+}
+
 export async function handlePublicSignalSummary(req, res, { store } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
   const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get('days') || '7', 10) || 7));
@@ -294,5 +321,6 @@ export async function handlePublicSignalSummary(req, res, { store } = {}) {
     lifecycle: summary.lifecycle,
     delivery: safeDelivery(summary.delivery),
     diagnostics: safeDiagnostics(summary.diagnostics),
+    localRadarOperator: safeOperatorHealth(),
   });
 }
