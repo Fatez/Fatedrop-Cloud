@@ -13,27 +13,54 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Compare Shopify GB and CA presentment markets
+      - name: Wait for GB-market fix and exact Card Collective canonical correction
         shell: bash
         run: |
           set -euo pipefail
-          BASE='https://card-collective.com/collections/pokemon-tcg/products.json?limit=250&page=1'
-          CLOUD='https://fatedrop-cloud-production.up.railway.app/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25'
-          curl --fail --silent --show-error --location --retry 3 "${BASE}&country=GB" -o /tmp/gb.json
-          curl --fail --silent --show-error --location --retry 3 "${BASE}&country=CA" -o /tmp/ca.json
-          curl --fail --silent --show-error --location --retry 3 "${BASE}&country=US" -o /tmp/us.json
-          curl --fail --silent --show-error --location --retry 3 "$CLOUD" -o /tmp/cloud.json
+          CLOUD_BASE='https://fatedrop-cloud-production.up.railway.app'
+          CATALOGUE="${CLOUD_BASE}/api/catalogue?retailer=card-collective&q=Terastal%20Grand%20Gathering&limit=25"
+          EXPECTED_COMMIT='2cc0191f9853e25ee89c431a16a6b54f78a158d9'
+          SEALED='58272935772541'
+          OPENED='58272935805309'
 
-          node <<'NODE'
+          for attempt in $(seq 1 36); do
+            curl --fail --silent --show-error --location --retry 2 \
+              -H 'content-type: application/json' \
+              --data '{"mode":"verdict","query":"Terastal Grand Gathering"}' \
+              "${CLOUD_BASE}/api/fatefind/matches" -o /tmp/runtime.json || true
+            curl --fail --silent --show-error --location --retry 2 "$CATALOGUE" -o /tmp/catalogue.json || true
+
+            if node - "$EXPECTED_COMMIT" "$SEALED" "$OPENED" <<'NODE'
           const fs = require('fs');
-          const wanted = new Set(['58272935772541','58272935805309']);
-          function rows(file) {
-            const payload = JSON.parse(fs.readFileSync(file,'utf8'));
-            const out=[];
-            for (const p of payload.products || []) for (const v of p.variants || []) if (wanted.has(String(v.id||''))) out.push({sku:String(v.id),price:v.price,available:v.available});
-            return out;
-          }
-          const cloud=JSON.parse(fs.readFileSync('/tmp/cloud.json','utf8'));
-          const canonical=(cloud.products||[]).filter((p)=>wanted.has(String(p.sku||''))).map((p)=>({sku:p.sku,price:p.price,availability:p.availability,lastSeen:p.lastSeen}));
-          console.log(JSON.stringify({gb:rows('/tmp/gb.json'),ca:rows('/tmp/ca.json'),us:rows('/tmp/us.json'),canonical},null,2));
+          const [expectedCommit, sealedSku, openedSku] = process.argv.slice(2);
+          let runtime = {}; let catalogue = {};
+          try { runtime = JSON.parse(fs.readFileSync('/tmp/runtime.json','utf8')); } catch {}
+          try { catalogue = JSON.parse(fs.readFileSync('/tmp/catalogue.json','utf8')); } catch {}
+          const commit = String(runtime?.runtime?.gitCommitSha || '');
+          const rows = Array.isArray(catalogue?.products) ? catalogue.products : [];
+          const sealed = rows.find((row) => String(row?.sku || '') === sealedSku) || null;
+          const opened = rows.find((row) => String(row?.sku || '') === openedSku) || null;
+          const ok = commit === expectedCommit
+            && sealed?.price === 69.95
+            && sealed?.availability === 'IN_STOCK'
+            && opened?.price === 69.95
+            && opened?.availability === 'OUT_OF_STOCK';
+          console.log(JSON.stringify({
+            commit,
+            expectedCommit,
+            sealed: sealed && { sku: sealed.sku, price: sealed.price, availability: sealed.availability, lastSeen: sealed.lastSeen },
+            opened: opened && { sku: opened.sku, price: opened.price, availability: opened.availability, lastSeen: opened.lastSeen },
+            verified: ok,
+          }));
+          process.exit(ok ? 0 : 1);
           NODE
+            then
+              echo "Production GB Shopify price/stock verification passed."
+              exit 0
+            fi
+            echo "Attempt ${attempt}/36 not verified yet; waiting 10s for deploy/scan."
+            sleep 10
+          done
+
+          echo "Production did not reach the expected GB-market canonical state inside the bounded verification window."
+          exit 1
