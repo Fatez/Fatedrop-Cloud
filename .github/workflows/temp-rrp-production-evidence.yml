@@ -12,55 +12,63 @@ jobs:
   evidence:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Inspect unresolved JP KR CN source-market references
+      - name: Sample live JP KR CN reference coverage
         shell: bash
         run: |
           set -euo pipefail
-          node --input-type=module <<'NODE'
-          import { resolveInternationalMsrp } from './signal-engine/src/rrp/international-msrp-authority.mjs';
-
-          const response = await fetch('https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100', {
-            headers: { 'user-agent': 'FateDrop-international-msrp-evidence/1.0' },
-          });
-          if (!response.ok) throw new Error(`Cloud HTTP ${response.status}`);
-          const payload = await response.json();
-          const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
-          const imports = alerts.filter((alert) => /\b(?:japanese|japan|jpn|korean|korea|simplified chinese|chinese simplified|traditional chinese|taiwan|hong kong)\b/i.test(String(alert?.product?.title || alert?.title || '')));
-          const rows = imports.map((alert) => {
-            const title = String(alert?.product?.title || alert?.title || '');
-            const result = resolveInternationalMsrp({ title, productType: alert?.product?.productType || null });
-            return {
-              title,
-              productType: alert?.product?.productType || null,
-              resolved: result.resolved === true,
-              market: result.sourceMarket || null,
-              reason: result.reason || null,
-              kind: result.kind || null,
-              sourceCurrency: result.sourceCurrency || null,
-              sourceMsrp: result.sourceMsrp || null,
-              unitCount: result.unitCount || null,
-            };
-          });
-
-          const unique = [...new Map(rows.map((row) => [row.title, row])).values()];
-          const unresolved = unique.filter((row) => !row.resolved);
-          const resolved = unique.filter((row) => row.resolved);
-          const counts = (list, key) => Object.fromEntries([...list.reduce((map, row) => {
-            const value = String(row[key] ?? 'unknown');
-            map.set(value, (map.get(value) || 0) + 1);
+          node <<'NODE'
+          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signals?detail=alerts&limit=100';
+          const numeric = (value) => value != null && Number.isFinite(Number(value));
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const marketFor = (title) => {
+            const text = String(title || '').toLowerCase();
+            if (/\b(?:japanese|japan|jpn)\b/.test(text)) return 'JP';
+            if (/\b(?:korean|korea)\b/.test(text)) return 'KR';
+            if (/\b(?:simplified chinese|chinese simplified)\b/.test(text)) return 'CN';
+            if (/\btraditional chinese\b/.test(text) && /\b(?:taiwan|tw)\b/.test(text)) return 'TW';
+            if (/\btraditional chinese\b/.test(text) && /\b(?:hong kong|hk)\b/.test(text)) return 'HK';
+            return null;
+          };
+          const countBy = (rows, keyFn) => Object.fromEntries([...rows.reduce((map, row) => {
+            const key = String(keyFn(row) || 'unknown');
+            map.set(key, (map.get(key) || 0) + 1);
             return map;
           }, new Map()).entries()].sort(([a], [b]) => a.localeCompare(b)));
 
-          console.log(JSON.stringify({
-            success: payload?.success === true,
-            returnedAlerts: alerts.length,
-            importAlerts: imports.length,
-            uniqueImportProducts: unique.length,
-            resolvedImportProducts: resolved.length,
-            unresolvedImportProducts: unresolved.length,
-            resolvedByMarket: counts(resolved, 'market'),
-            unresolvedByReason: counts(unresolved, 'reason'),
-            unresolvedProducts: unresolved.map((row) => ({ title: row.title, productType: row.productType, market: row.market, reason: row.reason })),
-          }));
+          for (let attempt = 1; attempt <= 8; attempt += 1) {
+            try {
+              const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-international-live-verification/1.0' } });
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const payload = await response.json();
+              const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
+              const imports = alerts.map((alert) => ({
+                alert,
+                title: String(alert?.product?.title || alert?.title || ''),
+              })).map((row) => ({ ...row, market: marketFor(row.title) })).filter((row) => row.market);
+              const unique = [...new Map(imports.map((row) => [row.title, row])).values()];
+              const resolved = unique.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent));
+              const unresolved = unique.filter(({ alert }) => !(numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent)));
+              const opened = unique.filter(({ title }) => /\bopened live(?: on stream)?\b/i.test(title));
+              const openedResolved = opened.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence));
+              const terastal = unique.filter(({ title }) => /terastal grand gathering/i.test(title));
+              const terastalResolved = terastal.filter(({ alert }) => numeric(alert?.priceIntelligence?.rrpPence) && numeric(alert?.priceIntelligence?.rrpDeltaPercent));
+              console.log(JSON.stringify({
+                attempt,
+                success: payload?.success === true,
+                returnedAlerts: alerts.length,
+                uniqueImportProducts: unique.length,
+                resolvedImportProducts: resolved.length,
+                unresolvedImportProducts: unresolved.length,
+                resolvedByMarket: countBy(resolved, (row) => row.market),
+                unresolvedByMarket: countBy(unresolved, (row) => row.market),
+                openedLiveProducts: opened.length,
+                openedLiveResolved: openedResolved.length,
+                terastalGrandGatheringProducts: terastal.length,
+                terastalGrandGatheringResolved: terastalResolved.length,
+              }));
+            } catch (error) {
+              console.log(JSON.stringify({ attempt, error: String(error?.message || error) }));
+            }
+            if (attempt < 8) await sleep(30000);
+          }
           NODE
