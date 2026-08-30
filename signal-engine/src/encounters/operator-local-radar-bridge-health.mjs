@@ -1,12 +1,28 @@
+const PRODUCTION_WEB_ORIGIN = "https://fatedrop.co.uk";
+
 function text(value, max = 1000) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
   return result || null;
 }
 
-export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
-  const snapshotUrl = text(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL);
+export function operatorLocalRadarBridgeConfig() {
+  const configuredUrl = text(process.env.FATEDROP_WEBSITE_SNAPSHOT_URL);
+  const productionFallback = process.env.RAILWAY_ENVIRONMENT_NAME === "production"
+    ? PRODUCTION_WEB_ORIGIN
+    : null;
+  const snapshotUrl = configuredUrl || productionFallback;
   const secret = text(process.env.FATEDROP_METRICS_INGEST_SECRET);
-  if (!snapshotUrl || !secret) {
+  return {
+    snapshotUrl,
+    secret,
+    configured: Boolean(snapshotUrl && secret),
+    urlSource: configuredUrl ? "environment" : (productionFallback ? "production_default" : "missing"),
+  };
+}
+
+export async function probeOperatorLocalRadarBridge(fetchImpl = fetch) {
+  const { snapshotUrl, secret, configured } = operatorLocalRadarBridgeConfig();
+  if (!configured) {
     return { configured: false, reachable: false, status: "not_configured" };
   }
 
