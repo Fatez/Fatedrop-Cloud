@@ -3,6 +3,8 @@ import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { normalizeShopifyProducts } from "./shopify-normalizer.mjs";
 import { normalizeWooStoreProducts } from "./woocommerce-normalizer.mjs";
 
+const DEFAULT_SHOPIFY_MARKET_COUNTRY = "GB";
+
 function matchesFilter(pattern, value) {
   if (!pattern) return true;
   pattern.lastIndex = 0;
@@ -28,10 +30,19 @@ function filterProducts(products, retailer) {
     });
 }
 
-function shopifyPageUrl(feedUrl, page) {
+function shopifyMarketCountry(retailer) {
+  const configured = String(retailer?.catalogue?.marketCountry || retailer?.marketCountry || "")
+    .trim()
+    .toUpperCase();
+  return /^[A-Z]{2}$/.test(configured) ? configured : DEFAULT_SHOPIFY_MARKET_COUNTRY;
+}
+
+function shopifyPageUrl(feedUrl, page, marketCountry = DEFAULT_SHOPIFY_MARKET_COUNTRY) {
   const url = new URL(feedUrl);
   if (!url.searchParams.has("limit")) url.searchParams.set("limit", "250");
   url.searchParams.set("page", String(page));
+  const country = String(marketCountry || DEFAULT_SHOPIFY_MARKET_COUNTRY).trim().toUpperCase();
+  url.searchParams.set("country", /^[A-Z]{2}$/.test(country) ? country : DEFAULT_SHOPIFY_MARKET_COUNTRY);
   return url.toString();
 }
 
@@ -46,10 +57,11 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
     const pages = [];
     const maxPages = Math.max(1, Math.min(100, retailer.catalogue?.runtime?.maxPages || retailer.maxPages || 20));
     const delayMs = Math.max(250, retailer.catalogue?.runtime?.delayMs || retailer.delayMs || 900);
+    const marketCountry = shopifyMarketCountry(retailer);
     let complete = false;
 
     for (let page = 1; page <= maxPages; page += 1) {
-      const pageUrl = shopifyPageUrl(retailer.catalogue.feedUrl, page);
+      const pageUrl = shopifyPageUrl(retailer.catalogue.feedUrl, page, marketCountry);
       const { payload, status } = await fetchStructuredJson(pageUrl);
       const rawCount = Array.isArray(payload?.products) ? payload.products.length : 0;
       const products = filterProducts(normalizeShopifyProducts(payload, retailer), retailer);
@@ -76,3 +88,9 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
     complete: true,
   };
 }
+
+export const __test = {
+  DEFAULT_SHOPIFY_MARKET_COUNTRY,
+  shopifyMarketCountry,
+  shopifyPageUrl,
+};
