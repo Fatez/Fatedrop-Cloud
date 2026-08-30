@@ -1,0 +1,44 @@
+name: P0 Signal Engine Diagnostic
+
+on:
+  push:
+    branches:
+      - "fix/p0-signal-engine-recovery-2026-08-30"
+    paths:
+      - "signal-engine/**"
+      - ".github/workflows/p0-signal-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test-shard:
+    name: Signal tests shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run deterministic test shard
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          mapfile -t all < <(find tests -maxdepth 1 -name '*.test.mjs' -print | sort)
+          selected=()
+          for i in "${!all[@]}"; do
+            if (( i % 4 == SHARD )); then selected+=("${all[$i]}"); fi
+          done
+          printf 'Shard %s files:\n%s\n' "$SHARD" "${selected[*]}"
+          node --test "${selected[@]}"
