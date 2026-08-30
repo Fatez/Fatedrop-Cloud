@@ -21,50 +21,58 @@ jobs:
         run: |
           node <<'NODE'
           const fs = require('node:fs');
-          const url = 'https://fatedrop-cloud-production.up.railway.app/api/signal-summary?detail=alerts&limit=100';
+          const base = 'https://fatedrop-cloud-production.up.railway.app/api/signal-summary';
           const historyOnlyReasons = new Set([
             'Baseline scan verified purchasable availability; canonical Manifested anchor recorded without alert delivery',
             'Verified live offer had no active Manifested lifecycle anchor; current confirmation starts a truthful live window',
           ]);
-          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          async function get(url) {
+            const response = await fetch(url, { headers: { accept: 'application/json' } });
+            const payload = await response.json();
+            return { httpStatus: response.status, payload };
+          }
           (async () => {
-            let last = null;
-            let ok = false;
-            for (let attempt = 1; attempt <= 20; attempt += 1) {
-              try {
-                const response = await fetch(url, { headers: { accept: 'application/json' } });
-                const payload = await response.json();
-                const alerts = Array.isArray(payload.alerts) ? payload.alerts : [];
-                const stages = { WHISPER: 0, ECHO: 0, MANIFESTED: 0, VANISHED: 0 };
-                let historyOnlyLeak = 0;
-                for (const alert of alerts) {
-                  if (Object.hasOwn(stages, alert.fateStage)) stages[alert.fateStage] += 1;
-                  if (historyOnlyReasons.has(String(alert.message || ''))) historyOnlyLeak += 1;
-                }
-                last = {
-                  attempt,
-                  httpStatus: response.status,
-                  success: payload.success === true,
-                  available: payload.available === true,
-                  count: alerts.length,
-                  stages,
-                  historyOnlyLeak,
-                  generatedAt: payload.generatedAt || null,
-                };
-                console.log(JSON.stringify(last));
-                if (response.ok && payload.success === true && payload.available === true && historyOnlyLeak === 0) {
-                  ok = true;
-                  break;
-                }
-              } catch (error) {
-                last = { attempt, error: String(error?.message || error) };
-                console.log(JSON.stringify(last));
-              }
-              await sleep(15_000);
+            const alertResult = await get(`${base}?detail=alerts&limit=100`);
+            const alerts = Array.isArray(alertResult.payload.alerts) ? alertResult.payload.alerts : [];
+            const alertStages = { WHISPER: 0, ECHO: 0, MANIFESTED: 0, VANISHED: 0 };
+            let historyOnlyLeak = 0;
+            for (const alert of alerts) {
+              if (Object.hasOwn(alertStages, alert.fateStage)) alertStages[alert.fateStage] += 1;
+              if (historyOnlyReasons.has(String(alert.message || ''))) historyOnlyLeak += 1;
             }
-            fs.writeFileSync('p0-alert-feed-production-result.json', `${JSON.stringify(last, null, 2)}\n`);
-            if (!ok) process.exitCode = 1;
-          })();
+
+            const raw = {};
+            for (const state of ['whisper', 'echo', 'manifested', 'vanished']) {
+              const result = await get(`${base}?state=${state}&limit=100`);
+              const signals = Array.isArray(result.payload.signals) ? result.payload.signals : [];
+              const anchorCount = signals.filter((signal) => historyOnlyReasons.has(String(signal.reason || ''))).length;
+              raw[state] = {
+                httpStatus: result.httpStatus,
+                count: signals.length,
+                anchorCount,
+                ordinaryCount: signals.length - anchorCount,
+                newestDetectedAt: signals[0]?.detectedAt || null,
+                oldestDetectedAt: signals.at(-1)?.detectedAt || null,
+              };
+            }
+
+            const result = {
+              httpStatus: alertResult.httpStatus,
+              success: alertResult.payload.success === true,
+              available: alertResult.payload.available === true,
+              alertCount: alerts.length,
+              alertStages,
+              historyOnlyLeak,
+              raw,
+              generatedAt: alertResult.payload.generatedAt || null,
+            };
+            console.log(JSON.stringify(result));
+            fs.writeFileSync('p0-alert-feed-production-result.json', `${JSON.stringify(result, null, 2)}\n`);
+            if (!(alertResult.httpStatus === 200 && result.success && result.available && historyOnlyLeak === 0)) process.exitCode = 1;
+          })().catch((error) => {
+            fs.writeFileSync('p0-alert-feed-production-result.json', `${JSON.stringify({ error: String(error?.message || error) }, null, 2)}\n`);
+            process.exitCode = 1;
+          });
           NODE
 
       - name: Persist redacted aggregate
