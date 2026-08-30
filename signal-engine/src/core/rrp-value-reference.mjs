@@ -142,7 +142,7 @@ export function resolveRrpValue(input = {}, context = {}) {
   const linkedProduct = input.linkedProduct || null;
   const products = context.products || [];
   const registry = context.registry || buildCanonicalRrpRegistry(products);
-  const title = linkedProduct?.title || input.title || "";
+  const title = input.title || linkedProduct?.title || "";
   const productType = linkedProduct?.productType || input.productType;
 
   // Source-market products must never silently inherit an English/UK RRP.
@@ -152,6 +152,8 @@ export function resolveRrpValue(input = {}, context = {}) {
     title,
     productType,
     linkedProduct,
+    verifiedMarketCode: input.verifiedMarketCode,
+    marketResolutionStatus: input.marketResolutionStatus,
   });
   if (international.recognized) {
     // Native-currency MSRP is authoritative. For multi-unit imports the GBP total

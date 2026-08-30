@@ -33,6 +33,9 @@ test("signal health summary separates detections, delivery policy, duplicate sup
       { id: "fresh", healthy: true, stale: false, lastError: null },
       { id: "stale", healthy: false, stale: true, lastError: null },
       { id: "blocked", healthy: false, stale: false, lastError: "Retailer blocked catalogue request (403)" },
+      { id: "onboarding", healthy: false, stale: false, lastSuccessAt: null, lastError: "zero products" },
+      { id: "regressed", healthy: false, stale: false, lastSuccessAt: now - 100, lastError: "parser changed" },
+      { id: "candidate", healthy: false, stale: false, registryState: "candidate", lastError: "old failure" },
     ],
     discoveryRows: [{
       discovery_available: true,
@@ -62,6 +65,11 @@ test("signal health summary separates detections, delivery policy, duplicate sup
   assert.deepEqual(summary.diagnostics.discordLatency, { sampleSize: 28, medianSeconds: 4, p95Seconds: 11 });
   assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["stale"]);
   assert.deepEqual(summary.diagnostics.monitors.blockedRetailerIds, ["blocked"]);
+  assert.deepEqual(summary.diagnostics.monitors.onboardingRetailerIds, ["onboarding"]);
+  assert.deepEqual(summary.diagnostics.monitors.regressedRetailerIds, ["regressed"]);
+  assert.deepEqual(summary.diagnostics.monitors.excludedRetailerIds, ["candidate"]);
+  assert.equal(summary.diagnostics.monitors.totalRetailers, 5);
+  assert.equal(summary.diagnostics.monitors.unhealthyRetailers, 1);
   assert.deepEqual(summary.diagnostics.discovery, {
     available: true,
     pending: 2,
@@ -109,7 +117,7 @@ test("discovery diagnostics keep telemetry unavailable distinct from an empty ba
   });
 });
 
-test("signal health loader prefers canonical network snapshot retailer freshness", async () => {
+test("signal health loader uses the live retailer ledger instead of a historical network snapshot", async () => {
   const now = 1_800_000_000;
   const query = async (sql) => {
     if (sql.includes("latest_signal_at")) return { rows: [{ latest_signal_at: null, latest_discord_attempt_at: null, recent_signals: 0, recent_discord_attempts: 0 }] };
@@ -123,8 +131,9 @@ test("signal health loader prefers canonical network snapshot retailer freshness
   };
 
   const summary = await loadSignalHealthSummary(store, { days: 2, now });
-  assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, ["snapshot-stale"]);
-  assert.equal(summary.diagnostics.monitors.freshRetailers, 0);
+  assert.deepEqual(summary.diagnostics.monitors.staleRetailerIds, []);
+  assert.equal(summary.diagnostics.monitors.freshRetailers, 1);
+  assert.equal(summary.diagnostics.monitors.freshRetailerIds[0], "raw-healthy");
   assert.equal(summary.diagnostics.discovery.available, true);
   assert.equal(summary.diagnostics.discovery.processed, 3);
 });

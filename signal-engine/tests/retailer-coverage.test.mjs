@@ -43,6 +43,8 @@ test("sealed product filters reject obvious merchandise without rejecting sleeve
     assert.equal(retailer.exclude.test("Pokemon Sleeping Eevee Blind Box"), true, retailer.id);
     assert.equal(retailer.exclude.test("Pokemon 3D Fridge Magnet Blind Box"), true, retailer.id);
   }
+  assert.equal(totalCards.scanDeadlineMs, 450_000);
+  assert.equal(totalCards.scanIntervalSeconds, 900);
 });
 
 test("Shopify catalogue scanner paginates collection feeds", async () => {
@@ -87,6 +89,41 @@ test("Shopify catalogue scanner paginates collection feeds", async () => {
     assert.equal(result.pages.length, 2);
     assert.equal(result.products.length, 251);
     assert.equal(result.products[250].retailerSku, "SKU-251");
+    assert.equal(result.partialCatalogue, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Shopify max-page truncation is explicitly partial rather than false healthy", async () => {
+  const originalFetch = globalThis.fetch;
+  const products = Array.from({ length: 250 }, (_, index) => ({
+    id: index + 1,
+    handle: `pokemon-test-${index + 1}`,
+    title: `Pokemon TCG Booster Pack ${index + 1}`,
+    variants: [{ id: (index + 1) * 10, sku: `SKU-${index + 1}`, title: "Default Title", price: "5.99", available: true }],
+    images: [],
+  }));
+  globalThis.fetch = async () => new Response(JSON.stringify({ products }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+  try {
+    const result = await scanStructuredCatalogue({
+      id: "truncated-shopify",
+      name: "Truncated Shopify",
+      baseUrl: "https://example.test/",
+      adapterType: ADAPTER_TYPES.SHOPIFY,
+      catalogue: {
+        feedUrl: "https://example.test/collections/pokemon/products.json?limit=250",
+        feedApproved: true,
+        runtime: { maxPages: 1, delayMs: 250 },
+      },
+      include: /pokemon/i,
+      exclude: null,
+    });
+    assert.equal(result.complete, false);
+    assert.equal(result.partialCatalogue, true);
   } finally {
     globalThis.fetch = originalFetch;
   }

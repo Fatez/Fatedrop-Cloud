@@ -260,7 +260,11 @@ export const retailers = [
     exclude: NON_PRODUCT,
   },
   shopifyPokemonRetailer({ id: "double-sleeved", name: "Double Sleeved", enabled: env.retailers.doubleSleeved, baseUrl: "https://www.doublesleeved.co.uk/", collection: "/collections/pokemon-tcg", maxPages: 6 }),
-  shopifyPokemonRetailer({ id: "total-cards", name: "Total Cards", enabled: env.retailers.totalCards, baseUrl: "https://totalcards.net/", collection: "/collections/pokemon-sealed-products", retailerClass: RETAILER_CLASSES.SPECIALIST, maxPages: 12, include: SEALED_POKEMON }),
+  {
+    ...shopifyPokemonRetailer({ id: "total-cards", name: "Total Cards", enabled: env.retailers.totalCards, baseUrl: "https://totalcards.net/", collection: "/collections/pokemon-sealed-products", retailerClass: RETAILER_CLASSES.SPECIALIST, maxPages: 12, include: SEALED_POKEMON }),
+    scanDeadlineMs: 450_000,
+    scanIntervalSeconds: 900,
+  },
   shopifyPokemonRetailer({ id: "titan-cards", name: "Titan Cards", enabled: env.retailers.titanCards, baseUrl: "https://titancards.co.uk/", collection: "/collections/pokemon-sealed-products", maxPages: 6, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "eterna-cards", name: "Eterna Cards", enabled: env.retailers.eternaCards, baseUrl: "https://eternacards.co.uk/", collection: "/collections/pokemon-tcg-sealed-products", maxPages: 8, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "card-collective", name: "Card Collective UK", enabled: env.retailers.cardCollective, baseUrl: "https://card-collective.com/", collection: "/collections/pokemon-tcg", maxPages: 6 }),

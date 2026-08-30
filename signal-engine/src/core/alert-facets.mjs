@@ -1,7 +1,8 @@
 import { describeProductIdentity } from "./product-identity.mjs";
 import { internationalMsrpAuthorities } from "../rrp/international-msrp-authority.mjs";
+import { MARKET_GROUPS, marketGroupForCode, normalizeMarketCode } from "./market-memory-policy.mjs";
 
-export const ALERT_FACET_VERSION = 1;
+export const ALERT_FACET_VERSION = 2;
 
 export const ALERT_LANGUAGE_GROUPS = Object.freeze([
   { key: "english", label: "English" },
@@ -12,6 +13,7 @@ export const ALERT_LANGUAGE_GROUPS = Object.freeze([
   { key: "other", label: "Other languages" },
   { key: "unknown", label: "Unknown language" },
 ]);
+export const ALERT_MARKET_GROUPS = MARKET_GROUPS;
 
 const LANGUAGE_GROUP_KEYS = new Set(ALERT_LANGUAGE_GROUPS.map((group) => group.key));
 
@@ -126,11 +128,6 @@ function evidenceEntries(value) {
   }
 }
 
-function evidenceValue(entries, kind) {
-  const value = entries.find((entry) => entry?.kind === kind)?.value;
-  return value == null ? null : String(value).trim() || null;
-}
-
 function persistedFacets(entries) {
   const entry = entries.find((candidate) => candidate?.kind === "alert_facets" && candidate?.version === ALERT_FACET_VERSION);
   if (!entry || !LANGUAGE_GROUP_KEYS.has(entry.languageGroup)) return null;
@@ -138,53 +135,50 @@ function persistedFacets(entries) {
     version: ALERT_FACET_VERSION,
     languageGroup: entry.languageGroup,
     languageCode: typeof entry.languageCode === "string" && entry.languageCode ? entry.languageCode : null,
-    marketCode: typeof entry.marketCode === "string" && entry.marketCode ? entry.marketCode : null,
+    marketCode: normalizeMarketCode(entry.marketCode),
+    marketGroup: marketGroupForCode(entry.marketCode),
+    marketStatus: typeof entry.marketStatus === "string" ? entry.marketStatus : "unknown",
     languageLabel: ALERT_LANGUAGE_GROUPS.find((group) => group.key === entry.languageGroup)?.label || "Unknown language",
     setKey: typeof entry.setKey === "string" && entry.setKey ? entry.setKey : null,
     setName: typeof entry.setName === "string" && entry.setName ? entry.setName : null,
     confidence: {
       language: Number.isFinite(Number(entry.languageConfidence)) ? Number(entry.languageConfidence) : 0,
+      market: Number.isFinite(Number(entry.marketConfidence)) ? Number(entry.marketConfidence) : 0,
       set: Number.isFinite(Number(entry.setConfidence)) ? Number(entry.setConfidence) : 0,
     },
     source: {
       language: typeof entry.languageSource === "string" ? entry.languageSource : "persisted",
+      market: typeof entry.marketSource === "string" ? entry.marketSource : "unknown",
       set: typeof entry.setSource === "string" ? entry.setSource : entry.setKey ? "persisted" : "unknown",
     },
   };
 }
 
-function languageFromDescriptor(language, region, sourceMarket, retailerCountryCode) {
+function languageFromDescriptor(language) {
   const normalizedLanguage = language == null ? "" : fold(language).replace(/\s+/g, "_");
-  const normalizedRegion = String(region || "").trim().toUpperCase();
-  const normalizedMarket = String(sourceMarket || "").trim().toUpperCase();
 
-  if (["japanese", "ja", "jp", "jpn"].includes(normalizedLanguage) || normalizedRegion === "JP" || normalizedMarket === "JP") {
-    return { languageGroup: "japanese", languageCode: "ja", marketCode: "JP", confidence: 1, source: normalizedLanguage ? "explicit_language" : "source_market" };
+  if (["japanese", "ja", "jp", "jpn"].includes(normalizedLanguage)) {
+    return { languageGroup: "japanese", languageCode: "ja", confidence: 1, source: "explicit_language" };
   }
-  if (["korean", "ko", "kr"].includes(normalizedLanguage) || normalizedRegion === "KR" || normalizedMarket === "KR") {
-    return { languageGroup: "korean", languageCode: "ko", marketCode: "KR", confidence: 1, source: normalizedLanguage ? "explicit_language" : "source_market" };
+  if (["korean", "ko", "kr"].includes(normalizedLanguage)) {
+    return { languageGroup: "korean", languageCode: "ko", confidence: 1, source: "explicit_language" };
   }
-  if (["simplified_chinese", "zh_hans", "zh_cn", "zh-cn", "cn"].includes(normalizedLanguage) || normalizedRegion === "CN" || normalizedMarket === "CN") {
-    return { languageGroup: "simplified_chinese", languageCode: "zh-Hans", marketCode: "CN", confidence: 1, source: normalizedLanguage ? "explicit_language" : "source_market" };
+  if (["simplified_chinese", "zh_hans", "zh_cn", "zh-cn", "cn"].includes(normalizedLanguage)) {
+    return { languageGroup: "simplified_chinese", languageCode: "zh-Hans", confidence: 1, source: "explicit_language" };
   }
-  if (["traditional_chinese", "zh_hant", "zh_tw", "zh_hk", "zh-tw", "zh-hk", "tw", "hk"].includes(normalizedLanguage)
-    || ["TW", "HK"].includes(normalizedRegion) || ["TW", "HK"].includes(normalizedMarket)) {
-    const marketCode = ["TW", "HK"].includes(normalizedRegion) ? normalizedRegion : ["TW", "HK"].includes(normalizedMarket) ? normalizedMarket : null;
-    return { languageGroup: "traditional_chinese", languageCode: "zh-Hant", marketCode, confidence: marketCode ? 1 : 0.9, source: normalizedLanguage ? "explicit_language" : "source_market" };
+  if (["traditional_chinese", "zh_hant", "zh_tw", "zh_hk", "zh-tw", "zh-hk", "tw", "hk"].includes(normalizedLanguage)) {
+    return { languageGroup: "traditional_chinese", languageCode: "zh-Hant", confidence: 1, source: "explicit_language" };
   }
   if (["english", "en", "gb", "uk"].includes(normalizedLanguage)) {
-    return { languageGroup: "english", languageCode: "en", marketCode: normalizedRegion || "GB", confidence: 1, source: "explicit_language" };
+    return { languageGroup: "english", languageCode: "en", confidence: 1, source: "explicit_language" };
   }
   if (normalizedLanguage === "chinese_unspecified" || normalizedLanguage === "chinese") {
-    return { languageGroup: "unknown", languageCode: null, marketCode: null, confidence: 0.4, source: "ambiguous_chinese_marker" };
+    return { languageGroup: "unknown", languageCode: null, confidence: 0.4, source: "ambiguous_chinese_marker" };
   }
   if (normalizedLanguage) {
-    return { languageGroup: "other", languageCode: normalizedLanguage.replaceAll("_", "-"), marketCode: normalizedRegion || null, confidence: 0.95, source: "explicit_language" };
+    return { languageGroup: "other", languageCode: normalizedLanguage.replaceAll("_", "-"), confidence: 0.95, source: "explicit_language" };
   }
-  if (String(retailerCountryCode || "").trim().toUpperCase() === "GB") {
-    return { languageGroup: "english", languageCode: "en", marketCode: "GB", confidence: 0.72, source: "uk_catalogue_default" };
-  }
-  return { languageGroup: "unknown", languageCode: null, marketCode: null, confidence: 0, source: "unknown" };
+  return { languageGroup: "unknown", languageCode: null, confidence: 0, source: "unknown" };
 }
 
 function explicitTitleLanguage(title) {
@@ -214,31 +208,47 @@ function setFromTitle(title) {
   return { setKey: null, setName: null, confidence: 0, source: "unknown" };
 }
 
-export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [] } = {}) {
+function persistedMarketResolution(entries) {
+  const entry = entries.find((candidate) => candidate?.kind === "canonical_market_resolution" && candidate?.version === 1);
+  if (!entry) return null;
+  const status = String(entry.status || "unknown");
+  return {
+    status,
+    marketCode: ["verified", "reused"].includes(status) ? normalizeMarketCode(entry.marketCode) : null,
+    candidateMarketCode: normalizeMarketCode(entry.candidateMarketCode),
+    confidence: Number(entry.confidence) || 0,
+    source: entry.source || "persisted_market_resolution",
+  };
+}
+
+export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [], marketResolution = null } = {}) {
   const entries = evidenceEntries(evidence);
   const persisted = persistedFacets(entries);
   if (persisted) return persisted;
 
   const descriptor = describeProductIdentity({ title, language, region });
   const titleLanguage = explicitTitleLanguage(title);
-  const sourceMarket = evidenceValue(entries, "rrp_source_market");
-  const languageFacet = languageFromDescriptor(
-    descriptor.language || titleLanguage.language,
-    descriptor.region || titleLanguage.region,
-    sourceMarket,
-    retailerCountryCode,
-  );
+  const languageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const marketFacet = marketResolution || persistedMarketResolution(entries) || {
+    status: "unknown",
+    marketCode: null,
+    confidence: 0,
+    source: "unknown",
+  };
+  const marketCode = ["verified", "reused"].includes(marketFacet.status) ? normalizeMarketCode(marketFacet.marketCode) : null;
   const setFacet = setFromTitle(title);
   return {
     version: ALERT_FACET_VERSION,
     languageGroup: languageFacet.languageGroup,
     languageCode: languageFacet.languageCode,
-    marketCode: languageFacet.marketCode,
+    marketCode,
+    marketGroup: marketGroupForCode(marketCode),
+    marketStatus: marketFacet.status || "unknown",
     languageLabel: ALERT_LANGUAGE_GROUPS.find((group) => group.key === languageFacet.languageGroup)?.label || "Unknown language",
     setKey: setFacet.setKey,
     setName: setFacet.setName,
-    confidence: { language: languageFacet.confidence, set: setFacet.confidence },
-    source: { language: languageFacet.source, set: setFacet.source },
+    confidence: { language: languageFacet.confidence, market: Number(marketFacet.confidence) || 0, set: setFacet.confidence },
+    source: { language: languageFacet.source, market: marketFacet.source || "unknown", set: setFacet.source },
   };
 }
 
@@ -249,8 +259,12 @@ export function alertFacetEvidence(facets, observedAt = Math.floor(Date.now() / 
     languageGroup: facets?.languageGroup || "unknown",
     languageCode: facets?.languageCode || null,
     marketCode: facets?.marketCode || null,
+    marketGroup: facets?.marketGroup || "unknown",
+    marketStatus: facets?.marketStatus || "unknown",
     languageConfidence: Number(facets?.confidence?.language) || 0,
     languageSource: facets?.source?.language || "unknown",
+    marketConfidence: Number(facets?.confidence?.market) || 0,
+    marketSource: facets?.source?.market || "unknown",
     setKey: facets?.setKey || null,
     setName: facets?.setName || null,
     setConfidence: Number(facets?.confidence?.set) || 0,
@@ -263,6 +277,7 @@ export function listAlertFacetOptions() {
   return {
     version: ALERT_FACET_VERSION,
     languages: ALERT_LANGUAGE_GROUPS.map((group) => ({ ...group })),
+    markets: ALERT_MARKET_GROUPS.map((group) => ({ ...group })),
     sets: [...SET_REGISTRY]
       .map(({ key, name }) => ({ key, name }))
       .sort((left, right) => left.name.localeCompare(right.name)),

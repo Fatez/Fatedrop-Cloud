@@ -56,6 +56,15 @@ export function retailerToRuntimeConfig(input) {
   return retailerToAdapterConfig(input, { requireMonitored: true, allowUnapprovedFeed: false });
 }
 
+export function selectRuntimeRetailers({ staticRetailers = [], registryRetailers = [] } = {}) {
+  const staticById = new Map((staticRetailers || [])
+    .filter((retailer) => retailer?.id)
+    .map((retailer) => [retailer.id, retailer]));
+  return (registryRetailers || [])
+    .filter((retailer) => retailer?.state === RETAILER_STATES.MONITORED)
+    .map((retailer) => staticById.get(retailer.id) || retailerToRuntimeConfig(retailer));
+}
+
 export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabled = false, databaseUrl = "", store = null } = {}) {
   const launchRetailers = [...staticRetailers];
   const byLaunchId = new Map(launchRetailers.map((retailer) => [retailer.id, retailer]));
@@ -69,10 +78,5 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
   const registry = new PostgresRetailerRegistry(databaseUrl, { poolProvider: () => canonicalStore.pool() });
   await ensureStaticRetailersInRegistry({ registry, staticRetailers: launch });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
-  const dynamic = monitored
-    .filter((retailer) => !byLaunchId.has(retailer.id))
-    .map(retailerToRuntimeConfig);
-  const byId = new Map(launch.map((retailer) => [retailer.id, retailer]));
-  for (const retailer of dynamic) byId.set(retailer.id, retailer);
-  return [...byId.values()];
+  return selectRuntimeRetailers({ staticRetailers: launch, registryRetailers: monitored });
 }
