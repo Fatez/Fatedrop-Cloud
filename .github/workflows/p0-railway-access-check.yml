@@ -1,0 +1,25 @@
+name: P0 Railway Access Check
+
+on:
+  push:
+    branches:
+      - diagnostic/p0-railway-deploy-2026-08-30
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_TOKEN: ${{ secrets.RAILWAY_PROJECT_TOKEN }}
+    steps:
+      - name: Check Railway deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${RAILWAY_TOKEN:-}" ]; then echo "RAILWAY_TOKEN_PRESENT=true"; else echo "RAILWAY_TOKEN_PRESENT=false"; fi
+          if [ -n "${RAILWAY_PROJECT_TOKEN:-}" ]; then echo "RAILWAY_PROJECT_TOKEN_PRESENT=true"; else echo "RAILWAY_PROJECT_TOKEN_PRESENT=false"; fi
+          test -n "${RAILWAY_TOKEN:-}${RAILWAY_PROJECT_TOKEN:-}" || exit 2
