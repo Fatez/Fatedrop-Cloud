@@ -55,8 +55,8 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   assert.match(notification.body, /Check Local Radar to see if a participating store is near you\.$/);
 });
 
-test("general operator intelligence cannot self-promote to Echo", () => {
-  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: "echo", confidence: 0.99 } }), NOW);
+test("general operator intelligence remains Whisper without an explicit Echo request", () => {
+  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: null, confidence: 0.99 } }), NOW);
   assert.equal(parsed.entry.kind, "whisper");
   assert.equal(parsed.entry.confidence, 0.59);
 });
@@ -98,30 +98,117 @@ test("operator issue requires the canonical store and persists Expected intellig
   };
 
   const originalUrl = process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
-  const originalSecret = process.env.FATEDROP_METRICS_INGEST_SECRET;
-  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.co.uk/api/dashboard/network-snapshot";
-  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  const originalSecret = process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET;
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.example";
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET = "test-secret";
   try {
     const result = await processOperatorIssue({ issue: operatorIssue(), store, fetchImpl, now: NOW });
-    assert.equal(result.status, "published");
-    assert.equal(result.matchedBranches, 2);
+    assert.equal(result.accepted, true);
+    assert.equal(result.persisted.saved, 2);
+    assert.equal(result.published, true);
     assert.equal(saved.length, 2);
-    for (const observation of saved) {
-      assert.equal(observation.kind, "echo");
-      assert.equal(observation.evidence.localIntel, true);
-      assert.equal(observation.evidence.advisory, true);
-      assert.equal(observation.evidence.availabilityVerified, false);
-    }
-    assert.equal(outbound.url, "https://fatedrop.co.uk/api/dashboard/local-radar-operator-alert");
+    assert.equal(saved[0].stockStatus, "expected");
+    assert.equal(saved[0].sourceType, "official_retailer_page");
+    assert.equal(saved[0].confidence, 0.68);
+    assert.equal(saved[0].retailerId, "entertainer-uk");
+    assert.equal(saved[0].locationId, "loc-bromley");
+    assert.equal(saved[1].locationId, "loc-watford");
+    assert.equal(outbound.url, "https://fatedrop.example/api/dashboard/local-radar-operator-alert");
     assert.equal(outbound.options.headers.Authorization, "Bearer test-secret");
     const payload = JSON.parse(outbound.options.body);
-    assert.equal(payload.eventId, "local-radar-operator:301");
     assert.equal(payload.stage, "ECHO");
     assert.equal(payload.branchCount, 2);
+    assert.equal(payload.operatorIssue, 301);
   } finally {
     if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
     else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
-    if (originalSecret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
-    else process.env.FATEDROP_METRICS_INGEST_SECRET = originalSecret;
+    if (originalSecret === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET = originalSecret;
+  }
+});
+
+test("production server owns lifecycle heartbeat and Local Radar operator intake", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../src/http/fatedrop-server.mjs", import.meta.url), "utf8"));
+  assert.match(source, /startSignalLifecycleHeartbeat/);
+  assert.match(source, /startOperatorLocalRadarWatcher/);
+});
+
+test("operator watcher reuses the production canonical store and never owns a pg pool", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../src/http/fatedrop-server.mjs", import.meta.url), "utf8"));
+  assert.match(source, /startOperatorLocalRadarWatcher\(\{ store \}\)/);
+  assert.doesNotMatch(source, /startOperatorLocalRadarWatcher\(\{[\s\S]*databaseUrl/);
+});
+
+test("read-only exact-branch inspection never invokes Local Radar persistence", async () => {
+  let writes = 0;
+  const store = {
+    async listRetailerLocations() {
+      return [
+        { id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN" },
+      ];
+    },
+    async upsertLocalStockObservations() {
+      writes += 1;
+      throw new Error("read-only inspection must not write");
+    },
+  };
+  const issue = operatorIssue({ body: { targetBranches: ["The Entertainer Bromley Lower Mall"] } });
+  const parsed = parseOperatorIssue(issue, NOW);
+  const { inspectCuratedIncomingIntelTargets } = await import("../src/encounters/curated-incoming-intel-reconcile.mjs");
+  const result = await inspectCuratedIncomingIntelTargets({ store, entries: [parsed.entry], now: NOW });
+  assert.equal(result.matchedBranches, 1);
+  assert.equal(result.unmatchedTargets.length, 0);
+  assert.equal(writes, 0);
+});
+
+test("testOnly requires the exact TEST ONLY issue title in both directions", () => {
+  assert.throws(() => parseOperatorIssue(operatorIssue({ body: { testOnly: true } }), NOW), /must use the exact TEST ONLY title/);
+  assert.throws(() => parseOperatorIssue(operatorIssue({ title: "[FATEDROP LOCAL RADAR] TEST ONLY" }), NOW), /must set testOnly=true/);
+});
+
+test("test-only operator issue reconciles canonical branches read-only and still publishes through the real bridge", async () => {
+  let writes = 0;
+  let outbound = null;
+  const store = {
+    async listRetailerLocations() {
+      return [
+        { id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN" },
+        { id: "loc-watford", retailerId: "entertainer-uk", name: "The Entertainer Watford", address: "Watford", postcode: "WD17 2UB" },
+      ];
+    },
+    async upsertLocalStockObservations() {
+      writes += 1;
+      throw new Error("TEST ONLY must not persist Local Radar observations");
+    },
+  };
+  const fetchImpl = async (url, options) => {
+    outbound = { url: String(url), options };
+    return new Response(JSON.stringify({ accepted: true, queued: 1, sent: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const issue = operatorIssue({ title: "[FATEDROP LOCAL RADAR] TEST ONLY", body: { testOnly: true } });
+
+  const originalUrl = process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+  const originalSecret = process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET;
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.example";
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET = "test-secret";
+  try {
+    const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
+    assert.equal(result.accepted, true);
+    assert.equal(result.persisted.saved, 0);
+    assert.equal(result.persisted.duplicates, 0);
+    assert.equal(result.published, true);
+    assert.equal(writes, 0);
+    assert.equal(outbound.url, "https://fatedrop.example/api/dashboard/local-radar-operator-alert");
+    assert.equal(outbound.options.headers.Authorization, "Bearer test-secret");
+    const payload = JSON.parse(outbound.options.body);
+    assert.equal(payload.testOnly, true);
+    assert.equal(payload.stage, "ECHO");
+    assert.equal(payload.branchCount, 2);
+    assert.equal(payload.operatorIssue, 301);
+  } finally {
+    if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
+    if (originalSecret === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_SECRET = originalSecret;
   }
 });
