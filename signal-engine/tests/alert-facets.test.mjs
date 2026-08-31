@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { deriveAlertFacets, listAlertFacetOptions } from "../src/core/alert-facets.mjs";
 
-test("alert facets describe language without treating it as verified market identity", () => {
+test("alert facets describe explicit language without treating it as verified market identity", () => {
   assert.deepEqual(
     deriveAlertFacets({ title: "Pokemon Abyss Eye Japanese Booster Box", retailerCountryCode: "GB" }),
     {
@@ -31,45 +31,93 @@ test("alert facets describe language without treating it as verified market iden
   assert.equal(deriveAlertFacets({ title: "Pokemon Booster Box [CHT]", retailerCountryCode: "GB" }).languageGroup, "traditional_chinese");
 });
 
-test("canonical English-only set names resolve language without inventing a market", () => {
-  const destinedRivals = deriveAlertFacets({ title: "Pokemon Destined Rivals Elite Trainer Box", retailerCountryCode: "GB" });
-  assert.equal(destinedRivals.languageGroup, "english");
-  assert.equal(destinedRivals.languageCode, "en");
-  assert.equal(destinedRivals.marketCode, null);
-  assert.equal(destinedRivals.marketStatus, "unknown");
-  assert.equal(destinedRivals.confidence.language, 0.99);
-  assert.equal(destinedRivals.source.language, "canonical_english_set:destined-rivals");
-  assert.equal(destinedRivals.setKey, "destined-rivals");
-
-  const obsidianFlames = deriveAlertFacets({ title: "Pokemon - Scarlet & Violet - Obsidian Flames - Booster Pack", retailerCountryCode: "GB" });
-  assert.equal(obsidianFlames.languageGroup, "english");
-  assert.equal(obsidianFlames.languageLabel, "English");
-  assert.equal(obsidianFlames.setKey, "obsidian-flames");
-  assert.equal(obsidianFlames.marketCode, null);
-
-  const hiddenFates = deriveAlertFacets({ title: "Hidden Fates Booster Pack", retailerCountryCode: "GB" });
-  assert.equal(hiddenFates.languageGroup, "english");
-  assert.equal(hiddenFates.setKey, "hidden-fates");
-  assert.equal(hiddenFates.setName, "Hidden Fates");
+test("Obsidian Flames canonical set scope resolves English without manufacturing market or RRP authority", () => {
+  const facets = deriveAlertFacets({
+    title: "Pokemon - Scarlet & Violet - Obsidian Flames - Booster Pack",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.languageGroup, "english");
+  assert.equal(facets.languageCode, "en");
+  assert.equal(facets.languageLabel, "English");
+  assert.equal(facets.setKey, "obsidian-flames");
+  assert.equal(facets.setName, "Obsidian Flames");
+  assert.equal(facets.source.language, "canonical_set_scope:obsidian-flames");
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketGroup, "unknown");
+  assert.equal(facets.marketStatus, "unknown");
+  assert.equal(Object.hasOwn(facets, "rrpPence"), false);
 });
 
-test("generic and cross-market set titles remain unknown without language evidence", () => {
-  const generic = deriveAlertFacets({ title: "Pokemon Booster Pack", retailerCountryCode: "GB" });
-  assert.equal(generic.languageGroup, "unknown");
-  assert.equal(generic.languageCode, null);
-  assert.equal(generic.marketCode, null);
-  assert.equal(generic.source.language, "unknown");
-
-  const ambiguous151 = deriveAlertFacets({ title: "Pokemon 151 Booster Box", retailerCountryCode: "GB" });
-  assert.equal(ambiguous151.setKey, "pokemon-151");
-  assert.equal(ambiguous151.languageGroup, "unknown");
-
-  const ambiguousChinese = deriveAlertFacets({ title: "Obsidian Flames Chinese Booster Box", retailerCountryCode: "GB" });
-  assert.equal(ambiguousChinese.languageGroup, "unknown");
-  assert.notEqual(ambiguousChinese.source.language, "canonical_english_set:obsidian-flames");
+test("Destined Rivals canonical set scope resolves English without inheriting UK retailer market", () => {
+  const facets = deriveAlertFacets({
+    title: "Pokemon Destined Rivals Booster Bundle",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.languageGroup, "english");
+  assert.equal(facets.languageCode, "en");
+  assert.equal(facets.setKey, "destined-rivals");
+  assert.equal(facets.source.language, "canonical_set_scope:destined-rivals");
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketStatus, "unknown");
 });
 
-test("persisted unknown facets self-heal only when stronger canonical title evidence exists", () => {
+test("Pokemon 151 remains unknown without printing or explicit language evidence", () => {
+  const facets = deriveAlertFacets({
+    title: "Pokemon 151 Booster Box",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.setKey, "pokemon-151");
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.languageCode, null);
+  assert.equal(facets.source.language, "unknown");
+  assert.equal(facets.marketCode, null);
+});
+
+test("Gem 5 resolves Simplified Chinese from canonical set authority, not English-looking title text", () => {
+  const facets = deriveAlertFacets({
+    title: "Pokemon Gem 5 Booster Box",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.setKey, "gem-5");
+  assert.equal(facets.languageGroup, "simplified_chinese");
+  assert.equal(facets.languageCode, "zh-Hans");
+  assert.equal(facets.languageLabel, "Simplified Chinese");
+  assert.equal(facets.source.language, "canonical_set_scope:gem-5");
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketStatus, "unknown");
+});
+
+test("UK retailer plus generic listing remains unknown", () => {
+  const facets = deriveAlertFacets({
+    title: "Pokemon Booster Box",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.languageCode, null);
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketStatus, "unknown");
+  assert.equal(facets.confidence.language, 0);
+  assert.equal(facets.source.language, "unknown");
+  assert.equal(facets.setKey, null);
+});
+
+test("explicit language conflicting with a language-exclusive canonical set is quarantined", () => {
+  const facets = deriveAlertFacets({
+    title: "Obsidian Flames Japanese Booster Pack",
+    retailerCountryCode: "GB",
+  });
+  assert.equal(facets.setKey, "obsidian-flames");
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.languageCode, null);
+  assert.equal(facets.languageLabel, "Unknown language");
+  assert.equal(facets.confidence.language, 1);
+  assert.match(facets.source.language, /^language_conflict:/);
+  assert.match(facets.source.language, /japanese:english:obsidian-flames$/);
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketStatus, "unknown");
+});
+
+test("previously persisted unknown version-2 facets are safely enriched from canonical set scope", () => {
   const oldUnknownEvidence = [{
     kind: "alert_facets",
     version: 2,
@@ -87,17 +135,20 @@ test("persisted unknown facets self-heal only when stronger canonical title evid
     setConfidence: 1,
     setSource: "title_alias:obsidian flames",
   }];
-  const upgraded = deriveAlertFacets({
+  const facets = deriveAlertFacets({
     title: "Pokemon - Scarlet & Violet - Obsidian Flames - Booster Pack",
     retailerCountryCode: "GB",
     evidence: oldUnknownEvidence,
   });
-  assert.equal(upgraded.languageGroup, "english");
-  assert.equal(upgraded.languageCode, "en");
-  assert.equal(upgraded.marketCode, null);
-  assert.equal(upgraded.source.language, "canonical_english_set:obsidian-flames");
+  assert.equal(facets.languageGroup, "english");
+  assert.equal(facets.languageCode, "en");
+  assert.equal(facets.source.language, "canonical_set_scope:obsidian-flames");
+  assert.equal(facets.marketCode, null);
+  assert.equal(facets.marketStatus, "unknown");
+});
 
-  const oldHiddenFatesEvidence = [{
+test("persisted unknown facets can also gain a newly recognised set identity safely", () => {
+  const oldUnknownEvidence = [{
     kind: "alert_facets",
     version: 2,
     languageGroup: "unknown",
@@ -114,22 +165,72 @@ test("persisted unknown facets self-heal only when stronger canonical title evid
     setConfidence: 0,
     setSource: "unknown",
   }];
-  const hiddenFates = deriveAlertFacets({
+  const facets = deriveAlertFacets({
     title: "Hidden Fates Booster Pack",
     retailerCountryCode: "GB",
-    evidence: oldHiddenFatesEvidence,
+    evidence: oldUnknownEvidence,
   });
-  assert.equal(hiddenFates.languageGroup, "english");
-  assert.equal(hiddenFates.setKey, "hidden-fates");
-  assert.equal(hiddenFates.setName, "Hidden Fates");
+  assert.equal(facets.languageGroup, "english");
+  assert.equal(facets.setKey, "hidden-fates");
+  assert.equal(facets.setName, "Hidden Fates");
+  assert.equal(facets.source.language, "canonical_set_scope:hidden-fates");
+  assert.equal(facets.marketCode, null);
+});
 
-  const generic = deriveAlertFacets({
+test("persisted conflicting language evidence is quarantined instead of winning silently", () => {
+  const facets = deriveAlertFacets({
+    title: "Obsidian Flames Booster Pack",
+    retailerCountryCode: "GB",
+    evidence: [{
+      kind: "alert_facets",
+      version: 2,
+      languageGroup: "japanese",
+      languageCode: "ja",
+      marketCode: null,
+      marketGroup: "unknown",
+      marketStatus: "unknown",
+      languageConfidence: 1,
+      languageSource: "operator_verified",
+      marketConfidence: 0,
+      marketSource: "unknown",
+      setKey: "obsidian-flames",
+      setName: "Obsidian Flames",
+      setConfidence: 1,
+      setSource: "title_alias:obsidian flames",
+    }],
+  });
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.languageCode, null);
+  assert.equal(facets.confidence.language, 1);
+  assert.match(facets.source.language, /^language_conflict:persisted_operator_verified:japanese:english:obsidian-flames$/);
+});
+
+test("a generic persisted unknown remains unknown when no stronger canonical evidence appears", () => {
+  const evidence = [{
+    kind: "alert_facets",
+    version: 2,
+    languageGroup: "unknown",
+    languageCode: null,
+    marketCode: null,
+    marketGroup: "unknown",
+    marketStatus: "unknown",
+    languageConfidence: 0,
+    languageSource: "unknown",
+    marketConfidence: 0,
+    marketSource: "unknown",
+    setKey: null,
+    setName: null,
+    setConfidence: 0,
+    setSource: "unknown",
+  }];
+  const facets = deriveAlertFacets({
     title: "Pokemon Booster Pack",
     retailerCountryCode: "GB",
-    evidence: oldHiddenFatesEvidence,
+    evidence,
   });
-  assert.equal(generic.languageGroup, "unknown");
-  assert.equal(generic.setKey, null);
+  assert.equal(facets.languageGroup, "unknown");
+  assert.equal(facets.setKey, null);
+  assert.equal(facets.source.language, "unknown");
 });
 
 test("only a verified canonical market resolution emits a market facet", () => {
@@ -144,7 +245,7 @@ test("only a verified canonical market resolution emits a market facet", () => {
   assert.equal(facets.marketStatus, "verified");
 });
 
-test("persisted known facets win and unknown set remains explicitly unknown", () => {
+test("persisted known facets still win when they do not conflict with canonical set scope", () => {
   const facets = deriveAlertFacets({
     title: "Unmapped Collector Product",
     retailerCountryCode: "GB",
@@ -199,7 +300,7 @@ test("facet option contract exposes stable language and set keys for Web and App
     "unknown",
   ]);
   const keys = new Set(options.sets.map((item) => item.key));
-  for (const key of ["destined-rivals", "hidden-fates", "abyss-eye", "inferno-x", "terastal-grand-gathering", "gem-6"]) {
+  for (const key of ["destined-rivals", "hidden-fates", "obsidian-flames", "pokemon-151", "abyss-eye", "inferno-x", "terastal-grand-gathering", "gem-5", "gem-6"]) {
     assert.equal(keys.has(key), true, key);
   }
 });
