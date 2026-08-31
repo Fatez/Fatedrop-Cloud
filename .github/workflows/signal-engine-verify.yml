@@ -38,30 +38,7 @@ jobs:
       - name: Audit Signal Engine production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Run complete Signal Engine tests
-        run: |
-          set +e
-          npm test 2>&1 | tee test-output.log
-          status=${PIPESTATUS[0]}
-
-          {
-            echo "### Signal Engine test diagnostics"
-            echo
-            echo "Exit code: ${status}"
-            echo
-            echo '```text'
-            grep -n -B 20 -A 60 -E 'not ok|AssertionError|ERR_|failureType|error:' test-output.log | tail -n 500 || tail -n 300 test-output.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          exit "$status"
-      - name: Preserve Signal Engine test output
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: signal-engine-test-output
-          path: signal-engine/test-output.log
-          if-no-files-found: warn
-          retention-days: 1
+        run: npm test
 
   fate-value-postgres:
     runs-on: ubuntu-latest
