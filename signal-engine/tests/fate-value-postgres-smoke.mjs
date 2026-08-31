@@ -8,6 +8,7 @@ import {
   normaliseMarketObservationCandidate,
 } from '../src/trader/value/market-observation.mjs';
 import { persistMarketEvidenceBatch } from '../src/trader/value/market-store.mjs';
+import { persistCanonicalSignals } from '../src/stores/canonical-signal-ledger.mjs';
 
 const connectionString = process.env.FATE_VALUE_TEST_DATABASE_URL;
 if (!connectionString) throw new Error('FATE_VALUE_TEST_DATABASE_URL is required');
@@ -18,6 +19,8 @@ const VERIFIED_CARD_ID = 'fdcard_value_smoke_verified';
 const VERIFIED_MAPPING_ID = 'fdcardmap_value_smoke_verified';
 const STAGED_CARD_ID = 'fdcard_value_smoke_staged';
 const STAGED_MAPPING_ID = 'fdcardmap_value_smoke_staged';
+const EPISODE_PRODUCT_ID = 'fdproduct_episode_smoke';
+const EPISODE_OFFER_ID = 'fdoffer_episode_smoke';
 
 function completedRun(snapshotId, { accepted = 1, rejected = 0, offset = 0 } = {}) {
   return normaliseMarketIngestRun({
@@ -61,10 +64,39 @@ function dateOnly(value) {
   return String(value).slice(0, 10);
 }
 
+function episodeSignal(state, offset) {
+  const detectedAt = Math.floor(NOW / 1_000) + offset;
+  return {
+    id: `fdsignal_episode_${state}`,
+    state,
+    productId: EPISODE_PRODUCT_ID,
+    offerId: EPISODE_OFFER_ID,
+    retailerId: 'episode-smoke-retailer',
+    retailerName: 'Episode Smoke Retailer',
+    title: 'Episode Smoke Booster Pack',
+    productType: 'booster_pack',
+    url: 'https://example.com/episode-smoke',
+    pricePence: 499,
+    stockStatus: state === 'vanished' ? 'out_of_stock' : state === 'manifested' ? 'in_stock' : 'unknown',
+    confidence: 0.99,
+    detectedAt,
+    reason: 'postgres_smoke',
+    evidence: [{ kind: 'signal_kind', value: 'postgres_smoke' }],
+  };
+}
+
 const pool = new Pool({ connectionString, max: 2 });
 const store = { pool: async () => pool };
 
 try {
+  const baseSql = await readFile(
+    new URL('../database/postgres.sql', import.meta.url),
+    'utf8',
+  );
+  const episodeSql = await readFile(
+    new URL('../database/canonical-stock-episodes.sql', import.meta.url),
+    'utf8',
+  );
   const identitySql = await readFile(
     new URL('../database/fate-trader-card-identity.sql', import.meta.url),
     'utf8',
@@ -74,6 +106,8 @@ try {
     'utf8',
   );
 
+  await pool.query(baseSql);
+  await pool.query(episodeSql);
   await pool.query(identitySql);
   await pool.query(valueSql);
 
@@ -204,7 +238,81 @@ try {
   assert.equal(Number(persisted.rows[0].avg_7d), 8.8);
   assert.equal(dateOnly(persisted.rows[0].market_day), '2026-08-28');
 
-  console.log('Fate Value PostgreSQL smoke rehearsal passed');
+  await pool.query(`INSERT INTO fatedrop_products (
+      id,canonical_key,title,product_type,first_seen_at,updated_at
+    ) VALUES ($1,'episode-smoke-product','Episode Smoke Booster Pack','booster_pack',$2,$2)`,
+  [EPISODE_PRODUCT_ID, NOW]);
+  await pool.query(`INSERT INTO fatedrop_retail_offers (
+      offer_id,product_id,retailer_id,retailer_name,retailer_sku,title,url,
+      stock_status,stock_confidence,first_seen_at,last_seen_at
+    ) VALUES ($1,$2,'episode-smoke-retailer','Episode Smoke Retailer','episode-smoke-sku',
+      'Episode Smoke Booster Pack','https://example.com/episode-smoke','unknown',0.99,$3,$3)`,
+  [EPISODE_OFFER_ID, EPISODE_PRODUCT_ID, NOW]);
+
+  const episodeSignals = [
+    episodeSignal('whisper', 1),
+    episodeSignal('echo', 2),
+    episodeSignal('manifested', 3),
+    episodeSignal('vanished', 4),
+  ];
+  const episodeClient = await pool.connect();
+  let episodeResult;
+  let episodeReplayResult;
+  try {
+    await episodeClient.query('BEGIN');
+    episodeResult = await persistCanonicalSignals(episodeClient, episodeSignals, {
+      now: Math.floor(NOW / 1_000) + 10,
+    });
+    episodeReplayResult = await persistCanonicalSignals(episodeClient, episodeSignals, {
+      now: Math.floor(NOW / 1_000) + 11,
+    });
+    await episodeClient.query('COMMIT');
+  } catch (error) {
+    await episodeClient.query('ROLLBACK');
+    throw error;
+  } finally {
+    episodeClient.release();
+  }
+
+  assert.deepEqual(episodeResult.acceptedSignalIds, episodeSignals.map(({ id }) => id));
+  assert.deepEqual(episodeReplayResult.deduplicatedSignalIds, episodeSignals.map(({ id }) => id));
+  const episodeCounts = await pool.query(`SELECT
+      (SELECT COUNT(*)::int FROM fatedrop_stock_episodes) AS episodes,
+      (SELECT COUNT(*)::int FROM fatedrop_stock_episode_events) AS events,
+      (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_outbox) AS outbox,
+      (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_outbox WHERE state='pending') AS pending`);
+  assert.deepEqual(episodeCounts.rows[0], { episodes: 1, events: 4, outbox: 4, pending: 4 });
+
+  const episodeTruth = await pool.query(`SELECT
+      episode_state,availability_state,manifested_at,vanished_at
+    FROM fatedrop_stock_episodes WHERE offer_id=$1`, [EPISODE_OFFER_ID]);
+  assert.equal(episodeTruth.rows[0].episode_state, 'closed');
+  assert.equal(episodeTruth.rows[0].availability_state, 'vanished');
+  assert.ok(Number(episodeTruth.rows[0].vanished_at) > Number(episodeTruth.rows[0].manifested_at));
+
+  const orphanClient = await pool.connect();
+  let orphanResult;
+  try {
+    await orphanClient.query('BEGIN');
+    orphanResult = await persistCanonicalSignals(
+      orphanClient,
+      [{ ...episodeSignal('vanished', 5), id: 'fdsignal_episode_orphan_vanished' }],
+      { now: Math.floor(NOW / 1_000) + 12 },
+    );
+    await orphanClient.query('COMMIT');
+  } catch (error) {
+    await orphanClient.query('ROLLBACK');
+    throw error;
+  } finally {
+    orphanClient.release();
+  }
+  assert.deepEqual(orphanResult.conflictSignalIds, ['fdsignal_episode_orphan_vanished']);
+  const orphanTruth = await pool.query(`SELECT
+      EXISTS(SELECT 1 FROM fatedrop_signals WHERE id='fdsignal_episode_orphan_vanished') AS public_signal,
+      EXISTS(SELECT 1 FROM fatedrop_stock_episode_conflicts WHERE signal_id='fdsignal_episode_orphan_vanished') AS conflict`);
+  assert.deepEqual(orphanTruth.rows[0], { public_signal: false, conflict: true });
+
+  console.log('Fate Value and canonical stock episode PostgreSQL smoke rehearsal passed');
 } finally {
   await pool.end();
 }

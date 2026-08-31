@@ -1,3 +1,6 @@
+import { persistCanonicalSignals } from "./canonical-signal-ledger.mjs";
+import { applyFileCanonicalSignals } from "./file-store.mjs";
+
 function sortedBy(items, key) {
   return [...(items || [])].sort((a, b) => String(a?.[key] || "").localeCompare(String(b?.[key] || "")));
 }
@@ -85,14 +88,13 @@ async function savePostgres(store, { retailer, products, offers, observations, s
       SELECT x->>'id',x->>'offerId',x->>'retailerId',(x->>'observedAt')::bigint,x->>'stockStatus',NULLIF(x->>'stockConfidence','')::numeric,NULLIF(x->>'stockQuantity','')::integer,NULLIF(x->>'pricePence','')::integer,COALESCE(x->'evidence','[]'::jsonb)
       FROM jsonb_array_elements($1::jsonb) x ON CONFLICT DO NOTHING`, orderedObservations);
 
-    await bulkJson(client, `INSERT INTO fatedrop_signals (id,state,product_id,offer_id,retailer_id,retailer_name,title,product_type,url,image_url,price_pence,rrp_pence,postage_pence,delivered_price_pence,markup_percent,stock_status,previous_stock_status,confidence,detected_at,reason,evidence)
-      SELECT x->>'id',x->>'state',x->>'productId',NULLIF(x->>'offerId',''),x->>'retailerId',x->>'retailerName',x->>'title',NULLIF(x->>'productType',''),NULLIF(x->>'url',''),NULLIF(x->>'imageUrl',''),NULLIF(x->>'pricePence','')::integer,NULLIF(x->>'rrpPence','')::integer,NULLIF(x->>'postagePence','')::integer,NULLIF(x->>'deliveredPricePence','')::integer,NULLIF(x->>'markupPercent','')::numeric,x->>'stockStatus',NULLIF(x->>'previousStockStatus',''),NULLIF(x->>'confidence','')::numeric,(x->>'detectedAt')::bigint,NULLIF(x->>'reason',''),COALESCE(x->'evidence','[]'::jsonb)
-      FROM jsonb_array_elements($1::jsonb) x ON CONFLICT DO NOTHING`, transitions.accepted);
+    const signalPersistence = await persistCanonicalSignals(client, transitions.accepted);
 
     await client.query("COMMIT");
     return {
-      insertedSignalIds: transitions.accepted.map((signal) => signal.id),
-      deduplicatedSignals: transitions.deduplicated,
+      ...signalPersistence,
+      insertedSignalIds: signalPersistence.acceptedSignalIds,
+      deduplicatedSignals: transitions.deduplicated + signalPersistence.deduplicatedSignalIds.length,
       productsSaved: orderedProducts.length,
       offersSaved: orderedOffers.length,
       observationsSaved: orderedObservations.length,
@@ -146,13 +148,13 @@ async function saveFile(store, { products, offers, observations, signals }) {
 
     const observationIds = new Set(state.observations.map((item) => item.id));
     for (const observation of observations || []) if (!observationIds.has(observation.id)) state.observations.push(observation);
-    state.signals.push(...transitions.accepted);
+    const signalPersistence = applyFileCanonicalSignals(state, transitions.accepted);
     if (state.observations.length > 100000) state.observations = state.observations.slice(-100000);
-    if (state.signals.length > 20000) state.signals = state.signals.slice(-20000);
 
     return {
-      insertedSignalIds: transitions.accepted.map((signal) => signal.id),
-      deduplicatedSignals: transitions.deduplicated,
+      ...signalPersistence,
+      insertedSignalIds: signalPersistence.acceptedSignalIds,
+      deduplicatedSignals: transitions.deduplicated + signalPersistence.deduplicatedSignalIds.length,
       productsSaved: (products || []).length,
       offersSaved: (offers || []).length,
       observationsSaved: (observations || []).length,

@@ -1,6 +1,7 @@
 import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
+import { dispatchSignalDeliveryOutbox } from "../notifications/signal-outbox.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
@@ -68,6 +69,16 @@ function emptyDiscordResult(extra = {}) { return { sent: 0, skipped: 0, failed: 
 
 async function deliverSignals(store, signals) {
   if (!signals.length) return emptyDiscordResult();
+  if (typeof store?.pool === "function") {
+    const outbox = await dispatchSignalDeliveryOutbox(store, { limit: Math.max(25, signals.length) });
+    return {
+      sent: outbox.sent,
+      skipped: outbox.suppressed,
+      failed: outbox.retryable + outbox.unknown + outbox.deadLetter,
+      errors: outbox.errors,
+      outbox,
+    };
+  }
   return dispatchDiscordSignals(signals, {
     onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
   });
@@ -464,12 +475,16 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const completedAt = Math.floor(Date.now() / 1000);
   const uniqueProducts = dedupeCanonicalProducts(products);
   throwIfRetailerScanAborted();
-  await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  const signalPersistence = await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  const acceptedIds = Array.isArray(signalPersistence?.acceptedSignalIds)
+    ? new Set(signalPersistence.acceptedSignalIds)
+    : null;
+  const canonicalSignals = acceptedIds ? signals.filter((signal) => acceptedIds.has(signal.id)) : signals;
   const rrpLearning = await persistRrpLearningActions(store, rrpLearningActions);
   const marketMemory = await persistMarketMemoryActions(store, marketMemoryActions, completedAt);
 
-  const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, marketMemory, signalSafety: burstSafety.diagnostics, signals, discord };
+  const discord = dispatchNotifications ? await deliverSignals(store, canonicalSignals) : emptyDiscordResult({ deferred: canonicalSignals.length > 0 });
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: canonicalSignals.length, signalConflicts: signalPersistence?.conflictSignalIds?.length || 0, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, marketMemory, signalSafety: burstSafety.diagnostics, signals: canonicalSignals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {

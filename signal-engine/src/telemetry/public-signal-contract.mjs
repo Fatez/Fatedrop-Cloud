@@ -41,6 +41,8 @@ function publicSignalFromAlert(alert) {
     kind: alert.signalKind || null,
     deliveryPolicy: alert.deliveryPolicy,
     interruptEligible: alert.interruptEligible === true,
+    stockEpisode: alert.stockEpisode || null,
+    availabilityTruth: alert.availabilityTruth,
     facets: alert.facets,
     productId: alert.productId || null,
     offerId: alert.offerId || null,

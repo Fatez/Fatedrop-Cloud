@@ -17,6 +17,8 @@ test('public signal feed is Cloud-owned, versioned, no-store and canonical for V
   assert.match(publicContract, /source: 'FATEDROP_CLOUD'/);
   assert.match(publicContract, /'cache-control': 'no-store'/);
   assert.match(publicContract, /listCanonicalPublicAlerts\(store, \{ states: requestedStates, limit: safeLimit \}\)/);
+  assert.match(publicContract, /stockEpisode: alert\.stockEpisode \|\| null/);
+  assert.match(publicContract, /availabilityTruth: alert\.availabilityTruth/);
   assert.match(publicContract, /canonicalSignalVisible/);
   assert.match(publicContract, /signalPubliclyVisible/);
   assert.match(visibilityPolicy, /state <> 'vanished'/);
