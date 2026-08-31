@@ -247,10 +247,15 @@ function safeDiagnostics(diagnostics = {}) {
     },
     monitors: {
       totalRetailers: safeCount(monitors.totalRetailers),
+      activeRetailers: safeCount(monitors.activeRetailers),
       freshRetailers: safeCount(monitors.freshRetailers),
       staleRetailers: safeCount(monitors.staleRetailers),
       unhealthyRetailers: safeCount(monitors.unhealthyRetailers),
+      regressedRetailers: safeCount(monitors.regressedRetailers),
       blockedRetailers: safeCount(monitors.blockedRetailers),
+      onboardingRetailers: safeCount(monitors.onboardingRetailers),
+      excludedRetailers: safeCount(monitors.excludedRetailers),
+      degradedRetailers: safeCount(monitors.degradedRetailers),
     },
     discordLatency: {
       sampleSize: safeCount(discordLatency.sampleSize),

@@ -161,6 +161,38 @@ test("recognized foreign identity never falls through to an unrelated UK authori
   assert.equal(result.reason, "no_verified_source_market_msrp");
 });
 
+test("verified market memory resolves a future listing whose English title has no market marker", () => {
+  const result = resolveInternationalMsrp({
+    title: "Abyss Eye Booster Pack",
+    productType: "booster_pack",
+    verifiedMarketCode: "JP",
+    marketResolutionStatus: "reused",
+  });
+  assert.equal(result.recognized, true);
+  assert.equal(result.resolved, true);
+  assert.equal(result.sourceMarket, "JP");
+  assert.equal(result.authorityId, "jp-abyss-eye");
+});
+
+test("language alone does not select a market and memory conflicts fail closed", () => {
+  const languageOnly = resolveInternationalMsrp({
+    title: "Abyss Eye Booster Pack",
+    productType: "booster_pack",
+    language: "ja",
+  });
+  assert.equal(languageOnly.recognized, false);
+
+  const conflict = resolveInternationalMsrp({
+    title: "Abyss Eye Japanese Booster Pack",
+    productType: "booster_pack",
+    verifiedMarketCode: "KR",
+    marketResolutionStatus: "reused",
+  });
+  assert.equal(conflict.recognized, true);
+  assert.equal(conflict.resolved, false);
+  assert.equal(conflict.reason, "source_market_memory_conflict");
+});
+
 test("Cloud Fate Verdict compares Japanese 1-pack vs 30-pack on one verified source-market family", async () => withServer(async (base) => {
   const data = await postVerdict(base, "Abyss Eye Japanese", JP_PACK, JP_BOX);
   assert.equal(data.success, true);

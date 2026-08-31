@@ -132,7 +132,37 @@ export class PostgresStore {
     const { rows } = await pool.query(`SELECT * FROM fatedrop_signals WHERE ${conditions.join(" AND ")} ORDER BY detected_at DESC LIMIT $2`, values);
     return rows.map(dbSignal);
   }
-  async listRetailers() { const pool=await this.pool(); const {rows}=await pool.query("SELECT * FROM fatedrop_retailer_health ORDER BY retailer_name"); return rows.map((r)=>({ id:r.retailer_id,name:r.retailer_name,healthy:r.healthy,lastScanAt:Number(r.last_scan_at||0)||null,lastSuccessAt:Number(r.last_success_at||0)||null,lastError:r.last_error,productsSeen:r.products_seen,pagesScanned:r.pages_scanned,baselineCompleted:r.baseline_completed })); }
+  async listRetailers() {
+    const pool = await this.pool();
+    const { rows } = await pool.query(`
+      SELECT h.*,r.lifecycle_state,r.verification_state,r.adapter_type,latest.failure_code
+      FROM fatedrop_retailer_health h
+      LEFT JOIN fatedrop_retailer_registry r ON r.retailer_id=h.retailer_id
+      LEFT JOIN LATERAL (
+        SELECT run.failure_code
+        FROM fatedrop_retailer_monitor_runs run
+        WHERE run.retailer_id=h.retailer_id AND run.status<>'running'
+        ORDER BY COALESCE(run.completed_at,run.started_at) DESC
+        LIMIT 1
+      ) latest ON TRUE
+      ORDER BY h.retailer_name
+    `);
+    return rows.map((r) => ({
+      id: r.retailer_id,
+      name: r.retailer_name,
+      healthy: r.healthy,
+      lastScanAt: Number(r.last_scan_at || 0) || null,
+      lastSuccessAt: Number(r.last_success_at || 0) || null,
+      lastError: r.last_error,
+      failureCode: r.failure_code || null,
+      registryState: r.lifecycle_state || null,
+      verificationState: r.verification_state || null,
+      adapterType: r.adapter_type || null,
+      productsSeen: r.products_seen,
+      pagesScanned: r.pages_scanned,
+      baselineCompleted: r.baseline_completed,
+    }));
+  }
   async recordNetworkSnapshot(snapshot) { const pool=await this.pool(); await pool.query(`INSERT INTO fatedrop_signal_network_snapshots (id, measured_at, metrics, retailer_health) VALUES ($1,$2,$3::jsonb,$4::jsonb) ON CONFLICT DO NOTHING`, [snapshot.id,snapshot.measuredAt,JSON.stringify(snapshot.metrics),JSON.stringify(snapshot.retailers)]); }
   async listNetworkSnapshots(limit=30) { const pool=await this.pool(); const safe=Math.min(180,Math.max(1,limit)); const {rows}=await pool.query(`SELECT * FROM fatedrop_signal_network_snapshots ORDER BY measured_at DESC LIMIT $1`,[safe]); return rows.map((r)=>({id:r.id,measuredAt:Number(r.measured_at),metrics:r.metrics,retailers:r.retailer_health})); }
   async stats() { const pool=await this.pool(); const {rows}=await pool.query(`SELECT (SELECT count(*) FROM fatedrop_products)::int products_tracked,(SELECT count(*) FROM fatedrop_retail_offers)::int offers_tracked,(SELECT count(*) FROM fatedrop_retail_offers WHERE stock_status IN ('in_stock','low_stock'))::int currently_available,(SELECT count(*) FROM fatedrop_signals WHERE detected_at >= extract(epoch from now())::bigint-86400)::int signals_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='manifested' AND detected_at >= extract(epoch from now())::bigint-86400)::int manifested_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='echo' AND detected_at >= extract(epoch from now())::bigint-86400)::int echo_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='vanished' AND detected_at >= extract(epoch from now())::bigint-86400)::int vanished_24h,(SELECT count(*) FROM fatedrop_signals WHERE state='whisper' AND detected_at >= extract(epoch from now())::bigint-86400)::int whisper_24h`); const r=rows[0]; return {productsTracked:r.products_tracked,offersTracked:r.offers_tracked,currentlyAvailable:r.currently_available,signals24h:r.signals_24h,manifested24h:r.manifested_24h,echo24h:r.echo_24h,vanished24h:r.vanished_24h,whisper24h:r.whisper_24h}; }

@@ -21,6 +21,7 @@ import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/di
 import { buildFateFindEvaluatorPreflight } from "./telemetry/fatefind-evaluator-preflight.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mjs";
+import { createRetailerRunId, recordRetailerRunFinish } from "./telemetry/retailer-runs.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RRP_LEARNING_RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
@@ -294,16 +295,26 @@ async function scheduledScan() {
         };
       }
       const timeoutMs = Number(args.retailer?.scanDeadlineMs) || env.scanDeadlineMs;
+      const runId = createRetailerRunId(args.retailer.id);
       try {
         return await runWithRetailerScanDeadline(
-          () => scanRetailer(args),
+          () => scanRetailer({ ...args, runId }),
           { retailerId: args.retailer.id, timeoutMs },
         );
       } catch (error) {
         const detail = String(error?.message || error);
+        const completedAt = Math.floor(Date.now() / 1000);
         if (typeof store.recordFailure === "function") {
-          await store.recordFailure(args.retailer, error, Math.floor(Date.now() / 1000)).catch(() => null);
+          await store.recordFailure(args.retailer, error, completedAt).catch(() => null);
         }
+        await recordRetailerRunFinish(store, {
+          runId,
+          completedAt,
+          status: "failed",
+          failureCode: error?.code || "retailer_scan_deadline",
+          failureDetail: detail,
+          diagnostics: { source: "scheduled_scan_deadline", timeoutMs },
+        }).catch(() => null);
         console.error("[signal-engine] retailer scan isolated by hard deadline", {
           retailer: args.retailer.id,
           timeoutMs,

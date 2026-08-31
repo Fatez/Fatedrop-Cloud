@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ADAPTER_TYPES, RETAILER_STATES, normalizeRetailerCandidate } from "../src/retailers/registry.mjs";
 import { transitionRetailer, validateRetailerTransition } from "../src/retailers/lifecycle.mjs";
-import { retailerToRuntimeConfig } from "../src/retailers/runtime.mjs";
+import { retailerToRuntimeConfig, selectRuntimeRetailers } from "../src/retailers/runtime.mjs";
 import { enabledDiscoverySources } from "../src/retailers/uk-discovery-source-catalogue.mjs";
 
 const genericCandidate = normalizeRetailerCandidate({
@@ -59,6 +59,26 @@ test("monitored generic retailer compiles into runtime scanner config", () => {
   assert.equal(runtime.id, genericCandidate.id);
   assert.equal(runtime.tcg, "pokemon");
   assert.ok(runtime.productUrlPattern.test("https://examplecards.co.uk/products/example-etb"));
+});
+
+test("runtime follows canonical registry state even for statically configured retailers", () => {
+  const staticMonitored = { id: "static-monitored", name: "Static monitored", adapterType: ADAPTER_TYPES.BROWSER_COLLECTOR };
+  const staticCandidate = { id: "static-candidate", name: "Static candidate", adapterType: ADAPTER_TYPES.GENERIC_HTML };
+  const dynamicMonitored = normalizeRetailerCandidate({
+    ...genericCandidate,
+    id: "dynamic-monitored",
+    state: RETAILER_STATES.MONITORED,
+  });
+  const selected = selectRuntimeRetailers({
+    staticRetailers: [staticMonitored, staticCandidate],
+    registryRetailers: [
+      normalizeRetailerCandidate({ id: staticMonitored.id, name: staticMonitored.name, websiteUrl: "https://static.example", state: RETAILER_STATES.MONITORED }),
+      normalizeRetailerCandidate({ id: staticCandidate.id, name: staticCandidate.name, websiteUrl: "https://candidate.example", state: RETAILER_STATES.CANDIDATE }),
+      dynamicMonitored,
+    ],
+  });
+  assert.deepEqual(selected.map((retailer) => retailer.id).sort(), ["dynamic-monitored", "static-monitored"]);
+  assert.equal(selected.find((retailer) => retailer.id === "static-monitored"), staticMonitored);
 });
 
 test("third-party discovery directories are disabled for automation until reviewed", () => {
