@@ -16,6 +16,13 @@ export const ALERT_LANGUAGE_GROUPS = Object.freeze([
 export const ALERT_MARKET_GROUPS = MARKET_GROUPS;
 
 const LANGUAGE_GROUP_KEYS = new Set(ALERT_LANGUAGE_GROUPS.map((group) => group.key));
+const SINGLE_LANGUAGE_SCOPES = new Set([
+  "english",
+  "japanese",
+  "korean",
+  "simplified_chinese",
+  "traditional_chinese",
+]);
 
 function fold(value = "") {
   return String(value)
@@ -38,49 +45,58 @@ function titleCase(value = "") {
 }
 
 const ENGLISH_SET_FAMILIES = [
-  ["destined-rivals", "Destined Rivals", ["destined rivals"]],
-  ["journey-together", "Journey Together", ["journey together"]],
-  ["prismatic-evolutions", "Prismatic Evolutions", ["prismatic evolutions"]],
-  ["surging-sparks", "Surging Sparks", ["surging sparks"]],
-  ["stellar-crown", "Stellar Crown", ["stellar crown"]],
-  ["shrouded-fable", "Shrouded Fable", ["shrouded fable"]],
-  ["twilight-masquerade", "Twilight Masquerade", ["twilight masquerade"]],
-  ["temporal-forces", "Temporal Forces", ["temporal forces"]],
-  ["paldean-fates", "Paldean Fates", ["paldean fates"]],
-  ["paradox-rift", "Paradox Rift", ["paradox rift"]],
-  ["obsidian-flames", "Obsidian Flames", ["obsidian flames"]],
-  ["paldea-evolved", "Paldea Evolved", ["paldea evolved"]],
-  ["pokemon-151", "Pokémon 151", ["pokemon 151", "scarlet and violet 151", "scarlet violet 151"]],
-  ["black-bolt", "Black Bolt", ["black bolt"]],
-  ["white-flare", "White Flare", ["white flare"]],
-  ["mega-evolution", "Mega Evolution", ["mega evolution"]],
-  ["phantasmal-flames", "Phantasmal Flames", ["phantasmal flames"]],
-  ["perfect-order", "Perfect Order", ["perfect order"]],
-  ["chaos-rising", "Chaos Rising", ["chaos rising"]],
-  ["crown-zenith", "Crown Zenith", ["crown zenith"]],
-  ["silver-tempest", "Silver Tempest", ["silver tempest"]],
-  ["lost-origin", "Lost Origin", ["lost origin"]],
-  ["astral-radiance", "Astral Radiance", ["astral radiance"]],
-  ["brilliant-stars", "Brilliant Stars", ["brilliant stars"]],
-  ["fusion-strike", "Fusion Strike", ["fusion strike"]],
-  ["evolving-skies", "Evolving Skies", ["evolving skies"]],
-  ["chilling-reign", "Chilling Reign", ["chilling reign"]],
+  ["destined-rivals", "Destined Rivals", ["destined rivals"], "english"],
+  ["journey-together", "Journey Together", ["journey together"], "english"],
+  ["prismatic-evolutions", "Prismatic Evolutions", ["prismatic evolutions"], "english"],
+  ["surging-sparks", "Surging Sparks", ["surging sparks"], "english"],
+  ["stellar-crown", "Stellar Crown", ["stellar crown"], "english"],
+  ["shrouded-fable", "Shrouded Fable", ["shrouded fable"], "english"],
+  ["twilight-masquerade", "Twilight Masquerade", ["twilight masquerade"], "english"],
+  ["temporal-forces", "Temporal Forces", ["temporal forces"], "english"],
+  ["paldean-fates", "Paldean Fates", ["paldean fates"], "english"],
+  ["hidden-fates", "Hidden Fates", ["hidden fates"], "english"],
+  ["paradox-rift", "Paradox Rift", ["paradox rift"], "english"],
+  ["obsidian-flames", "Obsidian Flames", ["obsidian flames"], "english"],
+  ["paldea-evolved", "Paldea Evolved", ["paldea evolved"], "english"],
+  ["pokemon-151", "Pokémon 151", ["pokemon 151", "scarlet and violet 151", "scarlet violet 151"], "multilingual"],
+  ["black-bolt", "Black Bolt", ["black bolt"], "multilingual"],
+  ["white-flare", "White Flare", ["white flare"], "multilingual"],
+  ["mega-evolution", "Mega Evolution", ["mega evolution"], "english"],
+  ["phantasmal-flames", "Phantasmal Flames", ["phantasmal flames"], "english"],
+  ["perfect-order", "Perfect Order", ["perfect order"], "english"],
+  ["chaos-rising", "Chaos Rising", ["chaos rising"], "english"],
+  ["crown-zenith", "Crown Zenith", ["crown zenith"], "english"],
+  ["silver-tempest", "Silver Tempest", ["silver tempest"], "english"],
+  ["lost-origin", "Lost Origin", ["lost origin"], "english"],
+  ["astral-radiance", "Astral Radiance", ["astral radiance"], "english"],
+  ["brilliant-stars", "Brilliant Stars", ["brilliant stars"], "english"],
+  ["fusion-strike", "Fusion Strike", ["fusion strike"], "english"],
+  ["evolving-skies", "Evolving Skies", ["evolving skies"], "english"],
+  ["chilling-reign", "Chilling Reign", ["chilling reign"], "english"],
 ];
 
 const INTERNATIONAL_ALIAS_FAMILIES = [
-  ["team-rocket-glory", "Team Rocket Glory", ["team rocket glory", "glory of team rocket"]],
-  ["emerald-storm", "Emerald Storm", ["emerald storm", "storm emerald"]],
-  ["mega-dream-ex", "Mega Dream ex", ["mega dream ex", "mega dream"]],
-  ["nihil-zero", "Nihil Zero", ["nihil zero", "nullifying zero"]],
-  ["pokemon-151", "Pokémon 151", ["pokemon card 151", "pokemon 151"]],
-  ["terastal-festival-ex", "Terastal Festival ex", ["terastal festival ex", "terastal festival"]],
-  ["gem-1", "Gem Vol. 1", ["gem vol 1", "gem 1"]],
-  ["gem-2", "Gem Vol. 2", ["gem vol 2", "gem 2"]],
-  ["gem-3", "Gem Vol. 3", ["gem vol 3", "gem 3"]],
-  ["gem-4", "Gem Vol. 4", ["gem vol 4", "gem 4"]],
-  ["gem-5", "Gem Vol. 5", ["gem vol 5", "gem 5"]],
-  ["gem-6", "Gem Vol. 6", ["gem vol 6", "gem 6"]],
+  ["team-rocket-glory", "Team Rocket Glory", ["team rocket glory", "glory of team rocket"], "unknown"],
+  ["emerald-storm", "Emerald Storm", ["emerald storm", "storm emerald"], "unknown"],
+  ["mega-dream-ex", "Mega Dream ex", ["mega dream ex", "mega dream"], "unknown"],
+  ["nihil-zero", "Nihil Zero", ["nihil zero", "nullifying zero"], "unknown"],
+  ["pokemon-151", "Pokémon 151", ["pokemon card 151", "pokemon 151"], "multilingual"],
+  ["terastal-festival-ex", "Terastal Festival ex", ["terastal festival ex", "terastal festival"], "unknown"],
+  ["gem-1", "Gem Vol. 1", ["gem vol 1", "gem 1"], "unknown"],
+  ["gem-2", "Gem Vol. 2", ["gem vol 2", "gem 2"], "unknown"],
+  ["gem-3", "Gem Vol. 3", ["gem vol 3", "gem 3"], "unknown"],
+  ["gem-4", "Gem Vol. 4", ["gem vol 4", "gem 4"], "unknown"],
+  ["gem-5", "Gem Vol. 5", ["gem vol 5", "gem 5"], "unknown"],
+  ["gem-6", "Gem Vol. 6", ["gem vol 6", "gem 6"], "unknown"],
 ];
+
+function languageScopeForMarket(market) {
+  if (market === "JP") return "japanese";
+  if (market === "KR") return "korean";
+  if (market === "CN") return "simplified_chinese";
+  if (market === "TW" || market === "HK") return "traditional_chinese";
+  return "unknown";
+}
 
 function authoritySetFamilies() {
   return internationalMsrpAuthorities.flatMap((authority) => {
@@ -88,16 +104,31 @@ function authoritySetFamilies() {
     const aliases = [...new Set((authority?.aliases || []).map(fold).filter(Boolean))];
     if (!aliases.length) return [];
     const authorityKey = String(authority.id || "").replace(/^(?:jp|kr|cn|tw|hk)-/, "");
-    return [[authorityKey || slug(aliases[0]), titleCase(aliases[0]), aliases]];
+    return [[
+      authorityKey || slug(aliases[0]),
+      titleCase(aliases[0]),
+      aliases,
+      languageScopeForMarket(authority.market),
+    ]];
   });
 }
 
+function mergeLanguageScopes(left = "unknown", right = "unknown") {
+  if (left === right) return left;
+  if (left === "unknown") return right;
+  if (right === "unknown") return left;
+  if (left === "multilingual" || right === "multilingual") return "multilingual";
+  return "multilingual";
+}
+
+const AUTHORITY_SET_FAMILIES = authoritySetFamilies();
+
 function buildSetRegistry() {
   const byKey = new Map();
-  for (const [key, name, aliases] of [
+  for (const [key, name, aliases, languageScope = "unknown"] of [
     ...ENGLISH_SET_FAMILIES,
     ...INTERNATIONAL_ALIAS_FAMILIES,
-    ...authoritySetFamilies(),
+    ...AUTHORITY_SET_FAMILIES,
   ]) {
     const safeKey = slug(key);
     if (!safeKey) continue;
@@ -106,6 +137,7 @@ function buildSetRegistry() {
       key: safeKey,
       name: existing?.name || name,
       aliases: [...new Set([...(existing?.aliases || []), ...(aliases || []).map(fold)].filter(Boolean))],
+      languageScope: mergeLanguageScopes(existing?.languageScope, languageScope),
     });
   }
   return [...byKey.values()].sort((left, right) => {
@@ -198,14 +230,67 @@ function explicitTitleLanguage(title) {
 
 function setFromTitle(title) {
   const normalized = fold(title);
-  if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown" };
+  if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
   const padded = ` ${normalized} `;
   for (const family of SET_REGISTRY) {
     const matched = family.aliases.find((alias) => padded.includes(` ${alias} `));
     if (!matched) continue;
-    return { setKey: family.key, setName: family.name, confidence: 1, source: `title_alias:${matched}` };
+    return {
+      setKey: family.key,
+      setName: family.name,
+      confidence: 1,
+      source: `title_alias:${matched}`,
+      languageScope: family.languageScope || "unknown",
+    };
   }
-  return { setKey: null, setName: null, confidence: 0, source: "unknown" };
+  return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
+}
+
+function canonicalSetLanguage(setFacet) {
+  if (!setFacet?.setKey || !SINGLE_LANGUAGE_SCOPES.has(setFacet.languageScope)) return null;
+  const languageCode = setFacet.languageScope === "english" ? "en"
+    : setFacet.languageScope === "japanese" ? "ja"
+      : setFacet.languageScope === "korean" ? "ko"
+        : setFacet.languageScope === "simplified_chinese" ? "zh-Hans"
+          : "zh-Hant";
+  return {
+    languageGroup: setFacet.languageScope,
+    languageCode,
+    confidence: 0.99,
+    source: `canonical_set_scope:${setFacet.setKey}`,
+  };
+}
+
+function conflictLanguage(leftGroup, rightGroup, setKey, leftSource = "detected") {
+  return {
+    languageGroup: "unknown",
+    languageCode: null,
+    confidence: 1,
+    source: `language_conflict:${leftSource}:${leftGroup}:${rightGroup}:${setKey}`,
+  };
+}
+
+function resolveLanguageFacet(detectedLanguageFacet, setFacet) {
+  const setLanguage = canonicalSetLanguage(setFacet);
+  if (!setLanguage) return detectedLanguageFacet;
+
+  if (detectedLanguageFacet.languageGroup !== "unknown") {
+    if (detectedLanguageFacet.languageGroup !== setLanguage.languageGroup) {
+      return conflictLanguage(
+        detectedLanguageFacet.languageGroup,
+        setLanguage.languageGroup,
+        setFacet.setKey,
+        detectedLanguageFacet.source,
+      );
+    }
+    return detectedLanguageFacet;
+  }
+
+  if (detectedLanguageFacet.source === "unknown") return setLanguage;
+  if (detectedLanguageFacet.source === "ambiguous_chinese_marker" && !setLanguage.languageGroup.includes("chinese")) {
+    return conflictLanguage("chinese_unspecified", setLanguage.languageGroup, setFacet.setKey, detectedLanguageFacet.source);
+  }
+  return detectedLanguageFacet;
 }
 
 function persistedMarketResolution(entries) {
@@ -224,11 +309,62 @@ function persistedMarketResolution(entries) {
 export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [], marketResolution = null } = {}) {
   const entries = evidenceEntries(evidence);
   const persisted = persistedFacets(entries);
-  if (persisted) return persisted;
-
   const descriptor = describeProductIdentity({ title, language, region });
   const titleLanguage = explicitTitleLanguage(title);
-  const languageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const setFacet = setFromTitle(title);
+  const detectedLanguageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const languageFacet = resolveLanguageFacet(detectedLanguageFacet, setFacet);
+  const setLanguage = canonicalSetLanguage(setFacet);
+
+  if (persisted) {
+    const persistedConflictsWithSet = setLanguage
+      && persisted.languageGroup !== "unknown"
+      && persisted.languageGroup !== setLanguage.languageGroup;
+    const currentConflict = languageFacet.source.startsWith("language_conflict:");
+
+    if (persistedConflictsWithSet || currentConflict) {
+      const conflict = currentConflict
+        ? languageFacet
+        : conflictLanguage(persisted.languageGroup, setLanguage.languageGroup, setFacet.setKey, `persisted_${persisted.source.language}`);
+      return {
+        ...persisted,
+        languageGroup: conflict.languageGroup,
+        languageCode: conflict.languageCode,
+        languageLabel: "Unknown language",
+        confidence: { ...persisted.confidence, language: conflict.confidence },
+        source: { ...persisted.source, language: conflict.source },
+      };
+    }
+
+    const improveLanguage = persisted.languageGroup === "unknown"
+      && persisted.confidence.language === 0
+      && (languageFacet.languageGroup !== "unknown" || currentConflict);
+    const improveSet = !persisted.setKey
+      && persisted.confidence.set === 0
+      && Boolean(setFacet.setKey);
+    if (!improveLanguage && !improveSet) return persisted;
+
+    const languageGroup = improveLanguage ? languageFacet.languageGroup : persisted.languageGroup;
+    return {
+      ...persisted,
+      languageGroup,
+      languageCode: improveLanguage ? languageFacet.languageCode : persisted.languageCode,
+      languageLabel: ALERT_LANGUAGE_GROUPS.find((group) => group.key === languageGroup)?.label || "Unknown language",
+      setKey: improveSet ? setFacet.setKey : persisted.setKey,
+      setName: improveSet ? setFacet.setName : persisted.setName,
+      confidence: {
+        ...persisted.confidence,
+        language: improveLanguage ? languageFacet.confidence : persisted.confidence.language,
+        set: improveSet ? setFacet.confidence : persisted.confidence.set,
+      },
+      source: {
+        ...persisted.source,
+        language: improveLanguage ? languageFacet.source : persisted.source.language,
+        set: improveSet ? setFacet.source : persisted.source.set,
+      },
+    };
+  }
+
   const marketFacet = marketResolution || persistedMarketResolution(entries) || {
     status: "unknown",
     marketCode: null,
@@ -236,7 +372,6 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     source: "unknown",
   };
   const marketCode = ["verified", "reused"].includes(marketFacet.status) ? normalizeMarketCode(marketFacet.marketCode) : null;
-  const setFacet = setFromTitle(title);
   return {
     version: ALERT_FACET_VERSION,
     languageGroup: languageFacet.languageGroup,
