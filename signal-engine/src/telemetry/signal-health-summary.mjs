@@ -1,28 +1,12 @@
+import {
+  discordEligibleSignalSqlFilter,
+  publicSignalSqlFilter,
+  validVanishedSqlFilter,
+} from "../core/signal-visibility-policy.mjs";
+
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const ORPHAN_GRACE_SECONDS = 120;
 const RELIABILITY_LOOKBACK_SECONDS = 24 * 60 * 60;
-const DELIVERY_ELIGIBLE_SIGNAL_FILTER = `AND NOT EXISTS (
-  SELECT 1
-  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.evidence)='array' THEN s.evidence ELSE '[]'::jsonb END) delivery_policy
-  WHERE delivery_policy->>'kind'='delivery_policy'
-    AND delivery_policy->>'value'='history_only'
-)`;
-
-const VALID_VANISHED_FILTER = `AND (
-  s.state <> 'vanished'
-  OR (
-    s.offer_id IS NOT NULL
-    AND EXISTS (
-      SELECT 1 FROM fatedrop_signals m
-      WHERE m.offer_id=s.offer_id AND m.state='manifested' AND m.detected_at < s.detected_at
-        AND NOT EXISTS (
-          SELECT 1 FROM fatedrop_signals v
-          WHERE v.offer_id=s.offer_id AND v.state='vanished'
-            AND v.detected_at > m.detected_at AND v.detected_at < s.detected_at
-        )
-    )
-  )
-)`;
 
 function startOfUtcDay(timestamp) {
   const date = new Date(timestamp * 1000);
@@ -41,14 +25,43 @@ function emptyDelivery(day0, days) {
 }
 function monitorDiagnostics(monitorRows = []) {
   const rows = Array.isArray(monitorRows) ? monitorRows : [];
-  const stale = rows.filter((row) => row?.stale === true);
-  const unhealthy = rows.filter((row) => row?.healthy !== true && row?.stale !== true);
-  const blocked = rows.filter((row) => /\b403\b|blocked/i.test(String(row?.lastError || "")));
-  const fresh = rows.filter((row) => row?.healthy === true && row?.stale !== true);
-  return { totalRetailers: rows.length, freshRetailers: fresh.length, staleRetailers: stale.length, unhealthyRetailers: unhealthy.length, blockedRetailers: blocked.length, staleRetailerIds: stale.map((row) => row.id), unhealthyRetailerIds: unhealthy.map((row) => row.id), blockedRetailerIds: blocked.map((row) => row.id) };
+  const excluded = rows.filter((row) => row?.registryState && row.registryState !== "monitored");
+  const active = rows.filter((row) => !row?.registryState || row.registryState === "monitored");
+  const categories = { fresh: [], stale: [], blocked: [], onboarding: [], regressed: [] };
+  for (const row of active) {
+    const failure = `${row?.failureCode || ""} ${row?.lastError || ""}`;
+    if (row?.healthy === true && row?.stale !== true) categories.fresh.push(row);
+    else if (row?.stale === true) categories.stale.push(row);
+    else if (/\b403\b|access[_ -]?blocked|retailer_access_blocked/i.test(failure)) categories.blocked.push(row);
+    else if (!row?.lastSuccessAt) categories.onboarding.push(row);
+    else categories.regressed.push(row);
+  }
+  const ids = (items) => items.map((row) => row.id);
+  return {
+    ledgerRetailers: rows.length,
+    totalRetailers: active.length,
+    activeRetailers: active.length,
+    freshRetailers: categories.fresh.length,
+    staleRetailers: categories.stale.length,
+    unhealthyRetailers: categories.regressed.length,
+    regressedRetailers: categories.regressed.length,
+    blockedRetailers: categories.blocked.length,
+    onboardingRetailers: categories.onboarding.length,
+    excludedRetailers: excluded.length,
+    degradedRetailers: categories.stale.length + categories.blocked.length + categories.regressed.length,
+    freshRetailerIds: ids(categories.fresh),
+    staleRetailerIds: ids(categories.stale),
+    unhealthyRetailerIds: ids(categories.regressed),
+    regressedRetailerIds: ids(categories.regressed),
+    blockedRetailerIds: ids(categories.blocked),
+    onboardingRetailerIds: ids(categories.onboarding),
+    excludedRetailerIds: ids(excluded),
+    previouslyHealthyBlockedRetailerIds: ids(categories.blocked.filter((row) => row?.lastSuccessAt)),
+  };
 }
 function reliabilityDiagnostics({ orphanRows = [], freshnessRows = [], now }) {
   const orphans = Array.isArray(orphanRows) ? orphanRows : [];
+  const orphanTotal = Number(orphans[0]?.orphan_total ?? orphans.length);
   const freshness = freshnessRows?.[0] || {};
   const latestSignalAt = freshness.latest_signal_at == null ? null : Number(freshness.latest_signal_at);
   const latestDiscordAttemptAt = freshness.latest_discord_attempt_at == null ? null : Number(freshness.latest_discord_attempt_at);
@@ -56,7 +69,8 @@ function reliabilityDiagnostics({ orphanRows = [], freshnessRows = [], now }) {
   const recentDiscordAttempts = Number(freshness.recent_discord_attempts || 0);
   return {
     orphanGraceSeconds: ORPHAN_GRACE_SECONDS,
-    orphanedDiscordSignals: orphans.length,
+    orphanedDiscordSignals: Number.isFinite(orphanTotal) ? orphanTotal : orphans.length,
+    orphanSampleTruncated: Number.isFinite(orphanTotal) && orphanTotal > orphans.length,
     orphanedSignalIds: orphans.map((row) => row.id),
     orphanedSignals: orphans.map((row) => ({ id: row.id, state: row.state, retailerId: row.retailer_id, retailerName: row.retailer_name, title: row.title, detectedAt: Number(row.detected_at) })),
     latestSignalAt,
@@ -96,7 +110,7 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     if (!LIFECYCLE_STATES.includes(state) || !Number.isFinite(measuredAt) || !Number.isFinite(value)) continue;
     const index = Math.floor((measuredAt - day0) / 86_400); if (index < 0 || index >= safeDays) continue;
     const point = delivery[state].trend[index]; const result = String(row.result || "").toLowerCase(); const detail = String(row.detail || "").toLowerCase();
-    if (result === "sent") point.sent += value; else if (result === "skipped" && detail === "disabled") point.policySkipped += value; else if (result === "skipped" && detail === "duplicate_batch_signal") point.duplicateSuppressed += value; else point.issues += value;
+    if (result === "sent") point.sent += value; else if (result === "skipped" && (detail === "disabled" || detail.startsWith("policy_"))) point.policySkipped += value; else if (result === "skipped" && detail === "duplicate_batch_signal") point.duplicateSuppressed += value; else point.issues += value;
   }
   let overallLatency = { sampleSize: 0, medianSeconds: null, p95Seconds: null };
   for (const row of latencyRows) {
@@ -114,12 +128,12 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
 export async function loadSignalHealthSummary(store, { days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   if (!store || typeof store.pool !== "function") return { available: false, reason: "persistent_store_unavailable", generatedAt: now };
   const { safeDays, day0 } = safeWindow(days, now); const pool = await store.pool(); const reliabilitySince = Math.max(0, now - RELIABILITY_LOOKBACK_SECONDS); const orphanBefore = Math.max(0, now - ORPHAN_GRACE_SECONDS);
-  const [detections, deliveries, latency, orphans, freshness, discovery, snapshots, rawMonitors] = await Promise.all([
-    pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
-    pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
-    pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds FROM (SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord' AND a.attempted_at >= s.detected_at AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER}) sent GROUP BY GROUPING SETS ((state),())`, [day0]),
-    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.detected_at <= $2 AND s.state IN ('whisper','echo','manifested','vanished') ${VALID_VANISHED_FILTER} ${DELIVERY_ELIGIBLE_SIGNAL_FILTER} AND NOT EXISTS (SELECT 1 FROM fatedrop_signal_delivery_attempts a WHERE a.signal_id=s.id AND a.channel='discord') ORDER BY s.detected_at ASC LIMIT 100`, [reliabilitySince, orphanBefore]),
-    pool.query(`SELECT (SELECT MAX(s.detected_at) FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${DELIVERY_ELIGIBLE_SIGNAL_FILTER}) AS latest_signal_at, (SELECT MAX(attempted_at) FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS latest_discord_attempt_at, (SELECT COUNT(*)::int FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') ${DELIVERY_ELIGIBLE_SIGNAL_FILTER}) AS recent_signals, (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_attempts WHERE attempted_at >= $1 AND channel='discord') AS recent_discord_attempts`, [reliabilitySince]),
+  const [detections, deliveries, latency, orphans, freshness, discovery, rawMonitors] = await Promise.all([
+    pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
+    pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
+    pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds FROM (SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord' AND a.attempted_at >= s.detected_at AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")}) sent GROUP BY GROUPING SETS ((state),())`, [day0]),
+    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at,COUNT(*) OVER()::int AS orphan_total FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.detected_at <= $2 AND s.state IN ('whisper','echo','manifested','vanished') AND ${validVanishedSqlFilter("s")} AND ${discordEligibleSignalSqlFilter("s")} AND NOT EXISTS (SELECT 1 FROM fatedrop_signal_delivery_attempts a WHERE a.signal_id=s.id AND a.channel='discord') ORDER BY s.detected_at ASC LIMIT 100`, [reliabilitySince, orphanBefore]),
+    pool.query(`SELECT (SELECT MAX(s.detected_at) FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${validVanishedSqlFilter("s")} AND ${discordEligibleSignalSqlFilter("s")}) AS latest_signal_at, (SELECT MAX(a.attempted_at) FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.channel='discord' AND ${validVanishedSqlFilter("s")} AND ${discordEligibleSignalSqlFilter("s")}) AS latest_discord_attempt_at, (SELECT COUNT(*)::int FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${validVanishedSqlFilter("s")} AND ${discordEligibleSignalSqlFilter("s")}) AS recent_signals, (SELECT COUNT(*)::int FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.channel='discord' AND ${validVanishedSqlFilter("s")} AND ${discordEligibleSignalSqlFilter("s")}) AS recent_discord_attempts`, [reliabilitySince]),
     pool.query(`SELECT TRUE AS discovery_available,
       COUNT(*) FILTER (WHERE COALESCE(evidence->'canonical_pipeline'->>'status','pending')='pending')::int AS pending,
       COUNT(*) FILTER (WHERE evidence->'canonical_pipeline'->>'status'='retry')::int AS retry,
@@ -127,12 +141,10 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
       COUNT(*) FILTER (WHERE evidence->'canonical_pipeline'->>'status'='failed')::int AS failed,
       MAX(observed_at)::bigint AS latest_observed_at,
       MAX(NULLIF(evidence->'canonical_pipeline'->>'processedAt','')::bigint) FILTER (WHERE evidence->'canonical_pipeline'->>'status'='processed') AS latest_processed_at,
-      MIN(observed_at)::bigint FILTER (WHERE COALESCE(evidence->'canonical_pipeline'->>'status','pending') IN ('pending','retry')) AS oldest_active_at
+      (MIN(observed_at) FILTER (WHERE COALESCE(evidence->'canonical_pipeline'->>'status','pending') IN ('pending','retry')))::bigint AS oldest_active_at
       FROM fatedrop_retailer_discovery_evidence
       WHERE source_type='product_discovery_watch'`).catch(() => ({ rows: [{ discovery_available: false }] })),
-    typeof store.listNetworkSnapshots === "function" ? store.listNetworkSnapshots(1).catch(() => []) : [],
     typeof store.listRetailers === "function" ? store.listRetailers().catch(() => []) : [],
   ]);
-  const latestSnapshot = Array.isArray(snapshots) ? snapshots[0] : null; const monitorRows = Array.isArray(latestSnapshot?.retailers) && latestSnapshot.retailers.length ? latestSnapshot.retailers : rawMonitors;
-  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, monitorRows, days: safeDays, now });
+  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, monitorRows: rawMonitors, days: safeDays, now });
 }

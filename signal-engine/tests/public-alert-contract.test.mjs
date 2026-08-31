@@ -5,6 +5,7 @@ import { listCanonicalPublicAlerts } from '../src/telemetry/public-alert-contrac
 
 const alertSource = await readFile(new URL('../src/telemetry/public-alert-contract.mjs', import.meta.url), 'utf8');
 const signalSource = await readFile(new URL('../src/telemetry/public-signal-contract.mjs', import.meta.url), 'utf8');
+const visibilitySource = await readFile(new URL('../src/core/signal-visibility-policy.mjs', import.meta.url), 'utf8');
 
 function vanishedRow(extra = {}) {
   return {
@@ -73,19 +74,53 @@ test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history'
   assert.match(alertSource, /NO_FAIR_COMPARISON/);
 });
 
+test('Cloud exposes one canonical episode while keeping Echo and Whisper outside stock truth', async () => {
+  assert.match(alertSource, /fatedrop_stock_episode_events canonical_event/);
+  assert.match(alertSource, /fatedrop_stock_episodes canonical_episode/);
+  assert.match(alertSource, /history_event\.episode_id=canonical_event\.episode_id/);
+  const row = vanishedRow({
+    state: 'echo',
+    stock_episode_id: 'ep_1',
+    stock_episode_scope_type: 'online',
+    stock_episode_cycle_number: 2,
+    stock_episode_state: 'available',
+    stock_episode_availability_state: 'available',
+    stock_episode_opened_at: 100,
+    stock_episode_manifested_at: 150,
+    stock_episode_vanished_at: null,
+    stock_episode_latest_event_at: 200,
+    stock_episode_event_stage: 'echo',
+    stock_episode_event_availability_effect: 'none',
+  });
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'echo', limit: 1 });
+  assert.equal(alert.stockEpisode.id, 'ep_1');
+  assert.equal(alert.stockEpisode.availabilityState, 'available');
+  assert.deepEqual(alert.availabilityTruth, {
+    signalEffect: 'none',
+    signalClaimsAvailability: false,
+    currentEpisodeState: 'available',
+    canonicalSourceStage: null,
+  });
+});
+
 test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
-  assert.match(alertSource, /delivery_policy->>'kind'='delivery_policy'/);
-  assert.match(alertSource, /delivery_policy->>'value'='history_only'/);
-  assert.match(alertSource, /AND NOT EXISTS \(\s*SELECT 1\s*FROM jsonb_array_elements/);
+  assert.match(alertSource, /publicSignalSqlFilter/);
+  assert.match(alertSource, /AND \$\{publicSignalSqlFilter\('s'\)\}/);
+  assert.match(visibilitySource, /policy_item->>'kind'='delivery_policy'/);
+  assert.match(visibilitySource, /history_only/);
+  assert.match(visibilitySource, /anomaly_quarantine/);
   assert.match(alertSource, /hs\.state='manifested'/);
   assert.match(alertSource, /ORDER BY hs\.detected_at DESC/);
 });
 
 test('Vanished stays fail-closed but accepts canonical persisted prior-live proof when baseline suppressed the Manifested alert row', () => {
+  assert.match(alertSource, /validVanishedSqlFilter/);
+  assert.match(alertSource, /AND \$\{validVanishedSqlFilter\('s'\)\}/);
+  assert.match(visibilitySource, /prior_live_confirmation/);
+  assert.match(visibilitySource, /persisted_purchasable_offer/);
   assert.match(alertSource, /evidence_item->>'kind'='prior_live_confirmation'/);
   assert.match(alertSource, /evidence_item->>'value'='persisted_purchasable_offer'/);
   assert.match(alertSource, /evidence_item->>'observedAt'/);
-  assert.match(alertSource, /live_window\.manifested_at IS NOT NULL OR persisted_live\.persisted_prior_live IS TRUE/);
   assert.match(alertSource, /CASE WHEN s\.state='vanished' AND live_window\.manifested_at IS NOT NULL THEN GREATEST\(0,s\.detected_at-live_window\.manifested_at\) ELSE NULL END/);
   assert.match(alertSource, /live_window\.manifested_at AS live_manifested_at/);
   assert.match(alertSource, /\(evidence_item->>'observedAt'\)::bigint AS last_confirmed_live_at/);
@@ -138,9 +173,52 @@ test('Cloud alert output preserves the final four-stage lifecycle and prepared l
   assert.match(alertSource, /linksPrepared: true/);
 });
 
+test('Cloud alert output carries one canonical policy, facet, presentation and delivery envelope', async () => {
+  const row = vanishedRow({
+    delivery_policy: 'inbox_only',
+    evidence: [
+      { kind: 'signal_kind', value: 'catalogue_new' },
+      {
+        kind: 'alert_facets',
+        version: 2,
+        languageGroup: 'japanese',
+        languageCode: 'ja',
+        marketCode: 'JP',
+        marketGroup: 'japanese',
+        marketStatus: 'verified',
+        languageConfidence: 1,
+        languageSource: 'explicit_language',
+        marketConfidence: 1,
+        marketSource: 'operator_verified',
+        setKey: 'pokemon-151',
+        setName: 'Pokémon 151',
+        setConfidence: 1,
+        setSource: 'title_alias:pokemon 151',
+      },
+      { kind: 'rrp_reference_basis', value: 'official_msrp' },
+    ],
+    discord_delivery_result: 'skipped',
+    discord_delivery_detail: 'policy_inbox_only',
+    discord_delivery_attempted_at: 195,
+  });
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'vanished', limit: 1 });
+  assert.equal(alert.signalKind, 'catalogue_new');
+  assert.equal(alert.deliveryPolicy, 'inbox_only');
+  assert.equal(alert.interruptEligible, false);
+  assert.equal(alert.facets.languageGroup, 'japanese');
+  assert.equal(alert.facets.setKey, 'pokemon-151');
+  assert.equal(alert.presentation.referenceBasis, 'official_msrp');
+  assert.deepEqual(alert.delivery.discord, {
+    status: 'skipped',
+    attemptedAt: '1970-01-01T00:03:15.000Z',
+    issue: 'policy_inbox_only',
+    providerMessageId: null,
+  });
+});
+
 test('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {
-  assert.match(alertSource, /\(\$2::text IS NULL OR s\.state=\$2\)/);
-  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeState, safeLimit\]\)/);
-  assert.match(signalSource, /PUBLIC_SIGNAL_STATES\.includes\(requestedState\)/);
-  assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ id, state, limit \}\)/);
+  assert.match(alertSource, /\(\$2::text\[\] IS NULL OR s\.state=ANY\(\$2\)\)/);
+  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeStates, safeLimit\]\)/);
+  assert.match(signalSource, /const requestedStates =/);
+  assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ states: requestedStates, limit: safeLimit \}\)/);
 });

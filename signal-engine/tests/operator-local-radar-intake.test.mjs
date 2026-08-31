@@ -55,10 +55,16 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   assert.match(notification.body, /Check Local Radar to see if a participating store is near you\.$/);
 });
 
-test("general operator intelligence cannot self-promote to Echo", () => {
-  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: "echo", confidence: 0.99 } }), NOW);
+test("general operator intelligence remains Whisper without an explicit Echo request", () => {
+  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: null, confidence: 0.99 } }), NOW);
   assert.equal(parsed.entry.kind, "whisper");
   assert.equal(parsed.entry.confidence, 0.59);
+});
+
+test("authorised operator can explicitly publish manual Local Radar Echo evidence", () => {
+  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: "echo", confidence: 0.99 } }), NOW);
+  assert.equal(parsed.entry.kind, "echo");
+  assert.equal(parsed.entry.confidence, 0.8);
 });
 
 test("operator intake rejects untrusted authors, pull requests and branchless broadcasts", () => {

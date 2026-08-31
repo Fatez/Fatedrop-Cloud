@@ -19,6 +19,7 @@ import { normalizeInventoryBatch, normalizeVendorBatch } from "../encounters/ven
 import { createRateLimiter } from "../security/rate-limit.mjs";
 import { createLiveOfferReadStore } from "../stores/live-offer-read-store.mjs";
 import { handlePublicSignals, handlePublicSignalSummary } from "../telemetry/public-signal-contract.mjs";
+import { handlePublicAlertFacets } from "../telemetry/public-alert-contract.mjs";
 import { handleFateTraderCatalogue, isFateTraderCataloguePath } from "../trader/catalogue/http.mjs";
 import { handleFateTraderCollection, isFateTraderCollectionPath } from "../trader/collection/http.mjs";
 import { handleFateTraderBinder, isFateTraderBinderPath } from "../trader/binder/http.mjs";
@@ -248,6 +249,7 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(!rateLimit.allowed)return rateLimited(res,rateLimit);
     if(req.method==="GET"&&url.pathname==="/api/signals"){await handlePublicSignals(req,res,{store});return;}
     if(req.method==="GET"&&url.pathname==="/api/signal-summary"){await handlePublicSignalSummary(req,res,{store});return;}
+    if(req.method==="GET"&&url.pathname==="/api/alert-facets"){await handlePublicAlertFacets(req,res);return;}
     const isLiveRetailRead=(req.method==="GET"&&(url.pathname==="/api/catalogue"||url.pathname==="/api/true-price"))||(req.method==="POST"&&url.pathname==="/api/fatefind/matches");
     if(isLiveRetailRead){return liveReadHandler(req,res);}
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}

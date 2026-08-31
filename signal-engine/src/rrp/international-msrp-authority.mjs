@@ -160,9 +160,19 @@ export function resolveInternationalMsrp(input = {}) {
   const title = String(input.title || input.linkedProduct?.title || "");
   const text = fold(title);
   const importIdentity = importIdentityFromTitle(title);
-  if (!importIdentity.recognized) return { recognized: false, resolved: false, reason: "not_source_market_import" };
-  if (!importIdentity.market) return { recognized: true, resolved: false, reason: "source_market_region_unresolved", sourceMarket: null };
-  const market = importIdentity.market;
+  const rememberedMarket = ["GB", "US", "CA", "AU", "NZ", "IE", "JP", "KR", "CN", "TW", "HK"]
+    .includes(String(input.verifiedMarketCode || "").toUpperCase())
+    ? String(input.verifiedMarketCode).toUpperCase()
+    : null;
+  if (input.marketResolutionStatus === "conflict") {
+    return { recognized: true, resolved: false, reason: "source_market_memory_conflict", sourceMarket: null };
+  }
+  if (!importIdentity.recognized && !rememberedMarket) return { recognized: false, resolved: false, reason: "not_source_market_import" };
+  if (importIdentity.market && rememberedMarket && importIdentity.market !== rememberedMarket) {
+    return { recognized: true, resolved: false, reason: "source_market_memory_conflict", sourceMarket: null };
+  }
+  const market = rememberedMarket || importIdentity.market;
+  if (!market) return { recognized: true, resolved: false, reason: "source_market_region_unresolved", sourceMarket: null };
 
   if (/\bopened live(?: on stream)?\b/.test(text)) {
     return { recognized: true, resolved: false, reason: "source_market_opened_live_not_comparable", sourceMarket: market };
@@ -271,6 +281,7 @@ export function resolveInternationalMsrp(input = {}) {
     fxObservedAt: epoch(fx.observedAt),
     sourceUrl: authority.sourceUrl,
     sourcePackagingUrl: authority.packagingSourceUrl || null,
+    authorityId: authority.id,
   };
 }
 

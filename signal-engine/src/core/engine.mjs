@@ -1,6 +1,7 @@
 import { scanRetailerSource } from "../adapters/index.mjs";
 import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
+import { dispatchSignalDeliveryOutbox } from "../notifications/signal-outbox.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
@@ -13,6 +14,20 @@ import { canonicalKey, normalizeWhitespace, productTypeFromTitle, stableId } fro
 import { preloadPreviousState } from "./previous-state.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "./rrp-value-reference.mjs";
 import { rememberUnresolvedRrp, rememberVerifiedRrpAlias, resolveRememberedRrpAlias } from "./rrp-learning-runtime.mjs";
+import { deriveAlertFacets } from "./alert-facets.mjs";
+import { applySignalBurstSafety } from "./signal-visibility-policy.mjs";
+import { throwIfRetailerScanAborted } from "./scan-deadline.mjs";
+import {
+  authoritativeMarketClaims,
+  explicitListingMarketClaims,
+  marketResolutionEvidence,
+  resolveCanonicalMarket,
+} from "./market-memory-policy.mjs";
+import {
+  persistCanonicalMarketActions,
+  preloadCanonicalMarketMemory,
+  resolveCanonicalMarketIdentity,
+} from "../stores/market-memory-store.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -31,6 +46,8 @@ function normalizeExternalProduct(raw) {
     postagePence: Number.isFinite(raw.postagePence) && raw.postagePence >= 0 ? Math.round(raw.postagePence) : null,
     officialRrpPence: Number.isFinite(raw.officialRrpPence) ? Math.round(raw.officialRrpPence) : null,
     gtin,
+    language: raw.language || null,
+    region: raw.region || null,
     productType,
     canonicalKey: raw.canonicalKey || canonicalKey(title, productType),
     stockStatus: raw.stockStatus || "unknown",
@@ -52,6 +69,16 @@ function emptyDiscordResult(extra = {}) { return { sent: 0, skipped: 0, failed: 
 
 async function deliverSignals(store, signals) {
   if (!signals.length) return emptyDiscordResult();
+  if (typeof store?.pool === "function") {
+    const outbox = await dispatchSignalDeliveryOutbox(store, { limit: Math.max(25, signals.length) });
+    return {
+      sent: outbox.sent,
+      skipped: outbox.suppressed,
+      failed: outbox.retryable + outbox.unknown + outbox.deadLetter,
+      errors: outbox.errors,
+      outbox,
+    };
+  }
   return dispatchDiscordSignals(signals, {
     onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
   });
@@ -106,6 +133,9 @@ function rrpEvidence(evidence, resolvedValue) {
   if (resolvedValue.kind) extra.push({ kind: "rrp_value_kind", value: String(resolvedValue.kind) });
   if (resolvedValue.rrpSource) extra.push({ kind: "rrp_value_source", value: String(resolvedValue.rrpSource) });
   if (resolvedValue.referenceBasis) extra.push({ kind: "rrp_reference_basis", value: String(resolvedValue.referenceBasis) });
+  if (resolvedValue.sourceMarket) extra.push({ kind: "rrp_source_market", value: String(resolvedValue.sourceMarket) });
+  if (resolvedValue.sourceCurrency) extra.push({ kind: "rrp_source_currency", value: String(resolvedValue.sourceCurrency) });
+  if (resolvedValue.sourceMsrp != null) extra.push({ kind: "rrp_source_msrp", value: String(resolvedValue.sourceMsrp) });
   if (resolvedValue.learnedAlias === true) extra.push({ kind: "rrp_learning_disposition", value: "resolved_from_memory" });
   return [...base, ...extra];
 }
@@ -125,6 +155,9 @@ function dedupeCanonicalProducts(products) {
       officialRrpPence: existing.officialRrpPence ?? product.officialRrpPence,
       rrpSource: existing.rrpSource ?? product.rrpSource,
       rrpObservedAt: existing.rrpObservedAt ?? product.rrpObservedAt,
+      languageCode: existing.languageCode ?? product.languageCode,
+      regionCode: existing.regionCode ?? product.regionCode,
+      setName: existing.setName ?? product.setName,
       firstSeenAt: Math.min(existing.firstSeenAt ?? product.firstSeenAt, product.firstSeenAt ?? existing.firstSeenAt),
       updatedAt: Math.max(existing.updatedAt ?? 0, product.updatedAt ?? 0),
     });
@@ -132,10 +165,15 @@ function dedupeCanonicalProducts(products) {
   return [...byId.values()];
 }
 
+const NON_STOCK_OBSERVATION_EVIDENCE = new Set([
+  "alert_facets",
+  "canonical_market_resolution",
+]);
+
 function evidenceKindSet(offer) {
   return new Set((Array.isArray(offer?.evidence) ? offer.evidence : [])
     .map((entry) => String(entry?.kind || "").trim())
-    .filter(Boolean));
+    .filter((kind) => kind && !NON_STOCK_OBSERVATION_EVIDENCE.has(kind)));
 }
 
 function evidenceKindsChanged(previousOffer, currentOffer) {
@@ -177,7 +215,17 @@ async function persistRrpLearningActions(store, actions) {
   return { unknownsQueued, aliasesLearned };
 }
 
+async function persistMarketMemoryActions(store, actions, now) {
+  try {
+    return await persistCanonicalMarketActions(store, actions, now);
+  } catch (error) {
+    console.error("[market-memory] persistence failed", { error: String(error?.message || error) });
+    return { observations: 0, memories: 0, conflicts: 0, unavailable: true };
+  }
+}
+
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
+  throwIfRetailerScanAborted();
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
   const rrpContext = await loadRrpValueContext(store);
@@ -187,6 +235,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const observations = [];
   const signals = [];
   const rrpLearningActions = [];
+  const marketMemoryActions = [];
   let rrpInherited = 0;
   let rrpResolvedFromMemory = 0;
 
@@ -200,6 +249,11 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   });
 
   const previousState = await preloadPreviousState(store, prepared);
+  const marketMemoryContext = await preloadCanonicalMarketMemory({
+    store,
+    prepared,
+    tcg: retailer.tcg || "pokemon",
+  });
   const preparationClusters = buildRetailerPreparationClusters({
     retailerId: retailer.id,
     prepared,
@@ -216,7 +270,14 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   }
 
   for (const item of prepared) {
+    throwIfRetailerScanAborted();
     const { raw, productId, offerId } = item;
+    let marketIdentity = resolveCanonicalMarketIdentity(marketMemoryContext, item, retailer.tcg || "pokemon");
+    const listingMarketClaims = explicitListingMarketClaims({ title: raw.title, region: raw.region });
+    const preliminaryMarketResolution = resolveCanonicalMarket({
+      remembered: marketIdentity.memory,
+      listingClaims: listingMarketClaims,
+    });
     const previousProduct = previousState
       ? previousState.products.get(productId) ?? null
       : await store.getProduct(productId);
@@ -259,7 +320,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       region: raw.region,
       tcg: retailer.tcg || "pokemon",
     };
-    const rememberedAlias = officialRrpPence == null
+    const rememberedAlias = preliminaryMarketResolution.status !== "conflict" && officialRrpPence == null
       ? await resolveRememberedRrpAlias({ store, product, offer: learningOffer })
       : null;
     if (rememberedAlias) rrpResolvedFromMemory += 1;
@@ -285,12 +346,47 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
         language: raw.language,
         region: raw.region,
         edition: raw.edition,
+        verifiedMarketCode: preliminaryMarketResolution.marketCode,
+        marketResolutionStatus: preliminaryMarketResolution.status,
         linkedProduct: product,
       }, rrpContext);
-    const offerRrpPence = resolvedRrpValue.resolved ? resolvedRrpValue.rrpPence : officialRrpPence;
+    const matchedMarketIdentityIds = [...new Set((resolvedRrpValue.matchedProductIds || [])
+      .filter((id) => id && !String(id).startsWith("external-reference:")))];
+    if (matchedMarketIdentityIds.length === 1 && marketIdentity.resolutionKind === "current_canonical_key") {
+      marketIdentity = {
+        ...marketIdentity,
+        productIdentityId: matchedMarketIdentityIds[0],
+        resolutionKind: "verified_rrp_identity",
+      };
+    }
+    const marketResolution = resolveCanonicalMarket({
+      remembered: marketIdentity.memory,
+      listingClaims: listingMarketClaims,
+      authoritativeClaims: authoritativeMarketClaims({ rrpResolution: resolvedRrpValue, evidence: raw.evidence }),
+    });
+    const failClosedMarketRrp = marketResolution.status === "conflict"
+      || (resolvedRrpValue.recognized === true && resolvedRrpValue.resolved !== true);
+    const offerRrpPence = failClosedMarketRrp
+      ? null
+      : resolvedRrpValue.resolved ? resolvedRrpValue.rrpPence : officialRrpPence;
     const previousOffer = previousState
       ? previousState.offers.get(offerId) ?? null
       : await store.getOffer(offerId);
+    const offerEvidence = [
+      ...rrpEvidence(raw.evidence, resolvedRrpValue),
+      ...marketResolutionEvidence(marketResolution, marketIdentity, now),
+    ];
+    const facets = deriveAlertFacets({
+      title: raw.title,
+      language: raw.language,
+      region: raw.region,
+      retailerCountryCode: retailer.countryCode || "GB",
+      evidence: offerEvidence,
+      marketResolution,
+    });
+    product.languageCode = facets.languageCode;
+    product.regionCode = facets.marketCode || null;
+    product.setName = facets.setName;
     const offer = {
       offerId,
       productId,
@@ -308,11 +404,23 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       stockStatus: raw.stockStatus,
       stockConfidence: raw.stockConfidence,
       stockQuantity: raw.stockQuantity,
-      evidence: rrpEvidence(raw.evidence, resolvedRrpValue),
+      evidence: offerEvidence,
+      language: raw.language || null,
+      region: raw.region || null,
+      retailerCountryCode: retailer.countryCode || "GB",
+      facets,
       everAvailableAt: previousOffer?.everAvailableAt ?? null,
       firstSeenAt: previousOffer?.firstSeenAt ?? now,
       lastSeenAt: now,
     };
+    marketMemoryActions.push({
+      identity: marketIdentity,
+      resolution: marketResolution,
+      offerId,
+      retailerId: retailer.id,
+      title: raw.title,
+      observedAt: now,
+    });
 
     if (!resolvedRrpValue.resolved) {
       rrpLearningActions.push({
@@ -362,13 +470,21 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     if (derivedSignals.length) signals.push(...derivedSignals);
   }
 
+  const burstSafety = applySignalBurstSafety(signals);
+  signals.splice(0, signals.length, ...burstSafety.signals);
   const completedAt = Math.floor(Date.now() / 1000);
   const uniqueProducts = dedupeCanonicalProducts(products);
-  await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  throwIfRetailerScanAborted();
+  const signalPersistence = await store.saveScan({ retailer, products: uniqueProducts, offers, observations, signals, completedAt, health: { healthy: true, productsSeen: offers.length, pagesScanned, quietBaseline, source } });
+  const acceptedIds = Array.isArray(signalPersistence?.acceptedSignalIds)
+    ? new Set(signalPersistence.acceptedSignalIds)
+    : null;
+  const canonicalSignals = acceptedIds ? signals.filter((signal) => acceptedIds.has(signal.id)) : signals;
   const rrpLearning = await persistRrpLearningActions(store, rrpLearningActions);
+  const marketMemory = await persistMarketMemoryActions(store, marketMemoryActions, completedAt);
 
-  const discord = dispatchNotifications ? await deliverSignals(store, signals) : emptyDiscordResult({ deferred: signals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: signals.length, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, signals, discord };
+  const discord = dispatchNotifications ? await deliverSignals(store, canonicalSignals) : emptyDiscordResult({ deferred: canonicalSignals.length > 0 });
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: canonicalSignals.length, signalConflicts: signalPersistence?.conflictSignalIds?.length || 0, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, marketMemory, signalSafety: burstSafety.diagnostics, signals: canonicalSignals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
@@ -421,7 +537,7 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
   }
 }
 
-export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource, dispatchNotifications = true }) {
+export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource, dispatchNotifications = true, runId: suppliedRunId = null }) {
   if (retailer.adapterType === ADAPTER_TYPES.BROWSER_COLLECTOR) {
     return {
       retailerId: retailer.id,
@@ -432,22 +548,25 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
     };
   }
 
-  const runId = createRetailerRunId(retailer.id);
+  const runId = suppliedRunId || createRetailerRunId(retailer.id);
   const startedAt = Math.floor(Date.now() / 1000);
   await safeRunStart(store, { runId, retailerId: retailer.id, startedAt });
 
   const runScan = async () => {
     const scan = await scanSource(retailer);
+    throwIfRetailerScanAborted();
     const rawProducts = scan?.products;
     const pages = Array.isArray(scan?.pages) ? scan.pages : [];
     const pagesScanned = pages.length;
     if (!Array.isArray(rawProducts) || rawProducts.length === 0) {
       const error = new Error("Catalogue scan returned zero qualifying products; preserving last valid catalogue and marking retailer unhealthy.");
+      error.code = "zero_qualifying_products";
       await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
       return {
         retailerId: retailer.id,
         retailerName: retailer.name,
         error: error.message,
+        failureCode: error.code,
         pagesScanned,
         productsSeen: 0,
         signalsCreated: 0,
@@ -457,8 +576,9 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
     const result = await processRetailerProducts({ retailer, store, rawProducts, now, pagesScanned, source: "catalogue", dispatchNotifications });
     if (scan?.partialCatalogue === true) {
       const error = new Error("Catalogue discovery returned zero qualifying catalogue products; verified product probes were processed, but retailer remains unhealthy until full catalogue discovery is restored.");
+      error.code = "partial_catalogue_discovery";
       await store.recordFailure(retailer, error, Math.floor(Date.now() / 1000));
-      return { ...result, partialCatalogue: true, error: error.message };
+      return { ...result, partialCatalogue: true, error: error.message, failureCode: error.code };
     }
     return result;
   };
@@ -490,7 +610,7 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
       pagesScanned: result?.pagesScanned ?? 0,
       productsObserved: result?.productsSeen ?? 0,
       catalogueComplete: status === "success",
-      failureCode: result?.skipReason || (result?.error ? "scan_failed" : null),
+      failureCode: result?.skipReason || result?.failureCode || (result?.error ? "scan_failed" : null),
       failureDetail: result?.error || null,
       diagnostics: { signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0, rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0, rrpLearning: result?.rrpLearning ?? null },
     });

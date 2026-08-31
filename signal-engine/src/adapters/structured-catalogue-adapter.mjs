@@ -74,7 +74,7 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
       if (page < maxPages) await sleep(delayMs);
     }
 
-    return { products: [...found.values()], pages, complete };
+    return { products: [...found.values()], pages, complete, partialCatalogue: !complete };
   }
 
   const { payload, status } = await fetchStructuredJson(retailer.catalogue.feedUrl);

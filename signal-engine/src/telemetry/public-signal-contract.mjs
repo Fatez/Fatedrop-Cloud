@@ -1,4 +1,6 @@
 import { getOperatorLocalRadarHealth } from '../encounters/operator-local-radar-intake.mjs';
+import { deriveAlertFacets } from '../core/alert-facets.mjs';
+import { effectiveSignalDeliveryPolicy, signalKindFrom, signalPubliclyVisible } from '../core/signal-visibility-policy.mjs';
 import { listCanonicalPublicAlerts } from './public-alert-contract.mjs';
 import { loadSignalHealthSummary } from './signal-health-summary.mjs';
 
@@ -32,41 +34,53 @@ function iso(epochSeconds) {
   return Number.isFinite(value) && value > 0 ? new Date(value * 1000).toISOString() : undefined;
 }
 
-function publicSignalFromRow(row) {
+function publicSignalFromAlert(alert) {
   return {
-    id: String(row.id),
-    state: String(row.state),
-    productId: row.product_id || null,
-    offerId: row.offer_id || null,
-    retailerId: row.retailer_id || null,
-    retailerName: row.retailer_name || null,
-    title: row.title || 'Product activity',
-    productType: row.product_type || null,
-    productUrl: row.url || null,
-    imageUrl: row.image_url || null,
-    priceGbp: pounds(row.price_pence),
-    deliveredPriceGbp: pounds(row.delivered_price_pence),
-    rrpGbp: pounds(row.rrp_pence),
-    markupPercent: row.markup_percent == null ? undefined : Number(row.markup_percent),
-    stockStatus: row.stock_status || 'unknown',
-    confidence: row.confidence == null ? undefined : Number(row.confidence),
-    detectedAt: iso(row.detected_at),
-    reason: row.reason || null,
+    id: String(alert.id),
+    state: String(alert.fateStage || '').toLowerCase(),
+    kind: alert.signalKind || null,
+    deliveryPolicy: alert.deliveryPolicy,
+    interruptEligible: alert.interruptEligible === true,
+    stockEpisode: alert.stockEpisode || null,
+    availabilityTruth: alert.availabilityTruth,
+    facets: alert.facets,
+    productId: alert.productId || null,
+    offerId: alert.offerId || null,
+    retailerId: alert.retailerId || null,
+    retailerName: alert.retailer || null,
+    title: alert.title || 'Product activity',
+    productType: alert.product?.productType || null,
+    productUrl: alert.productUrl || null,
+    imageUrl: alert.product?.imageUrl || null,
+    priceGbp: pounds(alert.product?.pricePence),
+    deliveredPriceGbp: pounds(alert.product?.deliveredPricePence),
+    rrpGbp: pounds(alert.priceIntelligence?.rrpPence),
+    markupPercent: alert.priceIntelligence?.rrpDeltaPercent ?? undefined,
+    stockStatus: alert.product?.stockStatus || 'unknown',
+    confidence: alert.confidence == null ? undefined : Number(alert.confidence),
+    detectedAt: alert.detectedAt,
+    reason: alert.message || null,
     target: {
       type: 'product',
-      productId: row.product_id || null,
-      offerId: row.offer_id || null,
-      retailerId: row.retailer_id || null,
-      productUrl: row.url || null,
-      query: row.title || '',
+      productId: alert.productId || null,
+      offerId: alert.offerId || null,
+      retailerId: alert.retailerId || null,
+      productUrl: alert.productUrl || null,
+      query: alert.title || '',
     },
   };
 }
 
 function publicSignalFromObject(signal) {
+  const facets = signal.facets || deriveAlertFacets({ title: signal.title, retailerCountryCode: 'GB', evidence: signal.evidence });
+  const deliveryPolicy = effectiveSignalDeliveryPolicy(signal);
   return {
     id: String(signal.id),
     state: String(signal.state),
+    kind: signalKindFrom(signal) || null,
+    deliveryPolicy,
+    interruptEligible: deliveryPolicy === 'interrupt',
+    facets,
     productId: signal.productId || null,
     offerId: signal.offerId || null,
     retailerId: signal.retailerId || null,
@@ -95,13 +109,19 @@ function publicSignalFromObject(signal) {
 }
 
 function canonicalSignalVisible(signal, allSignals) {
+  if (!signalPubliclyVisible(signal)) return false;
   if (signal?.state !== 'vanished') return true;
   if (!signal?.offerId) return false;
   const at = Number(signal.detectedAt);
   const priorManifested = allSignals
     .filter((item) => item.offerId === signal.offerId && item.state === 'manifested' && Number(item.detectedAt) < at)
     .sort((a, b) => Number(b.detectedAt) - Number(a.detectedAt))[0];
-  if (!priorManifested) return false;
+  if (!priorManifested) {
+    return (Array.isArray(signal.evidence) ? signal.evidence : []).some((entry) => entry?.kind === 'prior_live_confirmation'
+      && entry?.value === 'persisted_purchasable_offer'
+      && Number(entry?.observedAt) > 0
+      && Number(entry?.observedAt) < at);
+  }
   return !allSignals.some((item) => item.offerId === signal.offerId
     && item.state === 'vanished'
     && Number(item.detectedAt) > Number(priorManifested.detectedAt)
@@ -116,36 +136,15 @@ export async function listCanonicalPublicSignals(store, { states = PUBLIC_SIGNAL
     : PUBLIC_SIGNAL_STATES;
 
   if (store && typeof store.pool === 'function') {
-    const pool = await store.pool();
-    const { rows } = await pool.query(`
-      SELECT s.*
-      FROM fatedrop_signals s
-      WHERE s.detected_at >= $1
-        AND s.state = ANY($2)
-        AND (
-          s.state <> 'vanished'
-          OR (
-            s.offer_id IS NOT NULL
-            AND EXISTS (
-              SELECT 1
-              FROM fatedrop_signals m
-              WHERE m.offer_id=s.offer_id
-                AND m.state='manifested'
-                AND m.detected_at < s.detected_at
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM fatedrop_signals v
-                  WHERE v.offer_id=s.offer_id
-                    AND v.state='vanished'
-                    AND v.detected_at > m.detected_at
-                    AND v.detected_at < s.detected_at
-                )
-            )
-          )
-        )
-      ORDER BY s.detected_at DESC
-      LIMIT $3`, [safeSince, requestedStates, safeLimit]);
-    return rows.map(publicSignalFromRow);
+    const alerts = await listCanonicalPublicAlerts(store, { states: requestedStates, limit: safeLimit });
+    return (Array.isArray(alerts) ? alerts : [])
+      .filter((alert) => {
+        const observedAt = Date.parse(String(alert.detectedAt || '')) / 1000;
+        return Number.isFinite(observedAt) && observedAt >= safeSince;
+      })
+      .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt) || left.id.localeCompare(right.id))
+      .slice(0, safeLimit)
+      .map(publicSignalFromAlert);
   }
 
   if (!store || typeof store.listSignals !== 'function') return [];
@@ -250,10 +249,15 @@ function safeDiagnostics(diagnostics = {}) {
     },
     monitors: {
       totalRetailers: safeCount(monitors.totalRetailers),
+      activeRetailers: safeCount(monitors.activeRetailers),
       freshRetailers: safeCount(monitors.freshRetailers),
       staleRetailers: safeCount(monitors.staleRetailers),
       unhealthyRetailers: safeCount(monitors.unhealthyRetailers),
+      regressedRetailers: safeCount(monitors.regressedRetailers),
       blockedRetailers: safeCount(monitors.blockedRetailers),
+      onboardingRetailers: safeCount(monitors.onboardingRetailers),
+      excludedRetailers: safeCount(monitors.excludedRetailers),
+      degradedRetailers: safeCount(monitors.degradedRetailers),
     },
     discordLatency: {
       sampleSize: safeCount(discordLatency.sampleSize),
