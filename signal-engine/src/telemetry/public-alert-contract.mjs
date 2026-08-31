@@ -144,10 +144,28 @@ function observedDuration(seconds) {
 }
 
 function liveWindow(row) {
-  if (row.state !== 'vanished') return null;
+  const state = text(row.state).toLowerCase();
+  if (state !== 'manifested' && state !== 'vanished') return null;
 
   const manifestedAtSeconds = nullableNumber(row.live_manifested_at);
   const lastConfirmedLiveAtSeconds = nullableNumber(row.last_confirmed_live_at);
+
+  if (state === 'manifested') {
+    const manifestedSupported = manifestedAtSeconds != null && manifestedAtSeconds > 0;
+    const lastConfirmedSupported = manifestedSupported
+      && lastConfirmedLiveAtSeconds != null
+      && lastConfirmedLiveAtSeconds > 0
+      && lastConfirmedLiveAtSeconds >= manifestedAtSeconds;
+
+    return {
+      manifestedAt: manifestedSupported ? isoTimestamp(manifestedAtSeconds) : null,
+      lastConfirmedLiveAt: lastConfirmedSupported ? isoTimestamp(lastConfirmedLiveAtSeconds) : null,
+      vanishedAt: null,
+      observedDurationSeconds: null,
+      historyComplete: false,
+    };
+  }
+
   const vanishedAtSeconds = nullableNumber(row.detected_at);
   const rawDuration = nullableNumber(row.observed_duration_seconds);
 
@@ -428,8 +446,15 @@ const ALERT_SQL = `
     canonical_episode.latest_event_at AS stock_episode_latest_event_at,canonical_event.stage AS stock_episode_event_stage,
     canonical_event.availability_effect AS stock_episode_event_availability_effect,
     ${signalDeliveryPolicySql('s')} AS delivery_policy,
-    live_window.manifested_at AS live_manifested_at,
-    persisted_live.last_confirmed_live_at,
+    CASE
+      WHEN s.state='manifested' AND canonical_episode.availability_state='available' AND canonical_episode.vanished_at IS NULL
+        THEN canonical_episode.manifested_at
+      ELSE live_window.manifested_at
+    END AS live_manifested_at,
+    CASE
+      WHEN s.state='manifested' THEN active_live.last_confirmed_live_at
+      ELSE persisted_live.last_confirmed_live_at
+    END AS last_confirmed_live_at,
     (CASE WHEN s.state='vanished' AND live_window.manifested_at IS NOT NULL THEN GREATEST(0,s.detected_at-live_window.manifested_at) ELSE NULL END)::integer AS observed_duration_seconds,
     s.reason,s.evidence,
     best.offer_id AS lowest_offer_id,best.retailer_id AS lowest_retailer_id,best.retailer_name AS lowest_retailer_name,best.url AS lowest_url,
@@ -468,6 +493,24 @@ const ALERT_SQL = `
     ORDER BY ro.last_seen_at DESC
     LIMIT 1
   ) official ON true
+  LEFT JOIN LATERAL (
+    SELECT ro.last_seen_at AS last_confirmed_live_at
+    FROM fatedrop_retail_offers ro
+    JOIN fatedrop_retailer_health rh ON rh.retailer_id=ro.retailer_id
+      AND rh.healthy=true
+      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+    WHERE s.state='manifested'
+      AND canonical_episode.availability_state='available'
+      AND canonical_episode.vanished_at IS NULL
+      AND ro.offer_id=s.offer_id
+      AND ro.retailer_id=s.retailer_id
+      AND ro.stock_status IN ('in_stock','low_stock','preorder')
+      AND ro.last_seen_at >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+      AND ro.last_seen_at <= EXTRACT(EPOCH FROM NOW())::bigint + 300
+      AND (ro.stock_confidence IS NULL OR ro.stock_confidence >= 0.9)
+    ORDER BY ro.last_seen_at DESC
+    LIMIT 1
+  ) active_live ON true
   LEFT JOIN LATERAL (
     SELECT hs.detected_at AS manifested_at
     FROM fatedrop_signals hs
