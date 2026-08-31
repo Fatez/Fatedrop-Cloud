@@ -37,10 +37,13 @@ test("Magic Madhouse requests the bounded BigCommerce product-listing fragment",
     });
   };
 
+  const testCatalogueUrl = new URL(magic.catalogueUrls[0]);
+  testCatalogueUrl.hostname = "magic-madhouse.test";
+  testCatalogueUrl.searchParams.set("fatedrop_audit", "stencil");
   const retailer = {
     ...magic,
     id: "magic-madhouse-stencil-audit",
-    catalogueUrls: [`${magic.catalogueUrls[0]}?fatedrop_audit=stencil`],
+    catalogueUrls: [testCatalogueUrl.toString()],
     maxPages: 2,
     delayMs: 0,
   };
