@@ -14,6 +14,7 @@
     "trader:catalogue:load": "node src/trader/catalogue/load-compiled-cli.mjs",
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
+    "local-radar:reconcile": "node src/encounters/reconcile-uk-physical-store-master.mjs",
     "retailers:seed": "node src/retailers/seed-candidates.mjs",
     "retailers:queue": "node src/retailers/queue-report.mjs",
     "retailers:inspect": "node src/retailers/inspect-candidate.mjs",

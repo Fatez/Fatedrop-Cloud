@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { prioritizeLocalRadarShops } from "../src/encounters/local-radar-ranking.mjs";
 
-test("Local Radar puts active expected-stock branches before all ordinary shops", () => {
+test("Local Radar puts Manifested/confirmed branches before expected Echo evidence", () => {
   const shops = prioritizeLocalRadarShops([
     { id: "near-unknown", name: "Near Unknown", distanceMiles: 1, localAvailability: { status: "unknown", expected: null } },
     { id: "confirmed", name: "Confirmed", distanceMiles: 2, localAvailability: { status: "confirmed", expected: null } },
@@ -12,9 +12,9 @@ test("Local Radar puts active expected-stock branches before all ordinary shops"
   ]);
 
   assert.deepEqual(shops.map((shop) => shop.id), [
+    "confirmed",
     "expected-near",
     "expected-far",
-    "confirmed",
     "near-unknown",
   ]);
 });

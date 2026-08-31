@@ -1,0 +1,59 @@
+name: Build UK Physical Store Master
+
+on:
+  pull_request:
+    paths:
+      - "signal-engine/src/encounters/build-uk-physical-store-master.mjs"
+      - "signal-engine/src/encounters/national-branch-directory-sync.mjs"
+      - "signal-engine/tests/uk-physical-store-master.test.mjs"
+      - ".github/workflows/build-uk-physical-store-master.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-master:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run safety tests
+        run: node --test tests/uk-physical-store-master.test.mjs
+
+      - name: Build export-only physical store master
+        run: node src/encounters/build-uk-physical-store-master.mjs
+        env:
+          # Deliberately no DATABASE_URL / Neon credentials. This workflow is export-only.
+          NODE_ENV: test
+
+      - name: Show summary
+        run: |
+          wc -l artifacts/uk-physical-store-master.csv
+          cat artifacts/uk-physical-store-retailer-summary.csv
+
+      - name: Upload master artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fatedrop-uk-physical-store-master
+          path: |
+            signal-engine/artifacts/uk-physical-store-master.csv
+            signal-engine/artifacts/uk-physical-store-retailer-summary.csv
+            signal-engine/artifacts/uk-physical-store-qa.json
+          if-no-files-found: error
+          retention-days: 14

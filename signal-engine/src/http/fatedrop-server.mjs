@@ -113,6 +113,9 @@ async function distanceSafeEvents(events,{origin,radiusMiles,postcodeBatchLookup
 function emptyRadarResult({types,tcg,radiusMiles,from,to,location}){
   return {
     success:true,
+    contractVersion:2,
+    mapPolicy:{markerBudget:72,clusteringRequired:true},
+    filters:{retailerGroups:["supermarkets","large_retailers","independents","unclassified"]},
     generatedAt:new Date().toISOString(),
     query:{latitude:null,longitude:null,postcode:location?.postcode||null,radiusMiles,tcg:tcg||null,types,from,to:to||null},
     locationResolution:location,

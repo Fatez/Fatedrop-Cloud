@@ -4,6 +4,7 @@ import { buildLocalRadar } from "../src/encounters/local-radar.mjs";
 import {
   listCanonicalRetailerLocationShops,
   mergeCanonicalRetailerShops,
+  radiusBoundingBox,
 } from "../src/encounters/canonical-retailer-locations.mjs";
 
 const smythsBranch = {
@@ -71,6 +72,22 @@ test("canonical branch reader respects radius and does not return the national r
   assert.equal(result.totalKnown, 2);
   assert.equal(result.shops.length, 1);
   assert.equal(result.shops[0].id, smythsBranch.id);
+});
+
+test("canonical branch reader passes a bounded database window before exact distance filtering", async () => {
+  const calls = [];
+  const store = {
+    async listRetailerLocations(options) {
+      calls.push(options);
+      return [smythsBranch];
+    },
+  };
+  await listCanonicalRetailerLocationShops(store, {
+    origin: { latitude: 51.9016, longitude: -0.2106 },
+    radiusMiles: 10,
+  });
+  assert.deepEqual(calls[0].bounds, radiusBoundingBox({ latitude: 51.9016, longitude: -0.2106 }, 10));
+  assert.equal(calls[0].limit, 10000);
 });
 
 test("fresh discovery and canonical identity for the same branch render once with canonical id", () => {

@@ -38,6 +38,9 @@ test("persists an exact matched connected branch with stable provider identity",
   assert.equal(saved[0].provider, "google_places");
   assert.equal(saved[0].providerId, "smyths-romford");
   assert.equal(saved[0].verification, "provider_discovered");
+  assert.equal(saved[0].identityStatus, "provisional");
+  assert.equal(saved[0].tcgSellerStatus, "likely");
+  assert.equal(saved[0].openingDetails.stockClaim, false);
   assert.match(saved[0].id, /^loc_/);
 });
 
@@ -78,6 +81,10 @@ test("Local Radar persists exact chain matches but keeps stock truth unknown", a
   assert.equal(saved[0].retailerId, "smyths-uk");
   assert.equal(data.providers.branchIdentity.status, "ok");
   assert.equal(data.providers.branchIdentity.saved, 1);
+  assert.equal(data.contractVersion, 2);
+  assert.equal(data.mapPolicy.markerBudget, 72);
+  assert.deepEqual(data.filters.retailerGroups, ["supermarkets", "large_retailers", "independents", "unclassified"]);
+  assert.equal(data.shops[0].retailerGroup, "large_retailers");
   assert.equal(data.shops[0].localStockStatus, "unknown");
   assert.equal(data.shops[0].stockEvidence, "online_catalogue_only");
 });
