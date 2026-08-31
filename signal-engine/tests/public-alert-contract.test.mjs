@@ -170,6 +170,13 @@ test('open Manifested episodes expose only fresh, healthy current-offer confirma
     observedDurationSeconds: 90,
     historyComplete: true,
   });
+  assert.deepEqual(alert.opportunity, {
+    eventKind: 'availability_started',
+    current: true,
+    currentViewKind: 'still_available',
+    firstManifestedAt: '1970-01-01T00:01:40.000Z',
+    lastVerifiedAt: '1970-01-01T00:03:10.000Z',
+  });
 });
 
 test('closed or unconfirmed Manifested episode cannot masquerade as outstanding stock', async () => {
@@ -183,6 +190,52 @@ test('closed or unconfirmed Manifested episode cannot masquerade as outstanding 
   });
   const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'manifested', limit: 1 });
   assert.equal(alert.liveWindow, null);
+  assert.deepEqual(alert.opportunity, {
+    eventKind: 'availability_started',
+    current: false,
+    currentViewKind: null,
+    firstManifestedAt: null,
+    lastVerifiedAt: null,
+  });
+});
+
+test('event kinds explain activity without inventing another lifecycle engine', async () => {
+  const [newRetailer] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({
+    state: 'manifested',
+    stock_episode_id: 'ep_new_retailer',
+    stock_episode_availability_state: 'available',
+    stock_episode_manifested_at: 100,
+    stock_episode_vanished_at: null,
+    current_live_confirmation_at: 190,
+    evidence: [{ kind: 'signal_kind', value: 'new_listing_live' }],
+  })), { state: 'manifested', limit: 1 });
+  assert.equal(newRetailer.opportunity.eventKind, 'new_retailer_available');
+  assert.equal(newRetailer.opportunity.currentViewKind, 'still_available');
+  assert.match(newRetailer.notification.body, /New verified retailer availability/);
+
+  const [echo] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({ state: 'echo' })), { state: 'echo', limit: 1 });
+  assert.equal(echo.opportunity.eventKind, 'retailer_behaviour_changed');
+  assert.equal(echo.opportunity.current, false);
+});
+
+test('current opportunity mode is enforced inside Cloud SQL and orders by fresh verification', async () => {
+  let captured;
+  const store = {
+    async pool() {
+      return {
+        async query(sql, params) {
+          captured = { sql, params };
+          return { rows: [] };
+        },
+      };
+    },
+  };
+  await listCanonicalPublicAlerts(store, { state: 'manifested', currentOnly: true, limit: 12 });
+  assert.deepEqual(captured.params, [null, ['manifested'], 12, null, null, null, true]);
+  assert.match(captured.sql, /\$7::boolean IS NOT TRUE OR/);
+  assert.match(captured.sql, /canonical_episode\.availability_state='available'/);
+  assert.match(captured.sql, /current_live\.last_confirmed_live_at IS NOT NULL/);
+  assert.match(captured.sql, /CASE WHEN \$7::boolean IS TRUE THEN current_live\.last_confirmed_live_at END DESC/);
 });
 
 test('legacy Vanished without a supported Manifested start remains explicitly incomplete', async () => {
@@ -287,7 +340,7 @@ test('alert recovery cursor is stable across same-second events and reaches the 
     beforeId: 'sig_cursor',
     limit: 25,
   });
-  assert.deepEqual(captured.params, [null, ['manifested'], 25, 100, 200, 'sig_cursor']);
+  assert.deepEqual(captured.params, [null, ['manifested'], 25, 100, 200, 'sig_cursor', false]);
   assert.match(captured.sql, /s\.detected_at < \$5 OR \(s\.detected_at=\$5 AND s\.id>COALESCE\(\$6::text,''\)\)/);
-  assert.match(captured.sql, /ORDER BY s\.detected_at DESC,s\.id ASC/);
+  assert.match(captured.sql, /s\.detected_at DESC,s\.id ASC/);
 });
