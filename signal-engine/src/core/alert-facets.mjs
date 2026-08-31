@@ -47,6 +47,7 @@ const ENGLISH_SET_FAMILIES = [
   ["twilight-masquerade", "Twilight Masquerade", ["twilight masquerade"]],
   ["temporal-forces", "Temporal Forces", ["temporal forces"]],
   ["paldean-fates", "Paldean Fates", ["paldean fates"]],
+  ["hidden-fates", "Hidden Fates", ["hidden fates"]],
   ["paradox-rift", "Paradox Rift", ["paradox rift"]],
   ["obsidian-flames", "Obsidian Flames", ["obsidian flames"]],
   ["paldea-evolved", "Paldea Evolved", ["paldea evolved"]],
@@ -92,12 +93,23 @@ function authoritySetFamilies() {
   });
 }
 
+const AUTHORITY_SET_FAMILIES = authoritySetFamilies();
+const NON_ENGLISH_OR_AMBIGUOUS_SET_KEYS = new Set([
+  ...INTERNATIONAL_ALIAS_FAMILIES,
+  ...AUTHORITY_SET_FAMILIES,
+].map(([key]) => slug(key)).filter(Boolean));
+const UNAMBIGUOUS_ENGLISH_SET_KEYS = new Set(
+  ENGLISH_SET_FAMILIES
+    .map(([key]) => slug(key))
+    .filter((key) => key && !NON_ENGLISH_OR_AMBIGUOUS_SET_KEYS.has(key)),
+);
+
 function buildSetRegistry() {
   const byKey = new Map();
   for (const [key, name, aliases] of [
     ...ENGLISH_SET_FAMILIES,
     ...INTERNATIONAL_ALIAS_FAMILIES,
-    ...authoritySetFamilies(),
+    ...AUTHORITY_SET_FAMILIES,
   ]) {
     const safeKey = slug(key);
     if (!safeKey) continue;
@@ -198,14 +210,25 @@ function explicitTitleLanguage(title) {
 
 function setFromTitle(title) {
   const normalized = fold(title);
-  if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown" };
+  if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown", languageHint: null };
   const padded = ` ${normalized} `;
   for (const family of SET_REGISTRY) {
     const matched = family.aliases.find((alias) => padded.includes(` ${alias} `));
     if (!matched) continue;
-    return { setKey: family.key, setName: family.name, confidence: 1, source: `title_alias:${matched}` };
+    return {
+      setKey: family.key,
+      setName: family.name,
+      confidence: 1,
+      source: `title_alias:${matched}`,
+      languageHint: UNAMBIGUOUS_ENGLISH_SET_KEYS.has(family.key) ? {
+        languageGroup: "english",
+        languageCode: "en",
+        confidence: 0.99,
+        source: `canonical_english_set:${family.key}`,
+      } : null,
+    };
   }
-  return { setKey: null, setName: null, confidence: 0, source: "unknown" };
+  return { setKey: null, setName: null, confidence: 0, source: "unknown", languageHint: null };
 }
 
 function persistedMarketResolution(entries) {
@@ -224,11 +247,44 @@ function persistedMarketResolution(entries) {
 export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [], marketResolution = null } = {}) {
   const entries = evidenceEntries(evidence);
   const persisted = persistedFacets(entries);
-  if (persisted) return persisted;
-
   const descriptor = describeProductIdentity({ title, language, region });
   const titleLanguage = explicitTitleLanguage(title);
-  const languageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const setFacet = setFromTitle(title);
+  const detectedLanguageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const languageFacet = detectedLanguageFacet.source === "unknown" && setFacet.languageHint
+    ? setFacet.languageHint
+    : detectedLanguageFacet;
+
+  if (persisted) {
+    const improveLanguage = persisted.languageGroup === "unknown"
+      && persisted.confidence.language === 0
+      && languageFacet.languageGroup !== "unknown";
+    const improveSet = !persisted.setKey
+      && persisted.confidence.set === 0
+      && Boolean(setFacet.setKey);
+    if (!improveLanguage && !improveSet) return persisted;
+
+    const languageGroup = improveLanguage ? languageFacet.languageGroup : persisted.languageGroup;
+    return {
+      ...persisted,
+      languageGroup,
+      languageCode: improveLanguage ? languageFacet.languageCode : persisted.languageCode,
+      languageLabel: ALERT_LANGUAGE_GROUPS.find((group) => group.key === languageGroup)?.label || "Unknown language",
+      setKey: improveSet ? setFacet.setKey : persisted.setKey,
+      setName: improveSet ? setFacet.setName : persisted.setName,
+      confidence: {
+        ...persisted.confidence,
+        language: improveLanguage ? languageFacet.confidence : persisted.confidence.language,
+        set: improveSet ? setFacet.confidence : persisted.confidence.set,
+      },
+      source: {
+        ...persisted.source,
+        language: improveLanguage ? languageFacet.source : persisted.source.language,
+        set: improveSet ? setFacet.source : persisted.source.set,
+      },
+    };
+  }
+
   const marketFacet = marketResolution || persistedMarketResolution(entries) || {
     status: "unknown",
     marketCode: null,
@@ -236,7 +292,6 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     source: "unknown",
   };
   const marketCode = ["verified", "reused"].includes(marketFacet.status) ? normalizeMarketCode(marketFacet.marketCode) : null;
-  const setFacet = setFromTitle(title);
   return {
     version: ALERT_FACET_VERSION,
     languageGroup: languageFacet.languageGroup,
