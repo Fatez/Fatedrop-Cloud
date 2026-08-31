@@ -337,7 +337,10 @@ export async function sendDiscordSignal(signal, {
       await sleepImpl(waitMs);
       continue;
     }
-    throw new Error(`Discord delivery failed (${response.status})${body ? `: ${short(body, 300)}` : ""}`);
+    const error = new Error(`Discord delivery failed (${response.status})${body ? `: ${short(body, 300)}` : ""}`);
+    error.code = "discord_http_error";
+    error.status = response.status;
+    throw error;
   }
 }
 

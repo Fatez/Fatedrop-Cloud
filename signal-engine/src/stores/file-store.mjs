@@ -1,7 +1,93 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { availabilityEffectForStage, canonicalEpisodeTransition } from "../core/canonical-stock-episode.mjs";
+import { stableId } from "../core/normalize.mjs";
 
-const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], retailers: {}, encounters: {}, encounterVendors: {}, encounterInventory: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
+const EMPTY = { version: 1, products: {}, offers: {}, observations: [], signals: [], stockEpisodes: {}, stockEpisodeCurrent: {}, stockEpisodeConflicts: [], retailers: {}, encounters: {}, encounterVendors: {}, encounterInventory: {}, networkSnapshots: [], metadata: { baselineCompleted: {} } };
+
+export function applyFileCanonicalSignals(state, signals) {
+  state.signals ||= [];
+  state.stockEpisodes ||= {};
+  state.stockEpisodeCurrent ||= {};
+  state.stockEpisodeConflicts ||= [];
+  const acceptedSignalIds = [];
+  const conflictSignalIds = [];
+  const deduplicatedSignalIds = [];
+  const existingIds = new Set(state.signals.map((signal) => signal.id));
+
+  for (const signal of [...(signals || [])].sort((left, right) => Number(left?.detectedAt || 0) - Number(right?.detectedAt || 0))) {
+    if (existingIds.has(signal?.id)) {
+      deduplicatedSignalIds.push(signal.id);
+      continue;
+    }
+    const offerId = String(signal?.offerId || "").trim();
+    const productId = String(signal?.productId || "").trim();
+    const retailerId = String(signal?.retailerId || "").trim();
+    const currentId = offerId ? state.stockEpisodeCurrent[offerId] : null;
+    const currentEpisode = currentId ? state.stockEpisodes[currentId] : null;
+    const transition = offerId && productId && retailerId
+      ? canonicalEpisodeTransition({ stage: signal.state, currentEpisode, occurredAt: signal.detectedAt })
+      : { accepted: false, conflictReason: "canonical_scope_incomplete" };
+    if (!transition.accepted) {
+      const conflictId = stableId("epc", signal?.id || "unknown", transition.conflictReason);
+      state.stockEpisodeConflicts.push({
+        id: conflictId,
+        signalId: signal?.id || null,
+        offerId: offerId || null,
+        stage: signal?.state || null,
+        reason: transition.conflictReason,
+        occurredAt: signal?.detectedAt || null,
+        signal,
+      });
+      if (signal?.id) conflictSignalIds.push(signal.id);
+      continue;
+    }
+
+    let episode;
+    if (transition.create) {
+      const id = stableId("ep", "online", `offer:${offerId}`, String(transition.cycleNumber));
+      episode = {
+        id,
+        scopeType: "online",
+        scopeKey: `offer:${offerId}`,
+        offerId,
+        productId,
+        retailerId,
+        cycleNumber: transition.cycleNumber,
+        episodeState: transition.episodeState,
+        availabilityState: transition.availabilityState,
+        openedAt: signal.detectedAt,
+        manifestedAt: signal.state === "manifested" ? signal.detectedAt : null,
+        vanishedAt: null,
+        latestEventAt: signal.detectedAt,
+        events: [],
+      };
+      state.stockEpisodes[id] = episode;
+      state.stockEpisodeCurrent[offerId] = id;
+    } else {
+      episode = currentEpisode;
+      episode.episodeState = transition.episodeState;
+      episode.availabilityState = transition.availabilityState;
+      if (signal.state === "manifested" && !episode.manifestedAt) episode.manifestedAt = signal.detectedAt;
+      if (signal.state === "vanished") episode.vanishedAt = signal.detectedAt;
+      episode.latestEventAt = Math.max(Number(episode.latestEventAt || 0), Number(signal.detectedAt));
+    }
+    episode.events.push({
+      id: stableId("epe", signal.id),
+      signalId: signal.id,
+      stage: signal.state,
+      availabilityEffect: availabilityEffectForStage(signal.state),
+      occurredAt: signal.detectedAt,
+    });
+    state.signals.push(signal);
+    existingIds.add(signal.id);
+    acceptedSignalIds.push(signal.id);
+  }
+
+  if (state.signals.length > 20000) state.signals = state.signals.slice(-20000);
+  if (state.stockEpisodeConflicts.length > 5000) state.stockEpisodeConflicts = state.stockEpisodeConflicts.slice(-5000);
+  return { acceptedSignalIds, conflictSignalIds, deduplicatedSignalIds, insertedSignalIds: acceptedSignalIds };
+}
 
 export class FileStore {
   constructor(filePath) { this.filePath = filePath; this.writeQueue = Promise.resolve(); }
@@ -43,12 +129,16 @@ export class FileStore {
       state.products ||= {}; state.offers ||= {}; state.observations ||= []; state.signals ||= []; state.retailers ||= {}; state.metadata ||= { baselineCompleted: {} }; state.metadata.baselineCompleted ||= {};
       for (const product of products) state.products[product.id] = product;
       for (const offer of offers) state.offers[offer.offerId] = offer;
-      state.observations.push(...observations); state.signals.push(...signals);
+      state.observations.push(...observations);
+      const signalPersistence = applyFileCanonicalSignals(state, signals);
       if (state.observations.length > 100000) state.observations = state.observations.slice(-100000);
-      if (state.signals.length > 20000) state.signals = state.signals.slice(-20000);
       state.retailers[retailer.id] = { id: retailer.id, name: retailer.name, ...health, lastScanAt: completedAt };
       state.metadata.baselineCompleted[retailer.id] = true;
+      return signalPersistence;
     });
+  }
+  async appendCanonicalSignals(signals) {
+    return this.mutate((state) => applyFileCanonicalSignals(state, signals));
   }
   async appendSignals(signals) {
     return this.mutate((state) => {

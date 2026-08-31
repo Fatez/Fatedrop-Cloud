@@ -1,4 +1,5 @@
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
+import { dispatchSignalDeliveryOutbox } from "../notifications/signal-outbox.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
 import { saveDiscoveryObservationBatch } from "../stores/discovery-observation-store.mjs";
 import { processRetailerProducts } from "./engine.mjs";
@@ -51,6 +52,16 @@ function discoveryStore(store, capture, freshRetailerSkus) {
 
 async function dispatchCanonicalSignals(store, signals) {
   if (!signals.length) return { sent: 0, skipped: 0, failed: 0, errors: [] };
+  if (typeof store?.pool === "function") {
+    const outbox = await dispatchSignalDeliveryOutbox(store, { limit: Math.max(25, signals.length) });
+    return {
+      sent: outbox.sent,
+      skipped: outbox.suppressed,
+      failed: outbox.retryable + outbox.unknown + outbox.deadLetter,
+      errors: outbox.errors,
+      outbox,
+    };
+  }
   return dispatchDiscordSignals(signals, {
     onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
   });

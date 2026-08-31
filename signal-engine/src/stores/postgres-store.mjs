@@ -1,3 +1,5 @@
+import { persistCanonicalSignals } from "./canonical-signal-ledger.mjs";
+
 const RETRYABLE_TRANSACTION_CODES = new Set(["40P01", "40001"]);
 const SAVE_TRANSACTION_ATTEMPTS = 4;
 
@@ -95,7 +97,7 @@ export class PostgresStore {
     const orderedObservations = sortedBy(uniqueBy(observations, "id"), "id");
     const orderedSignals = sortedBy(uniqueBy(signals, "id"), "id");
     try {
-      await runTransactionWithRetry(client, async () => {
+      return await runTransactionWithRetry(client, async () => {
         await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`fatedrop:save:${retailer.id}`]);
         await bulkJson(client, `INSERT INTO fatedrop_products (id,canonical_key,title,product_type,tcg,official_rrp_pence,rrp_source,rrp_observed_at,first_seen_at,updated_at)
           SELECT x->>'id',x->>'canonicalKey',x->>'title',x->>'productType',x->>'tcg',NULLIF(x->>'officialRrpPence','')::integer,NULLIF(x->>'rrpSource',''),NULLIF(x->>'rrpObservedAt','')::bigint,(x->>'firstSeenAt')::bigint,(x->>'updatedAt')::bigint
@@ -112,12 +114,23 @@ export class PostgresStore {
         await bulkJson(client, `INSERT INTO fatedrop_stock_observations (id,offer_id,retailer_id,observed_at,stock_status,stock_confidence,stock_quantity,price_pence,evidence)
           SELECT x->>'id',x->>'offerId',x->>'retailerId',(x->>'observedAt')::bigint,x->>'stockStatus',NULLIF(x->>'stockConfidence','')::numeric,NULLIF(x->>'stockQuantity','')::integer,NULLIF(x->>'pricePence','')::integer,COALESCE(x->'evidence','[]'::jsonb)
           FROM jsonb_array_elements($1::jsonb) x ON CONFLICT DO NOTHING`, orderedObservations);
-        await bulkJson(client, `INSERT INTO fatedrop_signals (id,state,product_id,offer_id,retailer_id,retailer_name,title,product_type,url,image_url,price_pence,rrp_pence,postage_pence,delivered_price_pence,markup_percent,stock_status,previous_stock_status,confidence,detected_at,reason,evidence)
-          SELECT x->>'id',x->>'state',x->>'productId',NULLIF(x->>'offerId',''),x->>'retailerId',x->>'retailerName',x->>'title',NULLIF(x->>'productType',''),NULLIF(x->>'url',''),NULLIF(x->>'imageUrl',''),NULLIF(x->>'pricePence','')::integer,NULLIF(x->>'rrpPence','')::integer,NULLIF(x->>'postagePence','')::integer,NULLIF(x->>'deliveredPricePence','')::integer,NULLIF(x->>'markupPercent','')::numeric,x->>'stockStatus',NULLIF(x->>'previousStockStatus',''),NULLIF(x->>'confidence','')::numeric,(x->>'detectedAt')::bigint,NULLIF(x->>'reason',''),COALESCE(x->'evidence','[]'::jsonb)
-          FROM jsonb_array_elements($1::jsonb) x ON CONFLICT DO NOTHING`, orderedSignals);
+        const signalPersistence = await persistCanonicalSignals(client, orderedSignals, { now: completedAt });
         await client.query(`INSERT INTO fatedrop_retailer_health (retailer_id,retailer_name,healthy,last_scan_at,last_success_at,last_error,last_error_at,products_seen,pages_scanned,baseline_completed) VALUES ($1,$2,true,$3,$3,NULL,NULL,$4,$5,true) ON CONFLICT (retailer_id) DO UPDATE SET retailer_name=EXCLUDED.retailer_name,healthy=true,last_scan_at=EXCLUDED.last_scan_at,last_success_at=EXCLUDED.last_success_at,last_error=NULL,products_seen=EXCLUDED.products_seen,pages_scanned=EXCLUDED.pages_scanned,baseline_completed=true`, [retailer.id,retailer.name,completedAt,health.productsSeen,health.pagesScanned]);
+        return {
+          ...signalPersistence,
+          insertedSignalIds: signalPersistence.acceptedSignalIds,
+        };
       });
     } finally { client.release(); }
+  }
+  async appendCanonicalSignals(signals, { now = Math.floor(Date.now() / 1000) } = {}) {
+    const pool = await this.pool();
+    const client = await pool.connect();
+    try {
+      return await runTransactionWithRetry(client, () => persistCanonicalSignals(client, signals, { now }));
+    } finally {
+      client.release();
+    }
   }
   async recordFailure(retailer, error, now) {
     const pool = await this.pool();

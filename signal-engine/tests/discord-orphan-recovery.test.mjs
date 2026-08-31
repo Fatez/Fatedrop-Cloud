@@ -63,12 +63,11 @@ test("no-attempt Manifested remains deliberately short-lived", () => {
   assert.equal(stale.reason, "orphan_stale");
 });
 
-test("reconciler excludes lifecycle events superseded on the same offer before late recovery", () => {
-  const sourcePath = fileURLToPath(new URL("../src/notifications/discord-reconcile.mjs", import.meta.url));
+test("outbox suppresses stale evidence when newer canonical lifecycle truth exists", () => {
+  const sourcePath = fileURLToPath(new URL("../src/notifications/signal-outbox.mjs", import.meta.url));
   const source = fs.readFileSync(sourcePath, "utf8");
-  assert.match(source, /FROM fatedrop_signals newer/);
-  assert.match(source, /newer\.retailer_id = s\.retailer_id/);
-  assert.match(source, /newer\.offer_id = s\.offer_id/);
-  assert.match(source, /newer\.detected_at > s\.detected_at/);
-  assert.match(source, /CASE WHEN last_attempt\.result IS NULL THEN 0 ELSE 1 END/);
+  assert.match(source, /superseded_by_newer_episode_event/);
+  assert.match(source, /newer_episode\.scope_key=current_episode\.scope_key/);
+  assert.match(source, /newer_event\.stage IN \('manifested','vanished'\)/);
+  assert.match(source, /current_event\.stage IN \('whisper','echo'\)/);
 });

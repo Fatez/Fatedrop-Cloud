@@ -98,6 +98,36 @@ function publicStage(state) {
   return 'NETWORK';
 }
 
+function stockEpisode(row) {
+  const id = nullableText(row.stock_episode_id);
+  if (!id) return null;
+  return {
+    id,
+    scopeType: nullableText(row.stock_episode_scope_type),
+    cycleNumber: nullableNumber(row.stock_episode_cycle_number),
+    episodeState: nullableText(row.stock_episode_state),
+    availabilityState: nullableText(row.stock_episode_availability_state),
+    openedAt: isoTimestamp(row.stock_episode_opened_at),
+    manifestedAt: isoTimestamp(row.stock_episode_manifested_at),
+    vanishedAt: isoTimestamp(row.stock_episode_vanished_at),
+    latestEventAt: isoTimestamp(row.stock_episode_latest_event_at),
+    eventStage: nullableText(row.stock_episode_event_stage),
+    eventAvailabilityEffect: nullableText(row.stock_episode_event_availability_effect),
+  };
+}
+
+function availabilityTruth(row, episode) {
+  const state = text(row.state).toLowerCase();
+  const inferredEffect = state === 'manifested' ? 'available' : state === 'vanished' ? 'unavailable' : 'none';
+  const signalEffect = episode?.eventAvailabilityEffect || inferredEffect;
+  return {
+    signalEffect,
+    signalClaimsAvailability: signalEffect === 'available' || signalEffect === 'unavailable',
+    currentEpisodeState: episode?.availabilityState || null,
+    canonicalSourceStage: signalEffect === 'available' ? 'MANIFESTED' : signalEffect === 'unavailable' ? 'VANISHED' : null,
+  };
+}
+
 function observedDuration(seconds) {
   if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
   const whole = Math.floor(seconds);
@@ -341,6 +371,7 @@ function toCanonicalAlert(row) {
   const window = liveWindow(row);
   const facets = deriveAlertFacets({ title: row.title, retailerCountryCode: 'GB', evidence: row.evidence });
   const deliveryPolicy = row.delivery_policy || effectiveSignalDeliveryPolicy(row);
+  const episode = stockEpisode(row);
   row.alert_facets = facets;
   return {
     id: row.id,
@@ -359,6 +390,8 @@ function toCanonicalAlert(row) {
     detectedAt: isoTimestamp(row.detected_at),
     observedDurationSeconds: window?.observedDurationSeconds ?? null,
     liveWindow: window,
+    stockEpisode: episode,
+    availabilityTruth: availabilityTruth(row, episode),
     productIntelligence,
     confirmed: fateStage === 'MANIFESTED',
     confirmedRestock: fateStage === 'MANIFESTED',
@@ -388,6 +421,12 @@ const ALERT_SQL = `
     s.id,s.state,s.product_id,s.offer_id,s.retailer_id,s.retailer_name,s.title,s.product_type,s.url,s.image_url,s.price_pence,
     s.rrp_pence AS signal_rrp_pence,p.official_rrp_pence AS canonical_rrp_pence,
     s.delivered_price_pence,s.postage_pence,s.stock_status,s.previous_stock_status,s.confidence,s.detected_at,
+    canonical_episode.id AS stock_episode_id,canonical_episode.scope_type AS stock_episode_scope_type,
+    canonical_episode.cycle_number AS stock_episode_cycle_number,canonical_episode.episode_state AS stock_episode_state,
+    canonical_episode.availability_state AS stock_episode_availability_state,canonical_episode.opened_at AS stock_episode_opened_at,
+    canonical_episode.manifested_at AS stock_episode_manifested_at,canonical_episode.vanished_at AS stock_episode_vanished_at,
+    canonical_episode.latest_event_at AS stock_episode_latest_event_at,canonical_event.stage AS stock_episode_event_stage,
+    canonical_event.availability_effect AS stock_episode_event_availability_effect,
     ${signalDeliveryPolicySql('s')} AS delivery_policy,
     live_window.manifested_at AS live_manifested_at,
     persisted_live.last_confirmed_live_at,
@@ -404,6 +443,8 @@ const ALERT_SQL = `
     discord_delivery.provider_message_id AS discord_provider_message_id,discord_delivery.attempted_at AS discord_delivery_attempted_at
   FROM fatedrop_signals s
   LEFT JOIN fatedrop_products p ON p.id=s.product_id
+  LEFT JOIN fatedrop_stock_episode_events canonical_event ON canonical_event.signal_id=s.id
+  LEFT JOIN fatedrop_stock_episodes canonical_episode ON canonical_episode.id=canonical_event.episode_id
   LEFT JOIN LATERAL (
     SELECT ro.offer_id,ro.retailer_id,ro.retailer_name,ro.url,ro.price_pence,ro.postage_pence,ro.stock_status
     FROM fatedrop_retail_offers ro
@@ -466,7 +507,9 @@ const ALERT_SQL = `
     FROM (
       SELECT hs.id,hs.state,hs.retailer_name,hs.detected_at,hs.reason,hs.price_pence,hs.stock_status,hs.previous_stock_status,hs.url
       FROM fatedrop_signals hs
+      LEFT JOIN fatedrop_stock_episode_events history_event ON history_event.signal_id=hs.id
       WHERE hs.offer_id=s.offer_id
+        AND (canonical_event.episode_id IS NULL OR history_event.episode_id=canonical_event.episode_id)
       ORDER BY hs.detected_at DESC
       LIMIT 12
     ) h

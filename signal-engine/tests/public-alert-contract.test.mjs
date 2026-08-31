@@ -74,6 +74,35 @@ test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history'
   assert.match(alertSource, /NO_FAIR_COMPARISON/);
 });
 
+test('Cloud exposes one canonical episode while keeping Echo and Whisper outside stock truth', async () => {
+  assert.match(alertSource, /fatedrop_stock_episode_events canonical_event/);
+  assert.match(alertSource, /fatedrop_stock_episodes canonical_episode/);
+  assert.match(alertSource, /history_event\.episode_id=canonical_event\.episode_id/);
+  const row = vanishedRow({
+    state: 'echo',
+    stock_episode_id: 'ep_1',
+    stock_episode_scope_type: 'online',
+    stock_episode_cycle_number: 2,
+    stock_episode_state: 'available',
+    stock_episode_availability_state: 'available',
+    stock_episode_opened_at: 100,
+    stock_episode_manifested_at: 150,
+    stock_episode_vanished_at: null,
+    stock_episode_latest_event_at: 200,
+    stock_episode_event_stage: 'echo',
+    stock_episode_event_availability_effect: 'none',
+  });
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'echo', limit: 1 });
+  assert.equal(alert.stockEpisode.id, 'ep_1');
+  assert.equal(alert.stockEpisode.availabilityState, 'available');
+  assert.deepEqual(alert.availabilityTruth, {
+    signalEffect: 'none',
+    signalClaimsAvailability: false,
+    currentEpisodeState: 'available',
+    canonicalSourceStage: null,
+  });
+});
+
 test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
   assert.match(alertSource, /publicSignalSqlFilter/);
   assert.match(alertSource, /AND \$\{publicSignalSqlFilter\('s'\)\}/);

@@ -9,18 +9,18 @@ const serverSource = await readFile(new URL("../src/server.mjs", import.meta.url
 const NOW = 2_000_000;
 const signal = (state, ageSeconds) => ({ id: `sig_${state}`, state, detectedAt: NOW - ageSeconds });
 
-test("orphaned lifecycle Discord deliveries are reconciled durably and freshness-aware", () => {
-  assert.match(reconcileSource, /fatedrop_signal_delivery_attempts/);
-  assert.match(reconcileSource, /result='sent'/);
+test("Discord recovery consumes explicit outbox obligations and never infers legacy signal replays", () => {
+  assert.match(reconcileSource, /dispatchSignalDeliveryOutbox/);
+  assert.match(reconcileSource, /never infers obligations from historical fatedrop_signals/);
+  assert.doesNotMatch(reconcileSource, /FROM fatedrop_signals/);
   assert.match(reconcileSource, /DEFAULT_GRACE_SECONDS = 90/);
   assert.match(reconcileSource, /DEFAULT_RETRY_DELAY_SECONDS = 5 \* 60/);
   assert.match(reconcileSource, /RATE_LIMIT_RETRY_DELAY_SECONDS = 60/);
   assert.match(reconcileSource, /manifested: 5 \* 60/);
   assert.match(reconcileSource, /echo: 5 \* 60/);
   assert.match(reconcileSource, /DEFAULT_BATCH_LIMIT = 25/);
-  assert.match(reconcileSource, /pg_try_advisory_lock/);
-  assert.match(reconcileSource, /dispatchDiscordSignals/);
-  assert.match(reconcileSource, /recordSignalDeliveryAttempt/);
+  assert.doesNotMatch(reconcileSource, /dispatchDiscordSignals/);
+  assert.doesNotMatch(reconcileSource, /recordSignalDeliveryAttempt/);
 });
 
 test("fresh signal with no attempt is recovered after initial delivery grace", () => {

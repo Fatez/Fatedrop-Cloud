@@ -1,5 +1,7 @@
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
+import { dispatchSignalDeliveryOutbox } from "../notifications/signal-outbox.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
+import { persistCanonicalSignals } from "../stores/canonical-signal-ledger.mjs";
 import { stableId } from "./normalize.mjs";
 import { isPrimaryDropRetailer, signalCapabilities } from "./signal-policy.mjs";
 
@@ -21,16 +23,27 @@ function reasonFor(state) {
 
 async function appendSignals(store, signals) {
   if (!signals.length) return;
+  if (typeof store.appendCanonicalSignals === "function") {
+    return store.appendCanonicalSignals(signals);
+  }
   if (typeof store.appendSignals === "function") {
     await store.appendSignals(signals);
     return;
   }
   if (typeof store.pool === "function") {
     const pool = await store.pool();
-    for (const s of signals) {
-      await pool.query(`INSERT INTO fatedrop_signals (id,state,product_id,offer_id,retailer_id,retailer_name,title,product_type,url,image_url,price_pence,rrp_pence,postage_pence,delivered_price_pence,markup_percent,stock_status,previous_stock_status,confidence,detected_at,reason,evidence) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::jsonb) ON CONFLICT DO NOTHING`, [s.id,s.state,s.productId,s.offerId,s.retailerId,s.retailerName,s.title,s.productType,s.url,s.imageUrl,s.pricePence,s.rrpPence,s.postagePence,s.deliveredPricePence,s.markupPercent,s.stockStatus,s.previousStockStatus,s.confidence,s.detectedAt,s.reason,JSON.stringify(s.evidence)]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await persistCanonicalSignals(client, signals);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try { await client.query("ROLLBACK"); } catch {}
+      throw error;
+    } finally {
+      client.release();
     }
-    return;
   }
   throw new Error("Store cannot append readiness signals");
 }
@@ -159,19 +172,33 @@ export async function recordRetailerReadiness({ retailer, store, state, previous
     },
   }));
 
-  await appendSignals(store, signals);
-  const discord = signals.length ? await dispatchDiscordSignals(signals, {
-    onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
-  }) : { sent: 0, skipped: 0, failed: 0, errors: [] };
+  const persistence = await appendSignals(store, signals);
+  const acceptedIds = Array.isArray(persistence?.acceptedSignalIds)
+    ? new Set(persistence.acceptedSignalIds)
+    : null;
+  const canonicalSignals = acceptedIds ? signals.filter((signal) => acceptedIds.has(signal.id)) : signals;
+  const discord = canonicalSignals.length
+    ? (typeof store?.pool === "function"
+      ? await dispatchSignalDeliveryOutbox(store, { limit: Math.max(25, canonicalSignals.length) }).then((outbox) => ({
+        sent: outbox.sent,
+        skipped: outbox.suppressed,
+        failed: outbox.retryable + outbox.unknown + outbox.deadLetter,
+        errors: outbox.errors,
+        outbox,
+      }))
+      : await dispatchDiscordSignals(canonicalSignals, {
+        onDeliveryAttempt: (attempt) => recordSignalDeliveryAttempt(store, attempt),
+      }))
+    : { sent: 0, skipped: 0, failed: 0, errors: [] };
 
   return {
     accepted: true,
     readinessState: state,
     previousState,
     readinessEvent,
-    productContexts: signals.length,
-    reason: signals.length ? "echo_emitted" : "no_recent_retailer_product_context",
-    signals,
+    productContexts: canonicalSignals.length,
+    reason: canonicalSignals.length ? "echo_emitted" : "no_recent_retailer_product_context",
+    signals: canonicalSignals,
     discord,
   };
 }

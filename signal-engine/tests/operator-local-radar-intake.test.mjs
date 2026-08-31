@@ -61,6 +61,12 @@ test("general operator intelligence remains Whisper without an explicit Echo req
   assert.equal(parsed.entry.confidence, 0.59);
 });
 
+test("authorised operator can explicitly publish manual Local Radar Echo evidence", () => {
+  const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: "echo", confidence: 0.99 } }), NOW);
+  assert.equal(parsed.entry.kind, "echo");
+  assert.equal(parsed.entry.confidence, 0.8);
+});
+
 test("operator intake rejects untrusted authors, pull requests and branchless broadcasts", () => {
   assert.throws(() => parseOperatorIssue(operatorIssue({ user: { login: "someone-else" } }), NOW), /author is not authorised/);
   assert.throws(() => parseOperatorIssue(operatorIssue({ pull_request: { url: "https://example.invalid" } }), NOW), /Pull requests are not operator alerts/);
