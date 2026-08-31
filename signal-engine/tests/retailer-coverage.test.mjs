@@ -108,10 +108,10 @@ test("structured filters do not reject products because the retailer hostname ma
     const result = await scanStructuredCatalogue({
       id: "double-sleeved-test",
       name: "Double Sleeved",
-      baseUrl: "https://www.doublesleeved.co.uk/",
+      baseUrl: "https://double-sleeved.test/",
       adapterType: ADAPTER_TYPES.SHOPIFY,
       catalogue: {
-        feedUrl: "https://www.doublesleeved.co.uk/collections/pokemon-tcg/products.json?limit=250",
+        feedUrl: "https://double-sleeved.test/collections/pokemon-tcg/products.json?limit=250",
         feedApproved: true,
         runtime: { maxPages: 1, delayMs: 250 },
       },
