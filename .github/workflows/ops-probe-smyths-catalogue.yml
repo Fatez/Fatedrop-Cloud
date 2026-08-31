@@ -1,0 +1,56 @@
+name: Ops Probe Smyths Catalogue
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ops-probe-smyths-catalogue.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Fetch ordinary Smyths Pokemon category
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://www.smythstoys.com/uk/en-gb/toys/action-figures-and-playsets/pokemon-toys/pokemon-trading-card-game-tcg/c/SM0601011202'
+          curl --silent --show-error --location --max-time 25 \
+            -A 'FateDrop/0.1 (+https://fate-drop.com; catalogue-monitor)' \
+            -D headers.txt -o body.html -w '%{http_code}' "$url" > status.txt
+          python - <<'PY'
+          import json,re
+          from pathlib import Path
+          body=Path('body.html').read_text(encoding='utf-8',errors='replace')
+          headers=Path('headers.txt').read_text(encoding='utf-8',errors='replace')
+          refs=sorted(set(re.findall(r'/p/(\d+)', body)))
+          hrefs=[]
+          for match in re.finditer(r'href=["\']([^"\']+/p/\d+[^"\']*)["\']', body, re.I):
+              hrefs.append(match.group(1))
+          scripts=re.findall(r'<script[^>]+src=["\']([^"\']+)["\']',body,re.I)
+          links=re.findall(r'<link[^>]+href=["\']([^"\']+)["\']',body,re.I)
+          result={
+            'http_status':Path('status.txt').read_text().strip(),
+            'bytes':len(body.encode('utf-8')),
+            'content_type_lines':[line for line in headers.splitlines() if line.lower().startswith('content-type:')][-3:],
+            'product_ref_count':len(refs),
+            'product_refs':refs[:100],
+            'product_href_count':len(set(hrefs)),
+            'product_hrefs':sorted(set(hrefs))[:100],
+            'scripts':scripts[:50],
+            'links':links[:50],
+            'body_preview':body[:2000],
+            'challenge_markers':{k:(k.lower() in body.lower()) for k in ['captcha','access denied','cloudflare','akamai','bot detection']},
+          }
+          Path('probe.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+          print(json.dumps(result,indent=2))
+          PY
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: smyths-catalogue-probe
+          path: probe.json
+          retention-days: 1
