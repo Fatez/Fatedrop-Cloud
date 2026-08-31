@@ -9,7 +9,7 @@ import {
 } from "./national-branch-directory-sync.mjs";
 
 const USER_AGENT = "FateDrop-LocalRadar-MasterBuilder/1.0 (+https://fatedrop.co.uk)";
-const UK_POSTCODE_RE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
+const UK_POSTCODE_RE = /\b(GIR\s*0AA|[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
 const CHECKED_DATE = new Date().toISOString().slice(0, 10);
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_CONCURRENCY = 8;
@@ -298,6 +298,12 @@ async function parseGenericStorePage(config, url) {
 
 export function makeMasterRow(input) {
   const postcode = normalizePostcode(input.postcode);
+  const eligibility = input.tcgEligibility || "LIKELY_TCG_RETAILER";
+  const sellerStatus = eligibility === "OFFICIAL_POKEMON_RETAILER"
+    ? "RETAILER_VERIFIED_BRANCH_UNCONFIRMED"
+    : eligibility === "CONFIRMED_TCG_RETAILER"
+      ? "RETAILER_CONFIRMED_BRANCH_UNCONFIRMED"
+      : "RETAILER_LIKELY_BRANCH_UNCONFIRMED";
   return {
     "Retailer": input.retailer,
     "Canonical Retailer ID": input.retailerId,
@@ -313,8 +319,10 @@ export function makeMasterRow(input) {
     "Longitude": input.longitude ?? "",
     "Store Format": input.storeFormat || "Retail store",
     "Current Status": input.currentStatus || "OPEN",
-    "TCG Eligibility": input.tcgEligibility || "LIKELY_TCG_RETAILER",
+    "TCG Eligibility": eligibility,
     "TCG Evidence": input.evidence || "",
+    "Branch Identity Status": input.identityStatus || "SOURCE_VERIFIED",
+    "Pokémon Seller Status": input.pokemonSellerStatus || sellerStatus,
     "Physical Stock Status": "UNKNOWN",
     "Stock Claim": false,
     "Duplicate Key": canonicalKey(input.retailerId, postcode) || "",
@@ -323,19 +331,55 @@ export function makeMasterRow(input) {
     "Source Checked Date": CHECKED_DATE,
     "Source Freshness": input.sourceFreshness || "",
     "Import Ready": input.importReady || "NO",
+    "Import Scope": "BRANCH_IDENTITY_ONLY",
+    "Conflict Status": "CLEAR",
     "Notes": input.notes || "",
   };
+}
+
+function masterRowDistanceMiles(a, b) {
+  const latitudeA = Number(a.Latitude);
+  const longitudeA = Number(a.Longitude);
+  const latitudeB = Number(b.Latitude);
+  const longitudeB = Number(b.Longitude);
+  if (![latitudeA, longitudeA, latitudeB, longitudeB].every(Number.isFinite)) return null;
+  const toRad = (degrees) => degrees * Math.PI / 180;
+  const earthMiles = 3958.7613;
+  const dLat = toRad(latitudeB - latitudeA);
+  const dLon = toRad(longitudeB - longitudeA);
+  const lat1 = toRad(latitudeA);
+  const lat2 = toRad(latitudeB);
+  const haversine = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return earthMiles * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
 export function dedupeMasterRows(rows) {
   const output = new Map();
   const duplicates = [];
+  const conflicts = [];
+  const blocked = new Set();
   for (const row of rows) {
     const key = row["Duplicate Key"];
     if (!key) continue;
+    if (blocked.has(key)) {
+      conflicts.find((item) => item.key === key)?.candidates.push(row);
+      continue;
+    }
     const previous = output.get(key);
     if (!previous) {
       output.set(key, row);
+      continue;
+    }
+    const distance = masterRowDistanceMiles(previous, row);
+    if (distance == null || distance > 1) {
+      output.delete(key);
+      blocked.add(key);
+      conflicts.push({
+        key,
+        reason: distance == null ? "duplicate_key_coordinates_missing" : "duplicate_key_coordinate_conflict",
+        distanceMiles: distance == null ? null : Number(distance.toFixed(3)),
+        candidates: [previous, row],
+      });
       continue;
     }
     const previousOfficial = previous["Source Freshness"] === "CURRENT_OFFICIAL";
@@ -347,7 +391,7 @@ export function dedupeMasterRows(rows) {
       duplicates.push({ kept: previous, rejected: row, reason: "duplicate_retailer_postcode" });
     }
   }
-  return { rows: [...output.values()], duplicates };
+  return { rows: [...output.values()], duplicates, conflicts };
 }
 
 function parseGeolytixVersion(name) {
@@ -634,9 +678,9 @@ async function collectGeolytix(qa) {
 const HEADERS = [
   "Retailer", "Canonical Retailer ID", "Branch Name", "Host Retailer", "Store Relationship",
   "Address", "Town / City", "County / Region", "Postcode", "Country", "Latitude", "Longitude",
-  "Store Format", "Current Status", "TCG Eligibility", "TCG Evidence", "Physical Stock Status",
+  "Store Format", "Current Status", "TCG Eligibility", "TCG Evidence", "Branch Identity Status", "Pokémon Seller Status", "Physical Stock Status",
   "Stock Claim", "Duplicate Key", "Official / Dataset Source URL", "Source Type", "Source Checked Date",
-  "Source Freshness", "Import Ready", "Notes",
+  "Source Freshness", "Import Ready", "Import Scope", "Conflict Status", "Notes",
 ];
 
 async function main() {
@@ -653,6 +697,7 @@ async function main() {
     rejections: [],
     sourceErrors: [],
     duplicates: [],
+    conflicts: [],
     coverage: [],
   };
 
@@ -668,12 +713,25 @@ async function main() {
     all.push(...rows);
   }
 
-  const { rows, duplicates } = dedupeMasterRows(all);
+  const { rows, duplicates, conflicts } = dedupeMasterRows(all);
   qa.duplicates = duplicates.map((item) => ({
     key: item.rejected["Duplicate Key"],
     keptSource: item.kept["Source Type"],
     rejectedSource: item.rejected["Source Type"],
     reason: item.reason,
+  }));
+  qa.conflicts = conflicts.map((item) => ({
+    key: item.key,
+    reason: item.reason,
+    distanceMiles: item.distanceMiles,
+    candidates: item.candidates.map((row) => ({
+      branch: row["Branch Name"],
+      postcode: row.Postcode,
+      latitude: row.Latitude,
+      longitude: row.Longitude,
+      sourceType: row["Source Type"],
+      sourceUrl: row["Official / Dataset Source URL"],
+    })),
   }));
 
   const retailerCounts = new Map();
@@ -696,6 +754,7 @@ async function main() {
     outputRows: rows.length,
     retailers: qa.coverage.length,
     duplicatesRemoved: qa.duplicates.length,
+    conflictsQuarantined: qa.conflicts.length,
     rejected: qa.rejections.length,
     sourceErrors: qa.sourceErrors,
     geolytix: qa.geolytix,

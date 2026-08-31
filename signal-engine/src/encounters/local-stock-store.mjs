@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { normalizeLocationPolicy } from "./local-radar-location-policy.mjs";
 
 const LIFECYCLE = new Set(["whisper", "echo", "manifested", "vanished"]);
 const OFFICIAL_EVIDENCE_LEVELS = new Set(["official_branch", "official_collection", "official_retailer_app"]);
@@ -84,6 +85,7 @@ export function normalizeRetailerLocation(record = {}) {
     openingDetails: record.openingDetails && typeof record.openingDetails === "object" ? record.openingDetails : {},
     verification: text(record.verification) || "source_verified",
     updatedAt: epochSeconds(record.updatedAt ?? Date.now()),
+    ...normalizeLocationPolicy(record),
   };
 }
 
@@ -211,8 +213,9 @@ export async function upsertRetailerLocationsIntoStore(store, locations = []) {
     for (const location of locations) {
       await client.query(`
         INSERT INTO fatedrop_retailer_locations (
-          id,retailer_id,provider,provider_id,name,address,postcode,latitude,longitude,website,phone,opening_details_json,verification,updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14)
+          id,retailer_id,provider,provider_id,name,address,postcode,latitude,longitude,website,phone,opening_details_json,verification,updated_at,
+          retailer_category,store_format,operational_status,tcg_seller_status,tcg_seller_confidence,identity_status,last_verified_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         ON CONFLICT (id) DO UPDATE SET
           provider=EXCLUDED.provider,
           provider_id=COALESCE(EXCLUDED.provider_id,fatedrop_retailer_locations.provider_id),
@@ -225,10 +228,19 @@ export async function upsertRetailerLocationsIntoStore(store, locations = []) {
           phone=COALESCE(EXCLUDED.phone,fatedrop_retailer_locations.phone),
           opening_details_json=COALESCE(EXCLUDED.opening_details_json,fatedrop_retailer_locations.opening_details_json),
           verification=EXCLUDED.verification,
+          retailer_category=EXCLUDED.retailer_category,
+          store_format=EXCLUDED.store_format,
+          operational_status=EXCLUDED.operational_status,
+          tcg_seller_status=EXCLUDED.tcg_seller_status,
+          tcg_seller_confidence=EXCLUDED.tcg_seller_confidence,
+          identity_status=EXCLUDED.identity_status,
+          last_verified_at=COALESCE(EXCLUDED.last_verified_at,fatedrop_retailer_locations.last_verified_at),
           updated_at=GREATEST(EXCLUDED.updated_at,fatedrop_retailer_locations.updated_at)
       `, [
         location.id,location.retailerId,location.provider,location.providerId,location.name,location.address,location.postcode,
         location.latitude,location.longitude,location.website,location.phone,JSON.stringify(location.openingDetails),location.verification,location.updatedAt,
+        location.retailerCategory,location.storeFormat,location.operationalStatus,location.tcgSellerStatus,
+        location.tcgSellerConfidence,location.identityStatus,location.lastVerifiedAt,
       ]);
     }
     await client.query("COMMIT");

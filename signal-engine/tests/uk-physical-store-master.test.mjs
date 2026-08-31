@@ -10,6 +10,7 @@ import {
 test("normalizes genuine UK postcodes and rejects non-postcodes", () => {
   assert.equal(normalizePostcode("en1 3rw"), "EN1 3RW");
   assert.equal(normalizePostcode("SW1A1AA"), "SW1A 1AA");
+  assert.equal(normalizePostcode("GIR 0AA"), "GIR 0AA");
   assert.equal(normalizePostcode("NOT A POSTCODE"), null);
 });
 
@@ -31,6 +32,8 @@ test("new master rows never claim physical stock", () => {
   });
   assert.equal(row["Physical Stock Status"], "UNKNOWN");
   assert.equal(row["Stock Claim"], false);
+  assert.equal(row["Import Scope"], "BRANCH_IDENTITY_ONLY");
+  assert.match(row["Pokémon Seller Status"], /BRANCH_UNCONFIRMED/);
 });
 
 test("same retailer and postcode dedupes, different retailer survives", () => {
@@ -51,4 +54,24 @@ test("same retailer and postcode dedupes, different retailer survives", () => {
   assert.equal(result.rows.length, 2);
   const smyths = result.rows.find((row) => row["Canonical Retailer ID"] === "smyths-uk");
   assert.equal(smyths["Source Type"], "CURRENT_OFFICIAL_BRANCH_PAGE");
+});
+
+test("same canonical key with conflicting coordinates is quarantined rather than guessed", () => {
+  const base = {
+    retailer: "Tesco",
+    retailerId: "tesco-uk",
+    branch: "Tesco Test",
+    postcode: "EN1 3RW",
+    currentStatus: "OPEN",
+    importReady: "YES",
+    sourceType: "CURRENT_OFFICIAL_BRANCH_PAGE",
+    sourceFreshness: "CURRENT_OFFICIAL",
+  };
+  const result = dedupeMasterRows([
+    makeMasterRow({ ...base, latitude: 51.65, longitude: -0.06 }),
+    makeMasterRow({ ...base, latitude: 52.65, longitude: -1.06 }),
+  ]);
+  assert.equal(result.rows.length, 0);
+  assert.equal(result.conflicts.length, 1);
+  assert.equal(result.conflicts[0].reason, "duplicate_key_coordinate_conflict");
 });

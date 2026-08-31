@@ -21,6 +21,18 @@ function branchCandidate(shop = {}) {
     longitude: Number(shop.longitude),
     websiteUrl: shop.websiteUrl,
     verification: "provider_discovered",
+    retailerCategory: shop.retailerCategory,
+    storeFormat: shop.storeFormat,
+    operationalStatus: shop.operationalStatus,
+    tcgSellerStatus: shop.locationEvidence?.pokemonSeller,
+    tcgSellerConfidence: shop.locationEvidence?.confidence,
+    identityStatus: "provisional",
+    lastVerifiedAt: Date.now(),
+    openingDetails: {
+      sourceAttribution: shop.sourceAttribution || "Live location discovery",
+      stockStatus: "unknown",
+      stockClaim: false,
+    },
     updatedAt: Date.now(),
   };
 }

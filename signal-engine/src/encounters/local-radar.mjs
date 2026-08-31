@@ -10,6 +10,11 @@ import {
   mergeCanonicalRetailerShops,
 } from "./canonical-retailer-locations.mjs";
 import { refreshSmythsLocalAvailability } from "./smyths-local-availability.mjs";
+import {
+  LOCATION_POLICY_ENUMS,
+  normalizeLocationPolicy,
+  publicLocationEvidence,
+} from "./local-radar-location-policy.mjs";
 
 const TCG_LABELS = Object.freeze({
   pokemon: "Pokemon",
@@ -216,6 +221,7 @@ function exactRetailerMatch(place, retailers = []) {
 }
 
 function placeToShop(place = {}) {
+  const locationPolicy = normalizeLocationPolicy({ identityStatus: "provisional" });
   return {
     id: `google:${place.id}`,
     itemType: "shop",
@@ -235,6 +241,11 @@ function placeToShop(place = {}) {
     stockEvidence: "none",
     onlineCatalogue: null,
     sourceAttribution: "Google Places",
+    retailerCategory: locationPolicy.retailerCategory,
+    retailerGroup: locationPolicy.retailerGroup,
+    storeFormat: locationPolicy.storeFormat,
+    operationalStatus: text(place.businessStatus)?.toLowerCase() === "operational" ? "open" : "unknown",
+    locationEvidence: publicLocationEvidence({ ...locationPolicy, identityStatus: "provisional" }),
   };
 }
 
@@ -354,6 +365,11 @@ export async function buildLocalRadar({
 
   const discoveredShops = shopResult.shops.map((shop) => {
     const retailer = exactRetailerMatch(shop, retailers);
+    const locationPolicy = normalizeLocationPolicy({
+      retailerId: retailer?.id,
+      identityStatus: "provisional",
+      operationalStatus: shop.operationalStatus,
+    });
     const distance = origin && shop.latitude != null && shop.longitude != null
       ? distanceMiles(origin, shop)
       : null;
@@ -362,6 +378,11 @@ export async function buildLocalRadar({
       distanceMiles: distance,
       networkStatus: retailer ? "live_connected" : "local_indie",
       retailerId: retailer?.id || null,
+      retailerCategory: locationPolicy.retailerCategory,
+      retailerGroup: locationPolicy.retailerGroup,
+      storeFormat: locationPolicy.storeFormat,
+      operationalStatus: locationPolicy.operationalStatus,
+      locationEvidence: publicLocationEvidence(locationPolicy),
       stockEvidence: retailer ? "online_catalogue_only" : "none",
       onlineCatalogue: retailer
         ? { availableOffers: availableByRetailer.get(retailer.id) || 0, scope: "online-catalogue-not-branch-stock" }
@@ -460,6 +481,14 @@ export async function buildLocalRadar({
 
   return {
     success: true,
+    contractVersion: 2,
+    mapPolicy: {
+      markerBudget: 72,
+      clusteringRequired: true,
+    },
+    filters: {
+      retailerGroups: LOCATION_POLICY_ENUMS.retailerGroups,
+    },
     generatedAt: new Date().toISOString(),
     query: {
       latitude: origin?.latitude ?? null,

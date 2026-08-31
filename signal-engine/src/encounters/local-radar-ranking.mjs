@@ -15,8 +15,8 @@ function hasExpectedStock(shop) {
 }
 
 function priority(shop) {
-  if (hasExpectedStock(shop)) return 0;
-  if (shop?.localAvailability?.status === "confirmed") return 1;
+  if (shop?.localAvailability?.status === "confirmed") return 0;
+  if (hasExpectedStock(shop)) return 1;
   return 2;
 }
 

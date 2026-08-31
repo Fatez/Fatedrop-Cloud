@@ -1,3 +1,9 @@
+import {
+  isRadarEligibleLocation,
+  normalizeLocationPolicy,
+  publicLocationEvidence,
+} from "./local-radar-location-policy.mjs";
+
 function text(value) {
   const result = String(value ?? "").trim();
   return result || null;
@@ -33,6 +39,20 @@ function distanceMiles(a, b) {
   return earthMiles * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value));
 }
 
+export function radiusBoundingBox(origin, radiusMiles) {
+  if (![origin?.latitude, origin?.longitude].every(Number.isFinite)) return null;
+  const radius = Math.max(1, Math.min(100, Number(radiusMiles) || 25));
+  const latitudeDelta = radius / 69;
+  const longitudeMiles = Math.max(1, 69.172 * Math.cos(origin.latitude * Math.PI / 180));
+  const longitudeDelta = radius / longitudeMiles;
+  return {
+    minLatitude: Math.max(-90, origin.latitude - latitudeDelta),
+    maxLatitude: Math.min(90, origin.latitude + latitudeDelta),
+    minLongitude: Math.max(-180, origin.longitude - longitudeDelta),
+    maxLongitude: Math.min(180, origin.longitude + longitudeDelta),
+  };
+}
+
 function normalizeLocationRow(row = {}) {
   const latitude = number(row.latitude);
   const longitude = number(row.longitude);
@@ -42,7 +62,7 @@ function normalizeLocationRow(row = {}) {
   const name = text(row.name);
   if (!id || !retailerId || !provider || !name) return null;
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  return {
+  const normalized = {
     id,
     retailerId,
     provider,
@@ -57,34 +77,67 @@ function normalizeLocationRow(row = {}) {
     openingDetails: row.openingDetails ?? row.opening_details_json ?? {},
     verification: text(row.verification) || "source_verified",
     updatedAt: number(row.updatedAt ?? row.updated_at),
+    ...normalizeLocationPolicy(row),
   };
+  return normalized;
 }
 
-async function readLocationRows(store, limit) {
+async function readLocationRows(store, { limit, bounds = null, postcode = null, retailerIds = [] }) {
   if (typeof store?.listRetailerLocations === "function") {
-    return (await store.listRetailerLocations({ limit })) || [];
+    return (await store.listRetailerLocations({ limit, bounds, postcode, retailerIds })) || [];
   }
   if (typeof store?.pool !== "function") return [];
   const pool = await store.pool();
+  const params = [];
+  const where = [];
+  if (bounds) {
+    params.push(bounds.minLatitude, bounds.maxLatitude, bounds.minLongitude, bounds.maxLongitude);
+    where.push(`latitude BETWEEN $${params.length - 3} AND $${params.length - 2}`);
+    where.push(`longitude BETWEEN $${params.length - 1} AND $${params.length}`);
+  }
+  if (postcode) {
+    params.push(postcode);
+    where.push(`UPPER(REPLACE(postcode, ' ', '')) = $${params.length}`);
+  }
+  if (retailerIds.length) {
+    params.push(retailerIds);
+    where.push(`retailer_id = ANY($${params.length}::text[])`);
+  }
+  params.push(limit);
   const { rows } = await pool.query(`
-    SELECT id,retailer_id,provider,provider_id,name,address,postcode,latitude,longitude,website,phone,opening_details_json,verification,updated_at
-    FROM fatedrop_retailer_locations
+    SELECT
+      l.id,l.retailer_id,l.provider,l.provider_id,l.name,l.address,l.postcode,l.latitude,l.longitude,
+      l.website,l.phone,l.opening_details_json,l.verification,l.updated_at,l.retailer_category,l.store_format,
+      l.operational_status,l.tcg_seller_status,l.tcg_seller_confidence,l.identity_status,l.last_verified_at,
+      (SELECT COUNT(*)::int FROM fatedrop_retailer_location_sources s
+       WHERE s.location_id=l.id AND s.status='accepted') AS evidence_source_count
+    FROM fatedrop_retailer_locations l
+    ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY updated_at DESC
-    LIMIT $1
-  `, [limit]);
+    LIMIT $${params.length}
+  `, params);
   return rows;
 }
 
 export async function listCanonicalRetailerLocations(store, {
   retailerIds = [],
   limit = 10000,
+  bounds = null,
+  postcode = null,
 } = {}) {
   const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 10000));
-  const wanted = new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean));
-  const rows = await readLocationRows(store, safeLimit);
+  const wantedValues = (Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean);
+  const wanted = new Set(wantedValues);
+  const rows = await readLocationRows(store, {
+    limit: safeLimit,
+    bounds,
+    postcode: postcodeKey(postcode) || null,
+    retailerIds: wantedValues,
+  });
   return rows
     .map(normalizeLocationRow)
     .filter(Boolean)
+    .filter(isRadarEligibleLocation)
     .filter((location) => !wanted.size || wanted.has(location.retailerId));
 }
 
@@ -96,7 +149,8 @@ export async function countCanonicalRetailerLocations(store, {
   if (typeof store?.pool === "function") {
     const pool = await store.pool();
     const params = [];
-    const where = wanted.length ? "WHERE retailer_id = ANY($1::text[])" : "";
+    const eligibility = "operational_status <> 'closed' AND identity_status <> 'conflicted' AND tcg_seller_status NOT IN ('excluded','conflicted')";
+    const where = wanted.length ? `WHERE retailer_id = ANY($1::text[]) AND ${eligibility}` : `WHERE ${eligibility}`;
     if (wanted.length) params.push(wanted);
     const { rows } = await pool.query(`
       SELECT retailer_id,COUNT(*)::int AS location_count
@@ -147,6 +201,11 @@ function locationToShop(location, { origin, availableByRetailer }) {
     sourceUrl: providerSourceUrl,
     distanceMiles: origin ? distanceMiles(origin, location) : null,
     branchUpdatedAt: location.updatedAt,
+    retailerCategory: location.retailerCategory,
+    retailerGroup: location.retailerGroup,
+    storeFormat: location.storeFormat,
+    operationalStatus: location.operationalStatus,
+    locationEvidence: publicLocationEvidence(location),
   };
 }
 
@@ -157,9 +216,14 @@ export async function listCanonicalRetailerLocationShops(store, {
   availableByRetailer = new Map(),
   limit = 10000,
 } = {}) {
-  const canonical = await listCanonicalRetailerLocations(store, { limit });
   const radius = Math.max(1, Math.min(100, Number(radiusMiles) || 25));
   const queryPostcode = postcodeKey(postcode);
+  const bounds = origin ? radiusBoundingBox(origin, radius) : null;
+  const [canonical, knownCounts] = await Promise.all([
+    listCanonicalRetailerLocations(store, { limit, bounds, postcode: queryPostcode || null }),
+    countCanonicalRetailerLocations(store),
+  ]);
+  const totalKnown = [...knownCounts.values()].reduce((sum, value) => sum + value, 0);
   const shops = canonical
     .map((location) => locationToShop(location, { origin, availableByRetailer }))
     .filter((shop) => {
@@ -170,7 +234,9 @@ export async function listCanonicalRetailerLocationShops(store, {
   return {
     provider: "fatedrop_retailer_locations",
     status: shops.length ? "ok" : canonical.length ? "out_of_radius" : "empty",
-    totalKnown: canonical.length,
+    totalKnown,
+    boundedCandidates: canonical.length,
+    truncated: canonical.length >= Math.min(20000, Math.max(1, Number(limit) || 10000)),
     shops,
   };
 }
@@ -182,9 +248,9 @@ function sameBranch(a, b) {
   }
   const aPostcode = postcodeKey(a.postcode);
   const bPostcode = postcodeKey(b.postcode);
-  if (aPostcode && bPostcode && aPostcode === bPostcode) return true;
   const proximity = distanceMiles(a, b);
   if (proximity != null && proximity <= 0.12) return true;
+  if (aPostcode && bPostcode && aPostcode === bPostcode && proximity != null && proximity <= 0.5) return true;
   return Boolean(a.name && b.name && slug(a.name) === slug(b.name) && proximity != null && proximity <= 0.5);
 }
 
