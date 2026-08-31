@@ -20,6 +20,7 @@ test("hosted FateFind uses fresh retailer and offer evidence and completes a rea
   const find = {
     id: "find-1",
     user_id: "user-1",
+    tcg_code: "pokemon",
     query_text: "Audit Elite Trainer Box",
     product_identity_id: "product-1",
     max_item_price_pence: 6000,
@@ -46,6 +47,7 @@ test("hosted FateFind uses fresh retailer and offer evidence and completes a rea
   };
   const product = {
     id: "product-1",
+    tcg: "pokemon",
     title: "Audit Elite Trainer Box",
     official_rrp_pence: 4999,
   };
@@ -65,7 +67,7 @@ test("hosted FateFind uses fresh retailer and offer evidence and completes a rea
       }
       if (text.includes("FROM fatedrop_products")) return { rows: [product] };
       if (text.includes("INSERT INTO fatedrop_hosted_fate_matches")) {
-        assert.equal(params[8], "Audit Elite Trainer Box", "persisted match title is defined from canonical product/offer evidence");
+        assert.equal(params[9], "Audit Elite Trainer Box", "persisted match title is defined from canonical product/offer evidence");
         return { rows: [{ inserted: true }] };
       }
       if (text.includes("FROM fatedrop_notification_preferences")) return { rows: [] };
@@ -84,6 +86,7 @@ test("defence-in-depth suppresses a stale offer even if a query source returns i
   const find = {
     id: "find-stale",
     user_id: "user-1",
+    tcg_code: "pokemon",
     query_text: "Audit Elite Trainer Box",
     product_identity_id: "product-1",
     max_item_price_pence: null,
@@ -114,7 +117,7 @@ test("defence-in-depth suppresses a stale offer even if a query source returns i
       const text = String(sql);
       if (text.includes("FROM fatedrop_fate_matches")) return { rows: [find] };
       if (text.includes("FROM fatedrop_retail_offers ro")) return { rows: [staleOffer] };
-      if (text.includes("FROM fatedrop_products")) return { rows: [{ id: "product-1", title: "Audit Elite Trainer Box", official_rrp_pence: 4999 }] };
+      if (text.includes("FROM fatedrop_products")) return { rows: [{ id: "product-1", tcg: "pokemon", title: "Audit Elite Trainer Box", official_rrp_pence: 4999 }] };
       if (text.includes("INSERT INTO fatedrop_hosted_fate_matches")) throw new Error("stale offer must never create a FateMatch");
       throw new Error(`Unexpected SQL in stale-offer test: ${text}`);
     },

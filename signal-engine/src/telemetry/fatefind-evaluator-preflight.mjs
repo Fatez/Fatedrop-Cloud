@@ -1,10 +1,12 @@
 import { env } from "../config/env.mjs";
 import { evaluateFateFind } from "../hosted/fatefind.mjs";
+import { canEmitTcgLifecycleAlerts } from "../trader/tcg-registry.mjs";
 
 function rowToFind(row) {
   return {
     id: row.id,
     userId: row.user_id,
+    tcgCode: row.tcg_code || "pokemon",
     queryText: row.query_text || "",
     productIdentityId: row.product_identity_id,
     maxItemPricePence: row.max_item_price_pence == null ? null : Number(row.max_item_price_pence),
@@ -34,6 +36,7 @@ function rowToOffer(row) {
 function rowToProduct(row) {
   return {
     id: row.id,
+    tcgCode: row.tcg || null,
     title: row.title,
     officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence),
   };
@@ -94,7 +97,7 @@ export async function buildFateFindEvaluatorPreflight(store, {
   const offers = offerRows.map(rowToOffer);
   const productIds = [...new Set(offers.map((offer) => offer.productId).filter(Boolean))];
   const { rows: productRows } = productIds.length
-    ? await pool.query("SELECT id,title,official_rrp_pence FROM fatedrop_products WHERE id = ANY($1)", [productIds])
+    ? await pool.query("SELECT id,tcg,title,official_rrp_pence FROM fatedrop_products WHERE id = ANY($1)", [productIds])
     : { rows: [] };
   const products = new Map(productRows.map((row) => [row.id, rowToProduct(row)]));
 
@@ -103,6 +106,10 @@ export async function buildFateFindEvaluatorPreflight(store, {
   const findsWithMatch = new Set();
   const rejectionReasons = new Map();
   for (const find of finds) {
+    if (!canEmitTcgLifecycleAlerts(find.tcgCode)) {
+      increment(rejectionReasons, "tcg-monitoring-inactive");
+      continue;
+    }
     for (const offer of offers) {
       evaluated += 1;
       const result = evaluateFateFind(find, offer, products.get(offer.productId));

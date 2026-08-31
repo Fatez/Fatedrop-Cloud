@@ -60,6 +60,15 @@ test('public signal contract exposes opt-in rich Alerts without reopening diagno
   assert.doesNotMatch(signalSource, /api\/signal-health/);
 });
 
+test('missing event TCG identity remains unknown and never defaults to Pokémon', async () => {
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(vanishedRow()), { state: 'vanished', limit: 1 });
+  assert.equal(alert.tcgCode, 'unknown');
+  assert.equal(alert.product.tcgCode, 'unknown');
+  assert.equal(alert.notification.data.tcgCode, 'unknown');
+  assert.match(signalSource, /tcgCode: alert\.tcgCode \|\| 'unknown'/);
+  assert.match(signalSource, /tcgCode: signal\.tcgCode \|\| signal\.tcg \|\| 'unknown'/);
+});
+
 test('Cloud owns alert RRP, best-offer, alternatives and exact Vanished history', () => {
   assert.match(alertSource, /official_rrp_pence/);
   assert.match(alertSource, /fatedrop_retail_offers/);
@@ -140,6 +149,42 @@ test('complete Vanished history exposes the canonical current live window', asyn
   });
 });
 
+test('open Manifested episodes expose only fresh, healthy current-offer confirmation', async () => {
+  assert.match(alertSource, /current_live\.last_confirmed_live_at AS current_live_confirmation_at/);
+  assert.match(alertSource, /canonical_episode\.availability_state='available'/);
+  assert.match(alertSource, /ro\.last_seen_at >= EXTRACT\(EPOCH FROM NOW\(\)\)::bigint - 1800/);
+  const row = vanishedRow({
+    state: 'manifested',
+    detected_at: 100,
+    stock_episode_id: 'ep_live_1',
+    stock_episode_availability_state: 'available',
+    stock_episode_manifested_at: 100,
+    stock_episode_vanished_at: null,
+    current_live_confirmation_at: 190,
+  });
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'manifested', limit: 1 });
+  assert.deepEqual(alert.liveWindow, {
+    manifestedAt: '1970-01-01T00:01:40.000Z',
+    lastConfirmedLiveAt: '1970-01-01T00:03:10.000Z',
+    vanishedAt: null,
+    observedDurationSeconds: 90,
+    historyComplete: true,
+  });
+});
+
+test('closed or unconfirmed Manifested episode cannot masquerade as outstanding stock', async () => {
+  const row = vanishedRow({
+    state: 'manifested',
+    stock_episode_id: 'ep_closed_1',
+    stock_episode_availability_state: 'unavailable',
+    stock_episode_manifested_at: 100,
+    stock_episode_vanished_at: 180,
+    current_live_confirmation_at: 190,
+  });
+  const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'manifested', limit: 1 });
+  assert.equal(alert.liveWindow, null);
+});
+
 test('legacy Vanished without a supported Manifested start remains explicitly incomplete', async () => {
   const row = vanishedRow({ live_manifested_at: null, observed_duration_seconds: null });
   const [alert] = await listCanonicalPublicAlerts(storeReturning(row), { state: 'vanished', limit: 1 });
@@ -218,7 +263,31 @@ test('Cloud alert output carries one canonical policy, facet, presentation and d
 
 test('rich alert queries scope lifecycle stage before LIMIT so one burst cannot starve the other tabs', () => {
   assert.match(alertSource, /\(\$2::text\[\] IS NULL OR s\.state=ANY\(\$2\)\)/);
-  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeStates, safeLimit\]\)/);
+  assert.match(alertSource, /pool\.query\(ALERT_SQL, \[id \|\| null, safeStates, safeLimit, safeSince, safeBefore/);
   assert.match(signalSource, /const requestedStates =/);
   assert.match(signalSource, /listCanonicalPublicAlerts\(store, \{ states: requestedStates, limit: safeLimit \}\)/);
+});
+
+test('alert recovery cursor is stable across same-second events and reaches the SQL boundary exactly', async () => {
+  let captured;
+  const store = {
+    async pool() {
+      return {
+        async query(sql, params) {
+          captured = { sql, params };
+          return { rows: [] };
+        },
+      };
+    },
+  };
+  await listCanonicalPublicAlerts(store, {
+    state: 'manifested',
+    since: 100,
+    before: 200,
+    beforeId: 'sig_cursor',
+    limit: 25,
+  });
+  assert.deepEqual(captured.params, [null, ['manifested'], 25, 100, 200, 'sig_cursor']);
+  assert.match(captured.sql, /s\.detected_at < \$5 OR \(s\.detected_at=\$5 AND s\.id>COALESCE\(\$6::text,''\)\)/);
+  assert.match(captured.sql, /ORDER BY s\.detected_at DESC,s\.id ASC/);
 });

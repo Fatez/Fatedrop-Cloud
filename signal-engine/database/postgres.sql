@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS fatedrop_products (
   id TEXT PRIMARY KEY,
-  canonical_key TEXT NOT NULL UNIQUE,
+  canonical_key TEXT NOT NULL,
   title TEXT NOT NULL,
   product_type TEXT NOT NULL,
   tcg TEXT NOT NULL DEFAULT 'pokemon',
@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS fatedrop_products (
   rrp_source TEXT,
   rrp_observed_at BIGINT,
   first_seen_at BIGINT NOT NULL,
-  updated_at BIGINT NOT NULL
+  updated_at BIGINT NOT NULL,
+  UNIQUE(tcg, canonical_key)
 );
 
 CREATE TABLE IF NOT EXISTS fatedrop_retail_offers (

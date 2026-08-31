@@ -28,6 +28,12 @@ import {
   preloadCanonicalMarketMemory,
   resolveCanonicalMarketIdentity,
 } from "../stores/market-memory-store.mjs";
+import {
+  canEmitTcgLifecycleAlerts,
+  canIngestTcgCatalogue,
+  canMonitorTcgRetailers,
+  requireKnownTcg,
+} from "../trader/tcg-registry.mjs";
 
 function normalizeExternalProduct(raw) {
   if (!raw || typeof raw !== "object") throw new Error("Invalid ingested product");
@@ -226,6 +232,7 @@ async function persistMarketMemoryActions(store, actions, now) {
 
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   throwIfRetailerScanAborted();
+  const tcgCode = requireKnownTcg(retailer.tcg || "pokemon").code;
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
   const rrpContext = await loadRrpValueContext(store);
@@ -243,7 +250,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     const raw = source === "external" ? normalizeExternalProduct(rawInput) : rawInput;
     return {
       raw,
-      productId: stableId("prd", retailer.tcg || "pokemon", raw.canonicalKey),
+      productId: stableId("prd", tcgCode, raw.canonicalKey),
       offerId: stableId("off", retailer.id, raw.retailerSku),
     };
   });
@@ -252,7 +259,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const marketMemoryContext = await preloadCanonicalMarketMemory({
     store,
     prepared,
-    tcg: retailer.tcg || "pokemon",
+    tcg: tcgCode,
   });
   const preparationClusters = buildRetailerPreparationClusters({
     retailerId: retailer.id,
@@ -272,7 +279,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   for (const item of prepared) {
     throwIfRetailerScanAborted();
     const { raw, productId, offerId } = item;
-    let marketIdentity = resolveCanonicalMarketIdentity(marketMemoryContext, item, retailer.tcg || "pokemon");
+    let marketIdentity = resolveCanonicalMarketIdentity(marketMemoryContext, item, tcgCode);
     const listingMarketClaims = explicitListingMarketClaims({ title: raw.title, region: raw.region });
     const preliminaryMarketResolution = resolveCanonicalMarket({
       remembered: marketIdentity.memory,
@@ -296,7 +303,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       canonicalKey: raw.canonicalKey,
       title: previousProduct?.title || raw.title,
       productType: raw.productType,
-      tcg: retailer.tcg || "pokemon",
+      tcg: tcgCode,
       officialRrpPence,
       rrpSource: hasFreshOfficialRrp
         ? retailer.id
@@ -318,7 +325,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
       gtin: raw.gtin ?? null,
       language: raw.language,
       region: raw.region,
-      tcg: retailer.tcg || "pokemon",
+      tcg: tcgCode,
     };
     const rememberedAlias = preliminaryMarketResolution.status !== "conflict" && officialRrpPence == null
       ? await resolveRememberedRrpAlias({ store, product, offer: learningOffer })
@@ -463,7 +470,9 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 
     if (!offer.everAvailableAt && verifiedPurchasable(offer)) offer.everAvailableAt = now;
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
-    const derivedSignals = deriveSignals({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now });
+    const derivedSignals = canEmitTcgLifecycleAlerts(tcgCode)
+      ? deriveSignals({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now })
+      : [];
     products.push(product);
     offers.push(offer);
     if (shouldPersistObservation(previousOffer, offer)) observations.push(observation);
@@ -490,6 +499,12 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
   if (!Array.isArray(products) || products.length === 0) throw new Error("products must be a non-empty array");
   if (products.length > 5000) throw new Error("Too many products in one ingest request");
+  const tcgCode = requireKnownTcg(retailer.tcg || "pokemon").code;
+  if (!canIngestTcgCatalogue(tcgCode)) {
+    const error = new Error(`Catalogue ingestion is disabled for TCG: ${tcgCode}`);
+    error.code = "tcg_catalogue_ingestion_disabled";
+    throw error;
+  }
 
   const runId = createRetailerRunId(retailer.id);
   const startedAt = Math.floor(Date.now() / 1000);
@@ -538,6 +553,17 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
 }
 
 export async function scanRetailer({ retailer, store, now = Math.floor(Date.now() / 1000), scanSource = scanRetailerSource, dispatchNotifications = true, runId: suppliedRunId = null }) {
+  const tcgCode = requireKnownTcg(retailer.tcg || "pokemon").code;
+  if (!canMonitorTcgRetailers(tcgCode)) {
+    return {
+      retailerId: retailer.id,
+      retailerName: retailer.name,
+      skipped: true,
+      skipReason: "tcg_retailer_monitoring_disabled",
+      tcgCode,
+      signalsCreated: 0,
+    };
+  }
   if (retailer.adapterType === ADAPTER_TYPES.BROWSER_COLLECTOR) {
     return {
       retailerId: retailer.id,

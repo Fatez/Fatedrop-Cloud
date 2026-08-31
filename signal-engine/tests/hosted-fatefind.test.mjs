@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFateMatchNotification, evaluateFateFind, notificationDeliveryPlan } from "../src/hosted/fatefind.mjs";
 
-const baseFind = { queryText:"Destined Rivals ETB",productIdentityId:null,maxItemPricePence:null,maxTruePricePence:null,maxPercentAboveRrp:null,preferredRetailerIds:[],excludedRetailerIds:[],stockRequirement:"in_stock",scope:"online" };
-const product = { id:"prd_1",title:"Pokémon TCG Destined Rivals Elite Trainer Box",officialRrpPence:4999 };
+const baseFind = { tcgCode:"pokemon",queryText:"Destined Rivals ETB",productIdentityId:null,maxItemPricePence:null,maxTruePricePence:null,maxPercentAboveRrp:null,preferredRetailerIds:[],excludedRetailerIds:[],stockRequirement:"in_stock",scope:"online" };
+const product = { id:"prd_1",tcgCode:"pokemon",title:"Pokémon TCG Destined Rivals Elite Trainer Box",officialRrpPence:4999 };
 const offer = { offerId:"off_1",productId:"prd_1",retailerId:"indie",retailerName:"Indie Cards",title:product.title,url:"https://example.test/p",pricePence:5299,postagePence:299,stockStatus:"in_stock" };
 
 test("hosted FateFind treats ETB as Elite Trainer Box across retailer naming",()=>{
@@ -42,6 +42,21 @@ test("local scope fails closed until Signal Engine offers carry canonical locati
   const result=evaluateFateFind({...baseFind,scope:"local"},offer,product);
   assert.equal(result.matched,false);
   assert.deepEqual(result.reasons,["local-offer-location-unavailable"]);
+});
+
+test("FateMatch never crosses canonical TCG identity",()=>{
+  const result=evaluateFateFind({...baseFind,tcgCode:"one-piece"},offer,product);
+  assert.equal(result.matched,false);
+  assert.deepEqual(result.reasons,["tcg-monitoring-inactive"]);
+  const wrongProduct=evaluateFateFind(baseFind,offer,{...product,tcgCode:"one-piece"});
+  assert.equal(wrongProduct.matched,false);
+  assert.deepEqual(wrongProduct.reasons,["tcg-mismatch"]);
+});
+
+test("unknown product TCG remains unknown instead of defaulting to Pokémon",()=>{
+  const result=evaluateFateFind(baseFind,offer,{...product,tcgCode:null});
+  assert.equal(result.matched,false);
+  assert.deepEqual(result.reasons,["product-tcg-unknown"]);
 });
 
 test("FateMatch stock alert uses Koru voice without hiding purchase facts",()=>{
