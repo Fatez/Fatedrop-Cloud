@@ -1,0 +1,75 @@
+name: One-off FateFind Production Contract Smoke
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  fatefind-production-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove Railway canonical Fate Verdict contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint='https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches'
+          payload='{"mode":"verdict","query":"Destined Rivals","leftId":"prd_48ce47cc473374786c97ff3d","rightId":"prd_ccd5b5caa617f8d46cd61d91"}'
+
+          success=0
+          for attempt in 1 2 3 4 5 6; do
+            status="$(curl --connect-timeout 10 --max-time 30 -sS -o response.json -w '%{http_code}' \
+              -H 'accept: application/json' \
+              -H 'content-type: application/json' \
+              --data "$payload" \
+              "$endpoint" || true)"
+
+            if [[ "$status" == "200" ]] && node <<'NODE'
+          const fs = require('fs');
+          const data = JSON.parse(fs.readFileSync('response.json', 'utf8'));
+          const expectedLeft = 'prd_48ce47cc473374786c97ff3d';
+          const expectedRight = 'prd_ccd5b5caa617f8d46cd61d91';
+          if (data.mode !== 'verdict') throw new Error(`mode=${data.mode}`);
+          if (data.source !== 'FATEDROP_CLOUD') throw new Error(`source=${data.source}`);
+          if (!data.pairVerdict) throw new Error('pairVerdict missing');
+          const pair = data.pairVerdict;
+          if (pair.left?.groupId !== expectedLeft) throw new Error(`left=${pair.left?.groupId}`);
+          if (pair.right?.groupId !== expectedRight) throw new Error(`right=${pair.right?.groupId}`);
+          if (pair.left?.unitCount !== 10) throw new Error(`left unitCount=${pair.left?.unitCount}`);
+          if (pair.right?.unitCount !== 4) throw new Error(`right unitCount=${pair.right?.unitCount}`);
+          if (Math.abs(pair.left?.rrpGbp - 42.9) > 0.005) throw new Error(`left rrp=${pair.left?.rrpGbp}`);
+          if (Math.abs(pair.right?.rrpGbp - 17.16) > 0.005) throw new Error(`right rrp=${pair.right?.rrpGbp}`);
+          if (pair.winnerId !== expectedLeft && pair.winnerId !== expectedRight) throw new Error(`winner=${pair.winnerId}`);
+          if (pair.basis !== 'rrp_percent') throw new Error(`basis=${pair.basis}`);
+          if (!Number.isFinite(pair.left?.rrpPercent) || !Number.isFinite(pair.right?.rrpPercent)) throw new Error('rrpPercent missing');
+          const expectedWinner = pair.left.rrpPercent < pair.right.rrpPercent ? expectedLeft : expectedRight;
+          if (pair.winnerId !== expectedWinner) throw new Error(`winner ${pair.winnerId} disagrees with canonical RRP positions; expected ${expectedWinner}`);
+          if (pair.right.deliveryKnown === false) {
+            if (pair.right.truePrice !== null) throw new Error(`unknown delivery produced truePrice=${pair.right.truePrice}`);
+            if (pair.right.truePriceEvidence?.deliveryGbp !== null) throw new Error('unknown delivery converted to a delivery value');
+          }
+          console.log(JSON.stringify({
+            mode: data.mode,
+            source: data.source,
+            rulesVersion: data.rulesVersion,
+            left: { id: pair.left.groupId, unitCount: pair.left.unitCount, itemPrice: pair.left.itemPrice, rrpGbp: pair.left.rrpGbp, rrpPercent: pair.left.rrpPercent, deliveryKnown: pair.left.deliveryKnown, truePrice: pair.left.truePrice },
+            right: { id: pair.right.groupId, unitCount: pair.right.unitCount, itemPrice: pair.right.itemPrice, rrpGbp: pair.right.rrpGbp, rrpPercent: pair.right.rrpPercent, deliveryKnown: pair.right.deliveryKnown, truePrice: pair.right.truePrice },
+            winnerId: pair.winnerId,
+            basis: pair.basis,
+            reasonCode: pair.reasonCode,
+            reason: pair.reason,
+          }, null, 2));
+          NODE
+            then
+              success=1
+              break
+            fi
+
+            echo "Attempt $attempt did not yet expose the canonical production contract (HTTP $status)."
+            cat response.json 2>/dev/null || true
+            sleep 15
+          done
+
+          if [[ "$success" != "1" ]]; then
+            echo 'Production FateFind contract did not become valid during this smoke run.' >&2
+            exit 1
+          fi
