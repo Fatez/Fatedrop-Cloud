@@ -1,0 +1,40 @@
+name: Probe FateDrop Orphan Recovery Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-proof-orphan-recovery.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe Railway runtime only
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+            'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+            > response.json
+          python - <<'PY'
+          import json
+          expected = '3deb045e707651813024c09ab9e5e14ce0fa08ac'
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          actual = runtime.get('gitCommitSha')
+          print('EXPECTED_GIT_SHA=' + expected)
+          print('RUNTIME_GIT_SHA=' + str(actual))
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          if actual != expected:
+              raise SystemExit(f'Railway has not promoted expected main yet: {actual}')
+          PY
