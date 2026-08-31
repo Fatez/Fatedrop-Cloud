@@ -37,6 +37,7 @@ function iso(epochSeconds) {
 function publicSignalFromAlert(alert) {
   return {
     id: String(alert.id),
+    tcgCode: alert.tcgCode || 'unknown',
     state: String(alert.fateStage || '').toLowerCase(),
     kind: alert.signalKind || null,
     deliveryPolicy: alert.deliveryPolicy,
@@ -76,6 +77,7 @@ function publicSignalFromObject(signal) {
   const deliveryPolicy = effectiveSignalDeliveryPolicy(signal);
   return {
     id: String(signal.id),
+    tcgCode: signal.tcgCode || signal.tcg || 'unknown',
     state: String(signal.state),
     kind: signalKindFrom(signal) || null,
     deliveryPolicy,
@@ -166,7 +168,10 @@ export async function handlePublicSignals(req, res, { store } = {}) {
     const id = url.searchParams.get('id')?.trim() || null;
     const requestedState = String(url.searchParams.get('state') || '').trim().toLowerCase();
     const state = PUBLIC_SIGNAL_STATES.includes(requestedState) ? requestedState : null;
-    const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });
+    const since = Math.max(0, Number.parseInt(url.searchParams.get('since') || '0', 10) || 0);
+    const before = Math.max(0, Number.parseInt(url.searchParams.get('before') || '0', 10) || 0);
+    const beforeId = url.searchParams.get('beforeId')?.trim() || null;
+    const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, limit });
     return json(res, 200, {
       success: Array.isArray(alerts),
       available: Array.isArray(alerts),

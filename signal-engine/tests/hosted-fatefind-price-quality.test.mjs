@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { evaluateFateFind } from "../src/hosted/fatefind.mjs";
 
 const find = {
+  tcgCode: "pokemon",
   productIdentityId: null,
   queryText: "Delta Reign Elite Trainer Box",
   preferredRetailerIds: [],
@@ -17,6 +18,7 @@ const find = {
 
 const product = {
   id: "prd_delta_etb",
+  tcgCode: "pokemon",
   title: "Pokemon Delta Reign Elite Trainer Box",
   officialRrpPence: 4999,
 };

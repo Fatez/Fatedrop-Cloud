@@ -48,6 +48,7 @@ export function adaptOnePieceSetEvidence(record, options = {}) {
   return Object.freeze({
     ...sourceIdentity(record, options),
     tcgCode: 'one-piece',
+    marketCode: requireText(record.marketCode, 'marketCode'),
     languageCode: requireText(record.languageCode, 'languageCode'),
     seriesName: requireText(record.seriesName, 'seriesName'),
     setName: requireText(record.setName, 'setName'),
@@ -65,6 +66,7 @@ export function adaptOnePieceCardEvidence(record, options = {}) {
   return Object.freeze({
     ...sourceIdentity(record, options),
     tcgCode: 'one-piece',
+    marketCode: requireText(record.marketCode, 'marketCode'),
     languageCode: requireText(record.languageCode, 'languageCode'),
     seriesName: requireText(record.seriesName, 'seriesName'),
     setName: requireText(record.setName, 'setName'),

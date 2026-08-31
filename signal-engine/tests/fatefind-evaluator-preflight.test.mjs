@@ -7,6 +7,7 @@ function findRow(overrides = {}) {
   return {
     id: "find-secret-id",
     user_id: "user-secret-id",
+    tcg_code: "pokemon",
     query_text: "Destined Rivals ETB",
     product_identity_id: null,
     max_item_price_pence: null,
@@ -44,7 +45,7 @@ function storeFor({ find = findRow(), offer = offerRow(), productTitle = "Pokemo
       calls.push(sql);
       if (sql.includes("FROM fatedrop_fate_matches")) return { rows: find ? [find] : [] };
       if (sql.includes("FROM fatedrop_retail_offers")) return { rows: offer ? [offer] : [] };
-      if (sql.includes("FROM fatedrop_products")) return { rows: [{ id: "product-secret-id", title: productTitle, official_rrp_pence: 5499 }] };
+      if (sql.includes("FROM fatedrop_products")) return { rows: [{ id: "product-secret-id", tcg: "pokemon", title: productTitle, official_rrp_pence: 5499 }] };
       throw new Error(`Unexpected query: ${sql}`);
     },
   };

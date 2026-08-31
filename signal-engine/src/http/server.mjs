@@ -10,6 +10,7 @@ import { commercialPricePence } from "../core/price-quality.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
+import { getTcgCapability } from "../trader/tcg-registry.mjs";
 
 const PUBLIC_SIGNAL_STATES = ["whisper", "echo", "manifested", "vanished"];
 
@@ -29,6 +30,8 @@ function parseCsv(value) { return value ? value.split(",").map((x) => x.trim()).
 async function readBody(req) { let raw = ""; for await (const chunk of req) { raw += chunk; if (raw.length > 1_000_000) throw new Error("Body too large"); } return raw ? JSON.parse(raw) : {}; }
 function pounds(pence) { return Number.isFinite(pence) ? pence / 100 : undefined; }
 function iso(epochSeconds) { return epochSeconds ? new Date(epochSeconds * 1000).toISOString() : undefined; }
+function requestedTcgCode(value) { return String(value || "pokemon").trim().toLowerCase(); }
+function tcgBrowseAvailable(tcgCode) { return getTcgCapability(tcgCode)?.browseEnabled === true; }
 
 function categoryOf(title = "", productType = "") {
   const source = `${productType} ${title}`;
@@ -72,6 +75,7 @@ function productConfigurationGroup(product, rrp) {
   if (!product?.id) return null;
   return {
     id: product.id,
+    tcgCode: product.tcg,
     canonicalProductId: product.id,
     configurationId: product.id,
     title: product.title || "Product configuration",
@@ -90,10 +94,10 @@ function productConfigurationGroup(product, rrp) {
   };
 }
 
-async function resolveSelectedConfigurationGroup(store, productId) {
+async function resolveSelectedConfigurationGroup(store, productId, tcgCode) {
   if (!productId) return null;
   const products = await store.listProducts({ limit: 5000 });
-  const product = products.find((item) => item.id === productId);
+  const product = products.find((item) => item.id === productId && item.tcg === tcgCode);
   if (!product) return null;
   const rrpContext = buildRrpValueContext(products);
   const rrp = resolveRrpValue({
@@ -108,6 +112,7 @@ async function resolveSelectedConfigurationGroup(store, productId) {
 function legacyOffer(offer, product, rrp) {
   return {
     id: offer.offerId,
+    tcgCode: product?.tcg || null,
     sku: offer.retailerSku,
     retailerKey: offer.retailerId,
     retailer: offer.retailerName,
@@ -199,6 +204,8 @@ function publicSignal(signal) {
 }
 
 async function appCatalogue(store, url) {
+  const tcgCode = requestedTcgCode(url.searchParams.get("tcg"));
+  if (!tcgBrowseAvailable(tcgCode)) return { success: true, available: false, tcgCode, total: 0, count: 0, products: [], nextCursor: null, updatedAt: new Date().toISOString() };
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
   const productsById = new Map(products.map((p) => [p.id, p]));
   const rrpContext = buildRrpValueContext(products);
@@ -213,11 +220,12 @@ async function appCatalogue(store, url) {
   const limit = Math.max(1, Math.min(100, Number.parseInt(url.searchParams.get("limit") || "50", 10) || 50));
   const offset = Math.max(0, Number.parseInt(url.searchParams.get("cursor") || "0", 10) || 0);
 
-  let rows = offers.map((offer) => {
+  let rows = offers.flatMap((offer) => {
     const linkedProduct = productsById.get(offer.productId);
+    if (!linkedProduct || linkedProduct.tcg !== tcgCode) return [];
     const rrp = resolveOfferRrp(offer, linkedProduct, rrpContext);
     const publicOffer = legacyOffer(offer, linkedProduct, rrp);
-    return { ...publicOffer, _searchScore: searchMatchScore(q, publicOffer) };
+    return [{ ...publicOffer, _searchScore: searchMatchScore(q, publicOffer) }];
   }).filter((offer) => {
     if (q && offer._searchScore <= 0) return false;
     if (retailer && offer.retailerKey !== retailer) return false;
@@ -238,13 +246,15 @@ async function appCatalogue(store, url) {
   const total = rows.length;
   const page = rows.slice(offset, offset + limit).map(({ _searchScore, ...offer }) => offer);
   const next = offset + limit < total ? String(offset + limit) : null;
-  return { success: true, total, count: page.length, products: page, nextCursor: next, updatedAt: new Date().toISOString() };
+  return { success: true, available: true, tcgCode, total, count: page.length, products: page, nextCursor: next, updatedAt: new Date().toISOString() };
 }
 
 async function appTruePrice(store, url) {
   const q = (url.searchParams.get("q") || "").trim();
+  const tcgCode = requestedTcgCode(url.searchParams.get("tcg"));
   const disclaimer = "Prices and stock can change on the retailer site. FateDrop shows verified official RRP where identity is exact, and clearly-labelled component references only when bundle quantity and a verified unit RRP are both provable. Delivery totals are only compared when delivery is known.";
-  if (q.length < 2) return { success: true, count: 0, groups: [], disclaimer };
+  if (!tcgBrowseAvailable(tcgCode)) return { success: true, available: false, tcgCode, count: 0, groups: [], disclaimer };
+  if (q.length < 2) return { success: true, available: true, tcgCode, count: 0, groups: [], disclaimer };
 
   const [offers, products] = await Promise.all([store.listOffers({ limit: 10000 }), store.listProducts({ limit: 5000 })]);
   const productsById = new Map(products.map((p) => [p.id, p]));
@@ -252,6 +262,8 @@ async function appTruePrice(store, url) {
   const grouped = new Map();
 
   for (const offer of offers) {
+    const linkedProduct = productsById.get(offer.productId);
+    if (!linkedProduct || linkedProduct.tcg !== tcgCode) continue;
     if (!["in_stock", "low_stock", "preorder"].includes(offer.stockStatus)) continue;
     if (q && searchMatchScore(q, { title: offer.title, sku: offer.retailerSku }) <= 0) continue;
 
@@ -260,13 +272,13 @@ async function appTruePrice(store, url) {
     const canonicalPricePence = commercialPricePence(offer.pricePence);
     if (!Number.isFinite(canonicalPricePence)) continue;
 
-    const linkedProduct = productsById.get(offer.productId);
     const rrp = resolveOfferRrp(offer, linkedProduct, rrpContext);
     const exactCanonicalId = rrp.resolved && rrp.kind === "official" && rrp.matchedProductIds?.length === 1 ? rrp.matchedProductIds[0] : null;
     const canonicalProduct = exactCanonicalId ? productsById.get(exactCanonicalId) : linkedProduct;
     const key = exactCanonicalId || linkedProduct?.id || offer.productId || titleKey(offer.title);
     const group = grouped.get(key) || {
       id: key,
+      tcgCode,
       canonicalProductId: key,
       configurationId: key,
       title: canonicalProduct?.title || offer.title,
@@ -315,13 +327,18 @@ async function appTruePrice(store, url) {
     return group;
   }).sort((a, b) => b.retailerCount - a.retailerCount || a.title.localeCompare(b.title));
 
-  return { success: true, count: groups.length, groups, disclaimer };
+  return { success: true, available: true, tcgCode, count: groups.length, groups, disclaimer };
 }
 
 async function appFateVerdict(store, req, body) {
   const query = typeof body?.query === "string" ? body.query.trim() : "";
+  const tcgCode = requestedTcgCode(body?.tcgCode);
+  if (!tcgBrowseAvailable(tcgCode)) {
+    return { success: false, available: false, mode: "verdict", tcgCode, source: "FATEDROP_CLOUD", error: "TCG_BROWSE_INACTIVE" };
+  }
   const truePriceUrl = new URL("/api/true-price", `http://${req.headers.host || "localhost"}`);
   truePriceUrl.searchParams.set("q", query);
+  truePriceUrl.searchParams.set("tcg", tcgCode);
   const truePrice = await appTruePrice(store, truePriceUrl);
   const leftId = typeof body?.leftId === "string" && body.leftId.trim() ? body.leftId.trim() : null;
   const rightId = typeof body?.rightId === "string" && body.rightId.trim() ? body.rightId.trim() : null;
@@ -334,14 +351,16 @@ async function appFateVerdict(store, req, body) {
   // confirms it just sold out). Preserve the canonical configuration identity so
   // the authoritative reason becomes NO_QUALIFYING_LIVE_OFFERS, not a false
   // IDENTITY_UNRESOLVED. This does not make an out-of-stock offer eligible.
-  if (leftId && !leftGroup) leftGroup = await resolveSelectedConfigurationGroup(store, leftId);
-  if (rightId && !rightGroup) rightGroup = await resolveSelectedConfigurationGroup(store, rightId);
+  if (leftId && !leftGroup) leftGroup = await resolveSelectedConfigurationGroup(store, leftId, tcgCode);
+  if (rightId && !rightGroup) rightGroup = await resolveSelectedConfigurationGroup(store, rightId, tcgCode);
 
   const pairVerdict = leftId && rightId ? compareGroups(leftGroup, rightGroup) : null;
 
   return {
     success: true,
+    available: true,
     mode: "verdict",
+    tcgCode,
     count: truePrice.count,
     groups: truePrice.groups,
     verdict: rankGroups(truePrice.groups),

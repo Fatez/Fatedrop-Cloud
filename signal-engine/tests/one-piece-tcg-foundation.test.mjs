@@ -6,6 +6,7 @@ import {
   canIngestTcgCatalogue,
   canMonitorTcgRetailers,
   getTcgCapability,
+  listPublicTcgCapabilities,
   SUPPORTED_TCG_CODES,
 } from '../src/trader/tcg-registry.mjs';
 import {
@@ -27,11 +28,23 @@ const sharedIdentity = Object.freeze({
 });
 
 test('One Piece is registered as foundation-only and cannot emit production signals yet', () => {
-  assert.deepEqual(SUPPORTED_TCG_CODES, ['pokemon', 'one-piece']);
+  assert.deepEqual(SUPPORTED_TCG_CODES.slice(0, 3), ['pokemon', 'one-piece', 'lorcana']);
   assert.equal(getTcgCapability('one-piece')?.catalogueFoundation, true);
   assert.equal(canIngestTcgCatalogue('one-piece'), false);
   assert.equal(canMonitorTcgRetailers('one-piece'), false);
   assert.equal(canEmitTcgLifecycleAlerts('one-piece'), false);
+});
+
+test('future TCG interests are discoverable but every operational capability remains fail-closed', () => {
+  const future = listPublicTcgCapabilities().filter((entry) => entry.code !== 'pokemon');
+  assert.ok(future.length >= 2);
+  for (const entry of future) {
+    assert.equal(entry.interestSelectable, true);
+    assert.equal(entry.activationPhase, 'foundation');
+    assert.equal(entry.catalogueIngestionEnabled, false);
+    assert.equal(entry.retailerMonitoringEnabled, false);
+    assert.equal(entry.lifecycleAlertsEnabled, false);
+  }
 });
 
 test('existing Pokémon capabilities remain enabled', () => {
@@ -51,6 +64,7 @@ test('canonical card identity is namespaced by TCG and cannot collide across gam
 test('One Piece set evidence preserves explicit market-facing identity without guessing', () => {
   const evidence = adaptOnePieceSetEvidence({
     sourceRecordId: 'op01-en',
+    marketCode: 'GB',
     languageCode: 'en',
     seriesName: 'Release Series',
     setName: 'Romance Dawn',
@@ -70,6 +84,7 @@ test('One Piece set evidence preserves explicit market-facing identity without g
 test('One Piece card evidence requires explicit language and printing and does not invent variant proof', () => {
   const base = {
     sourceRecordId: 'op01-001',
+    marketCode: 'GB',
     languageCode: 'en',
     seriesName: 'Release Series',
     setName: 'Romance Dawn',
@@ -90,5 +105,9 @@ test('One Piece card evidence requires explicit language and printing and does n
   assert.throws(
     () => adaptOnePieceCardEvidence({ ...base, printingCode: '' }, { sourceName: 'fixture' }),
     /printingCode is required/,
+  );
+  assert.throws(
+    () => adaptOnePieceCardEvidence({ ...base, marketCode: '' }, { sourceName: 'fixture' }),
+    /marketCode is required/,
   );
 });

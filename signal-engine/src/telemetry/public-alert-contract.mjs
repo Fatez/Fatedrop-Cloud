@@ -144,6 +144,30 @@ function observedDuration(seconds) {
 }
 
 function liveWindow(row) {
+  if (row.state === 'manifested') {
+    const episodeAvailable = row.stock_episode_availability_state === 'available'
+      && row.stock_episode_vanished_at == null;
+    if (!episodeAvailable) return null;
+
+    const manifestedAtSeconds = nullableNumber(row.stock_episode_manifested_at);
+    const lastConfirmedLiveAtSeconds = nullableNumber(row.current_live_confirmation_at);
+    const manifestedSupported = manifestedAtSeconds != null && manifestedAtSeconds > 0;
+    const confirmationSupported = manifestedSupported
+      && lastConfirmedLiveAtSeconds != null
+      && lastConfirmedLiveAtSeconds >= manifestedAtSeconds;
+    const observedDurationSeconds = confirmationSupported
+      ? Math.max(0, Math.floor(lastConfirmedLiveAtSeconds - manifestedAtSeconds))
+      : null;
+
+    return {
+      manifestedAt: manifestedSupported ? isoTimestamp(manifestedAtSeconds) : null,
+      lastConfirmedLiveAt: confirmationSupported ? isoTimestamp(lastConfirmedLiveAtSeconds) : null,
+      vanishedAt: null,
+      observedDurationSeconds,
+      historyComplete: Boolean(manifestedSupported && confirmationSupported),
+    };
+  }
+
   if (row.state !== 'vanished') return null;
 
   const manifestedAtSeconds = nullableNumber(row.live_manifested_at);
@@ -348,6 +372,7 @@ function notificationCopy(row, priceIntelligence, links, productIntelligence) {
     data: {
       route: 'alerts',
       alertId: row.id,
+      tcgCode: nullableText(row.tcg_code) || 'unknown',
       productUrl: row.url,
       stage,
       verdict: priceIntelligence.verdict,
@@ -375,6 +400,7 @@ function toCanonicalAlert(row) {
   row.alert_facets = facets;
   return {
     id: row.id,
+    tcgCode: nullableText(row.tcg_code) || 'unknown',
     type: row.state.toUpperCase(),
     fateStage,
     productId: row.product_id,
@@ -397,6 +423,7 @@ function toCanonicalAlert(row) {
     confirmedRestock: fateStage === 'MANIFESTED',
     productUrl: row.url,
     product: {
+      tcgCode: nullableText(row.tcg_code) || 'unknown',
       title: row.title,
       productType: row.product_type,
       url: row.url,
@@ -419,7 +446,7 @@ function toCanonicalAlert(row) {
 const ALERT_SQL = `
   SELECT
     s.id,s.state,s.product_id,s.offer_id,s.retailer_id,s.retailer_name,s.title,s.product_type,s.url,s.image_url,s.price_pence,
-    s.rrp_pence AS signal_rrp_pence,p.official_rrp_pence AS canonical_rrp_pence,
+    s.rrp_pence AS signal_rrp_pence,p.official_rrp_pence AS canonical_rrp_pence,p.tcg AS tcg_code,
     s.delivered_price_pence,s.postage_pence,s.stock_status,s.previous_stock_status,s.confidence,s.detected_at,
     canonical_episode.id AS stock_episode_id,canonical_episode.scope_type AS stock_episode_scope_type,
     canonical_episode.cycle_number AS stock_episode_cycle_number,canonical_episode.episode_state AS stock_episode_state,
@@ -430,6 +457,7 @@ const ALERT_SQL = `
     ${signalDeliveryPolicySql('s')} AS delivery_policy,
     live_window.manifested_at AS live_manifested_at,
     persisted_live.last_confirmed_live_at,
+    current_live.last_confirmed_live_at AS current_live_confirmation_at,
     (CASE WHEN s.state='vanished' AND live_window.manifested_at IS NOT NULL THEN GREATEST(0,s.detected_at-live_window.manifested_at) ELSE NULL END)::integer AS observed_duration_seconds,
     s.reason,s.evidence,
     best.offer_id AS lowest_offer_id,best.retailer_id AS lowest_retailer_id,best.retailer_name AS lowest_retailer_name,best.url AS lowest_url,
@@ -500,6 +528,20 @@ const ALERT_SQL = `
     LIMIT 1
   ) persisted_live ON true
   LEFT JOIN LATERAL (
+    SELECT ro.last_seen_at AS last_confirmed_live_at
+    FROM fatedrop_retail_offers ro
+    JOIN fatedrop_retailer_health rh ON rh.retailer_id=ro.retailer_id
+      AND rh.healthy=true
+      AND COALESCE(rh.last_success_at,rh.last_scan_at) >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+    WHERE s.state='manifested'
+      AND canonical_episode.availability_state='available'
+      AND canonical_episode.vanished_at IS NULL
+      AND ro.offer_id=s.offer_id
+      AND ro.stock_status IN ('in_stock','low_stock','preorder')
+      AND ro.last_seen_at >= EXTRACT(EPOCH FROM NOW())::bigint - 1800
+    LIMIT 1
+  ) current_live ON true
+  LEFT JOIN LATERAL (
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'id',h.id,'state',h.state,'retailer',h.retailer_name,'detectedAt',h.detected_at,'reason',h.reason,
       'pricePence',h.price_pence,'stockStatus',h.stock_status,'previousStockStatus',h.previous_stock_status,'url',h.url
@@ -544,13 +586,15 @@ const ALERT_SQL = `
   ) discord_delivery ON true
   WHERE ($1::text IS NULL OR s.id=$1)
     AND ($2::text[] IS NULL OR s.state=ANY($2))
+    AND ($4::bigint IS NULL OR s.detected_at >= $4)
+    AND ($5::bigint IS NULL OR s.detected_at < $5 OR (s.detected_at=$5 AND s.id>COALESCE($6::text,'')))
     AND ${publicSignalSqlFilter('s')}
     AND ${validVanishedSqlFilter('s')}
     AND s.state IN ('whisper','echo','manifested','vanished')
-  ORDER BY s.detected_at DESC
+  ORDER BY s.detected_at DESC,s.id ASC
   LIMIT $3`;
 
-export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, limit = 50 } = {}) {
+export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, since = null, before = null, beforeId = null, limit = 50 } = {}) {
   if (!store || typeof store.pool !== 'function') return null;
   const pool = await store.pool();
   const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));
@@ -560,7 +604,9 @@ export async function listCanonicalPublicAlerts(store, { id = null, state = null
     : [];
   if (PUBLIC_STAGES.has(normalizedState)) requestedStates.push(normalizedState);
   const safeStates = requestedStates.length ? [...new Set(requestedStates)] : null;
-  const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit]);
+  const safeSince = Number.isFinite(Number(since)) && Number(since) > 0 ? Math.trunc(Number(since)) : null;
+  const safeBefore = Number.isFinite(Number(before)) && Number(before) > 0 ? Math.trunc(Number(before)) : null;
+  const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit, safeSince, safeBefore, safeBefore ? String(beforeId || '') : null]);
   return rows
     .filter((row) => PUBLIC_STAGES.has(String(row.state)))
     .map(toCanonicalAlert);
@@ -572,7 +618,10 @@ export async function handlePublicAlerts(req, res, { store } = {}) {
   const limit = Math.max(1, Math.min(100, Number.isFinite(requestedLimit) ? requestedLimit : 50));
   const id = url.searchParams.get('id')?.trim() || null;
   const state = url.searchParams.get('state')?.trim().toLowerCase() || null;
-  const alerts = await listCanonicalPublicAlerts(store, { id, state, limit });
+  const since = Math.max(0, Number.parseInt(url.searchParams.get('since') || '0', 10) || 0);
+  const before = Math.max(0, Number.parseInt(url.searchParams.get('before') || '0', 10) || 0);
+  const beforeId = url.searchParams.get('beforeId')?.trim() || null;
+  const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, limit });
   if (!alerts) {
     return json(res, 200, {
       success: false,

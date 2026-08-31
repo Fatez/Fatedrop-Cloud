@@ -8,6 +8,7 @@ test("instant hosted FateFind evaluation targets only the saved paid watch and r
   const find = {
     id: "find-instant-1",
     user_id: "user-1",
+    tcg_code: "pokemon",
     query_text: "Destined Rivals 3 Pack Blister Kangaskhan",
     product_identity_id: "product-1",
     max_item_price_pence: 4000,
@@ -34,6 +35,7 @@ test("instant hosted FateFind evaluation targets only the saved paid watch and r
   };
   const product = {
     id: "product-1",
+    tcg: "pokemon",
     title: "Pokemon - Scarlet & Violet - Destined Rivals - 3 Pack Blister - Kangaskhan",
     official_rrp_pence: 3499,
   };

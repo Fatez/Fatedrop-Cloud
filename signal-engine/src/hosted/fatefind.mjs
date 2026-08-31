@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { PriceQuality, classifyObservedPrice } from "../core/price-quality.mjs";
+import { canEmitTcgLifecycleAlerts } from "../trader/tcg-registry.mjs";
 
 export const HOSTED_OFFER_FRESHNESS_SECONDS = 1800;
 export const HOSTED_MIN_STOCK_CONFIDENCE = 0.9;
@@ -148,6 +149,11 @@ export function notificationDeliveryPlan(prefs = {}, findNotifications = {}, now
 
 export function evaluateFateFind(find, offer, product) {
   const reasons = [];
+  const findTcgCode = String(find?.tcgCode || "pokemon").trim().toLowerCase();
+  const productTcgCode = String(product?.tcgCode || "").trim().toLowerCase();
+  if (!canEmitTcgLifecycleAlerts(findTcgCode)) return { matched: false, reasons: ["tcg-monitoring-inactive"] };
+  if (!productTcgCode) return { matched: false, reasons: ["product-tcg-unknown"] };
+  if (findTcgCode !== productTcgCode) return { matched: false, reasons: ["tcg-mismatch"] };
   const title = product?.title || offer.title || "";
   if (find.productIdentityId && find.productIdentityId === product?.id) reasons.push("product-identity");
   else if (!queryMatches(find.queryText, title)) return { matched: false, reasons: ["query-mismatch"] };
@@ -192,7 +198,7 @@ export function evaluateFateFind(find, offer, product) {
 
 function rowToFind(row) {
   return {
-    id: row.id, userId: row.user_id, queryText: row.query_text || "", productIdentityId: row.product_identity_id,
+    id: row.id, userId: row.user_id, tcgCode: row.tcg_code || "pokemon", queryText: row.query_text || "", productIdentityId: row.product_identity_id,
     maxItemPricePence: row.max_item_price_pence == null ? null : Number(row.max_item_price_pence),
     maxTruePricePence: row.max_true_price_pence == null ? null : Number(row.max_true_price_pence),
     maxPercentAboveRrp: row.max_percent_above_rrp == null ? null : Number(row.max_percent_above_rrp),
@@ -218,7 +224,15 @@ function rowToOffer(row) {
 }
 
 function rowToProduct(row) {
-  return { id: row.id, title: row.title, officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence) };
+  return { id: row.id, tcgCode: row.tcg || null, title: row.title, officialRrpPence: row.official_rrp_pence == null ? null : Number(row.official_rrp_pence) };
+}
+
+function selectedTcgCodes(value) {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { return new Set(); }
+  }
+  return new Set(Array.isArray(parsed) ? parsed.map((item) => String(item).trim().toLowerCase()).filter(Boolean) : []);
 }
 
 function stableId(prefix, value) { return `${prefix}_${crypto.createHash("sha256").update(value).digest("hex").slice(0, 24)}`; }
@@ -266,6 +280,7 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
 
   for (const findRow of findRows) {
     const find = rowToFind(findRow);
+    if (!canEmitTcgLifecycleAlerts(find.tcgCode)) continue;
     for (const rawOffer of offerRows) {
       const offer = rowToOffer(rawOffer);
       const trust = offerObservationTrust(offer, { now });
@@ -275,14 +290,14 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
       evaluated += 1;
       const result = evaluateFateFind(find, offer, product);
       if (!result.matched) continue;
-      const fingerprint = `${find.id}:${offer.offerId}:${offer.pricePence ?? "x"}:${offer.postagePence ?? "x"}:${offer.stockStatus}`;
+      const fingerprint = `${find.tcgCode}:${find.id}:${offer.offerId}:${offer.pricePence ?? "x"}:${offer.postagePence ?? "x"}:${offer.stockStatus}`;
       const id = stableId("fm", fingerprint);
       const response = await pool.query(`
-        INSERT INTO fatedrop_hosted_fate_matches (id,fingerprint,fate_find_id,user_id,signal_offer_id,signal_product_id,retailer_id,retailer_name,title,url,item_price_pence,postage_pence,delivered_price_pence,rrp_pence,percent_above_rrp,stock_status,reasons_json,matched_at,last_observed_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18,$19)
+        INSERT INTO fatedrop_hosted_fate_matches (id,fingerprint,fate_find_id,user_id,tcg_code,signal_offer_id,signal_product_id,retailer_id,retailer_name,title,url,item_price_pence,postage_pence,delivered_price_pence,rrp_pence,percent_above_rrp,stock_status,reasons_json,matched_at,last_observed_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18::jsonb,$19,$20)
         ON CONFLICT (fingerprint) DO UPDATE SET last_observed_at=EXCLUDED.last_observed_at
         RETURNING (xmax = 0) AS inserted
-      `, [id,fingerprint,find.id,find.userId,offer.offerId,offer.productId,offer.retailerId,offer.retailerName,title,offer.url,offer.pricePence,offer.postagePence,result.deliveredPricePence,product?.officialRrpPence ?? null,result.percentAboveRrp,offer.stockStatus,JSON.stringify(result.reasons),now,offer.lastSeenAt || now]);
+      `, [id,fingerprint,find.id,find.userId,find.tcgCode,offer.offerId,offer.productId,offer.retailerId,offer.retailerName,title,offer.url,offer.pricePence,offer.postagePence,result.deliveredPricePence,product?.officialRrpPence ?? null,result.percentAboveRrp,offer.stockStatus,JSON.stringify(result.reasons),now,offer.lastSeenAt || now]);
       if (response.rows[0]?.inserted) {
         created += 1;
         await enqueueFateMatchNotifications(pool, { id, find, offer, product, result, now });
@@ -293,18 +308,25 @@ export async function evaluateHostedFateFinds(pool, { limit = 2000, now = Math.f
 }
 
 async function enqueueFateMatchNotifications(pool, { id, find, offer, product, result, now }) {
-  const prefsResult = await pool.query("SELECT * FROM fatedrop_notification_preferences WHERE user_id=$1", [find.userId]).catch(() => ({ rows: [] }));
+  const prefsResult = await pool.query(`
+    SELECT np.*,COALESCE(to_jsonb(u)->'selected_tcg_codes','["pokemon"]'::jsonb) AS selected_tcg_codes
+    FROM fatedrop_users u
+    LEFT JOIN fatedrop_notification_preferences np ON np.user_id=u.id
+    WHERE u.id=$1
+    LIMIT 1`, [find.userId]).catch(() => ({ rows: [] }));
   const prefs = prefsResult.rows[0] || {};
   const plan = notificationDeliveryPlan(prefs, find.notifications, now);
+  const tcgSubscribed = selectedTcgCodes(prefs.selected_tcg_codes).has(find.tcgCode);
   const notification = buildFateMatchNotification({ find, offer, product, result });
   for (const channel of ["web", "push", "discord"]) {
-    const state = plan.enabled[channel] ? "pending" : "suppressed";
+    const state = tcgSubscribed && plan.enabled[channel] ? "pending" : "suppressed";
     const nextAttemptAt = plan.nextAttemptAt[channel];
     const payload = {
       fateMatchId: id,
       fateFindId: find.id,
       offerId: offer.offerId,
       productId: offer.productId,
+      tcgCode: find.tcgCode,
       retailerId: offer.retailerId,
       quietUntil: plan.quietUntil,
       ...notification.payload,
