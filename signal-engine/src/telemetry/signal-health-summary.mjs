@@ -3,6 +3,7 @@ import {
   publicSignalSqlFilter,
   validVanishedSqlFilter,
 } from "../core/signal-visibility-policy.mjs";
+import { classifyRetailerFailure, RETAILER_FAILURE_CLASSES } from "../core/retailer-failure-classification.mjs";
 
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const ORPHAN_GRACE_SECONDS = 120;
@@ -28,8 +29,19 @@ function monitorDiagnostics(monitorRows = []) {
   const excluded = rows.filter((row) => row?.registryState && row.registryState !== "monitored");
   const active = rows.filter((row) => !row?.registryState || row.registryState === "monitored");
   const categories = { fresh: [], stale: [], blocked: [], onboarding: [], regressed: [] };
+  const failureClasses = Object.fromEntries(RETAILER_FAILURE_CLASSES.map((failureClass) => [failureClass, []]));
   for (const row of active) {
     const failure = `${row?.failureCode || ""} ${row?.lastError || ""}`;
+    const classification = classifyRetailerFailure(row);
+    failureClasses[classification.failureClass].push({
+      id: row.id,
+      failureCode: classification.failureCode,
+      recoveryAction: classification.recoveryAction,
+      backoffSeconds: classification.backoffSeconds,
+      quarantineState: ["parser_regression", "stock_selector_changed", "identity_resolution", "market_conflict", "configuration"].includes(classification.failureClass)
+        ? "quarantine_review"
+        : "retry_managed",
+    });
     if (row?.healthy === true && row?.stale !== true) categories.fresh.push(row);
     else if (row?.stale === true) categories.stale.push(row);
     else if (/\b403\b|access[_ -]?blocked|retailer_access_blocked/i.test(failure)) categories.blocked.push(row);
@@ -57,6 +69,8 @@ function monitorDiagnostics(monitorRows = []) {
     onboardingRetailerIds: ids(categories.onboarding),
     excludedRetailerIds: ids(excluded),
     previouslyHealthyBlockedRetailerIds: ids(categories.blocked.filter((row) => row?.lastSuccessAt)),
+    failureClassCounts: Object.fromEntries(Object.entries(failureClasses).map(([key, items]) => [key, items.length])),
+    recoveryQueue: Object.values(failureClasses).flat().filter((item) => item.recoveryAction !== "normal_scan"),
   };
 }
 function reliabilityDiagnostics({ orphanRows = [], freshnessRows = [], now }) {

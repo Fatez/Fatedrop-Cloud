@@ -34,7 +34,7 @@ test("signal health summary separates detections, delivery policy, duplicate sup
       { id: "stale", healthy: false, stale: true, lastError: null },
       { id: "blocked", healthy: false, stale: false, lastError: "Retailer blocked catalogue request (403)" },
       { id: "onboarding", healthy: false, stale: false, lastSuccessAt: null, lastError: "zero products" },
-      { id: "regressed", healthy: false, stale: false, lastSuccessAt: now - 100, lastError: "parser changed" },
+      { id: "regressed", healthy: false, stale: false, lastSuccessAt: now - 100, failureCode: "partial_catalogue_discovery", lastError: "parser changed" },
       { id: "candidate", healthy: false, stale: false, registryState: "candidate", lastError: "old failure" },
     ],
     discoveryRows: [{
@@ -70,6 +70,17 @@ test("signal health summary separates detections, delivery policy, duplicate sup
   assert.deepEqual(summary.diagnostics.monitors.excludedRetailerIds, ["candidate"]);
   assert.equal(summary.diagnostics.monitors.totalRetailers, 5);
   assert.equal(summary.diagnostics.monitors.unhealthyRetailers, 1);
+  assert.equal(summary.diagnostics.monitors.failureClassCounts.access_blocked, 1);
+  assert.equal(summary.diagnostics.monitors.failureClassCounts.partial_catalogue, 1);
+  assert.equal(summary.diagnostics.monitors.failureClassCounts.none, 1);
+  assert.equal(summary.diagnostics.monitors.failureClassCounts.stale_observation, 1);
+  assert.deepEqual(summary.diagnostics.monitors.recoveryQueue.find((item) => item.id === "regressed"), {
+    id: "regressed",
+    failureCode: "partial_catalogue_discovery",
+    recoveryAction: "repair_catalogue_discovery",
+    backoffSeconds: 1800,
+    quarantineState: "retry_managed",
+  });
   assert.deepEqual(summary.diagnostics.discovery, {
     available: true,
     pending: 2,

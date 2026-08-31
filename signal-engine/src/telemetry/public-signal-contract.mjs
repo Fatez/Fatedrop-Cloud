@@ -171,7 +171,8 @@ export async function handlePublicSignals(req, res, { store } = {}) {
     const since = Math.max(0, Number.parseInt(url.searchParams.get('since') || '0', 10) || 0);
     const before = Math.max(0, Number.parseInt(url.searchParams.get('before') || '0', 10) || 0);
     const beforeId = url.searchParams.get('beforeId')?.trim() || null;
-    const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, limit });
+    const currentOnly = ['1', 'true', 'yes'].includes(String(url.searchParams.get('current') || '').trim().toLowerCase());
+    const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, currentOnly, limit });
     return json(res, 200, {
       success: Array.isArray(alerts),
       available: Array.isArray(alerts),
@@ -263,6 +264,9 @@ function safeDiagnostics(diagnostics = {}) {
       onboardingRetailers: safeCount(monitors.onboardingRetailers),
       excludedRetailers: safeCount(monitors.excludedRetailers),
       degradedRetailers: safeCount(monitors.degradedRetailers),
+      failureClassCounts: Object.fromEntries(
+        Object.entries(monitors.failureClassCounts || {}).map(([key, value]) => [key, safeCount(value)]),
+      ),
     },
     discordLatency: {
       sampleSize: safeCount(discordLatency.sampleSize),

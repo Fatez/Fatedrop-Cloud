@@ -201,6 +201,29 @@ function liveWindow(row) {
   };
 }
 
+function opportunity(row, window) {
+  const stage = publicStage(row.state);
+  const kind = signalKindFrom(row) || null;
+  const eventKind = stage === 'WHISPER'
+    ? kind === 'catalogue_new' ? 'listing_discovered' : 'evidence_changed'
+    : stage === 'ECHO'
+      ? 'retailer_behaviour_changed'
+      : stage === 'MANIFESTED'
+        ? kind === 'new_listing_live' ? 'new_retailer_available' : 'availability_started'
+        : 'availability_ended';
+  const current = stage === 'MANIFESTED'
+    && window?.historyComplete === true
+    && window.vanishedAt == null
+    && window.lastConfirmedLiveAt != null;
+  return {
+    eventKind,
+    current,
+    currentViewKind: current ? 'still_available' : null,
+    firstManifestedAt: window?.manifestedAt ?? null,
+    lastVerifiedAt: window?.lastConfirmedLiveAt ?? null,
+  };
+}
+
 function classifyProduct(row) {
   const persisted = jsonArray(row.evidence).find((entry) => entry?.kind === 'product_alert_classification');
   const known = new Set(['SEALED_TCG', 'SINGLE_CARD', 'ACCESSORY', 'MERCHANDISE', 'UNKNOWN']);
@@ -345,6 +368,9 @@ function notificationCopy(row, priceIntelligence, links, productIntelligence) {
   const lines = [price ? `${row.retailer_name} · ${price}` : row.retailer_name];
   if (stage === 'WHISPER') lines.push('Catalogue or product movement detected · stock is not confirmed');
   if (stage === 'ECHO') lines.push('Queue, traffic or security readiness changed · get ready · stock is not confirmed');
+  if (stage === 'MANIFESTED') lines.push(signalKindFrom(row) === 'new_listing_live'
+    ? 'New verified retailer availability'
+    : 'Verified availability began at this retailer');
   if (stage === 'VANISHED') {
     lines.push('Observed availability is no longer verified');
     const duration = observedDuration(row.observed_duration_seconds);
@@ -394,6 +420,7 @@ function toCanonicalAlert(row) {
   const links = preparedLinks(row, fateStage);
   const productIntelligence = classifyProduct(row);
   const window = liveWindow(row);
+  const canonicalOpportunity = opportunity(row, window);
   const facets = deriveAlertFacets({ title: row.title, retailerCountryCode: 'GB', evidence: row.evidence });
   const deliveryPolicy = row.delivery_policy || effectiveSignalDeliveryPolicy(row);
   const episode = stockEpisode(row);
@@ -416,6 +443,7 @@ function toCanonicalAlert(row) {
     detectedAt: isoTimestamp(row.detected_at),
     observedDurationSeconds: window?.observedDurationSeconds ?? null,
     liveWindow: window,
+    opportunity: canonicalOpportunity,
     stockEpisode: episode,
     availabilityTruth: availabilityTruth(row, episode),
     productIntelligence,
@@ -591,10 +619,17 @@ const ALERT_SQL = `
     AND ${publicSignalSqlFilter('s')}
     AND ${validVanishedSqlFilter('s')}
     AND s.state IN ('whisper','echo','manifested','vanished')
-  ORDER BY s.detected_at DESC,s.id ASC
+    AND ($7::boolean IS NOT TRUE OR (
+      s.state='manifested'
+      AND canonical_episode.availability_state='available'
+      AND canonical_episode.vanished_at IS NULL
+      AND current_live.last_confirmed_live_at IS NOT NULL
+    ))
+  ORDER BY CASE WHEN $7::boolean IS TRUE THEN current_live.last_confirmed_live_at END DESC NULLS LAST,
+    s.detected_at DESC,s.id ASC
   LIMIT $3`;
 
-export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, since = null, before = null, beforeId = null, limit = 50 } = {}) {
+export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, since = null, before = null, beforeId = null, currentOnly = false, limit = 50 } = {}) {
   if (!store || typeof store.pool !== 'function') return null;
   const pool = await store.pool();
   const safeLimit = Math.max(1, Math.min(100, Math.trunc(Number(limit) || 50)));
@@ -606,7 +641,7 @@ export async function listCanonicalPublicAlerts(store, { id = null, state = null
   const safeStates = requestedStates.length ? [...new Set(requestedStates)] : null;
   const safeSince = Number.isFinite(Number(since)) && Number(since) > 0 ? Math.trunc(Number(since)) : null;
   const safeBefore = Number.isFinite(Number(before)) && Number(before) > 0 ? Math.trunc(Number(before)) : null;
-  const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit, safeSince, safeBefore, safeBefore ? String(beforeId || '') : null]);
+  const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit, safeSince, safeBefore, safeBefore ? String(beforeId || '') : null, currentOnly === true]);
   return rows
     .filter((row) => PUBLIC_STAGES.has(String(row.state)))
     .map(toCanonicalAlert);
@@ -621,7 +656,8 @@ export async function handlePublicAlerts(req, res, { store } = {}) {
   const since = Math.max(0, Number.parseInt(url.searchParams.get('since') || '0', 10) || 0);
   const before = Math.max(0, Number.parseInt(url.searchParams.get('before') || '0', 10) || 0);
   const beforeId = url.searchParams.get('beforeId')?.trim() || null;
-  const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, limit });
+  const currentOnly = ['1', 'true', 'yes'].includes(String(url.searchParams.get('current') || '').trim().toLowerCase());
+  const alerts = await listCanonicalPublicAlerts(store, { id, state, since: since || null, before: before || null, beforeId, currentOnly, limit });
   if (!alerts) {
     return json(res, 200, {
       success: false,
