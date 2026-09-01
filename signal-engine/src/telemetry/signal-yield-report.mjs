@@ -231,7 +231,7 @@ export function buildSignalYieldReport({
   for (const conflict of conflictRows || []) {
     const row = get(conflict.retailer_id);
     const stage = String(conflict.stage || "").toLowerCase();
-    if (LIFECYCLE_STATES.includes(stage)) row.candidates[stage] += 1;
+    if (LIFECYCLE_STATES.includes(stage)) row.candidates[stage] += numeric(conflict.count || 1);
     row.canonicalSuppression.conflicts += numeric(conflict.count || 1);
     increment(row.canonicalSuppression.conflictReasons, conflict.reason || "unknown", conflict.count || 1);
   }
@@ -313,7 +313,7 @@ export function buildSignalYieldReport({
   const gaps = [];
   if (rows.some((row) => row.discovery.telemetryRuns === 0)) gaps.push("pre_observation_filter_counts_missing_for_runs_without_discovery_diagnostics");
   gaps.push("canonical_deduplication_counts_are_not_persisted_historically");
-  gaps.push("candidate_counts_are_a_lower_bound_before candidate-stage run telemetry is persisted");
+  gaps.push("candidate_counts_are_a_lower_bound_before_candidate_stage_run_telemetry_is_persisted");
 
   return {
     available: true,
@@ -349,9 +349,10 @@ export async function loadSignalYieldReport(store, {
       ORDER BY started_at ASC`, [since]),
     pool.query(`SELECT observation.retailer_id,observation.offer_id,observation.observed_at,observation.stock_status,
         observation.stock_confidence,observation.stock_quantity,observation.price_pence,observation.evidence,
-        offer.title,offer.product_type
+        offer.title,product.product_type
       FROM fatedrop_stock_observations observation
       JOIN fatedrop_retail_offers offer ON offer.offer_id=observation.offer_id
+      JOIN fatedrop_products product ON product.id=offer.product_id
       WHERE observation.observed_at >= $1
       ORDER BY observation.observed_at ASC`, [since]),
     pool.query(`SELECT id,state,retailer_id,retailer_name,offer_id,detected_at
