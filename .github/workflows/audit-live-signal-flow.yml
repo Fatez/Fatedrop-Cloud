@@ -29,7 +29,6 @@ jobs:
           const selected = {
             available: payload.available ?? source.available ?? null,
             generatedAt: payload.generatedAt ?? source.generatedAt ?? null,
-            rootKeys: Object.keys(payload).sort(),
             lifecycle: source.lifecycle ?? payload.lifecycle ?? null,
             delivery: source.delivery ?? payload.delivery ?? null,
             monitors: diagnostics.monitors ?? null,
@@ -38,4 +37,30 @@ jobs:
             localRadarOperator: payload.localRadarOperator ?? null,
           };
           console.log('FATEDROP_SIGNAL_FLOW=' + JSON.stringify(selected));
+          NODE
+      - name: Probe retailer health
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://fatedrop-cloud-production.up.railway.app/api/status"
+          status="$(curl --silent --show-error --max-time 20 --output /tmp/status.json --write-out '%{http_code}' -H 'Accept: application/json' "$url")"
+          echo "STATUS_HTTP=$status"
+          test "$status" = "200"
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/status.json', 'utf8'));
+          const retailers = Array.isArray(payload?.state?.retailers) ? payload.state.retailers : [];
+          const selected = retailers.map((r) => ({
+            id: r.id,
+            name: r.name,
+            healthy: r.healthy,
+            stale: r.stale,
+            lastScanAt: r.lastScanAt,
+            lastSuccessAt: r.lastSuccessAt,
+            failureCode: r.failureCode,
+            lastError: r.lastError,
+            baselineCompleted: r.baselineCompleted,
+            registryState: r.registryState,
+          }));
+          console.log('FATEDROP_RETAILERS=' + JSON.stringify({ monitor: payload.monitor, retailers: selected }));
           NODE
