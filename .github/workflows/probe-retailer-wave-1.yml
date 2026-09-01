@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe structured retailer feeds
+      - name: Probe retailer wave 1 routes
         shell: bash
         run: |
           set -euo pipefail
@@ -19,15 +19,10 @@ jobs:
             { name: 'The Card Vault', attempts: [
               { type: 'shopify', url: 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
             ]},
-            { name: 'Shiny Vault', attempts: [
-              { type: 'shopify', url: 'https://shinyvault.co.uk/collections/sealed/products.json?limit=250' },
-              { type: 'shopify', url: 'https://shinyvault.co.uk/collections/all/products.json?limit=250' },
-              { type: 'shopify', url: 'https://shinyvault.co.uk/products.json?limit=250' },
-              { type: 'woo', url: 'https://shinyvault.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
-            ]},
             { name: 'Cob & Pip', attempts: [
               { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
               { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-sealed/products.json?limit=250' },
+              { type: 'shopify', url: 'https://cobandpip.co.uk/products.json?limit=250' },
             ]},
             { name: 'Tritex Games', attempts: [
               { type: 'woo', url: 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
@@ -39,15 +34,25 @@ jobs:
           ];
           const timeoutMs = 20000;
           const sealedPattern = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|premium|bundle|display|box\b|pack\b|poster|ultra premium/i;
-          const excludedPattern = /single|sleeve|binder|play\s?mat|toploader|graded|event ticket|accessor/i;
+          const excludedPattern = /single|sleeve|binder|play\s?mat|toploader|graded|event ticket|league challenge|accessor/i;
           const winners = [];
+          const failures = [];
+
+          async function request(url) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+              return await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' }, signal: controller.signal });
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+
           for (const group of groups) {
             let winner = null;
             for (const target of group.attempts) {
-              const controller = new AbortController();
-              const timer = setTimeout(() => controller.abort(), timeoutMs);
               try {
-                const response = await fetch(target.url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' }, signal: controller.signal });
+                const response = await request(target.url);
                 if (!response.ok) {
                   console.log(JSON.stringify({ retailer: group.name, url: target.url, status: response.status, ok: false }));
                   continue;
@@ -73,12 +78,42 @@ jobs:
                 if (result.ok) { winner = result; break; }
               } catch (error) {
                 console.log(JSON.stringify({ retailer: group.name, url: target.url, ok: false, error: String(error?.message || error) }));
-              } finally {
-                clearTimeout(timer);
               }
             }
-            if (!winner) throw new Error(`${group.name}: no usable structured stock feed found`);
-            winners.push(winner);
+            if (winner) winners.push(winner);
+            else failures.push(group.name);
           }
+
+          // Shiny Vault does not expose the normal Shopify/Woo JSON routes. Probe the
+          // public sealed catalogue for a bounded HTML adapter instead.
+          try {
+            const url = 'https://shinyvault.co.uk/collections/sealed';
+            const response = await request(url);
+            const html = await response.text();
+            const productLinks = [...html.matchAll(/href=["']([^"']*\/products\/[^"'#?]+)["']/gi)]
+              .map((m) => new URL(m[1], url).toString());
+            const uniqueLinks = [...new Set(productLinks)];
+            const addToCartEvidence = /add to (?:cart|basket)|buy now/i.test(html);
+            const productTextHits = (html.match(/booster|elite trainer|\betb\b|collection|tin\b|blister|bundle|box\b|pack\b/gi) || []).length;
+            const result = {
+              retailer: 'Shiny Vault',
+              type: 'generic_html',
+              url,
+              status: response.status,
+              productLinks: uniqueLinks.length,
+              sampleLinks: uniqueLinks.slice(0, 5),
+              productTextHits,
+              addToCartEvidence,
+              ok: response.ok && uniqueLinks.length > 0 && productTextHits > 0,
+            };
+            console.log(JSON.stringify(result));
+            if (result.ok) winners.push(result);
+            else failures.push('Shiny Vault');
+          } catch (error) {
+            console.log(JSON.stringify({ retailer: 'Shiny Vault', type: 'generic_html', ok: false, error: String(error?.message || error) }));
+            failures.push('Shiny Vault');
+          }
+
           console.log('WAVE1_WINNERS=' + JSON.stringify(winners));
+          if (failures.length) throw new Error(`Wave 1 routes failed: ${failures.join(', ')}`);
           NODE
