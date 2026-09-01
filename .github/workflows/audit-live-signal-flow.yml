@@ -38,29 +38,39 @@ jobs:
           };
           console.log('FATEDROP_SIGNAL_FLOW=' + JSON.stringify(selected));
           NODE
-      - name: Probe retailer health
+      - name: Probe public catalogue freshness
         shell: bash
         run: |
           set -euo pipefail
-          url="https://fatedrop-cloud-production.up.railway.app/api/status"
-          status="$(curl --silent --show-error --max-time 20 --output /tmp/status.json --write-out '%{http_code}' -H 'Accept: application/json' "$url")"
-          echo "STATUS_HTTP=$status"
-          test "$status" = "200"
           node <<'NODE'
-          const fs = require('fs');
-          const payload = JSON.parse(fs.readFileSync('/tmp/status.json', 'utf8'));
-          const retailers = Array.isArray(payload?.state?.retailers) ? payload.state.retailers : [];
-          const selected = retailers.map((r) => ({
-            id: r.id,
-            name: r.name,
-            healthy: r.healthy,
-            stale: r.stale,
-            lastScanAt: r.lastScanAt,
-            lastSuccessAt: r.lastSuccessAt,
-            failureCode: r.failureCode,
-            lastError: r.lastError,
-            baselineCompleted: r.baselineCompleted,
-            registryState: r.registryState,
-          }));
-          console.log('FATEDROP_RETAILERS=' + JSON.stringify({ monitor: payload.monitor, retailers: selected }));
+          const base = 'https://fatedrop-cloud-production.up.railway.app/api/catalogue';
+          let cursor = null;
+          let pages = 0;
+          const products = [];
+          while (pages < 100) {
+            const url = new URL(base);
+            url.searchParams.set('tcg', 'pokemon');
+            url.searchParams.set('sort', 'recent');
+            url.searchParams.set('limit', '100');
+            if (cursor) url.searchParams.set('cursor', cursor);
+            const response = await fetch(url, { headers: { accept: 'application/json' } });
+            if (!response.ok) throw new Error(`catalogue_http_${response.status}`);
+            const body = await response.json();
+            if (!body?.success) throw new Error('catalogue_unavailable');
+            products.push(...(Array.isArray(body.products) ? body.products : []));
+            pages += 1;
+            cursor = body.nextCursor || null;
+            if (!cursor) break;
+          }
+          const byRetailer = new Map();
+          for (const product of products) {
+            const id = product.retailerKey || product.retailer || 'unknown';
+            const row = byRetailer.get(id) || { retailerId: id, retailerName: product.retailer || id, offers: 0, inStock: 0, latestLastSeen: null };
+            row.offers += 1;
+            if (product.availability === 'IN_STOCK') row.inStock += 1;
+            const lastSeen = product.lastSeen || null;
+            if (lastSeen && (!row.latestLastSeen || lastSeen > row.latestLastSeen)) row.latestLastSeen = lastSeen;
+            byRetailer.set(id, row);
+          }
+          console.log('FATEDROP_CATALOGUE=' + JSON.stringify({ pages, offers: products.length, retailers: [...byRetailer.values()].sort((a,b) => String(b.latestLastSeen||'').localeCompare(String(a.latestLastSeen||''))) }));
           NODE
