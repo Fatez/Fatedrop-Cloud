@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Fetch live Entertainer Pokemon allocation page
+      - name: Extract embedded Entertainer Mega allocation data
         shell: bash
         run: |
           set -euo pipefail
@@ -20,26 +20,25 @@ jobs:
           const html = await response.text();
           console.log(JSON.stringify({status: response.status, finalUrl: response.url, bytes: html.length, fetchedAt: new Date().toISOString()}));
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const text = html
-            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-            .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-            .replace(/<[^>]+>/g, '\n')
-            .replace(/&amp;/g, '&')
-            .replace(/&#8211;|&ndash;/g, '–')
-            .replace(/&#8217;|&rsquo;/g, '’')
-            .replace(/&nbsp;/g, ' ')
-            .replace(/\r/g, '')
-            .split('\n').map(v => v.trim()).filter(Boolean);
-          const markers = [
-            'Pokémon TCG: Mega Evolution - Ascended Heroes 2 Pack Blister',
-            'Pokémon TCG: Mega Forces Tin (Styles Vary)',
+          const probes = [
+            /ascended.{0,2500}/gi,
+            /mega\s+forces.{0,2500}/gi,
+            /mega.{0,1200}/gi,
+            /pokemon-at-the-entertainer.{0,1200}/gi,
           ];
-          for (let m = 0; m < markers.length; m += 1) {
-            const start = text.findIndex(v => v.includes(markers[m]));
-            const endMarker = markers[m + 1];
-            const end = endMarker ? text.findIndex((v, i) => i > start && v.includes(endMarker)) : text.findIndex((v, i) => i > start && v.includes('Shop LEGO Pokémon'));
-            if (start < 0) throw new Error(`Missing marker: ${markers[m]}`);
-            const slice = text.slice(start, end > start ? end : start + 500);
-            console.log(`SECTION_${m + 1}=` + JSON.stringify(slice));
+          let hits = 0;
+          for (const pattern of probes) {
+            const values = [...new Set(html.match(pattern) || [])].slice(0, 30);
+            hits += values.length;
+            console.log(`PATTERN_${pattern}=` + JSON.stringify(values));
           }
+          const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map(m => m[1]).filter(Boolean);
+          console.log('SCRIPT_COUNT=' + scripts.length);
+          for (let i = 0; i < scripts.length; i += 1) {
+            if (/ascended|mega\s+forces|pokemon-at-the-entertainer/i.test(scripts[i])) {
+              console.log(`SCRIPT_${i}=` + JSON.stringify(scripts[i].slice(0, 30000)));
+              hits += 1;
+            }
+          }
+          if (!hits) throw new Error('No Mega allocation evidence found in live response');
           NODE
