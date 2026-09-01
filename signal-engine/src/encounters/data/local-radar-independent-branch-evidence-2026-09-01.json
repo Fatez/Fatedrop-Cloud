@@ -1,1 +1,33 @@
-__PLACEHOLDER__
+{
+  "version": "2026-09-01",
+  "generatedAt": null,
+  "generatedFrom": {
+    "sourceMode": "empty_fail_closed_scaffold"
+  },
+  "policy": {
+    "purpose": "branch_identity_corroboration_only",
+    "providerDiscoveryAloneCanonical": false,
+    "productionDatabaseTouched": false,
+    "stockStatus": "UNKNOWN",
+    "stockClaim": false,
+    "echoAuthorityCreated": false,
+    "runtimeLegacyCoordinateDriftMiles": 0.05
+  },
+  "counts": {
+    "discoveryOnlyCandidates": 0,
+    "canonicalParents": 0,
+    "duplicateLegacyRows": 0,
+    "matchedLegacyRows": 0,
+    "exactConflict": 0,
+    "ambiguousReview": 0,
+    "unmatched": 0
+  },
+  "masterCoverageByRetailer": [],
+  "parents": [],
+  "duplicates": [],
+  "review": {
+    "exactConflict": [],
+    "ambiguousReview": [],
+    "unmatched": []
+  }
+}
