@@ -1,0 +1,210 @@
+name: Apply Starvation Diagnostics V3
+
+on:
+  push:
+    branches:
+      - fix/retailer-recovery-signal-starvation-v3-2026-09-01
+    paths:
+      - ".github/workflows/apply-starvation-diagnostics-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/retailer-recovery-signal-starvation-v3-2026-09-01
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Add starvation diagnostics and watchdog
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('signal-engine/src/telemetry/signal-health-summary.mjs')
+          s = p.read_text()
+          marker = 'function discoveryDiagnostics(discoveryRows = []) {'
+          if marker not in s:
+              raise SystemExit('discovery diagnostics marker missing')
+          if 'function signalStarvationDiagnostics(' not in s:
+              s = s.replace(marker, '''function signalStarvationDiagnostics({ reliability = {}, monitors = {}, now }) {
+            const latestSignalAt = reliability.latestSignalAt == null ? null : Number(reliability.latestSignalAt);
+            const signalAgeSeconds = Number.isFinite(latestSignalAt) ? Math.max(0, now - latestSignalAt) : null;
+            const activeRetailers = Number(monitors.activeRetailers || 0);
+            const freshRetailers = Number(monitors.freshRetailers || 0);
+            const blockedRetailers = Number(monitors.blockedRetailers || 0);
+            const recentSignals = Number(reliability.recentSignals || 0);
+            const coverageHealthy = freshRetailers >= Math.max(10, Math.ceil(activeRetailers * 0.5));
+            let status = 'ok';
+            let reason = null;
+            if (coverageHealthy && signalAgeSeconds != null && signalAgeSeconds >= 12 * 60 * 60) {
+              status = 'critical';
+              reason = 'no_signal_for_12h_with_fresh_retailers';
+            } else if (coverageHealthy && signalAgeSeconds != null && signalAgeSeconds >= 6 * 60 * 60) {
+              status = 'warning';
+              reason = 'no_signal_for_6h_with_fresh_retailers';
+            } else if (coverageHealthy && latestSignalAt == null && recentSignals === 0) {
+              status = 'warning';
+              reason = 'no_recent_signal_history_with_fresh_retailers';
+            } else if (blockedRetailers >= 6) {
+              status = 'warning';
+              reason = 'high_retailer_blockage';
+            }
+            return { status, reason, signalAgeSeconds, recentSignals, activeRetailers, freshRetailers, blockedRetailers, coverageHealthy };
+          }
+
+          ''' + marker, 1)
+          old = '  return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }), monitors: monitorDiagnostics(monitorRows), discovery: discoveryDiagnostics(discoveryRows), identityFacets: buildIdentityFacetAudit(identityFacetRows) } };'
+          if old not in s:
+              raise SystemExit('health summary return marker missing')
+          s = s.replace(old, '''  const reliability = reliabilityDiagnostics({ orphanRows, freshnessRows, now });
+            const monitors = monitorDiagnostics(monitorRows);
+            const signalStarvation = signalStarvationDiagnostics({ reliability, monitors, now });
+            return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability, monitors, signalStarvation, discovery: discoveryDiagnostics(discoveryRows), identityFacets: buildIdentityFacetAudit(identityFacetRows) } };''', 1)
+          p.write_text(s)
+
+          p = Path('signal-engine/src/telemetry/public-signal-contract.mjs')
+          s = p.read_text()
+          marker = '  const discovery = diagnostics.discovery || {};\n'
+          if marker not in s:
+              raise SystemExit('public diagnostics discovery marker missing')
+          if 'const signalStarvation = diagnostics.signalStarvation || {};' not in s:
+              s = s.replace(marker, marker + '  const signalStarvation = diagnostics.signalStarvation || {};\n', 1)
+          marker = '    discordLatency: {\n'
+          if marker not in s:
+              raise SystemExit('public diagnostics latency marker missing')
+          if '    signalStarvation: {' not in s:
+              s = s.replace(marker, '''    signalStarvation: {
+                status: typeof signalStarvation.status === 'string' ? signalStarvation.status : 'unknown',
+                reason: typeof signalStarvation.reason === 'string' ? signalStarvation.reason : null,
+                signalAgeSeconds: safeNullableNumber(signalStarvation.signalAgeSeconds),
+                recentSignals: safeCount(signalStarvation.recentSignals),
+                activeRetailers: safeCount(signalStarvation.activeRetailers),
+                freshRetailers: safeCount(signalStarvation.freshRetailers),
+                blockedRetailers: safeCount(signalStarvation.blockedRetailers),
+                coverageHealthy: signalStarvation.coverageHealthy === true,
+              },
+          ''' + marker, 1)
+          p.write_text(s)
+
+          Path('signal-engine/tests/signal-starvation.test.mjs').write_text('''import test from "node:test";
+          import assert from "node:assert/strict";
+          import { buildSignalHealthSummary } from "../src/telemetry/signal-health-summary.mjs";
+          function freshRetailers(count) { return Array.from({ length: count }, (_, index) => ({ id: `retailer-${index}`, healthy: true, stale: false, lastSuccessAt: 1_999_000, registryState: "monitored" })); }
+          test("signal starvation becomes critical after twelve hours while coverage remains fresh", () => {
+            const now = 2_000_000;
+            const summary = buildSignalHealthSummary({ now, monitorRows: freshRetailers(18), freshnessRows: [{ latest_signal_at: now - (13 * 60 * 60), latest_discord_attempt_at: now - (13 * 60 * 60), recent_signals: 2, recent_discord_attempts: 2 }] });
+            assert.equal(summary.diagnostics.signalStarvation.status, "critical");
+            assert.equal(summary.diagnostics.signalStarvation.reason, "no_signal_for_12h_with_fresh_retailers");
+            assert.equal(summary.diagnostics.signalStarvation.coverageHealthy, true);
+          });
+          test("signal starvation stays ok while recent flow exists", () => {
+            const now = 2_000_000;
+            const summary = buildSignalHealthSummary({ now, monitorRows: freshRetailers(18), freshnessRows: [{ latest_signal_at: now - 7200, latest_discord_attempt_at: now - 7200, recent_signals: 12, recent_discord_attempts: 12 }] });
+            assert.equal(summary.diagnostics.signalStarvation.status, "ok");
+          });
+          ''')
+
+          Path('.github/workflows/monitor-signal-starvation-production.yml').write_text('''name: Monitor FateDrop Signal Starvation
+
+          on:
+            schedule:
+              - cron: "*/15 * * * *"
+            workflow_dispatch:
+            push:
+              branches: [main]
+              paths:
+                - "signal-engine/src/telemetry/signal-health-summary.mjs"
+                - "signal-engine/src/telemetry/public-signal-contract.mjs"
+                - ".github/workflows/monitor-signal-starvation-production.yml"
+
+          permissions:
+            contents: read
+            issues: write
+
+          jobs:
+            starvation:
+              runs-on: ubuntu-latest
+              timeout-minutes: 5
+              steps:
+                - name: Inspect live signal health
+                  id: health
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    curl --fail --silent --show-error --max-time 20 -H "Accept: application/json" "https://fatedrop-cloud-production.up.railway.app/api/signal-summary?days=7" -o /tmp/signal-summary.json
+                    node <<'NODE'
+                    const fs = require('fs');
+                    const payload = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
+                    const d = payload?.diagnostics || {};
+                    const m = d.monitors || {};
+                    const r = d.reliability || {};
+                    const reported = d.signalStarvation || {};
+                    const now = Math.floor(Date.now() / 1000);
+                    const latest = Number(r.latestSignalAt);
+                    const age = Number.isFinite(Number(reported.signalAgeSeconds)) ? Number(reported.signalAgeSeconds) : (Number.isFinite(latest) ? Math.max(0, now - latest) : null);
+                    const fresh = Number(m.freshRetailers || 0), active = Number(m.activeRetailers || 0), blocked = Number(m.blockedRetailers || 0);
+                    const coverage = reported.coverageHealthy === true || fresh >= Math.max(10, Math.ceil(active * 0.5));
+                    let severity = ['ok','warning','critical'].includes(reported.status) ? reported.status : 'ok';
+                    let reason = reported.reason || null;
+                    if (severity === 'ok' && coverage && age != null && age >= 43200) { severity = 'critical'; reason = 'no_signal_for_12h_with_fresh_retailers'; }
+                    else if (severity === 'ok' && coverage && age != null && age >= 21600) { severity = 'warning'; reason = 'no_signal_for_6h_with_fresh_retailers'; }
+                    else if (severity === 'ok' && blocked >= 6) { severity = 'warning'; reason = 'high_retailer_blockage'; }
+                    fs.appendFileSync(process.env.GITHUB_OUTPUT, `severity=${severity}\nreason=${reason || ''}\nage=${age ?? ''}\nfresh=${fresh}\nactive=${active}\nblocked=${blocked}\nrecent=${Number(r.recentSignals || 0)}\n`);
+                    console.log(JSON.stringify({ severity, reason, signalAgeSeconds: age, fresh, active, blocked, recentSignals: Number(r.recentSignals || 0) }));
+                    NODE
+                - name: Open or close starvation incident
+                  env:
+                    GH_TOKEN: ${{ github.token }}
+                    SEVERITY: ${{ steps.health.outputs.severity }}
+                    REASON: ${{ steps.health.outputs.reason }}
+                    AGE: ${{ steps.health.outputs.age }}
+                    FRESH: ${{ steps.health.outputs.fresh }}
+                    ACTIVE: ${{ steps.health.outputs.active }}
+                    BLOCKED: ${{ steps.health.outputs.blocked }}
+                    RECENT: ${{ steps.health.outputs.recent }}
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    title="[P0] FateDrop production signal starvation"
+                    existing="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+                    if [ "$SEVERITY" = "ok" ]; then
+                      if [ -n "$existing" ]; then gh issue close "$existing" --repo "$GITHUB_REPOSITORY" --comment "Production signal flow recovered: $FRESH/$ACTIVE fresh, $BLOCKED blocked, $RECENT recent signals."; fi
+                      exit 0
+                    fi
+                    body="Severity: **$SEVERITY**\n\nReason: \`$REASON\`\nSignal age: ${AGE:-unknown}s\nFresh retailers: $FRESH/$ACTIVE\nBlocked retailers: $BLOCKED\nRecent signals (24h): $RECENT\n\nUpstream monitoring/discovery incident. Do not weaken canonical truth rules to clear it."
+                    if [ -n "$existing" ]; then gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"; else gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"; fi
+                    if [ "$SEVERITY" = "critical" ]; then exit 1; fi
+          ''')
+
+          Path('.github/workflows/apply-starvation-diagnostics-v3.yml').unlink()
+          PY
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Focused starvation test
+        working-directory: signal-engine
+        run: node --test tests/signal-starvation.test.mjs
+      - name: Full Signal Engine tests
+        working-directory: signal-engine
+        run: npm test
+      - name: Commit proven starvation layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "FateDrop Recovery Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Add production signal starvation diagnostics"
+          git push origin HEAD:fix/retailer-recovery-signal-starvation-v3-2026-09-01
