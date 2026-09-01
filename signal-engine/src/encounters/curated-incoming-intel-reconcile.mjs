@@ -7,7 +7,7 @@ import { isEchoEligibleLocation } from "./local-radar-location-policy.mjs";
 const ENTERTAINER_POKEMON_PAGE = "https://www.thetoyshop.com/pokemon-at-the-entertainer";
 
 // Human-curated from a current official retailer page. This is preparation evidence only.
-// It expires automatically and cannot create Local Manifested.
+// It expires automatically and cannot create Local Manifested or Vanished.
 export const CURATED_INCOMING_INTEL = Object.freeze([
   Object.freeze({
     id: "entertainer-mega-forces-tin-2026-08-28",
@@ -109,6 +109,18 @@ function branchName(location = {}) {
   return text(location.name) || "Retailer branch";
 }
 
+function echoEvidence(entry) {
+  return {
+    sourceType: entry.sourceType,
+    exactBranch: true,
+    chainWide: false,
+    explicitTcgRelevance: entry.explicitTcgRelevance === true,
+    rawProductTitle: entry.rawProductTitle,
+    productRelevant: Boolean(text(entry.rawProductTitle)),
+    expiresAt: entry.expiresAt,
+  };
+}
+
 function asObservation(entry, target, location) {
   return {
     kind: entry.kind,
@@ -134,6 +146,8 @@ function asObservation(entry, target, location) {
       note: entry.note,
       targetBranch: target,
       matchedBranchName: branchName(location),
+      exactBranch: true,
+      chainWide: false,
       explicitTcgRelevance: entry.explicitTcgRelevance === true,
       availabilityVerified: false,
     },
@@ -168,11 +182,7 @@ async function collectCuratedIncomingIntelMatches({ store, entries, now }) {
         unmatchedTargets.push({ entryId: entry.id, target, reason: "branch_identity_missing", matches: 1 });
         continue;
       }
-      if (entry.kind === "echo" && !isEchoEligibleLocation(location, {
-        sourceType: entry.sourceType,
-        exactBranch: true,
-        explicitTcgRelevance: entry.explicitTcgRelevance === true,
-      })) {
+      if (entry.kind === "echo" && !isEchoEligibleLocation(location, echoEvidence(entry), now)) {
         unmatchedTargets.push({ entryId: entry.id, target, reason: "location_not_echo_eligible", matches: 1 });
         continue;
       }
@@ -225,6 +235,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets: matched.unmatchedTargets,
-    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only; Echo additionally requires explicit TCG relevance at an exact public-eligible branch, and none of this can create Local Manifested without separate exact-branch verified availability evidence.",
+    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only; Echo requires an exact public-visible branch, relevant product evidence, an authoritative branch-specific source, and unexpired campaign evidence. Expiry removes Echo authority only and can never create Local Vanished or Manifested.",
   };
 }
