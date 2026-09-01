@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { env } from "../config/env.mjs";
 import { deriveAlertFacets } from "../core/alert-facets.mjs";
+import { canEmitTcgLifecycleAlerts, requireKnownTcg } from "../trader/tcg-registry.mjs";
 import { operatorLocalRadarBridgeConfig, probeOperatorLocalRadarBridge } from "./operator-local-radar-bridge-health.mjs";
 import {
   inspectCuratedIncomingIntelTargets,
@@ -15,6 +16,9 @@ const ECHO_ISSUE_PREFIX = "[FATEDROP ECHO]";
 const TEST_ISSUE_TITLE = "[FATEDROP LOCAL RADAR] TEST ONLY";
 const POLL_INTERVAL_MS = 120_000;
 const POLL_START_DELAY_MS = 20_000;
+const GITHUB_ISSUES_URL = `https://api.github.com/repos/${OPERATOR_REPOSITORY}/issues?state=open&per_page=100&sort=created&direction=desc`;
+const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
+const GITHUB_RETRYABLE_ATTEMPTS = 2;
 const STRONG_ECHO_SOURCES = new Set([
   "official_retailer_page",
   "official_store_social",
@@ -71,6 +75,51 @@ function issueFingerprint(issue) {
     .digest("hex");
 }
 
+export function operatorGithubConfig() {
+  const token = text(process.env.FATEDROP_GITHUB_OPERATOR_TOKEN, 1000);
+  return {
+    token,
+    authenticated: Boolean(token),
+    required: String(process.env.RAILWAY_ENVIRONMENT_NAME || "").trim().toLowerCase() === "production",
+  };
+}
+
+function githubRequestHeaders(token) {
+  return {
+    Accept: "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+    "User-Agent": "FateDrop-Local-Radar-Operator/1.0",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function githubHttpError(response) {
+  const remaining = response?.headers?.get?.("x-ratelimit-remaining");
+  const code = (response?.status === 429 || (response?.status === 403 && remaining === "0"))
+    ? "github_rate_limited"
+    : `github_http_${Number(response?.status) || 0}`;
+  const error = new Error(code);
+  error.code = code;
+  error.status = Number(response?.status) || null;
+  return error;
+}
+
+function operatorPollErrorCode(error) {
+  const explicit = text(error?.code, 80);
+  if (explicit && /^(github_(?:auth_missing|rate_limited|request_failed|timeout|invalid_payload)|github_http_[1-5][0-9]{2})$/.test(explicit)) {
+    return explicit;
+  }
+  if (error?.name === "TimeoutError" || error?.name === "AbortError") return "github_timeout";
+  return "github_request_failed";
+}
+
+function retryableGithubFailure(error) {
+  return error?.code === "github_rate_limited"
+    || error?.code === "github_timeout"
+    || error?.code === "github_request_failed"
+    || /^github_http_5[0-9]{2}$/.test(String(error?.code || ""));
+}
+
 export function parseOperatorIssue(issue, now = Date.now()) {
   if (!issue || typeof issue !== "object") throw new Error("Operator issue is missing");
   if (issue.pull_request) throw new Error("Pull requests are not operator alerts");
@@ -98,6 +147,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const retailerId = text(payload.retailerId, 120);
   const retailerName = text(payload.retailerName, 120);
   const rawProductTitle = text(payload.rawProductTitle, 220);
+  const tcgCode = requireKnownTcg(text(payload.tcgCode, 80) || "pokemon").code;
   const targetBranches = stringList(payload.targetBranches, 100, 180);
   const availabilityScope = payload.availabilityScope === "online_retailer_readiness"
     ? "online_retailer_readiness"
@@ -116,6 +166,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
   if (!retailerId || !retailerName) throw new Error("retailerId and retailerName are required");
   if (!rawProductTitle) throw new Error("rawProductTitle is required");
+  if (!canEmitTcgLifecycleAlerts(tcgCode)) throw new Error(`Public lifecycle alerts are disabled for TCG: ${tcgCode}`);
   if (availabilityScope === "physical_branch" && !targetBranches.length) throw new Error("At least one named target branch is required before a Local Radar broadcast");
   if (availabilityScope === "online_retailer_readiness" && !sourceUrl && !text(payload.evidenceBasis, 700)) throw new Error("Online readiness Echo requires a source URL or evidence basis");
   if (!expectedFrom && !expectedTo && !expectedLabel) throw new Error("An expected date/window is required");
@@ -152,6 +203,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
     entry: {
       id: testOnly ? `operator-local-radar-test-${issueNumber}` : `operator-local-radar-${issueNumber}`,
       retailerId,
+      tcgCode,
       kind,
       availabilityScope,
       physicalEvidenceState,
@@ -195,6 +247,7 @@ export function buildOperatorNotification(parsed, reconciliation) {
       title: "FateDrop · Local Radar · TEST ONLY",
       body: `TEST ONLY · Operator transport verification matched ${branchCount} canonical ${parsed.retailerName} ${storeWord}. No stock or Local Radar history has been created.`,
       retailerId: parsed.entry.retailerId,
+      tcgCode: parsed.entry.tcgCode,
       retailerName: parsed.retailerName,
       productTitle: parsed.entry.rawProductTitle,
       expectedFrom: parsed.entry.expectedFrom,
@@ -215,6 +268,7 @@ export function buildOperatorNotification(parsed, reconciliation) {
       title: "FateDrop · Echo · Be ready",
       body: `${parsed.entry.rawProductTitle} · ${parsed.entry.expectedLabel || "credible retailer movement observed"}. This is readiness evidence, not confirmed stock.`,
       retailerId: parsed.entry.retailerId,
+      tcgCode: parsed.entry.tcgCode,
       retailerName: parsed.retailerName,
       productTitle: parsed.entry.rawProductTitle,
       expectedFrom: parsed.entry.expectedFrom,
@@ -242,6 +296,7 @@ export function buildOperatorNotification(parsed, reconciliation) {
     title: "FateDrop · Big Fate Signal · Echo",
     body: `${parsed.entry.rawProductTitle} has ${parsed.physicalEvidenceState === "reported" ? "reported movement" : "expected allocation"} at ${branchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Physical availability is not confirmed.`,
     retailerId: parsed.entry.retailerId,
+    tcgCode: parsed.entry.tcgCode,
     retailerName: parsed.retailerName,
     productTitle: parsed.entry.rawProductTitle,
     expectedFrom: parsed.entry.expectedFrom,
@@ -254,6 +309,57 @@ export function buildOperatorNotification(parsed, reconciliation) {
     operatorIssue: parsed.issueNumber,
     ...facetPayload,
   };
+}
+
+function operatorReadinessEvent(parsed) {
+  const occurredAt = Math.floor(Date.parse(parsed.entry.observedAt) / 1000);
+  return {
+    id: parsed.eventId,
+    kind: "operator_retailer_readiness",
+    occurredAt,
+    evidence: {
+      schemaVersion: 1,
+      stage: "echo",
+      signalKind: "operator_readiness",
+      availabilityScope: "online_retailer_readiness",
+      availabilityVerified: false,
+      operatorIssue: parsed.issueNumber,
+      tcgCode: parsed.entry.tcgCode,
+      retailerId: parsed.entry.retailerId,
+      retailerName: parsed.retailerName,
+      productTitle: parsed.entry.rawProductTitle,
+      sourceType: parsed.entry.sourceType,
+      sourceUrl: parsed.entry.sourceUrl,
+      sourceLabel: parsed.entry.sourceLabel,
+      evidenceObservedAt: parsed.entry.observedAt,
+      expectedFrom: parsed.entry.expectedFrom,
+      expectedTo: parsed.entry.expectedTo,
+      expectedLabel: parsed.entry.expectedLabel,
+      expiresAt: parsed.entry.expiresAt,
+      confidence: parsed.entry.confidence,
+      evidenceBasis: parsed.entry.evidenceBasis,
+      note: parsed.entry.note,
+    },
+  };
+}
+
+async function persistOperatorReadinessEvent(store, parsed) {
+  if (!store) throw new Error("Online readiness Echo requires the canonical store");
+  const event = operatorReadinessEvent(parsed);
+  if (typeof store.appendSignalEvent === "function") {
+    await store.appendSignalEvent(event);
+    return { persisted: true, event };
+  }
+  if (typeof store.pool !== "function") throw new Error("Online readiness Echo persistence is unavailable");
+  const pool = await store.pool();
+  const result = await pool.query(
+    `INSERT INTO fatedrop_signal_events
+      (id,kind,product_identity_id,offer_id,retailer_id,location_id,occurred_at,evidence_json)
+     VALUES ($1,$2,NULL,NULL,NULL,NULL,$3,$4::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
+    [event.id, event.kind, event.occurredAt, JSON.stringify(event.evidence)],
+  );
+  return { persisted: true, inserted: result.rowCount === 1, event };
 }
 
 export async function publishOperatorNotification(notification, fetchImpl = fetch) {
@@ -286,6 +392,7 @@ export async function publishOperatorNotification(notification, fetchImpl = fetc
 export async function processOperatorIssue({ issue, store, fetchImpl = fetch, now = Date.now() }) {
   const parsed = parseOperatorIssue(issue, now);
   if (parsed.availabilityScope === "online_retailer_readiness") {
+    const readinessEvent = await persistOperatorReadinessEvent(store, parsed);
     const notification = buildOperatorNotification(parsed, { matchedBranches: 0, unmatchedTargets: [] });
     const push = await publishOperatorNotification(notification, fetchImpl);
     return {
@@ -294,6 +401,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
       eventId: parsed.eventId,
       matchedBranches: 0,
       expectedBranches: 0,
+      readinessEvent,
       push,
       truthRule: "Authorised manual retailer-readiness movement is Echo only. It does not write physical stock, create Manifested, or claim purchasable availability.",
     };
@@ -337,16 +445,35 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
   };
 }
 
-export async function listOperatorIssues(fetchImpl = fetch) {
-  const response = await fetchImpl(`https://api.github.com/repos/${OPERATOR_REPOSITORY}/issues?state=open&per_page=100&sort=created&direction=desc`, {
-    headers: {
-      Accept: "application/vnd.github+json",
-      "User-Agent": "FateDrop-Local-Radar-Operator/1.0",
-    },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) throw new Error(`GitHub operator intake HTTP ${response.status}`);
-  const issues = await response.json();
+export async function listOperatorIssues(fetchImpl = fetch, config = operatorGithubConfig()) {
+  if (config.required && !config.authenticated) {
+    const error = new Error("github_auth_missing");
+    error.code = "github_auth_missing";
+    throw error;
+  }
+  let response = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= GITHUB_RETRYABLE_ATTEMPTS; attempt += 1) {
+    try {
+      response = await fetchImpl(GITHUB_ISSUES_URL, {
+        headers: githubRequestHeaders(config.token),
+        signal: AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS),
+      });
+      if (response.ok) break;
+      throw githubHttpError(response);
+    } catch (error) {
+      const code = operatorPollErrorCode(error);
+      lastError = Object.assign(new Error(code), { code });
+      if (attempt >= GITHUB_RETRYABLE_ATTEMPTS || !retryableGithubFailure(lastError)) throw lastError;
+    }
+  }
+  if (!response?.ok) throw lastError || Object.assign(new Error("github_request_failed"), { code: "github_request_failed" });
+  const issues = await response.json().catch(() => null);
+  if (!Array.isArray(issues)) {
+    const error = new Error("github_invalid_payload");
+    error.code = "github_invalid_payload";
+    throw error;
+  }
   return Array.isArray(issues)
     ? issues.filter((issue) => !issue?.pull_request && issue?.state === "open" && issue?.user?.login === OPERATOR_LOGIN && [ISSUE_PREFIX, ECHO_ISSUE_PREFIX].some((prefix) => String(issue?.title || "").startsWith(prefix)))
     : [];
@@ -370,12 +497,14 @@ const operatorHealth = {
 
 export function getOperatorLocalRadarHealth() {
   const bridgeConfig = operatorLocalRadarBridgeConfig();
+  const githubConfig = operatorGithubConfig();
   return {
     ...operatorHealth,
     intervalSeconds: Math.floor(POLL_INTERVAL_MS / 1000),
     startDelaySeconds: Math.floor(POLL_START_DELAY_MS / 1000),
     canonicalStoreConfigured: Boolean(env.databaseUrl && env.store === "postgres"),
     webBridgeConfigured: bridgeConfig.configured,
+    githubAuthenticated: githubConfig.authenticated,
   };
 }
 
@@ -421,9 +550,9 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
     operatorHealth.held = 0;
     operatorHealth.retry = 0;
     operatorHealth.invalid = 0;
-    operatorHealth.lastErrorCode = "poll_failed";
-    console.error("[signal-engine] Local Radar operator intake failed", { error: String(error?.message || error) });
-    return { status: "failed", error: String(error?.message || error) };
+    operatorHealth.lastErrorCode = operatorPollErrorCode(error);
+    console.error("[signal-engine] Local Radar operator intake failed", { errorCode: operatorHealth.lastErrorCode });
+    return { status: "failed", errorCode: operatorHealth.lastErrorCode };
   } finally {
     polling = false;
   }

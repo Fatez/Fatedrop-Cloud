@@ -50,6 +50,17 @@ function jsonArray(value) {
   }
 }
 
+function jsonObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function evidenceValue(value, kind) {
   const entry = jsonArray(value).find((candidate) => candidate?.kind === kind);
   if (entry?.value == null) return null;
@@ -471,6 +482,168 @@ function toCanonicalAlert(row) {
   };
 }
 
+function toOperatorReadinessAlert(row) {
+  const evidence = jsonObject(row.evidence_json);
+  const tcgCode = nullableText(evidence.tcgCode);
+  const retailerId = nullableText(evidence.retailerId);
+  const retailerName = nullableText(evidence.retailerName);
+  const productTitle = nullableText(evidence.productTitle);
+  const sourceUrl = nullableText(evidence.sourceUrl) || '';
+  const occurredAt = nullableNumber(row.occurred_at);
+  if (Number(evidence.schemaVersion) !== 1
+    || evidence.stage !== 'echo'
+    || evidence.signalKind !== 'operator_readiness'
+    || evidence.availabilityScope !== 'online_retailer_readiness'
+    || evidence.availabilityVerified !== false
+    || !tcgCode || !retailerId || !retailerName || !productTitle
+    || occurredAt == null || occurredAt <= 0) return null;
+
+  const id = nullableText(row.id);
+  if (!id) return null;
+  const detectedAt = isoTimestamp(occurredAt);
+  const confidence = Math.max(0, Math.min(0.8, nullableNumber(evidence.confidence) ?? 0.68));
+  const expectedLabel = nullableText(evidence.expectedLabel) || 'credible retailer movement observed';
+  // The durable event retains full operator provenance for audit, but the public
+  // alert projection must not reveal private human-source notes or labels.
+  const reason = 'Reviewed retailer-readiness movement was reported. This is readiness evidence, not confirmed stock.';
+  const facets = deriveAlertFacets({ title: productTitle, retailerCountryCode: 'GB' });
+  const productRow = { title: productTitle, product_type: 'other', evidence: [] };
+  const productIntelligence = classifyProduct(productRow);
+  const productId = `operator-readiness:${tcgCode}:${id}`;
+  const offerId = `operator-readiness:${retailerId}`;
+  const primary = {
+    offerId,
+    retailerId,
+    retailer: retailerName,
+    url: sourceUrl,
+    itemPricePence: null,
+    deliveredPricePence: null,
+    stockStatus: null,
+    intent: 'inspect',
+    label: 'VIEW READINESS EVIDENCE',
+  };
+  const body = `${productTitle} · ${expectedLabel}. This is readiness evidence, not confirmed stock.`;
+  return {
+    id,
+    tcgCode,
+    type: 'ECHO',
+    fateStage: 'ECHO',
+    productId,
+    offerId,
+    retailerId,
+    title: productTitle,
+    message: reason,
+    signalKind: 'operator_readiness',
+    // The dedicated operator bridge owns the one interrupt delivery. Keeping the
+    // history projection inbox-only prevents canonical push recovery duplicating it.
+    deliveryPolicy: 'inbox_only',
+    interruptEligible: false,
+    facets,
+    retailer: retailerName,
+    detectedAt,
+    observedDurationSeconds: null,
+    liveWindow: null,
+    stockEpisode: null,
+    opportunity: {
+      eventKind: 'retailer_behaviour_changed',
+      current: false,
+      currentViewKind: null,
+      firstManifestedAt: null,
+      lastVerifiedAt: null,
+    },
+    availabilityTruth: {
+      signalEffect: 'none',
+      signalClaimsAvailability: false,
+      currentEpisodeState: null,
+      canonicalSourceStage: null,
+    },
+    productIntelligence,
+    confirmed: false,
+    confirmedRestock: false,
+    productUrl: sourceUrl,
+    product: {
+      tcgCode,
+      title: productTitle,
+      productType: 'other',
+      url: sourceUrl,
+      imageUrl: null,
+      pricePence: null,
+      rrpPence: null,
+      deliveredPricePence: null,
+      stockStatus: null,
+    },
+    presentation: {
+      referenceKind: null,
+      referenceBasis: null,
+      sourceMarket: null,
+      sourceCurrency: null,
+      sourceMsrp: null,
+    },
+    delivery: { discord: null },
+    priceIntelligence: {
+      rrpPence: null,
+      rrpDeltaPercent: null,
+      comparisonBasis: 'item',
+      verdict: 'NO_FAIR_COMPARISON',
+      currentComparisonPence: null,
+      lowestKnown: null,
+      savingsPence: null,
+      savingsPercent: null,
+    },
+    signalThread: [{
+      id,
+      state: 'echo',
+      fateStage: 'ECHO',
+      retailer: retailerName,
+      occurredAt: detectedAt,
+      reason,
+      pricePence: null,
+      stockStatus: null,
+      previousStockStatus: null,
+      url: sourceUrl,
+    }],
+    preparedLinks: {
+      primary,
+      lowestKnown: null,
+      officialReference: null,
+      alternatives: [],
+      compareQuery: productTitle,
+      fateFindQuery: productTitle,
+    },
+    notification: {
+      title: 'FateDrop · Echo · Be ready',
+      body,
+      data: {
+        route: 'alerts',
+        alertId: id,
+        tcgCode,
+        productUrl: sourceUrl,
+        stage: 'ECHO',
+        verdict: 'NO_FAIR_COMPARISON',
+        lowestKnownUrl: null,
+        compareQuery: productTitle,
+        productCategory: productIntelligence.category,
+        signalKind: 'operator_readiness',
+        languageGroup: facets.languageGroup,
+        setKey: facets.setKey,
+        observedDurationSeconds: null,
+        linksPrepared: true,
+      },
+    },
+    confidence,
+    operatorIntelligence: {
+      availabilityScope: 'online_retailer_readiness',
+      availabilityVerified: false,
+      sourceType: nullableText(evidence.sourceType),
+      expectedFrom: nullableText(evidence.expectedFrom),
+      expectedTo: nullableText(evidence.expectedTo),
+      expectedLabel: nullableText(evidence.expectedLabel),
+      expiresAt: nullableText(evidence.expiresAt),
+      operatorIssue: nullableNumber(evidence.operatorIssue),
+    },
+  };
+}
+
 const ALERT_SQL = `
   SELECT
     s.id,s.state,s.product_id,s.offer_id,s.retailer_id,s.retailer_name,s.title,s.product_type,s.url,s.image_url,s.price_pence,
@@ -629,6 +802,16 @@ const ALERT_SQL = `
     s.detected_at DESC,s.id ASC
   LIMIT $3`;
 
+const OPERATOR_READINESS_SQL = `
+  SELECT id,occurred_at,evidence_json
+  FROM fatedrop_signal_events
+  WHERE kind='operator_retailer_readiness'
+    AND ($1::text IS NULL OR id=$1)
+    AND ($2::bigint IS NULL OR occurred_at >= $2)
+    AND ($3::bigint IS NULL OR occurred_at < $3 OR (occurred_at=$3 AND id>COALESCE($4::text,'')))
+  ORDER BY occurred_at DESC,id ASC
+  LIMIT $5`;
+
 export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, since = null, before = null, beforeId = null, currentOnly = false, limit = 50 } = {}) {
   if (!store || typeof store.pool !== 'function') return null;
   const pool = await store.pool();
@@ -642,9 +825,19 @@ export async function listCanonicalPublicAlerts(store, { id = null, state = null
   const safeSince = Number.isFinite(Number(since)) && Number(since) > 0 ? Math.trunc(Number(since)) : null;
   const safeBefore = Number.isFinite(Number(before)) && Number(before) > 0 ? Math.trunc(Number(before)) : null;
   const { rows } = await pool.query(ALERT_SQL, [id || null, safeStates, safeLimit, safeSince, safeBefore, safeBefore ? String(beforeId || '') : null, currentOnly === true]);
-  return rows
+  const canonicalAlerts = rows
     .filter((row) => PUBLIC_STAGES.has(String(row.state)))
     .map(toCanonicalAlert);
+  const includeOperatorReadiness = currentOnly !== true && (!safeStates || safeStates.includes('echo'));
+  const operatorAlerts = includeOperatorReadiness
+    ? (await pool.query(OPERATOR_READINESS_SQL, [id || null, safeSince, safeBefore, safeBefore ? String(beforeId || '') : null, safeLimit])).rows
+      .map(toOperatorReadinessAlert)
+      .filter(Boolean)
+    : [];
+  const byId = new Map([...canonicalAlerts, ...operatorAlerts].map((alert) => [alert.id, alert]));
+  return [...byId.values()]
+    .sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt) || left.id.localeCompare(right.id))
+    .slice(0, safeLimit);
 }
 
 export async function handlePublicAlerts(req, res, { store } = {}) {
