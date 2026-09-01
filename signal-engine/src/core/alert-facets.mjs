@@ -59,9 +59,12 @@ const ENGLISH_SET_FAMILIES = [
   ["obsidian-flames", "Obsidian Flames", ["obsidian flames"], "english"],
   ["paldea-evolved", "Paldea Evolved", ["paldea evolved"], "english"],
   ["pokemon-151", "Pokémon 151", ["pokemon 151", "scarlet and violet 151", "scarlet violet 151"], "multilingual"],
+  ["celebrations", "Celebrations", ["pokemon celebrations", "celebrations"], "multilingual", { seriesKey: "sword-shield", seriesName: "Sword & Shield" }],
   ["black-bolt", "Black Bolt", ["black bolt"], "multilingual"],
   ["white-flare", "White Flare", ["white flare"], "multilingual"],
-  ["mega-evolution", "Mega Evolution", ["mega evolution"], "english"],
+  ["mega-evolution", "Mega Evolution", ["mega evolution"], "unknown", { identityKind: "series", seriesKey: "mega-evolution", seriesName: "Mega Evolution" }],
+  ["ascended-heroes", "Ascended Heroes", ["ascended heroes"], "english", { seriesKey: "mega-evolution", seriesName: "Mega Evolution" }],
+  ["pitch-black", "Pitch Black", ["pitch black"], "english", { seriesKey: "mega-evolution", seriesName: "Mega Evolution" }],
   ["phantasmal-flames", "Phantasmal Flames", ["phantasmal flames"], "english"],
   ["perfect-order", "Perfect Order", ["perfect order"], "english"],
   ["chaos-rising", "Chaos Rising", ["chaos rising"], "english"],
@@ -88,6 +91,12 @@ const INTERNATIONAL_ALIAS_FAMILIES = [
   ["gem-4", "Gem Vol. 4", ["gem vol 4", "gem 4"], "unknown"],
   ["gem-5", "Gem Vol. 5", ["gem vol 5", "gem 5"], "unknown"],
   ["gem-6", "Gem Vol. 6", ["gem vol 6", "gem 6"], "unknown"],
+  ["time-gazer", "Time Gazer", ["time gazer s10d", "time gazer"], "multilingual", { seriesKey: "sword-shield", seriesName: "Sword & Shield" }],
+];
+
+const CANONICAL_PRODUCT_FAMILIES = [
+  ["mega-lucario-ex-league-battle-deck", "Mega Lucario ex League Battle Deck", ["mega lucario ex league battle deck"], "unknown", { identityKind: "battle_deck" }],
+  ["first-partner-illustration-collection-series-2", "First Partner Illustration Collection—Series 2", ["first partner illustration collection series 2"], "unknown", { identityKind: "special_collection" }],
 ];
 
 function languageScopeForMarket(market) {
@@ -109,6 +118,7 @@ function authoritySetFamilies() {
       titleCase(aliases[0]),
       aliases,
       languageScopeForMarket(authority.market),
+      { identityKind: "expansion" },
     ]];
   });
 }
@@ -125,10 +135,11 @@ const AUTHORITY_SET_FAMILIES = authoritySetFamilies();
 
 function buildSetRegistry() {
   const byKey = new Map();
-  for (const [key, name, aliases, languageScope = "unknown"] of [
+  for (const [key, name, aliases, languageScope = "unknown", metadata = {}] of [
     ...ENGLISH_SET_FAMILIES,
     ...INTERNATIONAL_ALIAS_FAMILIES,
     ...AUTHORITY_SET_FAMILIES,
+    ...CANONICAL_PRODUCT_FAMILIES,
   ]) {
     const safeKey = slug(key);
     if (!safeKey) continue;
@@ -138,9 +149,15 @@ function buildSetRegistry() {
       name: existing?.name || name,
       aliases: [...new Set([...(existing?.aliases || []), ...(aliases || []).map(fold)].filter(Boolean))],
       languageScope: mergeLanguageScopes(existing?.languageScope, languageScope),
+      identityKind: existing?.identityKind || metadata.identityKind || "expansion",
+      seriesKey: existing?.seriesKey || metadata.seriesKey || null,
+      seriesName: existing?.seriesName || metadata.seriesName || null,
     });
   }
   return [...byKey.values()].sort((left, right) => {
+    const leftBroad = left.identityKind === "series" ? 1 : 0;
+    const rightBroad = right.identityKind === "series" ? 1 : 0;
+    if (leftBroad !== rightBroad) return leftBroad - rightBroad;
     const longestLeft = Math.max(...left.aliases.map((alias) => alias.length));
     const longestRight = Math.max(...right.aliases.map((alias) => alias.length));
     return longestRight - longestLeft || left.name.localeCompare(right.name);
@@ -148,6 +165,7 @@ function buildSetRegistry() {
 }
 
 const SET_REGISTRY = Object.freeze(buildSetRegistry());
+const SET_REGISTRY_BY_KEY = new Map(SET_REGISTRY.map((entry) => [entry.key, entry]));
 
 function evidenceEntries(value) {
   if (Array.isArray(value)) return value;
@@ -183,6 +201,24 @@ function persistedFacets(entries) {
       market: typeof entry.marketSource === "string" ? entry.marketSource : "unknown",
       set: typeof entry.setSource === "string" ? entry.setSource : entry.setKey ? "persisted" : "unknown",
     },
+    canonicalIdentity: typeof entry.identityStatus === "string" ? {
+      status: entry.identityStatus,
+      kind: typeof entry.identityKind === "string" ? entry.identityKind : "unknown",
+      key: typeof entry.identityKey === "string" && entry.identityKey ? entry.identityKey : null,
+      name: typeof entry.identityName === "string" && entry.identityName ? entry.identityName : null,
+      seriesKey: typeof entry.identitySeriesKey === "string" && entry.identitySeriesKey ? entry.identitySeriesKey : null,
+      seriesName: typeof entry.identitySeriesName === "string" && entry.identitySeriesName ? entry.identitySeriesName : null,
+      languageScope: typeof entry.identityLanguageScope === "string" ? entry.identityLanguageScope : "unknown",
+      exactSet: entry.identityExactSet === true,
+      productType: typeof entry.identityProductType === "string" && entry.identityProductType ? entry.identityProductType : null,
+      productFamily: {
+        key: typeof entry.productFamilyKey === "string" && entry.productFamilyKey ? entry.productFamilyKey : null,
+        name: typeof entry.productFamilyName === "string" && entry.productFamilyName ? entry.productFamilyName : null,
+        kind: typeof entry.productFamilyKind === "string" ? entry.productFamilyKind : "unknown",
+      },
+      source: typeof entry.identitySource === "string" ? entry.identitySource : "persisted",
+      confidence: Number.isFinite(Number(entry.identityConfidence)) ? Number(entry.identityConfidence) : 0,
+    } : null,
   };
 }
 
@@ -228,22 +264,83 @@ function explicitTitleLanguage(title) {
   return { language: null, region: null };
 }
 
-function setFromTitle(title) {
+function productFamilyFromTitle(title, descriptor = {}) {
   const normalized = fold(title);
-  if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
+  if (/\bbuild and battle\b/.test(normalized)) return { key: "build-and-battle", name: "Build & Battle", kind: "build_and_battle" };
+  if (/\bleague battle deck\b/.test(normalized)) return { key: "league-battle-deck", name: "League Battle Deck", kind: "battle_deck" };
+  if (/\bmini tin\b/.test(normalized) && (descriptor.unitKind === "case" || /\bcase\b/.test(normalized))) {
+    return { key: "mini-tin-case", name: "Mini Tin Case", kind: "tin_case_assortment" };
+  }
+  if (/\bmini tin\b/.test(normalized)) return { key: "mini-tin", name: "Mini Tin", kind: "tin" };
+  if (descriptor.unitKind === "case") return { key: "case-assortment", name: "Case Assortment", kind: "case_assortment" };
+  return descriptor.productType
+    ? { key: slug(descriptor.productType), name: titleCase(String(descriptor.productType).replaceAll("_", " ")), kind: "product_type" }
+    : { key: null, name: null, kind: "unknown" };
+}
+
+function unresolvedIdentity(descriptor, productFamily) {
+  return {
+    status: "unresolved",
+    kind: "unknown",
+    key: null,
+    name: null,
+    seriesKey: null,
+    seriesName: null,
+    languageScope: "unknown",
+    exactSet: false,
+    productType: descriptor.productType || null,
+    productFamily,
+  };
+}
+
+function setFromTitle(title, descriptor = describeProductIdentity({ title })) {
+  const normalized = fold(title);
+  const productFamily = productFamilyFromTitle(title, descriptor);
+  if (!normalized) {
+    return {
+      setKey: null,
+      setName: null,
+      confidence: 0,
+      source: "unknown",
+      languageScope: "unknown",
+      canonicalIdentity: unresolvedIdentity(descriptor, productFamily),
+    };
+  }
   const padded = ` ${normalized} `;
   for (const family of SET_REGISTRY) {
     const matched = family.aliases.find((alias) => padded.includes(` ${alias} `));
     if (!matched) continue;
+    const exactSet = family.identityKind === "expansion";
     return {
-      setKey: family.key,
-      setName: family.name,
-      confidence: 1,
-      source: `title_alias:${matched}`,
+      setKey: exactSet ? family.key : null,
+      setName: exactSet ? family.name : null,
+      confidence: exactSet ? 1 : 0,
+      source: exactSet ? `title_alias:${matched}` : "unknown",
       languageScope: family.languageScope || "unknown",
+      canonicalIdentity: {
+        status: family.identityKind === "series" ? "broad_family_only" : "resolved",
+        kind: family.identityKind,
+        key: family.key,
+        name: family.name,
+        seriesKey: family.seriesKey,
+        seriesName: family.seriesName,
+        languageScope: family.languageScope || "unknown",
+        exactSet,
+        productType: descriptor.productType || null,
+        productFamily,
+        source: `canonical_title_alias:${matched}`,
+        confidence: family.identityKind === "series" ? 0.7 : 1,
+      },
     };
   }
-  return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
+  return {
+    setKey: null,
+    setName: null,
+    confidence: 0,
+    source: "unknown",
+    languageScope: "unknown",
+    canonicalIdentity: unresolvedIdentity(descriptor, productFamily),
+  };
 }
 
 function canonicalSetLanguage(setFacet) {
@@ -306,17 +403,66 @@ function persistedMarketResolution(entries) {
   };
 }
 
+function identityFromPersistedSet(persisted, fallbackIdentity) {
+  if (persisted?.canonicalIdentity) return persisted.canonicalIdentity;
+  const registered = persisted?.setKey ? SET_REGISTRY_BY_KEY.get(persisted.setKey) : null;
+  if (!registered) return fallbackIdentity;
+  return {
+    status: registered.identityKind === "series" ? "broad_family_only" : "resolved",
+    kind: registered.identityKind,
+    key: registered.key,
+    name: registered.name,
+    seriesKey: registered.seriesKey,
+    seriesName: registered.seriesName,
+    languageScope: registered.languageScope || "unknown",
+    exactSet: registered.identityKind === "expansion",
+    productType: fallbackIdentity?.productType || null,
+    productFamily: fallbackIdentity?.productFamily || { key: null, name: null, kind: "unknown" },
+    source: `persisted_set:${persisted.source.set}`,
+    confidence: Number(persisted.confidence.set) || 0,
+  };
+}
+
+function conflictingIdentity(persisted, current) {
+  return {
+    status: "conflict",
+    kind: "conflict",
+    key: null,
+    name: null,
+    seriesKey: null,
+    seriesName: null,
+    languageScope: "unknown",
+    exactSet: false,
+    productType: current?.productType || null,
+    productFamily: current?.productFamily || { key: null, name: null, kind: "unknown" },
+    source: `canonical_identity_conflict:${persisted.setKey}:${current?.key || "unknown"}`,
+    confidence: 1,
+  };
+}
+
 export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [], marketResolution = null } = {}) {
   const entries = evidenceEntries(evidence);
   const persisted = persistedFacets(entries);
   const descriptor = describeProductIdentity({ title, language, region });
   const titleLanguage = explicitTitleLanguage(title);
-  const setFacet = setFromTitle(title);
+  const setFacet = setFromTitle(title, descriptor);
   const detectedLanguageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
   const languageFacet = resolveLanguageFacet(detectedLanguageFacet, setFacet);
   const setLanguage = canonicalSetLanguage(setFacet);
 
   if (persisted) {
+    const persistedRegistryEntry = persisted.setKey ? SET_REGISTRY_BY_KEY.get(persisted.setKey) : null;
+    const legacyBroadFamily = persistedRegistryEntry?.identityKind === "series"
+      && persisted.source.set.startsWith("title_alias:");
+    const setIdentityConflict = Boolean(
+      persisted.setKey
+      && setFacet.setKey
+      && persisted.setKey !== setFacet.setKey
+      && !legacyBroadFamily,
+    );
+    const currentIdentity = setIdentityConflict
+      ? conflictingIdentity(persisted, setFacet.canonicalIdentity)
+      : identityFromPersistedSet(persisted, setFacet.canonicalIdentity);
     const persistedConflictsWithSet = setLanguage
       && persisted.languageGroup !== "unknown"
       && persisted.languageGroup !== setLanguage.languageGroup;
@@ -333,16 +479,19 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
         languageLabel: "Unknown language",
         confidence: { ...persisted.confidence, language: conflict.confidence },
         source: { ...persisted.source, language: conflict.source },
+        canonicalIdentity: currentIdentity,
       };
     }
 
-    const improveLanguage = persisted.languageGroup === "unknown"
+    const improveLanguage = !setIdentityConflict
+      && persisted.languageGroup === "unknown"
       && persisted.confidence.language === 0
       && (languageFacet.languageGroup !== "unknown" || currentConflict);
-    const improveSet = !persisted.setKey
-      && persisted.confidence.set === 0
+    const improveSet = ((!persisted.setKey && persisted.confidence.set === 0) || legacyBroadFamily)
       && Boolean(setFacet.setKey);
-    if (!improveLanguage && !improveSet) return persisted;
+    const improveIdentity = !persisted.canonicalIdentity
+      && Boolean(setFacet.canonicalIdentity);
+    if (!improveLanguage && !improveSet && !improveIdentity && !setIdentityConflict) return persisted;
 
     const languageGroup = improveLanguage ? languageFacet.languageGroup : persisted.languageGroup;
     return {
@@ -362,6 +511,7 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
         language: improveLanguage ? languageFacet.source : persisted.source.language,
         set: improveSet ? setFacet.source : persisted.source.set,
       },
+      canonicalIdentity: improveSet ? setFacet.canonicalIdentity : currentIdentity,
     };
   }
 
@@ -384,6 +534,7 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     setName: setFacet.setName,
     confidence: { language: languageFacet.confidence, market: Number(marketFacet.confidence) || 0, set: setFacet.confidence },
     source: { language: languageFacet.source, market: marketFacet.source || "unknown", set: setFacet.source },
+    canonicalIdentity: setFacet.canonicalIdentity,
   };
 }
 
@@ -404,6 +555,20 @@ export function alertFacetEvidence(facets, observedAt = Math.floor(Date.now() / 
     setName: facets?.setName || null,
     setConfidence: Number(facets?.confidence?.set) || 0,
     setSource: facets?.source?.set || "unknown",
+    identityStatus: facets?.canonicalIdentity?.status || "unresolved",
+    identityKind: facets?.canonicalIdentity?.kind || "unknown",
+    identityKey: facets?.canonicalIdentity?.key || null,
+    identityName: facets?.canonicalIdentity?.name || null,
+    identitySeriesKey: facets?.canonicalIdentity?.seriesKey || null,
+    identitySeriesName: facets?.canonicalIdentity?.seriesName || null,
+    identityLanguageScope: facets?.canonicalIdentity?.languageScope || "unknown",
+    identityExactSet: facets?.canonicalIdentity?.exactSet === true,
+    identityProductType: facets?.canonicalIdentity?.productType || null,
+    identitySource: facets?.canonicalIdentity?.source || "unknown",
+    identityConfidence: Number(facets?.canonicalIdentity?.confidence) || 0,
+    productFamilyKey: facets?.canonicalIdentity?.productFamily?.key || null,
+    productFamilyName: facets?.canonicalIdentity?.productFamily?.name || null,
+    productFamilyKind: facets?.canonicalIdentity?.productFamily?.kind || "unknown",
     observedAt,
   }];
 }
@@ -414,6 +579,7 @@ export function listAlertFacetOptions() {
     languages: ALERT_LANGUAGE_GROUPS.map((group) => ({ ...group })),
     markets: ALERT_MARKET_GROUPS.map((group) => ({ ...group })),
     sets: [...SET_REGISTRY]
+      .filter(({ identityKind }) => identityKind === "expansion")
       .map(({ key, name }) => ({ key, name }))
       .sort((left, right) => left.name.localeCompare(right.name)),
   };

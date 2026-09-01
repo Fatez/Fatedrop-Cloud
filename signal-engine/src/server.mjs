@@ -188,7 +188,7 @@ server.on("request", async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/api/signal-health") {
       const days = Math.max(2, Math.min(30, Number.parseInt(url.searchParams.get("days") || "7", 10) || 7));
-      const summary = await loadSignalHealthSummary(store, { days });
+      const summary = await loadSignalHealthSummary(store, { days, includeIdentityFacets: true });
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
