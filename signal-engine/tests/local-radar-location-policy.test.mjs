@@ -9,6 +9,23 @@ import {
   publicLocationEvidence,
 } from "../src/encounters/local-radar-location-policy.mjs";
 
+const NOW = Date.parse("2026-09-01T12:00:00Z");
+const ACTIVE_UNTIL = "2026-09-02T12:00:00Z";
+const EXPIRED_AT = "2026-08-31T12:00:00Z";
+
+function activeEchoEvidence(overrides = {}) {
+  return {
+    sourceType: "official_retailer_page",
+    exactBranch: true,
+    chainWide: false,
+    explicitTcgRelevance: true,
+    productRelevant: true,
+    rawProductTitle: "Pokémon TCG test product",
+    expiresAt: ACTIVE_UNTIL,
+    ...overrides,
+  };
+}
+
 test("Cloud owns retailer category and seller evidence independently from stock", () => {
   const policy = normalizeLocationPolicy({ retailerId: "smyths-uk" });
   assert.equal(policy.retailerCategory, "toy_store");
@@ -18,11 +35,16 @@ test("Cloud owns retailer category and seller evidence independently from stock"
   assert.equal("localStockStatus" in policy, false);
 });
 
-test("unknown retailers remain directory-only candidates and language is never used as a market or seller rule", () => {
+test("unknown formats and unknown retailers fail closed to directory-only", () => {
+  const knownRetailerUnknownFormat = { retailerId: "smyths-uk", name: "Smyths Stevenage" };
+  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).visibilityClass, "directory-only");
+  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).reason, "store_format_unknown");
+
   const location = {
     retailerId: "new-independent",
     name: "English name for an Asian set specialist",
     language: "English",
+    storeFormat: "specialist",
   };
   const policy = normalizeLocationPolicy(location);
   assert.equal(policy.retailerCategory, "other");
@@ -54,40 +76,44 @@ test("pharmacies, petrol stations, lockers, and service counters never appear as
     ["Tesco Customer Service Counter", "service_counter"],
   ];
   for (const [name, reason] of examples) {
-    const quality = classifyLocationQuality({ retailerId: "tesco-uk", name });
+    const quality = classifyLocationQuality({ retailerId: "tesco-uk", name, storeFormat: "supermarket" });
     assert.equal(quality.visibilityClass, "excluded");
     assert.equal(quality.reason, reason);
-    assert.equal(isRadarEligibleLocation({ retailerId: "tesco-uk", name }), false);
+    assert.equal(isRadarEligibleLocation({ retailerId: "tesco-uk", name, storeFormat: "supermarket" }), false);
   }
 });
 
-test("chain-level likely status can support a clean public branch but never Echo without explicit branch TCG evidence", () => {
-  const branch = { retailerId: "tesco-uk", name: "Tesco Extra Watford" };
+test("chain-level likely status can support a clean public branch but cannot create Echo by itself", () => {
+  const branch = { retailerId: "tesco-uk", name: "Tesco Extra Watford", storeFormat: "supermarket" };
   assert.equal(classifyLocationQuality(branch).visibilityClass, "eligible");
-  assert.equal(isEchoEligibleLocation(branch), false);
-  assert.equal(isEchoEligibleLocation(branch, {
-    sourceType: "official_retailer_page",
-    exactBranch: true,
-    explicitTcgRelevance: true,
-  }), true);
+  assert.equal(isEchoEligibleLocation(branch, {}, NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence(), NOW), true);
+});
+
+test("Echo requires exact branch, product relevance, authoritative source and fresh evidence", () => {
+  const branch = { retailerId: "entertainer-uk", name: "The Entertainer Watford", storeFormat: "toy_store" };
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ exactBranch: false }), NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ productRelevant: false, rawProductTitle: null }), NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ sourceType: "generic_chain_article" }), NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ chainWide: true }), NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ expiresAt: EXPIRED_AT }), NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence(), NOW), true);
 });
 
 test("explicit TCG evidence cannot make a child service Echo eligible", () => {
-  const pharmacy = { retailerId: "tesco-uk", name: "Tesco Watford Pharmacy" };
-  assert.equal(isEchoEligibleLocation(pharmacy, {
-    sourceType: "official_retailer_page",
-    exactBranch: true,
-    explicitTcgRelevance: true,
-  }), false);
+  const pharmacy = { retailerId: "tesco-uk", name: "Tesco Watford Pharmacy", storeFormat: "pharmacy" };
+  assert.equal(isEchoEligibleLocation(pharmacy, activeEchoEvidence(), NOW), false);
 });
 
-test("verified specialist branch can be Echo eligible from stored branch evidence without claiming stock", () => {
-  const branch = { retailerId: "total-cards", name: "Total Cards" };
-  assert.equal(isEchoEligibleLocation(branch), true);
+test("verified specialist status supports public branch relevance but never permanent Echo authority", () => {
+  const branch = { retailerId: "total-cards", name: "Total Cards", storeFormat: "specialist_tcg" };
+  assert.equal(isRadarEligibleLocation(branch), true);
+  assert.equal(isEchoEligibleLocation(branch, {}, NOW), false);
+  assert.equal(isEchoEligibleLocation(branch, activeEchoEvidence({ explicitTcgRelevance: false }), NOW), true);
+
   const evidence = publicLocationEvidence({ ...branch, evidenceSourceCount: 2 });
   assert.equal(evidence.pokemonSeller, "verified");
   assert.equal(evidence.sourceCount, 2);
   assert.equal(evidence.visibilityClass, "eligible");
-  assert.equal(evidence.echoEligibleFromStoredEvidence, true);
   assert.match(evidence.caveat, /exact stock is still unknown until Manifested/i);
 });
