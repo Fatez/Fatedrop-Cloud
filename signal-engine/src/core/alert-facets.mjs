@@ -62,9 +62,12 @@ const ENGLISH_SET_FAMILIES = [
   ["black-bolt", "Black Bolt", ["black bolt"], "multilingual"],
   ["white-flare", "White Flare", ["white flare"], "multilingual"],
   ["mega-evolution", "Mega Evolution", ["mega evolution"], "english"],
+  ["ascended-heroes", "Ascended Heroes", ["mega evolution ascended heroes", "ascended heroes"], "english"],
   ["phantasmal-flames", "Phantasmal Flames", ["phantasmal flames"], "english"],
   ["perfect-order", "Perfect Order", ["perfect order"], "english"],
   ["chaos-rising", "Chaos Rising", ["chaos rising"], "english"],
+  ["pitch-black", "Pitch Black", ["mega evolution pitch black", "pitch black"], "english"],
+  ["celebrations", "Celebrations", ["celebrations"], "multilingual"],
   ["crown-zenith", "Crown Zenith", ["crown zenith"], "english"],
   ["silver-tempest", "Silver Tempest", ["silver tempest"], "english"],
   ["lost-origin", "Lost Origin", ["lost origin"], "english"],
@@ -80,6 +83,7 @@ const INTERNATIONAL_ALIAS_FAMILIES = [
   ["emerald-storm", "Emerald Storm", ["emerald storm", "storm emerald"], "unknown"],
   ["mega-dream-ex", "Mega Dream ex", ["mega dream ex", "mega dream"], "unknown"],
   ["nihil-zero", "Nihil Zero", ["nihil zero", "nullifying zero"], "unknown"],
+  ["time-gazer", "Time Gazer", ["time gazer"], "multilingual"],
   ["pokemon-151", "Pokémon 151", ["pokemon card 151", "pokemon 151"], "multilingual"],
   ["terastal-festival-ex", "Terastal Festival ex", ["terastal festival ex", "terastal festival"], "unknown"],
   ["gem-1", "Gem Vol. 1", ["gem vol 1", "gem 1"], "unknown"],
@@ -140,14 +144,21 @@ function buildSetRegistry() {
       languageScope: mergeLanguageScopes(existing?.languageScope, languageScope),
     });
   }
-  return [...byKey.values()].sort((left, right) => {
-    const longestLeft = Math.max(...left.aliases.map((alias) => alias.length));
-    const longestRight = Math.max(...right.aliases.map((alias) => alias.length));
-    return longestRight - longestLeft || left.name.localeCompare(right.name);
-  });
+  return [...byKey.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
 const SET_REGISTRY = Object.freeze(buildSetRegistry());
+const SET_ALIAS_REGISTRY = Object.freeze(
+  SET_REGISTRY.flatMap((family) => family.aliases.map((alias) => ({
+    family,
+    alias,
+    tokenCount: alias.split(" ").filter(Boolean).length,
+  }))).sort((left, right) => (
+    right.tokenCount - left.tokenCount
+    || right.alias.length - left.alias.length
+    || left.family.key.localeCompare(right.family.key)
+  )),
+);
 
 function evidenceEntries(value) {
   if (Array.isArray(value)) return value;
@@ -232,18 +243,31 @@ function setFromTitle(title) {
   const normalized = fold(title);
   if (!normalized) return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
   const padded = ` ${normalized} `;
-  for (const family of SET_REGISTRY) {
-    const matched = family.aliases.find((alias) => padded.includes(` ${alias} `));
-    if (!matched) continue;
+  const matches = SET_ALIAS_REGISTRY.filter(({ alias }) => padded.includes(` ${alias} `));
+  if (!matches.length) return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
+
+  const best = matches[0];
+  const equallySpecific = matches.filter((candidate) => (
+    candidate.tokenCount === best.tokenCount && candidate.alias.length === best.alias.length
+  ));
+  const competingKeys = [...new Set(equallySpecific.map((candidate) => candidate.family.key))];
+  if (competingKeys.length > 1) {
     return {
-      setKey: family.key,
-      setName: family.name,
-      confidence: 1,
-      source: `title_alias:${matched}`,
-      languageScope: family.languageScope || "unknown",
+      setKey: null,
+      setName: null,
+      confidence: 0,
+      source: `ambiguous_set_alias:${best.alias}`,
+      languageScope: "unknown",
     };
   }
-  return { setKey: null, setName: null, confidence: 0, source: "unknown", languageScope: "unknown" };
+
+  return {
+    setKey: best.family.key,
+    setName: best.family.name,
+    confidence: 1,
+    source: `title_alias:${best.alias}`,
+    languageScope: best.family.languageScope || "unknown",
+  };
 }
 
 function canonicalSetLanguage(setFacet) {
