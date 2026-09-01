@@ -59,14 +59,28 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
     const delayMs = Math.max(250, retailer.catalogue?.runtime?.delayMs || retailer.delayMs || 900);
     const marketCountry = shopifyMarketCountry(retailer);
     let complete = false;
+    let rawProductsSeen = 0;
+    let normalizedProductsSeen = 0;
+    let filteredOutProducts = 0;
 
     for (let page = 1; page <= maxPages; page += 1) {
       const pageUrl = shopifyPageUrl(retailer.catalogue.feedUrl, page, marketCountry);
       const { payload, status } = await fetchStructuredJson(pageUrl);
       const rawCount = Array.isArray(payload?.products) ? payload.products.length : 0;
-      const products = filterProducts(normalizeShopifyProducts(payload, retailer), retailer);
+      const normalized = normalizeShopifyProducts(payload, retailer);
+      const products = filterProducts(normalized, retailer);
+      rawProductsSeen += rawCount;
+      normalizedProductsSeen += normalized.length;
+      filteredOutProducts += normalized.length - products.length;
       for (const product of products) found.set(product.retailerSku, product);
-      pages.push({ pageUrl, discovered: products.length, rawCount, status });
+      pages.push({
+        pageUrl,
+        discovered: products.length,
+        rawCount,
+        normalizedCount: normalized.length,
+        filteredOut: normalized.length - products.length,
+        status,
+      });
       if (rawCount === 0 || rawCount < 250) {
         complete = true;
         break;
@@ -74,18 +88,33 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
       if (page < maxPages) await sleep(delayMs);
     }
 
-    return { products: [...found.values()], pages, complete, partialCatalogue: !complete };
+    return {
+      products: [...found.values()],
+      pages,
+      complete,
+      partialCatalogue: !complete,
+      rawProductsSeen,
+      normalizedProductsSeen,
+      filteredOutProducts,
+      acceptedProductsSeen: found.size,
+      pageLimitReached: !complete && pages.length >= maxPages,
+    };
   }
 
   const { payload, status } = await fetchStructuredJson(retailer.catalogue.feedUrl);
-  let products;
-  if (retailer.adapterType === ADAPTER_TYPES.WOOCOMMERCE) products = normalizeWooStoreProducts(payload, retailer);
+  let normalized;
+  if (retailer.adapterType === ADAPTER_TYPES.WOOCOMMERCE) normalized = normalizeWooStoreProducts(payload, retailer);
   else throw new Error(`Unsupported structured adapter: ${retailer.adapterType}`);
-  products = filterProducts(products, retailer);
+  const products = filterProducts(normalized, retailer);
   return {
     products,
-    pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, status }],
+    pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, normalizedCount: normalized.length, filteredOut: normalized.length - products.length, status }],
     complete: true,
+    rawProductsSeen: Array.isArray(payload) ? payload.length : normalized.length,
+    normalizedProductsSeen: normalized.length,
+    filteredOutProducts: normalized.length - products.length,
+    acceptedProductsSeen: products.length,
+    pageLimitReached: false,
   };
 }
 
