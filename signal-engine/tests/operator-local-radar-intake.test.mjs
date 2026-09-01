@@ -19,6 +19,7 @@ function operatorIssue(overrides = {}) {
     sourceType: "official_retailer_page",
     sourceUrl: "https://www.thetoyshop.com/pokemon-at-the-entertainer",
     sourceLabel: "The Entertainer official Pokémon TCG page",
+    explicitTcgRelevance: true,
     expectedFrom: "2026-08-30T00:00:00+01:00",
     expectedTo: "2026-08-30T23:59:59+01:00",
     expectedLabel: "Expected 30 August",
@@ -48,6 +49,7 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   const parsed = parseOperatorIssue(operatorIssue(), NOW);
   assert.equal(parsed.entry.kind, "echo");
   assert.equal(parsed.entry.confidence, 0.68);
+  assert.equal(parsed.entry.explicitTcgRelevance, true);
   const notification = buildOperatorNotification(parsed, { matchedBranches: 2, unmatchedTargets: [] });
   assert.equal(notification.stage, "ECHO");
   assert.equal(notification.branchCount, 2);
@@ -89,8 +91,8 @@ test("operator issue requires the canonical store and persists Expected intellig
   const store = {
     async listRetailerLocations() {
       return [
-        { id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN" },
-        { id: "loc-watford", retailerId: "entertainer-uk", name: "The Entertainer Watford", address: "Watford", postcode: "WD17 2UB" },
+        { id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN", storeFormat: "toy_store" },
+        { id: "loc-watford", retailerId: "entertainer-uk", name: "The Entertainer Watford", address: "Watford", postcode: "WD17 2UB", storeFormat: "toy_store" },
       ];
     },
     async upsertLocalStockObservations(observations) {

@@ -89,6 +89,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const sourceType = text(payload.sourceType, 80)?.toLowerCase() || "operator_manual";
   const sourceUrl = text(payload.sourceUrl, 700);
   const sourceLabel = text(payload.sourceLabel, 180) || "FateDrop operator intelligence";
+  const explicitTcgRelevance = payload.explicitTcgRelevance === true;
   const expectedFrom = iso(payload.expectedFrom, "expectedFrom");
   const expectedTo = iso(payload.expectedTo, "expectedTo");
   const expiresAt = iso(payload.expiresAt, "expiresAt");
@@ -127,6 +128,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
       sourceId: `github:${OPERATOR_REPOSITORY}:issue:${issueNumber}`,
       sourceUrl,
       sourceLabel,
+      explicitTcgRelevance,
       observedAt: iso(issue.created_at, "issue created_at") || new Date(now).toISOString(),
       expectedFrom,
       expectedTo,

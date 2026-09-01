@@ -244,6 +244,26 @@ export function reconcileLocationQuality(locations = []) {
       });
     }
   }
+  // Duplicate identity is resolved before a child service is allowed to choose its parent.
+  // This prevents a pharmacy/locker at the same postcode from seeing both the canonical
+  // supermarket and its duplicate as two parents and becoming falsely unresolved.
+  for (let index = 0; index < reconciled.length; index += 1) {
+    const current = reconciled[index];
+    const serviceKind = locationServiceKind(current);
+    if (!serviceKind || current.relationshipType !== "child_service") continue;
+    if (current.visibilityClass !== "unresolved" || !String(current.visibilityReason || "").endsWith("_parent_ambiguous")) continue;
+    const parents = reconciled.filter((candidate) => plausibleParent(current, candidate));
+    if (parents.length === 1) {
+      reconciled[index] = attachQuality(current, {
+        visibilityClass: "directory-only",
+        visibilityReason: serviceKind,
+        serviceKind,
+        parentLocationId: parents[0].id,
+        relationshipType: "child_service",
+      });
+    }
+  }
+
   return reconciled;
 }
 
