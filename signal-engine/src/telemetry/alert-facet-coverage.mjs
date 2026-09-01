@@ -1,4 +1,4 @@
-import { deriveAlertFacets } from "../core/alert-facets.mjs";
+import { alertFacetResolution, deriveAlertFacets } from "../core/alert-facets.mjs";
 import { publicSignalSqlFilter, validVanishedSqlFilter } from "../core/signal-visibility-policy.mjs";
 
 const DEFAULT_LOOKBACK_SECONDS = 30 * 24 * 60 * 60;
@@ -31,16 +31,6 @@ function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function resolutionFor(facets) {
-  const language = facets?.resolution?.language
-    || (facets?.source?.language?.startsWith?.("language_conflict:") ? "conflict"
-      : facets?.languageGroup === "unknown" ? "unresolved" : "resolved");
-  const set = facets?.resolution?.set
-    || (facets?.setKey === "not-set-specific" ? "not_applicable"
-      : facets?.setKey ? "resolved" : "unresolved");
-  return { language, set };
-}
-
 export function buildAlertFacetCoverage(rows = [], { sampleLimit = DEFAULT_SAMPLE_LIMIT } = {}) {
   const input = Array.isArray(rows) ? rows : [];
   const safeSampleLimit = boundedInteger(sampleLimit, DEFAULT_SAMPLE_LIMIT, 1, 100);
@@ -54,8 +44,9 @@ export function buildAlertFacetCoverage(rows = [], { sampleLimit = DEFAULT_SAMPL
   for (const row of input) {
     const title = text(row?.title);
     if (!title) continue;
-    const facets = deriveAlertFacets({ title, evidence: row?.evidence || [] });
-    const resolution = resolutionFor(facets);
+    const inputForFacets = { title, evidence: row?.evidence || [] };
+    const facets = deriveAlertFacets(inputForFacets);
+    const resolution = alertFacetResolution(inputForFacets);
     const missingLanguage = resolution.language === "unresolved";
     const ambiguous = resolution.language === "ambiguous_multilingual";
     const conflict = resolution.language === "conflict";
