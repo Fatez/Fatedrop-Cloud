@@ -1,5 +1,6 @@
 import { discoverProductLinks, extractCatalogueProducts, extractDirectProductPage } from "../core/extract.mjs";
 import { fetchCataloguePage, sleep } from "../core/fetch.mjs";
+import { recordCatalogueYield } from "../telemetry/catalogue-yield-context.mjs";
 import { productProbeUrlsForRetailer } from "./evidence-probes.mjs";
 
 function withPage(url, param, page) {
@@ -187,10 +188,7 @@ export async function scanRetailerCatalogue(retailer) {
     pages.push({ pageUrl, discovered: accepted ? 1 : 0, filteredOut: product && !accepted ? 1 : 0, status: response.status, source: "product_probe" });
   }
 
-  return {
-    products: [...found.values()],
-    pages,
-    partialCatalogue: catalogueProductsSeen === 0 && probeProductsSeen > 0,
+  const discovery = {
     catalogueProductsSeen,
     catalogueRawProductsSeen,
     catalogueFilteredOutProducts,
@@ -203,5 +201,13 @@ export async function scanRetailerCatalogue(retailer) {
     directRecoveryTruncated,
     probeProductsSeen,
     probeProductsFilteredOut,
+  };
+  recordCatalogueYield(retailer.id, discovery);
+
+  return {
+    products: [...found.values()],
+    pages,
+    partialCatalogue: catalogueProductsSeen === 0 && probeProductsSeen > 0,
+    ...discovery,
   };
 }
