@@ -1,0 +1,79 @@
+name: Retry Starvation Diagnostics V3
+
+on:
+  push:
+    branches:
+      - fix/retailer-recovery-signal-starvation-v3-2026-09-01
+    paths:
+      - ".github/workflows/retry-starvation-diagnostics-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/retailer-recovery-signal-starvation-v3-2026-09-01
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Reapply already-tested starvation patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          helper = Path('.github/workflows/apply-starvation-diagnostics-v3.yml').read_text()
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = helper.find(start_marker)
+          if start < 0:
+              raise SystemExit('embedded patch start marker missing')
+          start += len(start_marker)
+          end = helper.find(end_marker, start)
+          if end < 0:
+              raise SystemExit('embedded patch end marker missing')
+          script = helper[start:end]
+          lines = script.splitlines()
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in lines) + '\n'
+          exec(compile(script, '<starvation-patch>', 'exec'))
+
+          watchdog = Path('.github/workflows/monitor-signal-starvation-production.yml')
+          raw_lines = watchdog.read_text().splitlines()
+          clean = []
+          for index, line in enumerate(raw_lines):
+              if index > 0 and line.startswith('          '):
+                  line = line[10:]
+              clean.append(line.rstrip())
+          watchdog.write_text('\n'.join(clean).rstrip() + '\n')
+
+          Path('.github/workflows/apply-starvation-diagnostics-v3.yml').unlink(missing_ok=True)
+          Path('.github/workflows/retry-starvation-diagnostics-v3.yml').unlink(missing_ok=True)
+          PY
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+      - name: Focused starvation test
+        working-directory: signal-engine
+        run: node --test tests/signal-starvation.test.mjs
+      - name: Full Signal Engine tests
+        working-directory: signal-engine
+        run: npm test
+      - name: Commit proven starvation layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "FateDrop Recovery Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "Add production signal starvation diagnostics"
+          git push origin HEAD:fix/retailer-recovery-signal-starvation-v3-2026-09-01
