@@ -117,11 +117,11 @@ export function applySignalBurstSafety(signals = [], { anomalyMinimum = 25, inte
 
   const interruptWhispers = safeSignals.filter((signal) => String(signal.state).toLowerCase() === "whisper" && signalInterruptEligible(signal));
   if (interruptWhispers.length > interruptWhisperMaximum) {
-    const heldIds = new Set(interruptWhispers.map((signal) => signal.id));
+    const heldIds = new Set(interruptWhispers.slice(interruptWhisperMaximum).map((signal) => signal.id));
     safeSignals = safeSignals.map((signal) => {
       if (!heldIds.has(signal.id)) return signal;
       burstHeld += 1;
-      return withSignalDeliveryPolicy(signal, SIGNAL_DELIVERY_POLICIES.INBOX_ONLY, `whisper_scan_burst:${interruptWhispers.length}`);
+      return withSignalDeliveryPolicy(signal, SIGNAL_DELIVERY_POLICIES.INBOX_ONLY, `whisper_scan_burst:${interruptWhispers.length}:cap_${interruptWhisperMaximum}`);
     });
   }
 
