@@ -5,6 +5,7 @@ import { normalizeShopifyProducts } from "./shopify-normalizer.mjs";
 import { normalizeWooStoreProducts } from "./woocommerce-normalizer.mjs";
 
 const DEFAULT_SHOPIFY_MARKET_COUNTRY = "GB";
+const DEFAULT_WOO_PAGE_SIZE = 100;
 
 function matchesFilter(pattern, value) {
   if (!pattern) return true;
@@ -47,7 +48,24 @@ function shopifyPageUrl(feedUrl, page, marketCountry = DEFAULT_SHOPIFY_MARKET_CO
   return url.toString();
 }
 
-export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = false } = {}) {
+function wooPageSize(feedUrl) {
+  const url = new URL(feedUrl);
+  const configured = Number.parseInt(url.searchParams.get("per_page") || "", 10);
+  return Number.isFinite(configured) ? Math.max(1, Math.min(100, configured)) : DEFAULT_WOO_PAGE_SIZE;
+}
+
+function wooPageUrl(feedUrl, page) {
+  const url = new URL(feedUrl);
+  if (!url.searchParams.has("per_page")) url.searchParams.set("per_page", String(DEFAULT_WOO_PAGE_SIZE));
+  url.searchParams.set("page", String(page));
+  return url.toString();
+}
+
+export async function scanStructuredCatalogue(retailer, {
+  allowUnapprovedFeed = false,
+  fetchJson = fetchStructuredJson,
+  sleepFn = sleep,
+} = {}) {
   if (!retailer?.catalogue?.feedUrl) throw new Error("Structured catalogue requires an explicit feedUrl");
   if (retailer.catalogue.feedApproved !== true && allowUnapprovedFeed !== true) {
     throw new Error("Structured catalogue feed must be explicitly approved before monitoring");
@@ -66,7 +84,7 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
 
     for (let page = 1; page <= maxPages; page += 1) {
       const pageUrl = shopifyPageUrl(retailer.catalogue.feedUrl, page, marketCountry);
-      const { payload, status } = await fetchStructuredJson(pageUrl);
+      const { payload, status } = await fetchJson(pageUrl);
       const rawCount = Array.isArray(payload?.products) ? payload.products.length : 0;
       const normalized = normalizeShopifyProducts(payload, retailer);
       const products = filterProducts(normalized, retailer);
@@ -86,7 +104,7 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
         complete = true;
         break;
       }
-      if (page < maxPages) await sleep(delayMs);
+      if (page < maxPages) await sleepFn(delayMs);
     }
 
     const discovery = {
@@ -106,29 +124,67 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
     };
   }
 
-  const { payload, status } = await fetchStructuredJson(retailer.catalogue.feedUrl);
-  let normalized;
-  if (retailer.adapterType === ADAPTER_TYPES.WOOCOMMERCE) normalized = normalizeWooStoreProducts(payload, retailer);
-  else throw new Error(`Unsupported structured adapter: ${retailer.adapterType}`);
-  const products = filterProducts(normalized, retailer);
-  const discovery = {
-    rawProductsSeen: Array.isArray(payload) ? payload.length : normalized.length,
-    normalizedProductsSeen: normalized.length,
-    filteredOutProducts: normalized.length - products.length,
-    acceptedProductsSeen: products.length,
-    pageLimitReached: false,
-  };
-  recordCatalogueYield(retailer.id, discovery);
-  return {
-    products,
-    pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, normalizedCount: normalized.length, filteredOut: normalized.length - products.length, status }],
-    complete: true,
-    ...discovery,
-  };
+  if (retailer.adapterType === ADAPTER_TYPES.WOOCOMMERCE) {
+    const found = new Map();
+    const pages = [];
+    const maxPages = Math.max(1, Math.min(100, retailer.catalogue?.runtime?.maxPages || retailer.maxPages || 20));
+    const delayMs = Math.max(250, retailer.catalogue?.runtime?.delayMs || retailer.delayMs || 900);
+    const pageSize = wooPageSize(retailer.catalogue.feedUrl);
+    let complete = false;
+    let rawProductsSeen = 0;
+    let normalizedProductsSeen = 0;
+    let filteredOutProducts = 0;
+
+    for (let page = 1; page <= maxPages; page += 1) {
+      const pageUrl = wooPageUrl(retailer.catalogue.feedUrl, page);
+      const { payload, status } = await fetchJson(pageUrl);
+      const rawCount = Array.isArray(payload) ? payload.length : 0;
+      const normalized = normalizeWooStoreProducts(payload, retailer);
+      const products = filterProducts(normalized, retailer);
+      rawProductsSeen += rawCount;
+      normalizedProductsSeen += normalized.length;
+      filteredOutProducts += normalized.length - products.length;
+      for (const product of products) found.set(product.retailerSku, product);
+      pages.push({
+        pageUrl,
+        discovered: products.length,
+        rawCount,
+        normalizedCount: normalized.length,
+        filteredOut: normalized.length - products.length,
+        status,
+      });
+      if (rawCount === 0 || rawCount < pageSize) {
+        complete = true;
+        break;
+      }
+      if (page < maxPages) await sleepFn(delayMs);
+    }
+
+    const discovery = {
+      rawProductsSeen,
+      normalizedProductsSeen,
+      filteredOutProducts,
+      acceptedProductsSeen: found.size,
+      pageLimitReached: !complete && pages.length >= maxPages,
+    };
+    recordCatalogueYield(retailer.id, discovery);
+    return {
+      products: [...found.values()],
+      pages,
+      complete,
+      partialCatalogue: !complete,
+      ...discovery,
+    };
+  }
+
+  throw new Error(`Unsupported structured adapter: ${retailer.adapterType}`);
 }
 
 export const __test = {
   DEFAULT_SHOPIFY_MARKET_COUNTRY,
+  DEFAULT_WOO_PAGE_SIZE,
   shopifyMarketCountry,
   shopifyPageUrl,
+  wooPageSize,
+  wooPageUrl,
 };
