@@ -5,8 +5,10 @@ on:
     branches:
       - feat/local-radar-location-quality-2026-09-01
     paths:
+      - "signal-engine/src/encounters/local-radar-location-policy.mjs"
       - "signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs"
       - "signal-engine/tests/local-radar-quality-adjusted-census.test.mjs"
+      - "signal-engine/tests/local-radar-provider-identity-precedence.test.mjs"
       - ".github/workflows/local-radar-quality-adjusted-census.yml"
   workflow_dispatch:
 
@@ -41,15 +43,23 @@ jobs:
             tests/local-radar-location-policy.test.mjs \
             tests/local-radar-canonical-branches.test.mjs \
             tests/local-radar-location-quality-review.test.mjs \
-            tests/local-radar-quality-adjusted-census.test.mjs
+            tests/local-radar-quality-adjusted-census.test.mjs \
+            tests/local-radar-provider-identity-precedence.test.mjs
 
-      - name: Read-only UK public census with raw and quality-adjusted metrics
+      - name: Read-only UK public census with raw, adjusted and authority-path metrics
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          import { buildQualityAdjustedLocalRadarCensus } from './signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs';
+          import {
+            buildQualityAdjustedLocalRadarCensus,
+            hasTrustedCanonicalParentEvidence,
+          } from './signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs';
+          import {
+            classifyLocationQuality,
+            normalizeLocationPolicy,
+          } from './signal-engine/src/encounters/local-radar-location-policy.mjs';
 
           const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
           const probes = [
@@ -58,7 +68,7 @@ jobs:
             ['Manchester', 53.4808, -2.2426],
             ['Leeds', 53.8008, -1.5491],
             ['Newcastle', 54.9783, -1.6178],
-            ['Bristol', 51.4545, -2.5879],
+            ['Bristol', 51.4545, -4.5879],
             ['Plymouth', 50.3755, -4.1427],
             ['Cardiff', 51.4816, -3.1791],
             ['Glasgow', 55.8642, -4.2518],
@@ -92,28 +102,91 @@ jobs:
             await sleep(300);
           }
 
-          const census = buildQualityAdjustedLocalRadarCensus([...shops.values()]);
+          const rawRows = [...shops.values()];
+          const census = buildQualityAdjustedLocalRadarCensus(rawRows);
+
+          function auditRow(shop) {
+            const locationEvidence = shop?.locationEvidence || {};
+            return {
+              ...shop,
+              visibilityClass: undefined,
+              visibilityReason: undefined,
+              identityStatus: shop?.identityStatus ?? locationEvidence?.branchIdentity,
+              tcgSellerStatus: shop?.tcgSellerStatus ?? locationEvidence?.pokemonSeller,
+              tcgSellerConfidence: shop?.tcgSellerConfidence ?? locationEvidence?.confidence,
+              evidenceSourceCount: shop?.evidenceSourceCount ?? locationEvidence?.sourceCount,
+              lastVerifiedAt: shop?.lastVerifiedAt ?? locationEvidence?.lastVerifiedAt,
+            };
+          }
+
+          function authorityPath(shop) {
+            const row = auditRow(shop);
+            const quality = classifyLocationQuality(row);
+            if (quality.visibilityClass !== 'eligible') return null;
+            if (hasTrustedCanonicalParentEvidence(row)) return 'trusted_canonical_parent_evidence';
+            const policy = normalizeLocationPolicy(row);
+            if (policy.identityStatus === 'canonical' && quality.reason === 'branch_tcg_verified') {
+              return 'canonical_identity_plus_verified_tcg_policy';
+            }
+            if (policy.identityStatus === 'canonical' && quality.reason === 'canonical_retail_branch') {
+              return 'legacy_canonical_identity_plus_retailer_policy';
+            }
+            return 'unexplained_eligible_authority';
+          }
+
+          const eligibleAuthorityRows = rawRows
+            .map((shop) => ({ shop, authorityPath: authorityPath(shop) }))
+            .filter((row) => row.authorityPath)
+            .map(({ shop, authorityPath }) => ({
+              id: shop?.id || null,
+              retailer: shop?.retailerId || null,
+              provider: shop?.provider || null,
+              name: shop?.name || null,
+              postcode: shop?.postcode || null,
+              verification: shop?.verificationStatus ?? shop?.verification ?? null,
+              identityStatus: shop?.identityStatus ?? shop?.locationEvidence?.branchIdentity ?? null,
+              authorityPath,
+            }));
+
+          const authorityCounts = {};
+          const authorityByRetailer = {};
+          for (const row of eligibleAuthorityRows) {
+            authorityCounts[row.authorityPath] = (authorityCounts[row.authorityPath] || 0) + 1;
+            const retailer = row.retailer || '(unknown)';
+            authorityByRetailer[retailer] ||= {};
+            authorityByRetailer[retailer][row.authorityPath] = (authorityByRetailer[retailer][row.authorityPath] || 0) + 1;
+          }
+
           const report = {
             generatedAt: new Date().toISOString(),
             source: endpoint,
             mode: 'READ_ONLY_PUBLIC_UK_MESH',
             databaseAccess: 'NONE',
-            caveat: 'The original raw before/after diagnostic is preserved. The quality-adjusted denominator is independently derived from branch-level canonical evidence carried on the public rows and never from the new classifier eligible output. Direct Neon census remains a separate read-only verification path when connector access permits.',
+            caveat: 'The original raw before/after diagnostic is preserved. The quality-adjusted denominator is independently derived from branch-level canonical evidence carried on the public rows and never from the new classifier eligible output. The authority-path reconciliation explains every post-fix eligible row separately. Direct Neon census remains a separate read-only verification path when connector access permits.',
             probes: probeResults,
             ...census,
+            eligibleAuthority: {
+              counts: authorityCounts,
+              byRetailer: authorityByRetailer,
+              rows: eligibleAuthorityRows,
+            },
           };
 
           fs.writeFileSync('local-radar-quality-adjusted-census.json', JSON.stringify(report, null, 2));
           console.log(JSON.stringify({
             totals: report.totals,
+            authorityCounts,
             weakDiscoveryEligible: report.samples.weakDiscoveryEligible.length,
             obviousNoiseEligible: report.samples.obviousNoiseEligible.length,
             provisionalEligible: report.samples.provisionalEligible.length,
             lostCanonicalParents: report.samples.lostCanonicalParents.length,
           }, null, 2));
 
+          const explainedEligible = Object.values(authorityCounts).reduce((sum, value) => sum + Number(value || 0), 0);
           if (report.totals.publicBefore < 1) throw new Error('raw public census unexpectedly empty');
           if (report.totals.uniqueCanonicalParentTotal < 1) throw new Error('trusted canonical-parent denominator unexpectedly empty');
+          if (explainedEligible !== report.totals.eligibleAfter) throw new Error(`eligible authority reconciliation mismatch: ${explainedEligible}/${report.totals.eligibleAfter}`);
+          if (authorityCounts.unexplained_eligible_authority) throw new Error(`unexplained eligible authority rows: ${authorityCounts.unexplained_eligible_authority}`);
           if (report.samples.obviousNoiseEligible.length) throw new Error(`obvious service noise remains eligible: ${report.samples.obviousNoiseEligible.length}`);
           if (report.samples.provisionalEligible.length) throw new Error(`provisional locations remain eligible: ${report.samples.provisionalEligible.length}`);
           if (report.samples.weakDiscoveryEligible.length) throw new Error(`weak provider discoveries remain eligible: ${report.samples.weakDiscoveryEligible.length}`);
