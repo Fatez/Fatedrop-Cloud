@@ -357,23 +357,6 @@ function persistedMarketResolution(entries) {
   };
 }
 
-function withResolution(facets, setFacet) {
-  const languageSource = facets?.source?.language || "unknown";
-  const language = languageSource.startsWith("language_conflict:")
-    ? "conflict"
-    : facets?.languageGroup !== "unknown"
-      ? "resolved"
-      : setFacet?.languageScope === "multilingual"
-        ? "ambiguous_multilingual"
-        : "unresolved";
-  const set = facets?.setKey === "not-set-specific"
-    ? "not_applicable"
-    : facets?.setKey
-      ? "resolved"
-      : "unresolved";
-  return { ...facets, resolution: { language, set } };
-}
-
 export function deriveAlertFacets({ title = "", language = null, region = null, retailerCountryCode = null, evidence = [], marketResolution = null } = {}) {
   const entries = evidenceEntries(evidence);
   const persisted = persistedFacets(entries);
@@ -394,14 +377,14 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
       const conflict = currentConflict
         ? languageFacet
         : conflictLanguage(persisted.languageGroup, setLanguage.languageGroup, setFacet.setKey, `persisted_${persisted.source.language}`);
-      return withResolution({
+      return {
         ...persisted,
         languageGroup: conflict.languageGroup,
         languageCode: conflict.languageCode,
         languageLabel: "Unknown language",
         confidence: { ...persisted.confidence, language: conflict.confidence },
         source: { ...persisted.source, language: conflict.source },
-      }, setFacet);
+      };
     }
 
     const improveLanguage = persisted.languageGroup === "unknown"
@@ -410,10 +393,10 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     const improveSet = !persisted.setKey
       && persisted.confidence.set === 0
       && Boolean(setFacet.setKey);
-    if (!improveLanguage && !improveSet) return withResolution(persisted, setFacet);
+    if (!improveLanguage && !improveSet) return persisted;
 
     const languageGroup = improveLanguage ? languageFacet.languageGroup : persisted.languageGroup;
-    return withResolution({
+    return {
       ...persisted,
       languageGroup,
       languageCode: improveLanguage ? languageFacet.languageCode : persisted.languageCode,
@@ -430,7 +413,7 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
         language: improveLanguage ? languageFacet.source : persisted.source.language,
         set: improveSet ? setFacet.source : persisted.source.set,
       },
-    }, setFacet);
+    };
   }
 
   const marketFacet = marketResolution || persistedMarketResolution(entries) || {
@@ -440,7 +423,7 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     source: "unknown",
   };
   const marketCode = ["verified", "reused"].includes(marketFacet.status) ? normalizeMarketCode(marketFacet.marketCode) : null;
-  return withResolution({
+  return {
     version: ALERT_FACET_VERSION,
     languageGroup: languageFacet.languageGroup,
     languageCode: languageFacet.languageCode,
@@ -452,7 +435,26 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
     setName: setFacet.setName,
     confidence: { language: languageFacet.confidence, market: Number(marketFacet.confidence) || 0, set: setFacet.confidence },
     source: { language: languageFacet.source, market: marketFacet.source || "unknown", set: setFacet.source },
-  }, setFacet);
+  };
+}
+
+export function alertFacetResolution(input = {}) {
+  const facets = deriveAlertFacets(input);
+  const setFacet = setFromTitle(input?.title || "");
+  const languageSource = facets?.source?.language || "unknown";
+  const language = languageSource.startsWith("language_conflict:")
+    ? "conflict"
+    : facets.languageGroup !== "unknown"
+      ? "resolved"
+      : setFacet.languageScope === "multilingual"
+        ? "ambiguous_multilingual"
+        : "unresolved";
+  const set = facets.setKey === "not-set-specific"
+    ? "not_applicable"
+    : facets.setKey
+      ? "resolved"
+      : "unresolved";
+  return { language, set };
 }
 
 export function alertFacetEvidence(facets, observedAt = Math.floor(Date.now() / 1000)) {
