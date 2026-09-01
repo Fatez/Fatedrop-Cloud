@@ -21,11 +21,26 @@ const discoveredShop = {
   localStockStatus: "unknown",
 };
 
+const canonicalShop = {
+  id: "loc-romford",
+  retailerId: "smyths-uk",
+  provider: "smyths_official_store_availability",
+  providerId: "romford",
+  name: "Smyths Toys Superstores Romford",
+  address: "Romford, RM1 3EE, UK",
+  postcode: "RM1 3EE",
+  latitude: 51.58,
+  longitude: 0.18,
+  storeFormat: "toy_store",
+  identityStatus: "canonical",
+};
+
 test("official source refresh happens before the Local Radar observation read", async () => {
   const observations = [];
   const store = {
     async listOffers() { return []; },
     async listEncounters() { return []; },
+    async listRetailerLocations() { return [canonicalShop]; },
     async listLocalStockObservations() { return observations; },
     async upsertRetailerLocations(locations) { return { saved: locations.length }; },
   };
@@ -37,7 +52,7 @@ test("official source refresh happens before the Local Radar observation read", 
       assert.equal(shops[0].retailerId, "smyths-uk");
       observations.push({
         id: "evt-smyths-live",
-        kind: "manifested",
+        kind: "echo",
         retailerId: "smyths-uk",
         locationId: "loc-romford",
         locationName: "Smyths Toys Superstores Romford",
@@ -51,6 +66,7 @@ test("official source refresh happens before the Local Radar observation read", 
           sourceUrl: "https://www.smythstoys.com/uk/en-gb/example/p/263924",
           stockStatus: "in_stock",
           availabilityVerified: true,
+          physicalEvidenceState: "verified",
         },
       });
       return { provider: "smyths_official_store_availability", status: "ok", productsChecked: 1, observationsSaved: 1, rejected: 0 };
@@ -64,7 +80,8 @@ test("official source refresh happens before the Local Radar observation read", 
   assert.equal(data.providers.smythsLocalStock.observationsSaved, 1);
   assert.equal(data.providers.localStock.status, "ok");
   assert.equal(data.shops[0].localStockStatus, "in_stock");
-  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "manifested");
+  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "echo");
+  assert.equal(data.shops[0].localStockEvidence.physicalEvidenceState, "verified");
   assert.equal(data.counts.localInStockBranches, 1);
 });
 
@@ -72,6 +89,7 @@ test("official source failure never breaks discovery or invents stock", async ()
   const store = {
     async listOffers() { return []; },
     async listEncounters() { return []; },
+    async listRetailerLocations() { return [canonicalShop]; },
     async listLocalStockObservations() { return []; },
     async upsertRetailerLocations(locations) { return { saved: locations.length }; },
   };

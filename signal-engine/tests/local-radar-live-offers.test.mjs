@@ -16,6 +16,12 @@ const store = {
       { id: "stale-shop", healthy: false, stale: true, baselineCompleted: true },
     ];
   },
+  async listRetailerLocations() {
+    return [
+      { id: "loc-fresh", retailerId: "fresh-shop", provider: "official_directory", providerId: "fresh", name: "Fresh Shop", latitude: 51.5, longitude: -0.1, storeFormat: "specialist_tcg", tcgSellerStatus: "verified", identityStatus: "canonical" },
+      { id: "loc-stale", retailerId: "stale-shop", provider: "official_directory", providerId: "stale", name: "Stale Shop", latitude: 51.5, longitude: -0.1, storeFormat: "specialist_tcg", tcgSellerStatus: "verified", identityStatus: "canonical" },
+    ];
+  },
   async listEncounters() { return []; },
   async stats() { return { productsTracked: 0, offersTracked: 2, currentlyAvailable: 2 }; },
   async listSignals() { return []; },

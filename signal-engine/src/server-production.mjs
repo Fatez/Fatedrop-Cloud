@@ -7,6 +7,7 @@ import { runCuratedRetailerBranchSync } from "./encounters/curated-retailer-bran
 import { runNationalBranchDirectorySync } from "./encounters/national-branch-directory-sync.mjs";
 import { startOperatorLocalRadarIntake } from "./encounters/operator-local-radar-intake.mjs";
 import { runOsmRetailerBranchSync } from "./encounters/osm-retailer-branch-sync.mjs";
+import { monitorRetailerIntelligenceSurface } from "./encounters/retailer-intelligence-monitor.mjs";
 import { reconcileTotalCardsPhysicalAvailability } from "./encounters/total-cards-local-availability.mjs";
 import "./notifications/lifecycle-push-heartbeat.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
@@ -27,6 +28,7 @@ const TOTAL_CARDS_LOCAL_INTERVAL_MS = 5 * 60 * 1000;
 const TOTAL_CARDS_LOCAL_START_DELAY_MS = 120 * 1000;
 const ASDA_DENSITY_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ASDA_DENSITY_START_DELAY_MS = 180 * 1000;
+const RETAILER_INTELLIGENCE_START_DELAY_MS = 2 * 60 * 1000;
 const localBranchStore = createStore();
 startOperatorLocalRadarIntake({ store: localBranchStore });
 let qualifyingRetailerCandidates = false;
@@ -36,6 +38,7 @@ let syncingOsmBranches = false;
 let reconcilingCuratedLocalIntel = false;
 let reconcilingTotalCardsLocal = false;
 let syncingAsdaDensity = false;
+let monitoringRetailerIntelligence = false;
 
 async function qualifyRetailerCandidates() {
   if (qualifyingRetailerCandidates || !env.databaseUrl) return;
@@ -219,6 +222,27 @@ async function syncAsdaDensity() {
   }
 }
 
+async function monitorRetailerIntelligence() {
+  if (monitoringRetailerIntelligence || !env.databaseUrl || !env.encounters.retailerIntelligenceEnabled) return;
+  monitoringRetailerIntelligence = true;
+  try {
+    const outcome = await monitorRetailerIntelligenceSurface({ store: localBranchStore });
+    console.log("[signal-engine] retailer intelligence surface", {
+      surfaceId: outcome.surfaceId,
+      status: outcome.status,
+      products: outcome.products,
+      matchedBranches: outcome.matchedBranches || 0,
+      unmatchedTargets: outcome.unmatchedTargets || 0,
+      notificationsPublished: outcome.notificationsPublished || 0,
+      notificationsHeld: outcome.notificationsHeld || 0,
+    });
+  } catch (error) {
+    console.error("[signal-engine] retailer intelligence surface held", { error: String(error?.message || error) });
+  } finally {
+    monitoringRetailerIntelligence = false;
+  }
+}
+
 if (env.databaseUrl) {
   const qualificationTimer = setTimeout(() => { void qualifyRetailerCandidates(); }, RETAILER_QUALIFICATION_START_DELAY_MS);
   qualificationTimer.unref();
@@ -247,4 +271,10 @@ if (env.databaseUrl) {
   const asdaDensityTimer = setTimeout(() => { void syncAsdaDensity(); }, ASDA_DENSITY_START_DELAY_MS);
   asdaDensityTimer.unref();
   setInterval(syncAsdaDensity, ASDA_DENSITY_INTERVAL_MS).unref();
+
+  if (env.encounters.retailerIntelligenceEnabled) {
+    const retailerIntelligenceTimer = setTimeout(() => { void monitorRetailerIntelligence(); }, RETAILER_INTELLIGENCE_START_DELAY_MS);
+    retailerIntelligenceTimer.unref();
+    setInterval(monitorRetailerIntelligence, env.encounters.retailerIntelligenceIntervalMs).unref();
+  }
 }

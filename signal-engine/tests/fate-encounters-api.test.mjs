@@ -54,10 +54,10 @@ async function withServer(fn) {
   finally { await new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve())); }
 }
 
-test("local radar distinguishes discovered shops from connected online catalogue evidence", async () => withServer(async (base) => {
-  const response=await fetch(`${base}/api/local-radar?lat=51.5&lng=-0.1&radiusMiles=25&types=shops`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.success,true);assert.equal(data.shops.length,2);
-  const connected=data.shops.find((shop)=>shop.retailerId==="indie-live");assert.equal(connected.networkStatus,"live_connected");assert.equal(connected.localStockStatus,"unknown");assert.equal(connected.stockEvidence,"online_catalogue_only");assert.equal(connected.onlineCatalogue.availableOffers,2);assert.equal(connected.onlineCatalogue.scope,"online-catalogue-not-branch-stock");
-  const discovered=data.shops.find((shop)=>shop.providerPlaceId==="tiny");assert.equal(discovered.networkStatus,"local_indie");assert.equal(discovered.stockEvidence,"none");
+test("local radar keeps provisional provider discoveries off the public map", async () => withServer(async (base) => {
+  const response=await fetch(`${base}/api/local-radar?lat=51.5&lng=-0.1&radiusMiles=25&types=shops`);assert.equal(response.status,200);const data=await response.json();assert.equal(data.success,true);assert.equal(data.shops.length,0);
+  assert.equal(data.providers.shops.status,"ok");
+  assert.match(data.disclaimers[0],/location candidates/i);
 }));
 
 test("protected encounter intake deduplicates an event and exposes it in the UK calendar", async () => {

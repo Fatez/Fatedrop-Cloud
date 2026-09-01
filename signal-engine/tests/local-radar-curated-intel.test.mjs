@@ -45,11 +45,17 @@ function storeWith(observations) {
   return {
     async listOffers() { return []; },
     async listEncounters() { return []; },
+    async listRetailerLocations() {
+      return [
+        { id: "loc-smyths-romford", retailerId: "smyths-uk", provider: "official_directory", providerId: "smyths-romford", name: "Smyths Toys Superstores Romford", address: "Romford", latitude: 51.58, longitude: 0.18, storeFormat: "toy_store", identityStatus: "canonical" },
+        { id: "loc-tesco-romford", retailerId: "tesco-uk", provider: "official_directory", providerId: "tesco-romford", name: "Tesco Extra Romford", address: "Romford", latitude: 51.59, longitude: 0.19, storeFormat: "supermarket", identityStatus: "canonical" },
+      ];
+    },
     async listLocalStockObservations() { return observations; },
   };
 }
 
-test("curated retailer-chain Whisper can be branchless but is forced advisory", () => {
+test("curated retailer-chain physical intelligence is canonicalized to advisory Echo", () => {
   const observation = normalizeLocalStockObservation({
     kind: "whisper",
     retailerId: "smyths-uk",
@@ -67,7 +73,8 @@ test("curated retailer-chain Whisper can be branchless but is forced advisory", 
   });
 
   assert.equal(observation.locationId, null);
-  assert.equal(observation.kind, "whisper");
+  assert.equal(observation.kind, "echo");
+  assert.equal(observation.evidence.physicalEvidenceState, "expected");
   assert.equal(observation.evidence.localIntel, true);
   assert.equal(observation.evidence.scope, "retailer_chain");
   assert.equal(observation.evidence.advisory, true);
@@ -161,7 +168,7 @@ test("chain intel overlays only matching nearby retailer branches as unconfirmed
   assert.ok(smyths);
   assert.ok(tesco);
   assert.equal(smyths.localStockStatus, "incoming_watch");
-  assert.equal(smyths.localStockEvidence.lifecycleState, "whisper");
+  assert.equal(smyths.localStockEvidence.lifecycleState, "echo");
   assert.equal(smyths.localStockEvidence.advisory, true);
   assert.equal(smyths.localStockEvidence.scope, "retailer_chain");
   assert.equal(smyths.localStockEvidence.verifiedBranchStock, false);

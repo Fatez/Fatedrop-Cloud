@@ -49,7 +49,7 @@ test("identical source observations in the same minute dedupe to one canonical e
   assert.equal(batch.observations[0].kind, "echo");
 });
 
-test("invalid Manifested evidence is rejected before persistence", () => {
+test("community physical Manifested claims are downgraded to Echo · Reported before persistence", () => {
   const batch = normalizeLocalStockObservationBatch([{
     kind: "manifested",
     retailerId: "tesco-uk",
@@ -64,8 +64,11 @@ test("invalid Manifested evidence is rejected before persistence", () => {
       availabilityVerified: true,
     },
   }]);
-  assert.equal(batch.accepted, 0);
-  assert.match(batch.rejected[0].reason, /requires official/i);
+  assert.equal(batch.accepted, 1);
+  assert.equal(batch.rejected.length, 0);
+  assert.equal(batch.observations[0].kind, "echo");
+  assert.equal(batch.observations[0].evidence.physicalEvidenceState, "reported");
+  assert.equal(batch.observations[0].evidence.availabilityVerified, false);
 });
 
 function makeStore() {
@@ -95,7 +98,7 @@ async function withServer(store, fn) {
   }
 }
 
-test("branch and lifecycle ingest endpoints are secret-protected and reject orphan Vanished", async () => {
+test("branch and lifecycle ingest endpoints are secret-protected and canonicalize physical inputs to Echo", async () => {
   const previousSecret = env.ingestSecret;
   env.ingestSecret = "local-radar-test-secret";
   const store = makeStore();
@@ -151,7 +154,8 @@ test("branch and lifecycle ingest endpoints are secret-protected and reject orph
       });
       assert.equal(manifested.status, 200);
       assert.equal(store.state.observations.length, 1);
-      assert.equal(store.state.observations[0].kind, "manifested");
+      assert.equal(store.state.observations[0].kind, "echo");
+      assert.equal(store.state.observations[0].evidence.physicalEvidenceState, "verified");
 
       const vanished = await fetch(`${base}/internal/local-radar/observations`, {
         method: "POST",
@@ -171,9 +175,10 @@ test("branch and lifecycle ingest endpoints are secret-protected and reject orph
       });
       assert.equal(vanished.status, 200);
       const vanishedBody = await vanished.json();
-      assert.equal(vanishedBody.persisted.saved, 0);
-      assert.equal(vanishedBody.rejected.length, 1);
-      assert.match(vanishedBody.rejected[0].reason, /prior Manifested/i);
+      assert.equal(vanishedBody.persisted.saved, 1);
+      assert.equal(vanishedBody.rejected.length, 0);
+      assert.equal(store.state.observations[1].kind, "echo");
+      assert.equal(store.state.observations[1].evidence.physicalEvidenceState, "expired");
     });
   } finally {
     env.ingestSecret = previousSecret;

@@ -67,14 +67,13 @@ async function withServer(fn,{places=placesSearch,lookup=postcodeLookup,batchLoo
   try{const address=server.address();await fn(`http://127.0.0.1:${address.port}`);}finally{await new Promise((resolve,reject)=>server.close((error)=>error?reject(error):resolve()));}
 }
 
-test("postcode-only Local Radar resolves an origin and radius-filters shops and postcode-only events",async()=>withServer(async(base)=>{
+test("postcode-only Local Radar resolves an origin, hides provisional shops and radius-filters events",async()=>withServer(async(base)=>{
   const response=await fetch(`${base}/api/local-radar?postcode=AA1%201AA&radiusMiles=25&types=shops,events&from=2027-01-01T00:00:00Z`);
   assert.equal(response.status,200);
   const data=await response.json();
   assert.equal(data.locationResolution.status,"ok");
   assert.equal(data.locationResolution.source,"postcodes_io");
-  assert.equal(data.shops.length,1);
-  assert.equal(data.shops[0].name,"Nearby TCG");
+  assert.equal(data.shops.length,0);
   assert.equal(data.events.length,1);
   assert.equal(data.events[0].name,"Nearby Card Show");
   assert.equal(data.events[0].distanceSource,"postcode_centroid");

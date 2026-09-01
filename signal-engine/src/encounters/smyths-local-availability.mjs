@@ -409,9 +409,9 @@ export async function refreshSmythsLocalAvailability({
       if (!branch) continue;
       const stockStatus = statusFromStore(officialStore);
       if (stockStatus === "unknown") continue;
-      const kind = stockStatus === "out_of_stock" ? "vanished" : "manifested";
+      const physicalEvidenceState = stockStatus === "out_of_stock" ? "expired" : "verified";
       observations.push({
-        kind,
+        kind: "echo",
         productIdentityId: mapping.productIdentityId,
         retailerId: RETAILER_ID,
         locationId: branch.id,
@@ -423,6 +423,7 @@ export async function refreshSmythsLocalAvailability({
           sourceId: `smyths-store-pickup:${mapping.productCode}:${officialStoreId(officialStore) || branch.providerId || branch.branchKey}`,
           sourceUrl: mapping.sourceUrl || response.url,
           stockStatus,
+          physicalEvidenceState,
           availabilityVerified: stockStatus !== "out_of_stock",
           rawProductTitle: mapping.productTitle,
           retailerSku: mapping.productCode,
@@ -469,6 +470,6 @@ export const SMYTHS_LOCAL_SOURCE_POLICY = Object.freeze({
   protectionCooldownMs: 15 * 60_000,
   protections: "fail_closed_no_bypass",
   branchIdentity: "official store/POS ID plus coordinates, or exact name+postcode plus coordinates; Google Places is optional discovery evidence",
-  manifested: "verified identifier + exact branch + official collection availability only",
-  vanished: "existing Local Radar persistence still requires prior Manifested history",
+  verified: "Echo · In-store confirmed requires a verified identifier, exact canonical branch and official collection availability",
+  expired: "Explicit branch unavailability becomes Echo · No longer confirmed and never ordinary Vanished",
 });

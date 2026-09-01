@@ -85,7 +85,7 @@ test("Smyths source fails closed when the ordinary request is protected", async 
   assert.deepEqual(result.stores, []);
 });
 
-test("verified Smyths mapping plus exact official branch availability can create Manifested", async () => {
+test("verified Smyths mapping plus exact official branch availability creates Echo · In-store confirmed", async () => {
   const store = manifestedStore();
   const result = await refreshSmythsLocalAvailability({
     store,
@@ -100,7 +100,8 @@ test("verified Smyths mapping plus exact official branch availability can create
   assert.equal(result.status, "ok");
   assert.equal(result.observationsSaved, 1);
   assert.equal(store.saved().length, 1);
-  assert.equal(store.saved()[0].kind, "manifested");
+  assert.equal(store.saved()[0].kind, "echo");
+  assert.equal(store.saved()[0].evidence.physicalEvidenceState, "verified");
   assert.equal(store.saved()[0].productIdentityId, "prd-test-etb");
   assert.equal(store.saved()[0].evidence.evidenceLevel, "official_collection");
   assert.equal(store.saved()[0].evidence.availabilityVerified, true);
@@ -147,7 +148,8 @@ test("official Smyths response can establish an exact canonical branch without G
   assert.equal(locations[0].verification, "official_retailer_branch");
   assert.equal(observations.length, 1);
   assert.equal(observations[0].locationId, locations[0].id);
-  assert.equal(observations[0].kind, "manifested");
+  assert.equal(observations[0].kind, "echo");
+  assert.equal(observations[0].evidence.physicalEvidenceState, "verified");
   assert.equal(observations[0].evidence.branchIdentitySource, "smyths_official_store_availability");
 });
 
@@ -198,7 +200,7 @@ test("official store result for a different branch is not attached fuzzily", asy
   assert.deepEqual(store.saved(), []);
 });
 
-test("out-of-stock cannot create an orphan Vanished through the Smyths source", async () => {
+test("explicit out-of-stock becomes Echo · No longer confirmed through the Smyths source", async () => {
   let persisted = [];
   const store = {
     async listVerifiedSmythsProductMappings() { return [mapping]; },
@@ -218,7 +220,8 @@ test("out-of-stock cannot create an orphan Vanished through the Smyths source", 
       stores: [{ name: "Romford", postalCode: "RM1 3EE", stockLevelStatusCode: "OUTOFSTOCK", id: "romford" }],
     })),
   });
-  assert.equal(result.observationsSaved, 0);
-  assert.equal(result.rejected, 1);
-  assert.deepEqual(persisted, []);
+  assert.equal(result.observationsSaved, 1);
+  assert.equal(result.rejected, 0);
+  assert.equal(persisted[0].kind, "echo");
+  assert.equal(persisted[0].evidence.physicalEvidenceState, "expired");
 });

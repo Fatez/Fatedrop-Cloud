@@ -109,6 +109,8 @@ export const env = {
   suppressBaselineSignals: bool("FATEDROP_SUPPRESS_BASELINE_SIGNALS", true),
   encounters: {
     googlePlacesApiKey: process.env.GOOGLE_PLACES_API_KEY || "",
+    retailerIntelligenceEnabled: bool("FATEDROP_RETAILER_INTELLIGENCE_ENABLED", true),
+    retailerIntelligenceIntervalMs: Math.max(15 * 60 * 1000, int("FATEDROP_RETAILER_INTELLIGENCE_INTERVAL_MS", 30 * 60 * 1000)),
   },
   amazonCreators: {
     configured: amazonCreatorsConfigured,

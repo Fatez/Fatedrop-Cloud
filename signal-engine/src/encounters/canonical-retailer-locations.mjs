@@ -1,5 +1,8 @@
 import {
+  classifyLocationQuality,
+  isEchoEligibleLocation,
   isRadarEligibleLocation,
+  locationServiceKind,
   normalizeLocationPolicy,
   publicLocationEvidence,
 } from "./local-radar-location-policy.mjs";
@@ -62,7 +65,7 @@ function normalizeLocationRow(row = {}) {
   const name = text(row.name);
   if (!id || !retailerId || !provider || !name) return null;
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
-  const normalized = {
+  return {
     id,
     retailerId,
     provider,
@@ -79,7 +82,6 @@ function normalizeLocationRow(row = {}) {
     updatedAt: number(row.updatedAt ?? row.updated_at),
     ...normalizeLocationPolicy(row),
   };
-  return normalized;
 }
 
 async function readLocationRows(store, { limit, bounds = null, postcode = null, retailerIds = [] }) {
@@ -119,6 +121,293 @@ async function readLocationRows(store, { limit, bounds = null, postcode = null, 
   return rows;
 }
 
+function samePostcode(a, b) {
+  const left = postcodeKey(a?.postcode);
+  const right = postcodeKey(b?.postcode);
+  return Boolean(left && right && left === right);
+}
+
+function plausibleParent(child, candidate) {
+  if (!child?.retailerId || child.retailerId !== candidate?.retailerId) return false;
+  if (child.id === candidate.id || locationServiceKind(candidate)) return false;
+  const candidateQuality = classifyLocationQuality(candidate);
+  if (["excluded", "unresolved"].includes(candidateQuality.visibilityClass)) return false;
+  const proximity = distanceMiles(child, candidate);
+  return samePostcode(child, candidate) || (proximity != null && proximity <= 0.2);
+}
+
+function duplicateBranch(a, b) {
+  if (!a?.retailerId || a.retailerId !== b?.retailerId || a.id === b.id) return false;
+  if (a.provider === b.provider && a.providerId && b.providerId && String(a.providerId) === String(b.providerId)) return true;
+  const proximity = distanceMiles(a, b);
+  if (proximity == null || proximity > 0.12) return false;
+  if (samePostcode(a, b)) return true;
+  return Boolean(a.name && b.name && slug(a.name) === slug(b.name));
+}
+
+function canonicalScore(location) {
+  let score = 0;
+  if (location.identityStatus === "canonical") score += 40;
+  if (location.tcgSellerStatus === "verified") score += 20;
+  if (/official/i.test(location.provider || "")) score += 15;
+  if (/official/i.test(location.verification || "")) score += 10;
+  score += Math.min(5, Number(location.evidenceSourceCount || 0));
+  score += Math.min(9, Math.max(0, Number(location.updatedAt || 0) / 1_000_000_000));
+  return score;
+}
+
+function attachQuality(location, overrides = {}) {
+  const base = classifyLocationQuality(location);
+  return {
+    ...location,
+    visibilityClass: overrides.visibilityClass || base.visibilityClass,
+    visibilityReason: overrides.visibilityReason || base.reason,
+    serviceKind: overrides.serviceKind ?? base.serviceKind ?? null,
+    parentLocationId: overrides.parentLocationId || null,
+    relationshipType: overrides.relationshipType || null,
+  };
+}
+
+function disjointSet(size) {
+  const parent = Array.from({ length: size }, (_, index) => index);
+  function find(index) {
+    if (parent[index] !== index) parent[index] = find(parent[index]);
+    return parent[index];
+  }
+  function union(left, right) {
+    const a = find(left);
+    const b = find(right);
+    if (a !== b) parent[b] = a;
+  }
+  return { find, union };
+}
+
+export function reconcileLocationQuality(locations = []) {
+  const input = (Array.isArray(locations) ? locations : []).filter(Boolean);
+  const reconciled = input.map((location) => attachQuality(location));
+
+  for (let index = 0; index < reconciled.length; index += 1) {
+    const location = reconciled[index];
+    const serviceKind = locationServiceKind(location);
+    if (!serviceKind) continue;
+    const parents = reconciled.filter((candidate) => plausibleParent(location, candidate));
+    if (parents.length === 1) {
+      reconciled[index] = attachQuality(location, {
+        visibilityClass: "directory-only",
+        visibilityReason: serviceKind,
+        serviceKind,
+        parentLocationId: parents[0].id,
+        relationshipType: "child_service",
+      });
+    } else if (parents.length > 1) {
+      reconciled[index] = attachQuality(location, {
+        visibilityClass: "unresolved",
+        visibilityReason: `${serviceKind}_parent_ambiguous`,
+        serviceKind,
+        relationshipType: "child_service",
+      });
+    } else {
+      reconciled[index] = attachQuality(location, {
+        visibilityClass: "excluded",
+        visibilityReason: serviceKind,
+        serviceKind,
+        relationshipType: "child_service",
+      });
+    }
+  }
+
+  const candidates = reconciled
+    .map((location, index) => ({ location, index }))
+    .filter(({ location }) => !location.serviceKind && location.visibilityReason !== "closed");
+  const sets = disjointSet(candidates.length);
+  for (let left = 0; left < candidates.length; left += 1) {
+    for (let right = left + 1; right < candidates.length; right += 1) {
+      if (duplicateBranch(candidates[left].location, candidates[right].location)) sets.union(left, right);
+    }
+  }
+  const groups = new Map();
+  for (let index = 0; index < candidates.length; index += 1) {
+    const root = sets.find(index);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(candidates[index]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const keep = [...group].sort((a, b) => canonicalScore(b.location) - canonicalScore(a.location))[0];
+    for (const drop of group) {
+      if (drop.index === keep.index) continue;
+      reconciled[drop.index] = attachQuality(reconciled[drop.index], {
+        visibilityClass: "excluded",
+        visibilityReason: "duplicate",
+        parentLocationId: reconciled[keep.index].id,
+        relationshipType: "duplicate_of",
+      });
+    }
+  }
+  // Duplicate identity is resolved before a child service is allowed to choose its parent.
+  // This prevents a pharmacy/locker at the same postcode from seeing both the canonical
+  // supermarket and its duplicate as two parents and becoming falsely unresolved.
+  for (let index = 0; index < reconciled.length; index += 1) {
+    const current = reconciled[index];
+    const serviceKind = locationServiceKind(current);
+    if (!serviceKind || current.relationshipType !== "child_service") continue;
+    if (current.visibilityClass !== "unresolved" || !String(current.visibilityReason || "").endsWith("_parent_ambiguous")) continue;
+    const parents = reconciled.filter((candidate) => plausibleParent(current, candidate));
+    if (parents.length === 1) {
+      reconciled[index] = attachQuality(current, {
+        visibilityClass: "directory-only",
+        visibilityReason: serviceKind,
+        serviceKind,
+        parentLocationId: parents[0].id,
+        relationshipType: "child_service",
+      });
+    }
+  }
+
+  return reconciled;
+}
+
+function oldPublicEligible(location = {}) {
+  const policy = normalizeLocationPolicy(location);
+  return policy.operationalStatus !== "closed"
+    && policy.identityStatus !== "conflicted"
+    && !["excluded", "conflicted"].includes(policy.tcgSellerStatus);
+}
+
+function emptyAudit(retailerId) {
+  return {
+    retailerId,
+    rawTotal: 0,
+    beforePublic: 0,
+    eligible: 0,
+    directoryOnly: 0,
+    excluded: 0,
+    unresolved: 0,
+    afterPublic: 0,
+    echoEligible: 0,
+    deltaPublic: 0,
+    reasons: {},
+  };
+}
+
+async function loadQualityAuditState(store, { retailerIds = [], limit = 20000 } = {}) {
+  const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 20000));
+  const wanted = [...new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean))];
+  const wantedSet = new Set(wanted);
+  const rows = await readLocationRows(store, { limit: safeLimit, retailerIds: wanted });
+  const summaries = new Map();
+  for (const row of rows) {
+    const retailerId = text(row.retailerId ?? row.retailer_id);
+    if (!retailerId || (wantedSet.size && !wantedSet.has(retailerId))) continue;
+    const summary = summaries.get(retailerId) || emptyAudit(retailerId);
+    summary.rawTotal += 1;
+    summaries.set(retailerId, summary);
+  }
+
+  const normalized = rows
+    .map(normalizeLocationRow)
+    .filter(Boolean)
+    .filter((location) => !wantedSet.size || wantedSet.has(location.retailerId));
+  for (const location of normalized) {
+    const summary = summaries.get(location.retailerId) || emptyAudit(location.retailerId);
+    if (oldPublicEligible(location)) summary.beforePublic += 1;
+    summaries.set(location.retailerId, summary);
+  }
+
+  const reconciled = reconcileLocationQuality(normalized);
+  for (const location of reconciled) {
+    const summary = summaries.get(location.retailerId) || emptyAudit(location.retailerId);
+    if (location.visibilityClass === "eligible") summary.eligible += 1;
+    else if (location.visibilityClass === "directory-only") summary.directoryOnly += 1;
+    else if (location.visibilityClass === "excluded") summary.excluded += 1;
+    else summary.unresolved += 1;
+    summary.reasons[location.visibilityReason] = Number(summary.reasons[location.visibilityReason] || 0) + 1;
+    summaries.set(location.retailerId, summary);
+  }
+
+  for (const summary of summaries.values()) {
+    const classified = summary.eligible + summary.directoryOnly + summary.excluded + summary.unresolved;
+    if (summary.rawTotal > classified) {
+      const invalid = summary.rawTotal - classified;
+      summary.unresolved += invalid;
+      summary.reasons.invalid_location_record = Number(summary.reasons.invalid_location_record || 0) + invalid;
+    }
+    summary.afterPublic = summary.eligible;
+    summary.deltaPublic = summary.afterPublic - summary.beforePublic;
+  }
+  return { rows, normalized, reconciled, summaries };
+}
+
+export async function auditCanonicalRetailerLocationQuality(store, options = {}) {
+  const state = await loadQualityAuditState(store, options);
+  return [...state.summaries.values()].sort((a, b) => a.retailerId.localeCompare(b.retailerId));
+}
+
+export async function buildCanonicalRetailerLocationQualityReview(store, {
+  retailerIds = [],
+  limit = 20000,
+  echoEvents = [],
+  now = Date.now(),
+  sampleLimit = 25,
+} = {}) {
+  const state = await loadQualityAuditState(store, { retailerIds, limit });
+  const byId = new Map(state.reconciled.map((location) => [location.id, location]));
+  const echoIds = new Set();
+  for (const event of Array.isArray(echoEvents) ? echoEvents : []) {
+    const locationId = text(event.locationId ?? event.location_id);
+    const location = locationId ? byId.get(locationId) : null;
+    if (!location || !isEchoEligibleLocation(location, event, now)) continue;
+    echoIds.add(location.id);
+  }
+  for (const locationId of echoIds) {
+    const location = byId.get(locationId);
+    const summary = state.summaries.get(location.retailerId);
+    if (summary) summary.echoEligible += 1;
+  }
+
+  const removedSamples = state.reconciled
+    .filter((location) => oldPublicEligible(location) && location.visibilityClass !== "eligible")
+    .slice(0, Math.max(1, Number(sampleLimit) || 25))
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      postcode: location.postcode,
+      visibilityClass: location.visibilityClass,
+      reason: location.visibilityReason,
+      parentLocationId: location.parentLocationId,
+    }));
+  const reconciliations = state.reconciled
+    .filter((location) => location.relationshipType)
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      relationshipType: location.relationshipType,
+      parentLocationId: location.parentLocationId,
+      reason: location.visibilityReason,
+    }));
+  const unresolved = state.reconciled
+    .filter((location) => location.visibilityClass === "unresolved")
+    .slice(0, Math.max(1, Number(sampleLimit) || 25))
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      postcode: location.postcode,
+      reason: location.visibilityReason,
+    }));
+
+  return {
+    retailers: [...state.summaries.values()].sort((a, b) => a.retailerId.localeCompare(b.retailerId)),
+    removedSamples,
+    reconciliations,
+    unresolved,
+    echoEligibleBranchCount: echoIds.size,
+    truthRule: "Review-only classification. Raw locations, stock observations and lifecycle history remain unchanged; campaign expiry removes Echo authority without creating Vanished.",
+  };
+}
+
 export async function listCanonicalRetailerLocations(store, {
   retailerIds = [],
   limit = 10000,
@@ -134,39 +423,19 @@ export async function listCanonicalRetailerLocations(store, {
     postcode: postcodeKey(postcode) || null,
     retailerIds: wantedValues,
   });
-  return rows
+  const normalized = rows
     .map(normalizeLocationRow)
     .filter(Boolean)
-    .filter(isRadarEligibleLocation)
     .filter((location) => !wanted.size || wanted.has(location.retailerId));
+  return reconcileLocationQuality(normalized).filter(isRadarEligibleLocation);
 }
 
 export async function countCanonicalRetailerLocations(store, {
   retailerIds = [],
   limit = 20000,
 } = {}) {
-  const wanted = [...new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean))];
-  if (typeof store?.pool === "function") {
-    const pool = await store.pool();
-    const params = [];
-    const eligibility = "operational_status <> 'closed' AND identity_status <> 'conflicted' AND tcg_seller_status NOT IN ('excluded','conflicted')";
-    const where = wanted.length ? `WHERE retailer_id = ANY($1::text[]) AND ${eligibility}` : `WHERE ${eligibility}`;
-    if (wanted.length) params.push(wanted);
-    const { rows } = await pool.query(`
-      SELECT retailer_id,COUNT(*)::int AS location_count
-      FROM fatedrop_retailer_locations
-      ${where}
-      GROUP BY retailer_id
-    `, params);
-    return new Map(rows.map((row) => [String(row.retailer_id), Number(row.location_count) || 0]));
-  }
-
-  const locations = await listCanonicalRetailerLocations(store, { retailerIds: wanted, limit });
-  const counts = new Map();
-  for (const location of locations) {
-    counts.set(location.retailerId, Number(counts.get(location.retailerId) || 0) + 1);
-  }
-  return counts;
+  const audit = await auditCanonicalRetailerLocationQuality(store, { retailerIds, limit });
+  return new Map(audit.map((row) => [row.retailerId, row.afterPublic]));
 }
 
 function locationToShop(location, { origin, availableByRetailer }) {
@@ -205,6 +474,8 @@ function locationToShop(location, { origin, availableByRetailer }) {
     retailerGroup: location.retailerGroup,
     storeFormat: location.storeFormat,
     operationalStatus: location.operationalStatus,
+    identityStatus: location.identityStatus,
+    visibilityClass: location.visibilityClass,
     locationEvidence: publicLocationEvidence(location),
   };
 }

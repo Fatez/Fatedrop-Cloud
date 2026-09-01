@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
 import { normalizeLocationPolicy } from "./local-radar-location-policy.mjs";
+import { resolvePhysicalEchoEvidenceState } from "./physical-echo-contract.mjs";
 
-const LIFECYCLE = new Set(["whisper", "echo", "manifested", "vanished"]);
-const OFFICIAL_EVIDENCE_LEVELS = new Set(["official_branch", "official_collection", "official_retailer_app"]);
-const VERIFIED_AVAILABILITY = new Set(["in_stock", "low_stock", "available", "collection_available", "on_shelf"]);
+const INPUT_LIFECYCLE = new Set(["whisper", "echo", "manifested", "vanished"]);
 const CHAIN_ECHO_SOURCES = new Set(["retailer_staff_report", "official_store_social", "retailer_submission", "authorised_feed"]);
 
 function text(value) {
@@ -109,7 +108,7 @@ export function normalizeLocalStockObservation(record = {}) {
     throw new Error("Local intel expectedTo cannot be before expectedFrom");
   }
 
-  if (!LIFECYCLE.has(requestedKind)) throw new Error("Local stock observation requires canonical whisper/echo/manifested/vanished kind");
+if (!INPUT_LIFECYCLE.has(requestedKind)) throw new Error("Local stock observation requires a recognised legacy/local signal kind");
   if (!retailerId) throw new Error("Local stock observation requires retailerId");
   if (!locationId && !chainIntel) throw new Error("Local stock observation requires locationId unless it is explicitly unconfirmed retailer-chain intel");
   if (!sourceType) throw new Error("Local stock observation requires evidence.sourceType");
@@ -118,21 +117,17 @@ export function normalizeLocalStockObservation(record = {}) {
     throw new Error("Retailer-chain Echo requires retailer staff, official store social, retailer submission or authorised feed evidence");
   }
 
-  if (requestedKind === "manifested") {
-    if (!locationId) throw new Error("Local Manifested requires an exact retailer location");
-    if (!productIdentityId) throw new Error("Local Manifested requires canonical product identity");
-    if (!OFFICIAL_EVIDENCE_LEVELS.has(evidenceLevel)) throw new Error("Local Manifested requires official branch/collection/app evidence");
-    if (evidence.availabilityVerified !== true && !VERIFIED_AVAILABILITY.has(stockStatus)) {
-      throw new Error("Local Manifested requires verified physical or collection availability evidence");
-    }
-  }
-  if (requestedKind === "vanished") {
-    if (!locationId) throw new Error("Local Vanished requires an exact retailer location");
-    if (!productIdentityId) throw new Error("Local Vanished requires canonical product identity");
-    if (!OFFICIAL_EVIDENCE_LEVELS.has(evidenceLevel)) throw new Error("Local Vanished requires official branch/collection/app evidence");
-  }
+  const physicalEvidenceState = resolvePhysicalEchoEvidenceState({
+  requestedKind,
+  evidence,
+  evidenceLevel,
+  sourceType,
+  stockStatus,
+  locationId,
+  productIdentityId,
+});
 
-  const bucket = Math.floor(occurredAt / 60);
+const bucket = Math.floor(occurredAt / 60);
   const rawTitle = text(evidence.rawProductTitle ?? evidence.raw_product_title ?? evidence.productTitle ?? evidence.title);
   const productKey = productIdentityId || `unresolved:${slug(rawTitle || "unknown-product")}`;
   const inferredExpiry = !evidence.expiresAt && !evidence.expires_at && chainIntel
@@ -143,17 +138,21 @@ export function normalizeLocalStockObservation(record = {}) {
         : null
     : null;
   return {
-    id: text(record.id) || hash("lse", `${requestedKind}|${retailerId}|${locationId || "retailer-chain"}|${productKey}|${sourceType}|${sourceId}|${bucket}`),
-    kind: requestedKind,
+id: text(record.id) || hash("lse", `echo|${physicalEvidenceState}|${retailerId}|${locationId || "retailer-chain"}|${productKey}|${sourceType}|${sourceId}|${bucket}`),
+kind: "echo",
     productIdentityId,
     offerId: text(record.offerId ?? record.offer_id),
     retailerId,
     locationId,
     occurredAt,
-    evidence: {
-      ...evidence,
-      evidenceLevel,
-      sourceType,
+evidence: {
+  ...evidence,
+  evidenceLevel,
+  sourceType,
+  alertChannel: "echo",
+  availabilityScope: locationId ? "physical_branch" : "physical_retailer_chain",
+  physicalEvidenceState,
+  availabilityVerified: physicalEvidenceState === "verified",
       ...(chainIntel ? { localIntel: true, scope: "retailer_chain", advisory: true } : {}),
       ...(expectedFrom ? { expectedFrom } : {}),
       ...(expectedTo ? { expectedTo } : {}),
@@ -253,38 +252,11 @@ export async function upsertRetailerLocationsIntoStore(store, locations = []) {
   }
 }
 
-async function hasPriorManifested(store, observation, client = null) {
-  if (typeof store?.hasPriorLocalManifested === "function") {
-    return store.hasPriorLocalManifested({
-      locationId: observation.locationId,
-      productIdentityId: observation.productIdentityId,
-      before: observation.occurredAt,
-    });
-  }
-  const queryable = client || (typeof store?.pool === "function" ? await store.pool() : null);
-  if (!queryable) return false;
-  const { rows } = await queryable.query(`
-    SELECT 1 FROM fatedrop_signal_events
-    WHERE location_id=$1 AND product_identity_id=$2 AND kind='manifested' AND occurred_at < $3
-    ORDER BY occurred_at DESC LIMIT 1
-  `, [observation.locationId, observation.productIdentityId, observation.occurredAt]);
-  return rows.length > 0;
-}
-
 export async function upsertLocalStockObservationsIntoStore(store, observations = []) {
   if (typeof store?.upsertLocalStockObservations === "function") {
-    const accepted = [];
-    const rejected = [];
-    for (const observation of observations) {
-      if (observation.kind === "vanished" && !(await hasPriorManifested(store, observation))) {
-        rejected.push({ id: observation.id, reason: "Local Vanished requires prior Manifested history for the same branch and product" });
-      } else {
-        accepted.push(observation);
-      }
-    }
-    const result = accepted.length ? await store.upsertLocalStockObservations(accepted) : { saved: 0 };
-    return { ...result, rejected };
-  }
+  const result = observations.length ? await store.upsertLocalStockObservations(observations) : { saved: 0 };
+  return { ...result, rejected: [] };
+}
   if (typeof store?.pool !== "function") throw new Error("Local stock observation persistence is unavailable");
   const pool = await store.pool();
   const client = await pool.connect();
@@ -299,20 +271,16 @@ export async function upsertLocalStockObservationsIntoStore(store, observations 
         if (!locationRows[0]) { rejected.push({ id: observation.id, reason: "Unknown retailer location" }); continue; }
         if (locationRows[0].retailer_id !== observation.retailerId) { rejected.push({ id: observation.id, reason: "Retailer/location identity mismatch" }); continue; }
       } else {
-        const validChainIntel = ["whisper", "echo"].includes(observation.kind)
+const validChainIntel = observation.kind === "echo"
           && observation.evidence?.localIntel === true
           && observation.evidence?.scope === "retailer_chain";
-        if (!validChainIntel) { rejected.push({ id: observation.id, reason: "Branchless local intelligence must be explicitly advisory retailer-chain Whisper/Echo evidence" }); continue; }
+if (!validChainIntel) { rejected.push({ id: observation.id, reason: "Branchless local intelligence must be explicitly advisory retailer-chain Echo evidence" }); continue; }
         const { rows: retailerRows } = await client.query("SELECT 1 FROM fatedrop_retailer_registry WHERE retailer_id=$1", [observation.retailerId]);
         if (!retailerRows.length) { rejected.push({ id: observation.id, reason: "Unknown canonical retailer ID" }); continue; }
       }
       if (observation.productIdentityId) {
         const { rows: productRows } = await client.query("SELECT 1 FROM fatedrop_product_identities WHERE id=$1", [observation.productIdentityId]);
         if (!productRows.length) { rejected.push({ id: observation.id, reason: "Unknown canonical product identity" }); continue; }
-      }
-      if (observation.kind === "vanished" && !(await hasPriorManifested(store, observation, client))) {
-        rejected.push({ id: observation.id, reason: "Local Vanished requires prior Manifested history for the same branch and product" });
-        continue;
       }
       const result = await client.query(`
         INSERT INTO fatedrop_signal_events (id,kind,product_identity_id,offer_id,retailer_id,location_id,occurred_at,evidence_json)

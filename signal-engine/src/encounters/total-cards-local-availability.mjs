@@ -232,14 +232,15 @@ function locationId(location = {}) {
   return text(location.id);
 }
 
-function observationFor({ candidate, resolved, location, availability, kind, now }) {
+function observationFor({ candidate, resolved, location, availability, physicalEvidenceState, now }) {
   const productIdentityId = text(resolved.product_id ?? resolved.productIdentityId);
   const sourceUrl = normalizeUrl(resolved.offer_url ?? resolved.offerUrl ?? candidate.productUrl) || candidate.productUrl;
   const title = text(resolved.offer_title ?? resolved.offerTitle ?? resolved.product_title ?? resolved.productTitle ?? candidate.expectedTitle);
   const rrpPence = Number(resolved.official_rrp_pence ?? resolved.officialRrpPence);
   const itemPricePence = Number(availability.pricePence);
+  const verified = physicalEvidenceState === "verified";
   return {
-    kind,
+    kind: "echo",
     productIdentityId,
     // Local physical truth is keyed by canonical product + retailer + exact branch + source evidence.
     // fatedrop_signal_events.offer_id still references legacy fatedrop_offers, while this resolver reads
@@ -254,22 +255,38 @@ function observationFor({ candidate, resolved, location, availability, kind, now
       scope: "exact_branch",
       evidenceLevel: "official_collection",
       sourceType: "official_retailer_page",
-      sourceId: `total-cards:${productIdentityId}:${kind}:gaming-centre`,
+      sourceId: `total-cards:${productIdentityId}:${physicalEvidenceState}:gaming-centre`,
       sourceUrl,
       sourceLabel: "Total Cards official product page",
       rawProductTitle: title,
-      availabilityVerified: kind === "manifested",
-      stockStatus: kind === "manifested" ? "collection_available" : "collection_unavailable",
+      availabilityVerified: verified,
+      stockStatus: verified ? "collection_available" : "collection_unavailable",
+      physicalEvidenceState,
       physicalCollection: true,
       pickupOnly: availability.pickupOnly === true,
       availableInStore: availability.availableInStore === true,
       ...(Number.isFinite(itemPricePence) && itemPricePence > 0 ? { itemPricePence } : {}),
       ...(Number.isFinite(rrpPence) && rrpPence > 0 ? { rrpPence, rrpSource: text(resolved.rrp_source ?? resolved.rrpSource) } : {}),
-      note: kind === "manifested"
+      note: verified
         ? "Official Total Cards product page explicitly marks this product Pickup Only and Available to buy in-store. Online stock remains a separate evidence stream."
         : "Official Total Cards product page explicitly reports physical store collection unavailable after prior verified branch availability.",
     },
   };
+}
+
+function latestPhysicalEvidenceState(latest = {}) {
+  if (!latest) return null;
+  const explicit = text(
+    latest.evidence?.physicalEvidenceState
+    ?? latest.evidence?.physical_evidence_state
+    ?? latest.evidence_json?.physicalEvidenceState
+    ?? latest.evidence_json?.physical_evidence_state,
+  )?.toLowerCase();
+  if (["expected", "reported", "verified", "expired"].includes(explicit)) return explicit;
+  const legacyKind = text(latest.kind)?.toLowerCase();
+  if (legacyKind === "manifested") return "verified";
+  if (legacyKind === "vanished") return "expired";
+  return null;
 }
 
 export async function reconcileTotalCardsPhysicalAvailability({
@@ -318,21 +335,21 @@ export async function reconcileTotalCardsPhysicalAvailability({
       productIdentityId,
       retailerId: TOTAL_CARDS_RETAILER_ID,
     });
-    const latestKind = text(latest?.kind)?.toLowerCase();
+    const latestState = latestPhysicalEvidenceState(latest);
 
     if (availability.physicalAvailable) {
-      if (latestKind === "manifested") {
-        results.push({ candidateId: candidate.id, productIdentityId, status: "already_manifested", saved: false });
+      if (latestState === "verified") {
+        results.push({ candidateId: candidate.id, productIdentityId, status: "already_verified", saved: false });
         continue;
       }
-      observations.push(observationFor({ candidate, resolved, location: branch.location, availability, kind: "manifested", now }));
-      results.push({ candidateId: candidate.id, productIdentityId, status: "manifested_evidence", saved: true });
+      observations.push(observationFor({ candidate, resolved, location: branch.location, availability, physicalEvidenceState: "verified", now }));
+      results.push({ candidateId: candidate.id, productIdentityId, status: "verified_echo_evidence", saved: true });
       continue;
     }
 
-    if (availability.explicitPhysicalUnavailable && latestKind === "manifested") {
-      observations.push(observationFor({ candidate, resolved, location: branch.location, availability, kind: "vanished", now }));
-      results.push({ candidateId: candidate.id, productIdentityId, status: "vanished_evidence", saved: true });
+    if (availability.explicitPhysicalUnavailable && latestState === "verified") {
+      observations.push(observationFor({ candidate, resolved, location: branch.location, availability, physicalEvidenceState: "expired", now }));
+      results.push({ candidateId: candidate.id, productIdentityId, status: "expired_echo_evidence", saved: true });
       continue;
     }
 
@@ -361,6 +378,6 @@ export async function reconcileTotalCardsPhysicalAvailability({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     results,
-    truthRule: "Total Cards online stock and Newton Aycliffe physical collection are separate evidence streams. Local Manifested requires explicit official in-store collection availability for an exact canonical product and exact canonical branch.",
+    truthRule: "Total Cards online stock and Newton Aycliffe physical collection are separate evidence streams. Exact official in-store collection evidence is physical Echo only: verified becomes In-store confirmed and explicit later unavailability becomes No longer confirmed.",
   };
 }

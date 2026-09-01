@@ -30,6 +30,7 @@ test("authorised operator can explicitly publish credible expected-stock intelli
   const parsed = parseOperatorIssue(issue({ kind: "echo", confidence: 0.75 }), NOW);
   assert.equal(parsed.entry.sourceType, "operator_manual");
   assert.equal(parsed.entry.kind, "echo");
+  assert.equal(parsed.entry.physicalEvidenceState, "reported");
   assert.equal(parsed.entry.confidence, 0.75);
 });
 
@@ -37,4 +38,30 @@ test("manual operator intelligence remains Whisper unless Echo is explicitly req
   const parsed = parseOperatorIssue(issue({ confidence: 0.75 }), NOW);
   assert.equal(parsed.entry.kind, "whisper");
   assert.equal(parsed.entry.confidence, 0.59);
+});
+
+test("authorised online readiness Echo does not require a physical branch or claim stock", () => {
+  const parsed = parseOperatorIssue(issue({
+    availabilityScope: "online_retailer_readiness",
+    kind: "echo",
+    sourceUrl: "https://www.pokemoncenter.com/en-gb",
+    targetBranches: [],
+  }), NOW);
+  assert.equal(parsed.availabilityScope, "online_retailer_readiness");
+  assert.equal(parsed.entry.kind, "echo");
+  assert.equal(parsed.entry.physicalEvidenceState, null);
+  assert.deepEqual(parsed.entry.targetBranches, []);
+});
+
+test("manual input cannot self-upgrade to Expected or online Echo without an explicit Echo request", () => {
+  assert.throws(() => parseOperatorIssue(issue({
+    sourceType: "operator_manual",
+    physicalEvidenceState: "expected",
+  }), NOW), /requires an official preparation source/);
+  assert.throws(() => parseOperatorIssue(issue({
+    availabilityScope: "online_retailer_readiness",
+    sourceUrl: "https://www.pokemoncenter.com/en-gb",
+    targetBranches: [],
+    kind: null,
+  }), NOW), /explicit authorised Echo request/);
 });

@@ -2,11 +2,12 @@ import {
   normalizeLocalStockObservationBatch,
   upsertLocalStockObservationsIntoStore,
 } from "./local-stock-store.mjs";
+import { isEchoEligibleLocation } from "./local-radar-location-policy.mjs";
 
 const ENTERTAINER_POKEMON_PAGE = "https://www.thetoyshop.com/pokemon-at-the-entertainer";
 
 // Human-curated from a current official retailer page. This is preparation evidence only.
-// It expires automatically and cannot create Local Manifested.
+// It expires automatically and cannot create Local Manifested or Vanished.
 export const CURATED_INCOMING_INTEL = Object.freeze([
   Object.freeze({
     id: "entertainer-mega-forces-tin-2026-08-28",
@@ -17,6 +18,7 @@ export const CURATED_INCOMING_INTEL = Object.freeze([
     sourceId: "the-entertainer:pokemon-at-the-entertainer:mega-forces-tin:2026-08-28",
     sourceUrl: ENTERTAINER_POKEMON_PAGE,
     sourceLabel: "The Entertainer official Pokémon TCG page",
+    explicitTcgRelevance: true,
     observedAt: "2026-08-26T15:45:00+01:00",
     expectedFrom: "2026-08-28T00:00:00+01:00",
     expectedTo: "2026-08-28T23:59:59+01:00",
@@ -89,7 +91,9 @@ async function listRetailerLocations(store, retailerId) {
   if (typeof store?.pool !== "function") return [];
   const pool = await store.pool();
   const { rows } = await pool.query(`
-    SELECT id,retailer_id,name,address,postcode,provider,provider_id,latitude,longitude
+    SELECT id,retailer_id,name,address,postcode,provider,provider_id,latitude,longitude,
+           opening_details_json,retailer_category,store_format,operational_status,
+           tcg_seller_status,tcg_seller_confidence,identity_status,last_verified_at
     FROM fatedrop_retailer_locations
     WHERE retailer_id=$1
     ORDER BY updated_at DESC
@@ -105,7 +109,20 @@ function branchName(location = {}) {
   return text(location.name) || "Retailer branch";
 }
 
+function echoEvidence(entry) {
+  return {
+    sourceType: entry.sourceType,
+    exactBranch: true,
+    chainWide: false,
+    explicitTcgRelevance: entry.explicitTcgRelevance === true,
+    rawProductTitle: entry.rawProductTitle,
+    productRelevant: Boolean(text(entry.rawProductTitle)),
+    expiresAt: entry.expiresAt,
+  };
+}
+
 function asObservation(entry, target, location) {
+  const physicalEvidenceState = entry.physicalEvidenceState === "reported" ? "reported" : "expected";
   return {
     kind: entry.kind,
     retailerId: entry.retailerId,
@@ -115,7 +132,7 @@ function asObservation(entry, target, location) {
       localIntel: true,
       advisory: true,
       scope: "exact_branch_advisory",
-      evidenceLevel: "inventory_preparation",
+      evidenceLevel: physicalEvidenceState === "reported" ? "community_report" : "inventory_preparation",
       sourceType: entry.sourceType,
       sourceId: `${entry.sourceId}:${branchId(location)}`,
       sourceUrl: entry.sourceUrl,
@@ -130,7 +147,13 @@ function asObservation(entry, target, location) {
       note: entry.note,
       targetBranch: target,
       matchedBranchName: branchName(location),
-      availabilityVerified: false,
+      exactBranch: true,
+      chainWide: false,
+      explicitTcgRelevance: entry.explicitTcgRelevance === true,
+availabilityVerified: false,
+alertChannel: "echo",
+availabilityScope: "physical_branch",
+physicalEvidenceState,
     },
   };
 }
@@ -163,6 +186,10 @@ async function collectCuratedIncomingIntelMatches({ store, entries, now }) {
         unmatchedTargets.push({ entryId: entry.id, target, reason: "branch_identity_missing", matches: 1 });
         continue;
       }
+      if (entry.kind === "echo" && !isEchoEligibleLocation(location, echoEvidence(entry), now)) {
+        unmatchedTargets.push({ entryId: entry.id, target, reason: "location_not_echo_eligible", matches: 1 });
+        continue;
+      }
       const key = `${entry.id}|${id}`;
       if (matchedLocationIds.has(key)) continue;
       matchedLocationIds.add(key);
@@ -187,7 +214,7 @@ export async function inspectCuratedIncomingIntelTargets({
     matchedBranches: matched.observations.length,
     unmatchedTargets: matched.unmatchedTargets,
     persisted: false,
-    truthRule: "Read-only exact-branch reconciliation only. No Local Radar observation, stock state or history is written.",
+    truthRule: "Read-only exact-branch reconciliation only. No Local Radar observation, stock state or history is written; physical intelligence is Echo-scoped.",
   };
 }
 
@@ -212,6 +239,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets: matched.unmatchedTargets,
-    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only and can never create Local Manifested without separate exact-branch verified availability evidence.",
+truthRule: "Curated incoming intelligence remains physical Echo: first-party allocation evidence is Echo · Expected and reviewed human intelligence is Echo · Reported. Both require an exact public-visible branch, relevant product evidence, branch-specific sourcing and unexpired evidence. Exact-branch verified physical availability remains Echo · In-store confirmed; expiry removes Echo authority and never creates Manifested or ordinary Vanished.",
   };
 }

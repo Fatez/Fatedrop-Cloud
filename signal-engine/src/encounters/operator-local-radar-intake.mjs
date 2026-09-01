@@ -11,6 +11,7 @@ import {
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
 const ISSUE_PREFIX = "[FATEDROP LOCAL RADAR]";
+const ECHO_ISSUE_PREFIX = "[FATEDROP ECHO]";
 const TEST_ISSUE_TITLE = "[FATEDROP LOCAL RADAR] TEST ONLY";
 const POLL_INTERVAL_MS = 120_000;
 const POLL_START_DELAY_MS = 20_000;
@@ -22,6 +23,7 @@ const STRONG_ECHO_SOURCES = new Set([
   "authorised_feed",
   "operator_manual",
 ]);
+const OFFICIAL_PREPARATION_SOURCES = new Set(["official_retailer_page", "authorised_feed"]);
 
 function text(value, max = 500) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -52,6 +54,17 @@ function confidence(value, fallback) {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : fallback;
 }
 
+function optionalHttpsUrl(value) {
+  const clean = text(value, 700);
+  if (!clean) return null;
+  let parsed;
+  try { parsed = new URL(clean); } catch { throw new Error("sourceUrl must be a valid public HTTPS URL"); }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname || parsed.hostname === "localhost") {
+    throw new Error("sourceUrl must be a valid public HTTPS URL");
+  }
+  return parsed.toString();
+}
+
 function issueFingerprint(issue) {
   return crypto.createHash("sha256")
     .update(`${issue?.number || ""}|${issue?.updated_at || ""}|${issue?.body || ""}`)
@@ -63,7 +76,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   if (issue.pull_request) throw new Error("Pull requests are not operator alerts");
   if (issue.state !== "open") throw new Error("Operator issue must be open");
   if (issue.user?.login !== OPERATOR_LOGIN) throw new Error("Operator issue author is not authorised");
-  if (!String(issue.title || "").startsWith(ISSUE_PREFIX)) throw new Error("Operator issue prefix is invalid");
+  if (![ISSUE_PREFIX, ECHO_ISSUE_PREFIX].some((prefix) => String(issue.title || "").startsWith(prefix))) throw new Error("Operator issue prefix is invalid");
 
   let payload;
   try {
@@ -86,9 +99,13 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const retailerName = text(payload.retailerName, 120);
   const rawProductTitle = text(payload.rawProductTitle, 220);
   const targetBranches = stringList(payload.targetBranches, 100, 180);
+  const availabilityScope = payload.availabilityScope === "online_retailer_readiness"
+    ? "online_retailer_readiness"
+    : "physical_branch";
   const sourceType = text(payload.sourceType, 80)?.toLowerCase() || "operator_manual";
-  const sourceUrl = text(payload.sourceUrl, 700);
+  const sourceUrl = optionalHttpsUrl(payload.sourceUrl);
   const sourceLabel = text(payload.sourceLabel, 180) || "FateDrop operator intelligence";
+  const explicitTcgRelevance = payload.explicitTcgRelevance === true;
   const expectedFrom = iso(payload.expectedFrom, "expectedFrom");
   const expectedTo = iso(payload.expectedTo, "expectedTo");
   const expiresAt = iso(payload.expiresAt, "expiresAt");
@@ -99,16 +116,28 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
   if (!retailerId || !retailerName) throw new Error("retailerId and retailerName are required");
   if (!rawProductTitle) throw new Error("rawProductTitle is required");
-  if (!targetBranches.length) throw new Error("At least one named target branch is required before a Local Radar broadcast");
+  if (availabilityScope === "physical_branch" && !targetBranches.length) throw new Error("At least one named target branch is required before a Local Radar broadcast");
+  if (availabilityScope === "online_retailer_readiness" && !sourceUrl && !text(payload.evidenceBasis, 700)) throw new Error("Online readiness Echo requires a source URL or evidence basis");
   if (!expectedFrom && !expectedTo && !expectedLabel) throw new Error("An expected date/window is required");
   if (!expiresAt || Date.parse(expiresAt) <= now) throw new Error("expiresAt must be in the future");
   if (expectedFrom && expectedTo && Date.parse(expectedTo) < Date.parse(expectedFrom)) throw new Error("expectedTo cannot be before expectedFrom");
 
   const requestedKind = text(payload.kind, 20)?.toLowerCase();
   const kind = requestedKind === "echo" && STRONG_ECHO_SOURCES.has(sourceType) ? "echo" : "whisper";
+  if (availabilityScope === "online_retailer_readiness" && kind !== "echo") throw new Error("Online readiness requires an explicit authorised Echo request");
   const defaultConfidence = kind === "echo" ? 0.68 : 0.48;
   const maxConfidence = kind === "echo" ? 0.8 : 0.59;
   const safeConfidence = Math.min(maxConfidence, confidence(payload.confidence, defaultConfidence));
+  const requestedPhysicalState = text(payload.physicalEvidenceState, 24)?.toLowerCase();
+  if (requestedPhysicalState && !["expected", "reported"].includes(requestedPhysicalState)) {
+    throw new Error("Manual physical Echo may only be expected or reported");
+  }
+  if (requestedPhysicalState === "expected" && !OFFICIAL_PREPARATION_SOURCES.has(sourceType)) {
+    throw new Error("Echo · Expected requires an official preparation source");
+  }
+  const physicalEvidenceState = availabilityScope === "physical_branch"
+    ? requestedPhysicalState || (OFFICIAL_PREPARATION_SOURCES.has(sourceType) ? "expected" : "reported")
+    : null;
   const issueNumber = Number(issue.number);
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error("Operator issue number is invalid");
 
@@ -116,17 +145,22 @@ export function parseOperatorIssue(issue, now = Date.now()) {
     issueNumber,
     testOnly,
     eventId: testOnly ? `local-radar-operator-test:${issueNumber}` : `local-radar-operator:${issueNumber}`,
+    availabilityScope,
+    physicalEvidenceState,
     retailerName,
     notificationDateLabel,
     entry: {
       id: testOnly ? `operator-local-radar-test-${issueNumber}` : `operator-local-radar-${issueNumber}`,
       retailerId,
       kind,
+      availabilityScope,
+      physicalEvidenceState,
       rawProductTitle,
       sourceType,
       sourceId: `github:${OPERATOR_REPOSITORY}:issue:${issueNumber}`,
       sourceUrl,
       sourceLabel,
+      explicitTcgRelevance,
       observedAt: iso(issue.created_at, "issue created_at") || new Date(now).toISOString(),
       expectedFrom,
       expectedTo,
@@ -142,7 +176,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
 
 export function buildOperatorNotification(parsed, reconciliation) {
   const branchCount = parsed.entry.targetBranches.length;
-  if (reconciliation.unmatchedTargets?.length || reconciliation.matchedBranches !== branchCount) {
+  if (parsed.availabilityScope === "physical_branch" && (reconciliation.unmatchedTargets?.length || reconciliation.matchedBranches !== branchCount)) {
     return null;
   }
   const datePhrase = parsed.notificationDateLabel ? ` ${parsed.notificationDateLabel}` : "";
@@ -154,6 +188,10 @@ export function buildOperatorNotification(parsed, reconciliation) {
       eventId: parsed.eventId,
       testOnly: true,
       stage: parsed.entry.kind === "echo" ? "ECHO" : "WHISPER",
+      route: parsed.availabilityScope === "physical_branch" ? "local-radar" : "alerts",
+      availabilityScope: parsed.availabilityScope,
+      availabilityVerified: false,
+      physicalEvidenceState: parsed.physicalEvidenceState,
       title: "FateDrop · Local Radar · TEST ONLY",
       body: `TEST ONLY · Operator transport verification matched ${branchCount} canonical ${parsed.retailerName} ${storeWord}. No stock or Local Radar history has been created.`,
       retailerId: parsed.entry.retailerId,
@@ -167,18 +205,51 @@ export function buildOperatorNotification(parsed, reconciliation) {
       ...facetPayload,
     };
   }
+  if (parsed.availabilityScope === "online_retailer_readiness") {
+    return {
+      eventId: parsed.eventId,
+      testOnly: false,
+      stage: "ECHO",
+      route: "alerts",
+      presentationType: "readiness_echo",
+      title: "FateDrop · Echo · Be ready",
+      body: `${parsed.entry.rawProductTitle} · ${parsed.entry.expectedLabel || "credible retailer movement observed"}. This is readiness evidence, not confirmed stock.`,
+      retailerId: parsed.entry.retailerId,
+      retailerName: parsed.retailerName,
+      productTitle: parsed.entry.rawProductTitle,
+      expectedFrom: parsed.entry.expectedFrom,
+      expectedTo: parsed.entry.expectedTo,
+      expectedLabel: parsed.entry.expectedLabel,
+      sourceUrl: parsed.entry.sourceUrl,
+      evidenceObservedAt: parsed.entry.observedAt,
+      availabilityScope: parsed.availabilityScope,
+      availabilityVerified: false,
+      operatorIssue: parsed.issueNumber,
+      ...facetPayload,
+    };
+  }
   return {
     eventId: parsed.eventId,
     testOnly: false,
     stage: parsed.entry.kind === "echo" ? "ECHO" : "WHISPER",
-    title: "FateDrop · Local Radar · Incoming stock",
-    body: `${parsed.entry.rawProductTitle} expected at ${branchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Check Local Radar to see if a participating store is near you.`,
+    route: "local-radar",
+    presentationType: "big_fate_signal",
+    physicalEvidenceState: parsed.physicalEvidenceState,
+    availabilityScope: parsed.availabilityScope,
+    availabilityVerified: false,
+    radiusTargeted: false,
+    deliveryPolicy: "radius_targeted_only",
+    title: "FateDrop · Big Fate Signal · Echo",
+    body: `${parsed.entry.rawProductTitle} has ${parsed.physicalEvidenceState === "reported" ? "reported movement" : "expected allocation"} at ${branchCount} ${parsed.retailerName} ${storeWord}${datePhrase}. Physical availability is not confirmed.`,
     retailerId: parsed.entry.retailerId,
     retailerName: parsed.retailerName,
     productTitle: parsed.entry.rawProductTitle,
     expectedFrom: parsed.entry.expectedFrom,
     expectedTo: parsed.entry.expectedTo,
     expectedLabel: parsed.entry.expectedLabel,
+    retailerUrl: parsed.entry.sourceUrl,
+    ctaLabel: `CHECK ${parsed.retailerName.toUpperCase()}`,
+    evidenceObservedAt: parsed.entry.observedAt,
     branchCount,
     operatorIssue: parsed.issueNumber,
     ...facetPayload,
@@ -213,8 +284,21 @@ export async function publishOperatorNotification(notification, fetchImpl = fetc
 }
 
 export async function processOperatorIssue({ issue, store, fetchImpl = fetch, now = Date.now() }) {
-  if (!store) throw new Error("Operator Local Radar intake requires the canonical store");
   const parsed = parseOperatorIssue(issue, now);
+  if (parsed.availabilityScope === "online_retailer_readiness") {
+    const notification = buildOperatorNotification(parsed, { matchedBranches: 0, unmatchedTargets: [] });
+    const push = await publishOperatorNotification(notification, fetchImpl);
+    return {
+      status: push.published ? "published" : "retry",
+      testOnly: parsed.testOnly,
+      eventId: parsed.eventId,
+      matchedBranches: 0,
+      expectedBranches: 0,
+      push,
+      truthRule: "Authorised manual retailer-readiness movement is Echo only. It does not write physical stock, create Manifested, or claim purchasable availability.",
+    };
+  }
+  if (!store) throw new Error("Operator Local Radar intake requires the canonical store");
   const reconciliation = parsed.testOnly
     ? await inspectCuratedIncomingIntelTargets({ store, entries: [parsed.entry], now })
     : await reconcileCuratedIncomingIntel({ store, entries: [parsed.entry], now });
@@ -228,6 +312,17 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
       expectedBranches: parsed.entry.targetBranches.length,
       unmatchedTargets: reconciliation.unmatchedTargets,
       truthRule: reconciliation.truthRule,
+    };
+  }
+  if (!parsed.testOnly && notification.deliveryPolicy === "radius_targeted_only" && notification.radiusTargeted !== true) {
+    return {
+      status: "ingested",
+      testOnly: false,
+      eventId: parsed.eventId,
+      matchedBranches: reconciliation.matchedBranches,
+      expectedBranches: parsed.entry.targetBranches.length,
+      push: { published: false, reason: "radius_targeting_required" },
+      truthRule: `${reconciliation.truthRule} Physical interrupt delivery is held until recipient radius targeting is proven.`,
     };
   }
   const push = await publishOperatorNotification(notification, fetchImpl);
@@ -253,7 +348,7 @@ export async function listOperatorIssues(fetchImpl = fetch) {
   if (!response.ok) throw new Error(`GitHub operator intake HTTP ${response.status}`);
   const issues = await response.json();
   return Array.isArray(issues)
-    ? issues.filter((issue) => !issue?.pull_request && issue?.state === "open" && issue?.user?.login === OPERATOR_LOGIN && String(issue?.title || "").startsWith(ISSUE_PREFIX))
+    ? issues.filter((issue) => !issue?.pull_request && issue?.state === "open" && issue?.user?.login === OPERATOR_LOGIN && [ISSUE_PREFIX, ECHO_ISSUE_PREFIX].some((prefix) => String(issue?.title || "").startsWith(prefix)))
     : [];
 }
 
@@ -301,7 +396,7 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
       try {
         const result = await processOperatorIssue({ issue, store, fetchImpl, now });
         results.push({ issue: issue.number, ...result });
-        if (result.status === "published") processedFingerprints.set(issue.number, fingerprint);
+        if (["published", "ingested"].includes(result.status)) processedFingerprints.set(issue.number, fingerprint);
       } catch (error) {
         const reason = String(error?.message || error);
         results.push({ issue: issue.number, status: "invalid", reason });

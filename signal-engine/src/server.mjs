@@ -7,6 +7,7 @@ import { reconcileRrpLearningQueue } from "./core/rrp-learning-reconcile.mjs";
 import { runWithRetailerScanDeadline } from "./core/scan-deadline.mjs";
 import { retailerScanScheduleDecision } from "./core/scan-schedule.mjs";
 import { countCanonicalRetailerLocations, listCanonicalRetailerLocations } from "./encounters/canonical-retailer-locations.mjs";
+import { reconcileRetailerIntelligenceSurfaceSnapshot } from "./encounters/retailer-intelligence-surfaces.mjs";
 import { consumeFateFindEvaluationCapability } from "./hosted/fatefind-capability-auth.mjs";
 import { runHostedFateFindCycle, runHostedFateFindNow } from "./hosted/run.mjs";
 import { createFateDropHttpServer } from "./http/fatedrop-server.mjs";
@@ -57,6 +58,11 @@ function constantTimeEqual(left, right) {
   const leftBytes = Buffer.from(String(left || ""));
   const rightBytes = Buffer.from(String(right || ""));
   return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function ingestAuthorized(req) {
+  const provided = String(req?.headers?.["x-fatedrop-secret"] || "");
+  return Boolean(provided && env.ingestSecret && constantTimeEqual(provided, env.ingestSecret));
 }
 
 function diagnosticAuthorized(req) {
@@ -114,7 +120,26 @@ server.on("request", async (req, res) => {
       res.end(JSON.stringify({ error: "Unauthorized" }));
       return;
     }
-    if (req.method === "POST" && url.pathname === "/internal/fatefind/evaluate") {
+  if (req.method === "POST" && url.pathname === "/internal/retailer-intelligence/snapshot") {
+  if (!ingestAuthorized(req) && !diagnosticAuthorized(req)) {
+    res.writeHead(401, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ error: "Unauthorized" }));
+    return;
+  }
+  let body;
+  try {
+    body = await readJsonBody(req, { maxBytes: 2 * 1024 * 1024 });
+  } catch {
+    res.writeHead(400, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+    res.end(JSON.stringify({ success: false, error: "Invalid retailer intelligence snapshot" }));
+    return;
+  }
+  const result = await reconcileRetailerIntelligenceSurfaceSnapshot({ store, snapshot: body });
+  res.writeHead(200, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+  res.end(JSON.stringify({ success: true, result }));
+  return;
+}
+  if (req.method === "POST" && url.pathname === "/internal/fatefind/evaluate") {
       let body;
       try {
         body = await readJsonBody(req);

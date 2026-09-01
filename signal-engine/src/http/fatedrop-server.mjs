@@ -175,7 +175,11 @@ async function handleFateEncounters(req, res, { store, retailers, placesSearch, 
     const radarStore = {
       listOffers:(options)=>store.listOffers(options),
       listEncounters:(options)=>listEncountersFromStore(store,options),
+      ...(typeof store.listRetailerLocations==="function"?{listRetailerLocations:(options)=>store.listRetailerLocations(options)}:{}),
+      ...(typeof store.upsertRetailerLocations==="function"?{upsertRetailerLocations:(rows)=>store.upsertRetailerLocations(rows)}:{}),
       ...(typeof store.listLocalStockObservations==="function"?{listLocalStockObservations:(options)=>store.listLocalStockObservations(options)}:{}),
+      ...(typeof store.upsertLocalStockObservations==="function"?{upsertLocalStockObservations:(rows)=>store.upsertLocalStockObservations(rows)}:{}),
+      ...(typeof store.listVerifiedSmythsProductMappings==="function"?{listVerifiedSmythsProductMappings:()=>store.listVerifiedSmythsProductMappings()} : {}),
       ...(typeof store.pool==="function"?{pool:()=>store.pool()}:{}),
     };
     const result = await buildLocalRadar({

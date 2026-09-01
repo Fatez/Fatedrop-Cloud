@@ -27,6 +27,21 @@ function storeWith(observation) {
   return {
     async listOffers() { return []; },
     async listEncounters() { return []; },
+    async listRetailerLocations() {
+      return [{
+        id: "tesco-cheshunt",
+        retailerId: "tesco-uk",
+        provider: "tesco_store",
+        providerId: "cheshunt",
+        name: "Tesco Cheshunt",
+        address: "Cheshunt",
+        postcode: "EN8 9XQ",
+        latitude: 51.70,
+        longitude: -0.03,
+        storeFormat: "supermarket",
+        identityStatus: "canonical",
+      }];
+    },
     async listLocalStockObservations() { return [observation]; },
   };
 }
