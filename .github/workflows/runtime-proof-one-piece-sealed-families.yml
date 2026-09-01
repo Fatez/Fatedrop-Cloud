@@ -1,0 +1,53 @@
+name: Probe One Piece Sealed Families Railway Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/runtime-proof-one-piece-sealed-families.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Prove Railway promoted merged Cloud main
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='c8cb14bd7f965fde99ee4438762b87e00e80d3b6'
+          for attempt in 1 2 3 4 5 6 7 8; do
+            curl --fail --silent --show-error \
+              --connect-timeout 10 --max-time 20 \
+              -H 'accept: application/json' \
+              -H 'content-type: application/json' \
+              --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+              'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+              > response.json
+            actual=$(python - <<'PY'
+          import json
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          print(runtime.get('gitCommitSha') or '')
+          PY
+            )
+            echo "ATTEMPT=$attempt EXPECTED_GIT_SHA=$expected RUNTIME_GIT_SHA=$actual"
+            if [ "$actual" = "$expected" ]; then
+              python - <<'PY'
+          import json
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          runtime = data.get('runtime') or {}
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          print('RUNTIME_GIT_SHA=' + str(runtime.get('gitCommitSha')))
+          PY
+              exit 0
+            fi
+            sleep 15
+          done
+          echo 'Railway did not promote the expected merged main within the proof window.' >&2
+          exit 1
