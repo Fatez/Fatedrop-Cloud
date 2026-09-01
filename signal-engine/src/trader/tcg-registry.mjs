@@ -39,7 +39,12 @@ const TCG_REGISTRY = Object.freeze({
     shortName: 'Pokémon',
     activationPhase: TCG_ACTIVATION_PHASES.ALERTS_ENABLED,
   }),
-  'one-piece': tcg({ code: 'one-piece', name: 'ONE PIECE CARD GAME', shortName: 'One Piece' }),
+  'one-piece': tcg({
+    code: 'one-piece',
+    name: 'ONE PIECE CARD GAME',
+    shortName: 'One Piece',
+    activationPhase: TCG_ACTIVATION_PHASES.CATALOGUE_SHADOW,
+  }),
   lorcana: tcg({ code: 'lorcana', name: 'Disney Lorcana Trading Card Game', shortName: 'Lorcana' }),
   magic: tcg({ code: 'magic', name: 'Magic: The Gathering', shortName: 'Magic' }),
   yugioh: tcg({ code: 'yugioh', name: 'Yu-Gi-Oh! Trading Card Game', shortName: 'Yu-Gi-Oh!' }),
