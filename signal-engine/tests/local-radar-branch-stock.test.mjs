@@ -35,11 +35,26 @@ function storeWith(observations) {
   return {
     async listOffers() { return []; },
     async listEncounters() { return []; },
+    async listRetailerLocations() {
+      return [{
+        id: "loc-romford",
+        retailerId: "smyths-uk",
+        provider: "smyths_official_store_availability",
+        providerId: "romford",
+        name: "Smyths Toys Superstores Romford",
+        address: "Romford",
+        postcode: "RM1 3EE",
+        latitude: 51.58,
+        longitude: 0.18,
+        storeFormat: "toy_store",
+        identityStatus: "canonical",
+      }];
+    },
     async listLocalStockObservations() { return observations; },
   };
 }
 
-test("official branch Manifested evidence can produce verified local in-stock", async () => {
+test("legacy physical Manifested evidence projects as verified Echo in-store stock", async () => {
   const now = Date.now();
   const data = await buildLocalRadar({
     store: storeWith([{
@@ -70,7 +85,8 @@ test("official branch Manifested evidence can produce verified local in-stock", 
   assert.equal(data.shops.length, 1);
   assert.equal(data.shops[0].retailerId, "smyths-uk", "national-chain aliases should resolve to the canonical retailer");
   assert.equal(data.shops[0].localStockStatus, "in_stock");
-  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "manifested");
+  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "echo");
+  assert.equal(data.shops[0].localStockEvidence.physicalEvidenceState, "verified");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, true);
   assert.equal(data.shops[0].localStockProducts[0].title, "Test Elite Trainer Box");
   assert.equal(data.counts.localInStockBranches, 1);
@@ -103,7 +119,8 @@ test("community evidence cannot create verified Manifested branch stock", async 
     types: ["shops"],
   });
 
-  assert.equal(data.shops[0].localStockStatus, "incoming_watch");
+  assert.equal(data.shops[0].localStockStatus, "reported_watch");
+  assert.equal(data.shops[0].localStockEvidence.physicalEvidenceState, "reported");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
   assert.equal(data.counts.localInStockBranches, 0);
   assert.equal(data.counts.incomingWatchBranches, 1);
@@ -171,7 +188,7 @@ test("Echo preparation evidence remains an incoming watch and never becomes Mani
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
 });
 
-test("newer Vanished evidence wins over an older Manifested observation", async () => {
+test("newer physical unavailability becomes Echo · No longer confirmed", async () => {
   const now = Date.now();
   const data = await buildLocalRadar({
     store: storeWith([
@@ -206,13 +223,14 @@ test("newer Vanished evidence wins over an older Manifested observation", async 
   });
 
   assert.equal(data.shops[0].localStockProducts.length, 1, "duplicate observations for one product collapse to one current state");
-  assert.equal(data.shops[0].localStockProducts[0].lifecycleState, "vanished");
-  assert.equal(data.shops[0].localStockProducts[0].status, "out_of_stock");
-  assert.equal(data.shops[0].localStockProducts[0].contradictionCount, 1);
+  assert.equal(data.shops[0].localStockProducts[0].lifecycleState, "echo");
+  assert.equal(data.shops[0].localStockProducts[0].physicalEvidenceState, "expired");
+  assert.equal(data.shops[0].localStockProducts[0].status, "no_longer_confirmed");
+  assert.equal(data.shops[0].localStockProducts[0].contradictionCount, 0);
   assert.notEqual(data.shops[0].localStockStatus, "in_stock");
 });
 
-test("orphan Vanished never claims disappearance without prior Manifested history", async () => {
+test("standalone physical unavailability remains Echo · No longer confirmed, never Vanished", async () => {
   const data = await buildLocalRadar({
     store: storeWith([{
       id: "evt-orphan-vanished",
@@ -232,8 +250,10 @@ test("orphan Vanished never claims disappearance without prior Manifested histor
     types: ["shops"],
   });
 
-  assert.equal(data.shops[0].localStockProducts[0].status, "unknown");
-  assert.equal(data.shops[0].localStockProducts[0].orphanVanished, true);
+  assert.equal(data.shops[0].localStockProducts[0].lifecycleState, "echo");
+  assert.equal(data.shops[0].localStockProducts[0].physicalEvidenceState, "expired");
+  assert.equal(data.shops[0].localStockProducts[0].status, "no_longer_confirmed");
+  assert.equal(data.shops[0].localStockProducts[0].orphanVanished, false);
 });
 
 test("official branch Manifested availability without canonical product identity cannot become verified stock", async () => {
@@ -256,6 +276,7 @@ test("official branch Manifested availability without canonical product identity
     types: ["shops"],
   });
 
-  assert.equal(data.shops[0].localStockStatus, "incoming_watch");
+  assert.equal(data.shops[0].localStockStatus, "unknown");
+  assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, false);
 });

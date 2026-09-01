@@ -50,7 +50,7 @@ const STRONG_BRANCH_TCG_SOURCES = new Set([
 
 const SERVICE_PATTERNS = Object.freeze([
   ["pharmacy", /\b(pharmacy|chemist)\b/i],
-  ["petrol_station", /\b(petrol|fuel|filling)\s+(station|forecourt)\b|\bpetrol\s+station\b|\bfilling\s+station\b/i],
+  ["petrol_station", /\b(?:petrol|fuel)(?:\s+(?:station|forecourt|express))?\b|\bfilling\s+station\b|\bforecourt\b|\besso\b/i],
   ["locker", /\b(parcel\s+locker|locker|inpost|amazon\s+locker)\b/i],
   ["service_counter", /\b(customer\s+service|service\s+counter|click\s*(?:&|and)\s*collect\s+counter|collection\s+counter)\b/i],
 ]);
@@ -122,15 +122,28 @@ export function normalizeLocationPolicy(record = {}) {
   const identityStatus = conflictStatus === "conflicted"
     ? "conflicted"
     : enumValue(record.identityStatus ?? record.identity_status, IDENTITY_STATES, "canonical");
-  const sellerStatus = identityStatus === "conflicted"
-    ? "conflicted"
-    : enumValue(record.tcgSellerStatus ?? record.tcg_seller_status, SELLER_STATES, fallback.tcgSellerStatus);
-
   const retailerCategory = enumValue(
     record.retailerCategory ?? record.retailer_category,
     RETAILER_CATEGORIES,
     fallback.retailerCategory,
   );
+  const rawStoreFormat = String(record.storeFormat ?? record.store_format ?? openingDetails?.storeFormat ?? "unknown").trim() || "unknown";
+  const knownCanonicalRetailer = Object.hasOwn(RETAILER_LOCATION_POLICY, retailerId);
+  const rawSellerStatus = enumValue(record.tcgSellerStatus ?? record.tcg_seller_status, SELLER_STATES, fallback.tcgSellerStatus);
+  const legacyCanonicalEnrichment = identityStatus === "canonical"
+    && knownCanonicalRetailer
+    && text(rawStoreFormat) === "unknown";
+  const sellerStatus = identityStatus === "conflicted"
+    ? "conflicted"
+    : legacyCanonicalEnrichment && rawSellerStatus === "candidate"
+      ? fallback.tcgSellerStatus
+      : rawSellerStatus;
+  const derivedStoreFormat = identityStatus === "canonical"
+    && text(rawStoreFormat) === "unknown"
+    && knownCanonicalRetailer
+    && fallback.retailerCategory !== "other"
+      ? fallback.retailerCategory
+      : rawStoreFormat;
   const retailerGroup = text(record.retailerGroup ?? record.retailer_group)
     || (retailerCategory === "supermarket" || retailerCategory === "warehouse_club"
       ? "supermarkets"
@@ -142,13 +155,15 @@ export function normalizeLocationPolicy(record = {}) {
   return {
     retailerCategory,
     retailerGroup: ["supermarkets", "large_retailers", "independents", "unclassified"].includes(retailerGroup) ? retailerGroup : "unclassified",
-    storeFormat: String(record.storeFormat ?? record.store_format ?? openingDetails?.storeFormat ?? "unknown").trim() || "unknown",
+    storeFormat: derivedStoreFormat,
+    storeFormatSource: derivedStoreFormat !== rawStoreFormat ? "canonical_retailer_category" : (text(rawStoreFormat) === "unknown" ? "unknown" : "source"),
     operationalStatus: enumValue(
       record.operationalStatus ?? record.operational_status,
       OPERATIONAL_STATES,
       "unknown",
     ),
     tcgSellerStatus: sellerStatus,
+    tcgSellerStatusSource: sellerStatus !== rawSellerStatus ? "canonical_retailer_policy" : "source",
     tcgSellerConfidence: sellerStatus === "conflicted"
       ? 0
       : confidence(record.tcgSellerConfidence ?? record.tcg_seller_confidence, fallback.tcgSellerConfidence),
@@ -227,7 +242,7 @@ export function publicLocationEvidence(location = {}) {
     visibilityClass: quality.visibilityClass,
     visibilityReason: quality.reason,
     caveat: policy.tcgSellerStatus === "verified"
-      ? "Evidence supports Pokémon TCG sales at this branch; exact stock is still unknown until Manifested."
+      ? "Evidence supports Pokémon TCG sales at this branch; exact stock is still unknown until Echo · In-store confirmed."
       : policy.tcgSellerStatus === "likely"
         ? "This is a canonical retail branch of a retailer associated with Pokémon TCG sales; branch TCG participation is not verified until explicit evidence exists."
         : "Branch location only; Pokémon TCG sales at this branch are not verified.",

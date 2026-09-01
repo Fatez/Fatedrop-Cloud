@@ -24,7 +24,7 @@ function productHeading(line) {
 }
 
 const RELEASE = /^(?:released?|release date|releases?|available|expected|delayed|launch(?:es|ing)?)(?:\s*:|\s+-|\s+–)?/i;
-const LIMIT = /limited\s+to\s+\d+\s+(?:per|\/)?\s*customer/i;
+const LIMIT = /limited\s+to\s+\d+\s+(?:per|\/)?\s*customer|(?:you\s+)?may\s+only\s+purchase\s+\d+\s+item(?:s)?\s+from\s+group\s+[a-z0-9]+/i;
 const LIMITED_ALLOCATION = /only\s+stores?\s+listed\s+will\s+receive\s+limited\s+stock/i;
 const DISCLAIMER = /cannot\s+guarantee.+stock.+arrival|subject\s+to\s+availability|available\s+while\s+stocks\s+last/i;
 const BRANCH = /^The Entertainer\s+.+/i;

@@ -474,6 +474,7 @@ function locationToShop(location, { origin, availableByRetailer }) {
     retailerGroup: location.retailerGroup,
     storeFormat: location.storeFormat,
     operationalStatus: location.operationalStatus,
+    identityStatus: location.identityStatus,
     visibilityClass: location.visibilityClass,
     locationEvidence: publicLocationEvidence(location),
   };

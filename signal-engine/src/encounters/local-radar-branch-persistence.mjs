@@ -2,6 +2,7 @@ import {
   normalizeRetailerLocationBatch,
   upsertRetailerLocationsIntoStore,
 } from "./local-stock-store.mjs";
+import { locationServiceKind } from "./local-radar-location-policy.mjs";
 
 function canPersist(store) {
   return typeof store?.upsertRetailerLocations === "function" || typeof store?.pool === "function";
@@ -38,22 +39,30 @@ function branchCandidate(shop = {}) {
 }
 
 export async function persistMatchedRetailerLocations(store, shops = []) {
-  const candidates = (Array.isArray(shops) ? shops : []).map(branchCandidate).filter(Boolean);
+  const input = Array.isArray(shops) ? shops : [];
+  const blocked = input
+    .filter((shop) => shop?.retailerId && locationServiceKind(shop))
+    .map((shop) => ({ name: shop.name || null, retailerId: shop.retailerId, reason: `service_location:${locationServiceKind(shop)}` }));
+  const candidates = input
+    .filter((shop) => !locationServiceKind(shop))
+    .map(branchCandidate)
+    .filter(Boolean);
   const normalized = normalizeRetailerLocationBatch(candidates);
+  const rejected = [...blocked, ...normalized.rejected];
   if (!normalized.locations.length) {
     return {
       status: "empty",
       saved: 0,
-      rejected: normalized.rejected,
-      received: candidates.length,
+      rejected,
+      received: input.length,
     };
   }
   if (!canPersist(store)) {
     return {
       status: "unconfigured",
       saved: 0,
-      rejected: normalized.rejected,
-      received: candidates.length,
+      rejected,
+      received: input.length,
     };
   }
   try {
@@ -61,15 +70,15 @@ export async function persistMatchedRetailerLocations(store, shops = []) {
     return {
       status: "ok",
       saved: Number(result?.saved || 0),
-      rejected: normalized.rejected,
-      received: candidates.length,
+      rejected,
+      received: input.length,
     };
   } catch (error) {
     return {
       status: "unavailable",
       saved: 0,
-      rejected: normalized.rejected,
-      received: candidates.length,
+      rejected,
+      received: input.length,
       error: String(error?.message || error),
     };
   }

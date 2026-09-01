@@ -13,7 +13,8 @@ export const RETAILER_INTELLIGENCE_SURFACES = Object.freeze({
     sourceType: "official_retailer_page",
     maxProducts: 30,
     maxBranchesPerProduct: 250,
-    maxNotificationsPerChange: 5,
+maxNotificationsPerChange: 5,
+notificationMode: "observation_only_until_radius_targeted",
   }),
 });
 
@@ -64,9 +65,11 @@ function stableProduct(product) {
   return {
     title: product.title,
     releaseLabel: product.releaseLabel || null,
+    allocationGroup: product.allocationGroup || null,
     purchaseLimit: product.purchaseLimit || null,
     allocationLimited: product.allocationLimited === true,
-    branches: [...product.branches],
+    branchTargets: (product.branchTargets || []).map((branch) => ({ name: branch.name, storeUrl: branch.storeUrl || null })),
+    assetReferenceHints: [...(product.assetReferenceHints || [])],
   };
 }
 
@@ -91,17 +94,33 @@ export function normalizeRetailerIntelligenceSnapshot(input = {}, now = Date.now
     if (!title) continue;
     const productKey = normalizeKey(title);
     if (!productKey || seen.has(productKey)) continue;
-    const branches = uniqueSorted(raw?.branches, policy.maxBranchesPerProduct, 180);
-    if (!branches.length) continue;
-    seen.add(productKey);
-    products.push({
-      productKey,
-      title,
-      releaseLabel: cleanText(raw?.releaseLabel, 160),
-      purchaseLimit: cleanText(raw?.purchaseLimit, 120),
-      allocationLimited: raw?.allocationLimited === true,
-      branches,
-    });
+  const rawTargets = Array.isArray(raw?.branchTargets) ? raw.branchTargets : [];
+const targetsByName = new Map();
+for (const target of rawTargets) {
+  const name = cleanText(target?.name, 180);
+  if (!name) continue;
+  const storeUrl = canonicalUrl(target?.storeUrl);
+  targetsByName.set(normalizeKey(name), { name, storeUrl });
+}
+for (const name of uniqueSorted(raw?.branches, policy.maxBranchesPerProduct, 180)) {
+  const key = normalizeKey(name);
+  if (!targetsByName.has(key)) targetsByName.set(key, { name, storeUrl: null });
+}
+const branchTargets = [...targetsByName.values()].sort((a, b) => a.name.localeCompare(b.name)).slice(0, policy.maxBranchesPerProduct);
+const branches = branchTargets.map((target) => target.name);
+if (!branches.length) continue;
+seen.add(productKey);
+products.push({
+  productKey,
+  title,
+  releaseLabel: cleanText(raw?.releaseLabel, 160),
+  allocationGroup: cleanText(raw?.allocationGroup, 140),
+  purchaseLimit: cleanText(raw?.purchaseLimit, 120),
+  allocationLimited: raw?.allocationLimited === true,
+  branches,
+  branchTargets,
+  assetReferenceHints: uniqueSorted(raw?.assetReferenceHints, 10, 80),
+});
     if (products.length >= policy.maxProducts) break;
   }
 
@@ -118,9 +137,20 @@ export function normalizeRetailerIntelligenceSnapshot(input = {}, now = Date.now
     sourceUrl: policy.sourceUrl,
     sourceType: policy.sourceType,
     observedAt: Math.floor(safeObservedAt / 1000),
-    pageTitle: cleanText(input.pageTitle, 240),
-    fingerprint,
-    products,
+pageTitle: cleanText(input.pageTitle, 240),
+campaignTitle: cleanText(input.campaignTitle, 240),
+availabilityDisclaimerPresent: input.availabilityDisclaimerPresent === true,
+storeSearchSemantics: cleanText(input.storeSearchSemantics, 120),
+warnings: uniqueSorted(input.warnings, 30, 160),
+publicHttp: input.publicHttp && typeof input.publicHttp === "object" ? {
+  status: Number(input.publicHttp.status) || null,
+  etag: cleanText(input.publicHttp.etag, 300),
+  lastModified: cleanText(input.publicHttp.lastModified, 300),
+  bodySha256: cleanText(input.publicHttp.bodySha256, 80),
+  body: typeof input.publicHttp.body === "string" ? input.publicHttp.body.slice(0, 750000) : null,
+} : null,
+fingerprint,
+products,
   };
 }
 
@@ -141,6 +171,7 @@ export function diffRetailerIntelligenceSnapshots(previousSnapshot, currentSnaps
     const removedBranches = [...beforeBranches].filter((branch) => !nowBranches.has(branch)).sort();
     const reasons = [];
     if ((before.releaseLabel || null) !== (product.releaseLabel || null)) reasons.push("release_window_changed");
+    if ((before.allocationGroup || null) !== (product.allocationGroup || null)) reasons.push("allocation_group_changed");
     if ((before.purchaseLimit || null) !== (product.purchaseLimit || null)) reasons.push("purchase_limit_changed");
     if (before.allocationLimited !== product.allocationLimited) reasons.push("allocation_policy_changed");
     if (addedBranches.length) reasons.push("allocation_expanded");
@@ -234,7 +265,7 @@ export async function ensureRetailerIntelligenceSchema(store) {
     schemaPromise = (async () => {
       const pool = await databasePool(store);
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS fatedrop_retailer_intelligence_surfaces (
+CREATE TABLE IF NOT EXISTS fatedrop_retailer_intelligence_surfaces (
           surface_id TEXT PRIMARY KEY,
           retailer_id TEXT NOT NULL,
           source_url TEXT NOT NULL,
@@ -243,9 +274,21 @@ export async function ensureRetailerIntelligenceSchema(store) {
           first_seen_at BIGINT NOT NULL,
           last_seen_at BIGINT NOT NULL,
           last_changed_at BIGINT NOT NULL
-        )
-      `);
-      return true;
+  )
+`);
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS fatedrop_retailer_intelligence_snapshot_history (
+    surface_id TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    retailer_id TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    first_observed_at BIGINT NOT NULL,
+    last_observed_at BIGINT NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    PRIMARY KEY (surface_id, fingerprint)
+  )
+`);
+return true;
     })().catch((error) => { schemaPromise = null; throw error; });
   }
   return schemaPromise;
@@ -280,8 +323,13 @@ async function saveSurfaceState(store, snapshot, previous, changed) {
   const pool = await databasePool(store);
   const firstSeenAt = previous?.firstSeenAt || snapshot.observedAt;
   const lastChangedAt = changed ? snapshot.observedAt : previous?.lastChangedAt || snapshot.observedAt;
-  await pool.query(`
-    INSERT INTO fatedrop_retailer_intelligence_surfaces (
+await pool.query(`
+  INSERT INTO fatedrop_retailer_intelligence_snapshot_history (surface_id,fingerprint,retailer_id,source_url,first_observed_at,last_observed_at,snapshot_json)
+  VALUES ($1,$2,$3,$4,$5,$5,$6::jsonb)
+  ON CONFLICT (surface_id,fingerprint) DO UPDATE SET last_observed_at=GREATEST(fatedrop_retailer_intelligence_snapshot_history.last_observed_at,EXCLUDED.last_observed_at)
+`, [snapshot.surfaceId, snapshot.fingerprint, snapshot.retailerId, snapshot.sourceUrl, snapshot.observedAt, JSON.stringify(snapshot)]);
+await pool.query(`
+  INSERT INTO fatedrop_retailer_intelligence_surfaces (
       surface_id,retailer_id,source_url,fingerprint,snapshot_json,first_seen_at,last_seen_at,last_changed_at
     ) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8)
     ON CONFLICT (surface_id) DO UPDATE SET
@@ -317,7 +365,11 @@ function notificationFor(snapshot, change, reconciliation) {
     eventId: `retailer-intelligence:${snapshot.surfaceId}:${hash(product.productKey).slice(0, 12)}:${snapshot.fingerprint.slice(0, 16)}`,
     testOnly: false,
     stage: "ECHO",
-    title: "FateDrop · Retailer Intel · Allocation update",
+    presentationType: "big_fate_signal",
+    physicalEvidenceState: "expected",
+    availabilityScope: "physical_branch",
+    availabilityVerified: false,
+    title: "BIG FATE SIGNAL · ECHO",
     body: `${product.title} · ${changeSummary(change)} · ${branchCount} ${snapshot.retailerName} store${branchCount === 1 ? "" : "s"}${release}. Expected allocation only — branch stock is not confirmed.`,
     retailerId: snapshot.retailerId,
     retailerName: snapshot.retailerName,
@@ -327,6 +379,9 @@ function notificationFor(snapshot, change, reconciliation) {
     expectedLabel: product.releaseLabel || null,
     branchCount,
     intelligenceSurfaceId: snapshot.surfaceId,
+    retailerUrl: snapshot.sourceUrl,
+    ctaLabel: "CHECK YOUR LOCAL ENTERTAINER",
+    evidenceObservedAt: new Date(snapshot.observedAt * 1000).toISOString(),
     changeReasons: change.reasons,
     languageGroup: facets.languageGroup,
     setKey: facets.setKey,
@@ -371,10 +426,14 @@ export async function reconcileRetailerIntelligenceSurfaceSnapshot({
     reconciliations.push({ productTitle: change.product.title, reasons: change.reasons, ...result });
     if (baseline || !shouldInterrupt(change)) continue;
     if (result.unmatchedTargets?.length || result.matchedBranches !== change.product.branches.length) continue;
-    if (notifications.length >= policy.maxNotificationsPerChange) continue;
-    const notification = notificationFor(snapshot, change, result);
-    const push = await publish(notification);
-    notifications.push({ eventId: notification.eventId, productTitle: change.product.title, ...push });
+if (notifications.length >= policy.maxNotificationsPerChange) continue;
+const notification = notificationFor(snapshot, change, result);
+if (policy.notificationMode !== "radius_targeted") {
+notifications.push({ ...notification, published: false, held: true, deliverable: false, reason: "radius_targeting_required" });
+  continue;
+}
+const push = await publish(notification);
+notifications.push({ eventId: notification.eventId, productTitle: change.product.title, ...push });
   }
 
   await saveSurfaceState(store, snapshot, previous, true);
@@ -396,9 +455,10 @@ export async function reconcileRetailerIntelligenceSurfaceSnapshot({
     unmatchedTargets,
     savedObservations,
     notificationsAttempted: notifications.length,
-    notificationsPublished: notifications.filter((item) => item.published).length,
+notificationsPublished: notifications.filter((item) => item.published).length,
+notificationsHeld: notifications.filter((item) => item.held).length,
     notificationResults: notifications,
     baselineSilent: baseline,
-    truthRule: "Retailer intelligence surfaces create advisory Echo/Local Radar expected-stock evidence only. They can never create Manifested or Vanished; exact branch availability requires separate verified stock evidence.",
+truthRule: "Retailer intelligence surfaces create Echo · Expected physical evidence only. Verified exact-branch physical stock remains Echo · In-store confirmed; physical evidence never creates Manifested or ordinary Vanished.",
   };
 }

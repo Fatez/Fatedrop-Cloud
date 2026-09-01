@@ -6,6 +6,21 @@ const now = Date.now();
 const store = {
   async listOffers() { return []; },
   async listRetailers() { return [{ id: "smyths-uk", healthy: true, stale: false, baselineCompleted: true }]; },
+  async listRetailerLocations() {
+    return [{
+      id: "loc-http-test",
+      retailerId: "smyths-uk",
+      provider: "smyths_official_store_availability",
+      providerId: "romford",
+      name: "Smyths Toys Superstores Romford",
+      address: "Romford",
+      postcode: "RM1 3EE",
+      latitude: 51.58,
+      longitude: 0.18,
+      storeFormat: "toy_store",
+      identityStatus: "canonical",
+    }];
+  },
   async listLocalStockObservations() {
     return [{
       id: "local-http-test",
@@ -63,7 +78,7 @@ async function withServer(fn) {
   }
 }
 
-test("Local Radar HTTP response preserves fresh verified branch Manifested stock and counts", async () => withServer(async (base) => {
+test("Local Radar HTTP response preserves fresh verified branch Echo stock and counts", async () => withServer(async (base) => {
   const response = await fetch(`${base}/api/local-radar?types=shops&lat=51.58&lng=0.18&radiusMiles=10`);
   assert.equal(response.status, 200);
   const data = await response.json();
@@ -71,7 +86,8 @@ test("Local Radar HTTP response preserves fresh verified branch Manifested stock
   assert.equal(data.counts.localInStockBranches, 1);
   assert.equal(data.counts.incomingWatchBranches, 0);
   assert.equal(data.shops[0].localStockStatus, "in_stock");
-  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "manifested");
+  assert.equal(data.shops[0].localStockEvidence.lifecycleState, "echo");
+  assert.equal(data.shops[0].localStockEvidence.physicalEvidenceState, "verified");
   assert.equal(data.shops[0].localStockEvidence.verifiedBranchStock, true);
   assert.equal(data.shops[0].localStockProducts[0].title, "HTTP Test ETB");
 }));

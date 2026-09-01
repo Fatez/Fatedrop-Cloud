@@ -100,9 +100,20 @@ test("new product and allocation expansion remain Echo only", async () => {
   });
   assert.equal(result.status, "changed");
   assert.equal(logs[0].kind, "echo");
-  assert.equal(notifications[0].stage, "ECHO");
-  assert.match(notifications[0].body, /not confirmed/i);
-  assert.ok(result.changes.some((change) => change.reasons.includes("product_added")));
+assert.equal(notifications.length, 0);
+assert.equal(result.notificationsPublished, 0);
+assert.equal(result.notificationsHeld, 1);
+assert.equal(result.notificationResults[0].held, true);
+assert.equal(result.notificationResults[0].reason, "radius_targeting_required");
+assert.equal(result.notificationResults[0].stage, "ECHO");
+assert.equal(result.notificationResults[0].availabilityScope, "physical_branch");
+assert.equal(result.notificationResults[0].physicalEvidenceState, "expected");
+assert.equal(result.notificationResults[0].availabilityVerified, false);
+assert.equal(result.notificationResults[0].published, false);
+assert.equal(result.notificationResults[0].held, true);
+assert.equal(result.notificationResults[0].deliverable, false);
+assert.match(result.notificationResults[0].body, /not confirmed/i);
+assert.ok(result.changes.some((change) => change.reasons.includes("product_added")));
 
   const a = normalizeRetailerIntelligenceSnapshot(snap(), NOW);
   const b = normalizeRetailerIntelligenceSnapshot(snap({ observedAt: "2026-09-01T12:32:00Z", products: [{ ...baseProduct, branches: [...baseProduct.branches, "The Entertainer Watford"] }] }), NOW + 180000);

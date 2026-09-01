@@ -96,7 +96,7 @@ test("verified exact-branch official collection evidence projects to Confirmed",
   assert.equal(shop.localStockEvidence.verifiedBranchStock, true);
 });
 
-test("a later physical disappearance remains internal history and projects to Unknown", () => {
+test("a later physical disappearance becomes Echo · No longer confirmed and projects to Unknown", () => {
   const now = Date.parse("2026-08-26T20:00:00Z");
   const manifested = baseObservation({
     id: "event-earlier-confirmed",
@@ -139,7 +139,8 @@ test("a later physical disappearance remains internal history and projects to Un
   assert.equal(shop.localAvailability.confirmed, null);
   assert.equal(shop.localAvailability.expected, null);
   assert.equal(shop.localStockProducts[0].localState, "unknown");
-  assert.equal(shop.localStockProducts[0].lifecycleState, "vanished", "internal history remains available for compatibility/audit");
+  assert.equal(shop.localStockProducts[0].lifecycleState, "echo");
+  assert.equal(shop.localStockProducts[0].physicalEvidenceState, "expired");
 });
 
 test("a branch with no active evidence projects to Unknown", () => {

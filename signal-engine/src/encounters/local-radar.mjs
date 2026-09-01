@@ -10,8 +10,10 @@ import {
   mergeCanonicalRetailerShops,
 } from "./canonical-retailer-locations.mjs";
 import { refreshSmythsLocalAvailability } from "./smyths-local-availability.mjs";
+import { prioritizeLocalRadarShops } from "./local-radar-ranking.mjs";
 import {
   LOCATION_POLICY_ENUMS,
+  isRadarEligibleLocation,
   normalizeLocationPolicy,
   publicLocationEvidence,
 } from "./local-radar-location-policy.mjs";
@@ -382,6 +384,7 @@ export async function buildLocalRadar({
       retailerGroup: locationPolicy.retailerGroup,
       storeFormat: locationPolicy.storeFormat,
       operationalStatus: locationPolicy.operationalStatus,
+      identityStatus: locationPolicy.identityStatus,
       locationEvidence: publicLocationEvidence(locationPolicy),
       stockEvidence: retailer ? "online_catalogue_only" : "none",
       onlineCatalogue: retailer
@@ -418,7 +421,8 @@ export async function buildLocalRadar({
       };
     }
   }
-  const radarShops = mergeCanonicalRetailerShops(discoveredShops, canonicalBranchResult.shops);
+  const publicDiscoveredShops = discoveredShops.filter((shop) => isRadarEligibleLocation(shop));
+  let radarShops = mergeCanonicalRetailerShops(publicDiscoveredShops, canonicalBranchResult.shops);
 
   let smythsSourceResult = {
     provider: "smyths_official_store_availability",
@@ -447,6 +451,27 @@ export async function buildLocalRadar({
     }
   }
 
+  // An official Smyths response may establish a canonical branch without trusting
+  // the provisional Places candidate. Re-read only after such a persisted promotion
+  // so the same request can surface the official branch while raw provider hits stay hidden.
+  if (requested.has("shops") && Number(smythsSourceResult.branchesPersisted || 0) > 0) {
+    try {
+      canonicalBranchResult = await listCanonicalRetailerLocationShops(store, {
+        origin,
+        postcode,
+        radiusMiles: safeRadius,
+        availableByRetailer,
+      });
+      radarShops = mergeCanonicalRetailerShops(publicDiscoveredShops, canonicalBranchResult.shops);
+    } catch (error) {
+      canonicalBranchResult = {
+        ...canonicalBranchResult,
+        refreshStatus: "unavailable",
+        refreshError: String(error?.message || error),
+      };
+    }
+  }
+
   let localStockObservations = [];
   let localStockProviderStatus = "unconfigured";
   if (requested.has("shops")) {
@@ -459,8 +484,10 @@ export async function buildLocalRadar({
     }
   }
 
-  const shops = enrichShopsWithLocalStock(radarShops, localStockObservations)
-    .filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius);
+const shops = prioritizeLocalRadarShops(
+  enrichShopsWithLocalStock(radarShops, localStockObservations)
+    .filter((shop) => shop.distanceMiles == null || shop.distanceMiles <= safeRadius),
+);
   const stockCounts = localStockCounts(shops);
 
   const rawEvents = requested.has("events") && typeof store?.listEncounters === "function"
@@ -528,9 +555,9 @@ export async function buildLocalRadar({
       "Matched connected retailer branches may be persisted as stable location identities; this does not verify branch stock.",
       "Previously persisted canonical branches remain discoverable when a live location provider is unavailable; branch presence still does not verify stock.",
       "Live Connected means FateDrop has a connected online catalogue. It does not prove stock at a specific physical branch.",
-      "Verified local stock is only shown when branch-level official evidence is present and still fresh.",
+"Physical stock intelligence always uses Echo: verified exact-branch evidence is Echo · In-store confirmed; allocation is Echo · Expected.",
       "Smyths branch stock uses the retailer's ordinary public collection availability route only; protected or rate-limited responses fail closed and are not bypassed.",
-      "Curated manual or community intelligence is advisory only: it may create a retailer-wide Incoming Watch, but never verified branch stock without exact official branch evidence.",
+"Credible staff/community physical evidence is Echo · Reported; it cannot become In-store confirmed without exact retailer/API branch evidence.",
       "Expected stock windows are estimates from their stated evidence and should be checked with the store before travelling.",
       "Community or social evidence can create an Incoming Watch but can never be promoted to verified branch stock on its own.",
       "Event details can change; check the organiser or ticket source before travelling.",

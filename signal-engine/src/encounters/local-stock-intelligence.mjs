@@ -1,11 +1,7 @@
 import { calculateOfferIntelligence } from "../core/price-intelligence.mjs";
 
-const LOCAL_SIGNAL_KINDS = new Set([
-  "whisper",
-  "echo",
-  "manifested",
-  "vanished",
-]);
+const STORED_LOCAL_SIGNAL_KINDS = new Set(["whisper", "echo", "manifested", "vanished"]);
+const PHYSICAL_EVIDENCE_STATES = new Set(["expected", "reported", "verified", "expired"]);
 
 const OFFICIAL_EVIDENCE_LEVELS = new Set([
   "official_branch",
@@ -104,28 +100,43 @@ function hasVerifiedAvailabilityEvidence(observation) {
     || VERIFIED_AVAILABILITY_STATES.has(observation.stockStatus);
 }
 
+function physicalEvidenceState(observation) {
+  const explicit = text(
+    observation.physicalEvidenceState
+    ?? observation.physical_evidence_state
+    ?? observation.evidence?.physicalEvidenceState
+    ?? observation.evidence?.physical_evidence_state,
+  )?.toLowerCase();
+  if (explicit && PHYSICAL_EVIDENCE_STATES.has(explicit)) return explicit;
+  if (observation.evidenceLevel === "community_report"
+    || ["retailer_staff_report", "official_store_social", "retailer_submission", "community_report", "community_sighting", "verified_shelf_sighting"].includes(observation.sourceType)) return "reported";
+  if (observation.sourceLifecycleState === "manifested") return "verified";
+  if (observation.sourceLifecycleState === "vanished") return "expired";
+  return "expected";
+}
+
 function statusFromObservation(observation) {
-  if (["whisper", "echo"].includes(observation.kind)) return "incoming_watch";
-  const official = OFFICIAL_EVIDENCE_LEVELS.has(observation.evidenceLevel);
-  const canonicalIdentityKnown = Boolean(observation.productIdentityId);
-  if (observation.kind === "manifested") {
-    if (!official || !canonicalIdentityKnown || !hasVerifiedAvailabilityEvidence(observation)) return "incoming_watch";
+  if (observation.physicalEvidenceState === "verified") {
+    const official = OFFICIAL_EVIDENCE_LEVELS.has(observation.evidenceLevel);
+    const canonicalIdentityKnown = Boolean(observation.productIdentityId);
+    if (!official || !canonicalIdentityKnown || !hasVerifiedAvailabilityEvidence(observation)) return "unknown";
     return observation.stockStatus === "low_stock" ? "low_stock" : "in_stock";
   }
-  if (observation.kind === "vanished") {
-    return official && canonicalIdentityKnown ? "out_of_stock" : "unknown";
-  }
+  if (observation.physicalEvidenceState === "reported") return "reported_watch";
+  if (observation.physicalEvidenceState === "expected") return "incoming_watch";
+  if (observation.physicalEvidenceState === "expired") return "no_longer_confirmed";
   return "unknown";
 }
 
 function statusRank(status) {
-  return ({ in_stock: 5, low_stock: 4, incoming_watch: 3, out_of_stock: 2, unknown: 1 })[status] || 0;
+  return ({ in_stock: 6, low_stock: 5, reported_watch: 4, incoming_watch: 3, no_longer_confirmed: 2, unknown: 1 })[status] || 0;
 }
 
 function availabilityClass(status) {
   if (["in_stock", "low_stock"].includes(status)) return "available";
-  if (status === "out_of_stock") return "unavailable";
+  if (status === "reported_watch") return "reported";
   if (status === "incoming_watch") return "preparation";
+  if (status === "no_longer_confirmed") return "expired";
   return "unknown";
 }
 
@@ -183,7 +194,8 @@ function normalizeObservation(row = {}) {
   const source = sourceType(evidence);
   const observation = {
     id: text(row.id),
-    kind: text(row.kind)?.toLowerCase() || "unknown",
+    sourceLifecycleState: text(row.sourceLifecycleState ?? row.source_lifecycle_state ?? row.kind)?.toLowerCase() || "unknown",
+kind: "echo",
     productIdentityId: text(row.productIdentityId ?? row.product_identity_id),
     productTitle: text(row.productTitle ?? row.product_title ?? evidence.productTitle ?? evidence.rawProductTitle ?? evidence.raw_product_title ?? evidence.title),
     retailerId: text(row.retailerId ?? row.retailer_id),
@@ -193,6 +205,7 @@ function normalizeObservation(row = {}) {
     locationName: text(row.locationName ?? row.location_name),
     occurredAt,
     evidence,
+    physicalEvidenceState: text(row.physicalEvidenceState ?? row.physical_evidence_state)?.toLowerCase(),
     evidenceLevel: level,
     confidence: confidence(evidence),
     sourceType: source,
@@ -203,20 +216,17 @@ function normalizeObservation(row = {}) {
     rrpSource: text(row.rrpSource ?? row.rrp_source),
     rrpObservedAt: asEpochMs(row.rrpObservedAt ?? row.rrp_verified_at),
   };
-  const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at)
-    || asEpochMs(row.expiresAt ?? row.expires_at)
-    || occurredAt + ttlForEvidence({ kind: observation.kind, level, source });
-  return {
-    ...observation,
-    expiresAt,
-    localStockStatus: statusFromObservation(observation),
-  };
+const expiresAt = asEpochMs(evidence.expiresAt ?? evidence.expires_at)
+  || asEpochMs(row.expiresAt ?? row.expires_at)
+  || occurredAt + ttlForEvidence({ kind: observation.sourceLifecycleState, level, source });
+const normalized = { ...observation, physicalEvidenceState: physicalEvidenceState(observation), expiresAt };
+return { ...normalized, localStockStatus: statusFromObservation(normalized) };
 }
 
 export async function listLocalStockObservationsFromStore(store, { sinceMs = Date.now() - 7 * 24 * 60 * 60 * 1000, limit = 2000 } = {}) {
   if (typeof store?.listLocalStockObservations === "function") {
     const rows = await store.listLocalStockObservations({ sinceMs, limit });
-    return (rows || []).map(normalizeObservation).filter((item) => LOCAL_SIGNAL_KINDS.has(item.kind));
+return (rows || []).map(normalizeObservation).filter((item) => STORED_LOCAL_SIGNAL_KINDS.has(item.sourceLifecycleState));
   }
   if (typeof store?.pool !== "function") return [];
   const pool = await store.pool();
@@ -249,7 +259,7 @@ export async function listLocalStockObservationsFromStore(store, { sinceMs = Dat
       AND se.occurred_at >= $2
     ORDER BY se.occurred_at DESC
     LIMIT $3
-  `, [[...LOCAL_SIGNAL_KINDS], sinceSeconds, safeLimit]);
+`, [[...STORED_LOCAL_SIGNAL_KINDS], sinceSeconds, safeLimit]);
   return rows.map(normalizeObservation);
 }
 
@@ -287,10 +297,9 @@ function resolveCurrentProductObservations(branchObservations, now) {
   const resolved = [];
   for (const rows of groups.values()) {
     rows.sort((a, b) => b.occurredAt - a.occurredAt);
-    const latest = rows[0];
-    const hadEarlierManifested = rows.some((item) => item.kind === "manifested" && item.occurredAt < latest.occurredAt && ["in_stock", "low_stock"].includes(item.localStockStatus));
-    const orphanVanished = latest.kind === "vanished" && !hadEarlierManifested;
-    const latestClass = availabilityClass(orphanVanished ? "unknown" : latest.localStockStatus);
+  const latest = rows[0];
+const orphanVanished = false;
+const latestClass = availabilityClass(latest.localStockStatus);
     const contradictionWindowMs = Math.min(30 * 60 * 1000, Math.max(1, latest.expiresAt - latest.occurredAt));
     const relevant = rows.filter((item) => latest.occurredAt - item.occurredAt <= contradictionWindowMs);
     const contradictions = relevant.filter((item) => {
@@ -310,7 +319,7 @@ function resolveCurrentProductObservations(branchObservations, now) {
       && adjustedConfidence < 0.55;
     resolved.push({
       ...latest,
-      localStockStatus: orphanVanished || conflictForcesUnknown ? "unknown" : latest.localStockStatus,
+localStockStatus: conflictForcesUnknown ? "unknown" : latest.localStockStatus,
       effectiveConfidence: adjustedConfidence,
       corroborationCount: corroborating.length,
       sourceDiversityCount: sourceDiversity.size,
@@ -332,7 +341,7 @@ function expectedFields(item) {
 }
 
 function isVerifiedBranchStock(item) {
-  return item.kind === "manifested"
+  return item.physicalEvidenceState === "verified"
     && OFFICIAL_EVIDENCE_LEVELS.has(item.evidenceLevel)
     && Boolean(item.productIdentityId)
     && ["in_stock", "low_stock"].includes(item.localStockStatus);
@@ -341,7 +350,7 @@ function isVerifiedBranchStock(item) {
 function consumerLocalState(item) {
   if (isVerifiedBranchStock(item)) return "confirmed";
   const expected = expectedFields(item);
-  if (item.localStockStatus === "incoming_watch" && (expected.expectedFrom || expected.expectedTo || expected.expectedLabel)) return "expected";
+if (["expected", "reported"].includes(item.physicalEvidenceState)) return "expected";
   return "unknown";
 }
 
@@ -374,7 +383,7 @@ function localAvailabilityProjection(products) {
 export function enrichShopsWithLocalStock(shops = [], observations = [], now = Date.now()) {
   const active = (observations || [])
     .map(normalizeObservation)
-    .filter((item) => LOCAL_SIGNAL_KINDS.has(item.kind))
+.filter((item) => STORED_LOCAL_SIGNAL_KINDS.has(item.sourceLifecycleState))
     .filter((item) => item.expiresAt > now);
 
   return (shops || []).map((shop) => {
@@ -405,8 +414,12 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       return {
         productIdentityId: item.productIdentityId,
         title: item.productTitle || "Trading card product",
-        lifecycleState: item.kind,
-        status: item.localStockStatus,
+lifecycleState: "echo",
+sourceLifecycleState: item.sourceLifecycleState,
+alertChannel: "echo",
+availabilityScope: item.locationId ? "physical_branch" : "physical_retailer_chain",
+physicalEvidenceState: item.physicalEvidenceState,
+status: item.localStockStatus,
         localState: consumerLocalState(item),
         observedAt: new Date(item.occurredAt).toISOString(),
         expiresAt: new Date(item.expiresAt).toISOString(),
@@ -433,8 +446,12 @@ export function enrichShopsWithLocalStock(shops = [], observations = [], now = D
       ...shop,
       localStockStatus: strongest.localStockStatus,
       localStockEvidence: {
-        lifecycleState: strongest.kind,
-        evidenceLevel: strongest.evidenceLevel,
+lifecycleState: "echo",
+sourceLifecycleState: strongest.sourceLifecycleState,
+alertChannel: "echo",
+availabilityScope: strongest.locationId ? "physical_branch" : "physical_retailer_chain",
+physicalEvidenceState: strongest.physicalEvidenceState,
+evidenceLevel: strongest.evidenceLevel,
         confidence: strongest.effectiveConfidence,
         sourceType: strongest.sourceType,
         sourceUrl: strongest.sourceUrl,
@@ -462,23 +479,24 @@ export function localStockCounts(shops = []) {
   return (shops || []).reduce((counts, shop) => {
     if (shop.localStockStatus === "in_stock") counts.inStock += 1;
     else if (shop.localStockStatus === "low_stock") counts.lowStock += 1;
-    else if (shop.localStockStatus === "incoming_watch") counts.incomingWatch += 1;
+else if (["incoming_watch", "reported_watch"].includes(shop.localStockStatus)) counts.incomingWatch += 1;
     return counts;
   }, { inStock: 0, lowStock: 0, incomingWatch: 0 });
 }
 
 export const LOCAL_STOCK_POLICY = Object.freeze({
-  lifecycleStates: [...LOCAL_SIGNAL_KINDS],
+  lifecycleStates: ["echo"],
+  legacyStoredLifecycleStates: [...STORED_LOCAL_SIGNAL_KINDS],
+  physicalEvidenceStates: [...PHYSICAL_EVIDENCE_STATES],
   officialEvidenceLevels: [...OFFICIAL_EVIDENCE_LEVELS],
   consumerStates: ["expected", "confirmed", "unknown"],
   expectedStockDisclaimer: EXPECTED_STOCK_DISCLAIMER,
-  communityRule: "Community, manual or social evidence may strengthen preparation intelligence but cannot create verified Manifested branch stock.",
-  chainIntelRule: "Retailer-chain intel is advisory and may be overlaid onto nearby branches of that retailer only as an Incoming Watch until exact branch evidence exists.",
-  identityRule: "Verified physical Manifested stock requires a canonical product identity and an exact branch match.",
+  communityRule: "Community, staff, manual or social evidence is Echo · Reported and cannot become verified without fresh exact-branch retailer/API evidence.",
+  chainIntelRule: "Retailer-chain allocation intelligence is Echo · Expected and remains advisory until exact-branch evidence exists.",
+  identityRule: "Physical verified stock remains Echo · In-store confirmed; it requires canonical product identity and an exact branch match and never becomes Manifested.",
   rrpRule: "Local Radar uses the shared canonical RRP and price-intelligence engine; retailer selling price is never learned as RRP.",
-  vanishedRule: "A branch Vanished state is only accepted when a previously verified Manifested observation exists for that branch and product.",
-  contradictionRule: "Recent contradictory availability evidence reduces confidence and can force the current state to unknown.",
-  manifestedTtlMinutes: DEFAULT_TTL_MS.manifested / 60_000,
+  expiryRule: "Stale or explicitly unavailable physical evidence becomes Echo · No longer confirmed; it never creates ordinary Vanished.",
+  contradictionRule: "Recent contradictory physical evidence reduces confidence and can force the current state to unknown.",
   shelfSightingTtlMinutes: EVIDENCE_TTL_MS.verified_shelf_sighting / 60_000,
   echoTtlHours: DEFAULT_TTL_MS.echo / 3_600_000,
 });

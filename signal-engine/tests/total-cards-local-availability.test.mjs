@@ -64,7 +64,7 @@ test("physical availability requires explicit Pickup Only plus Available to buy 
   assert.equal(pickupOnly.explicitPhysicalUnavailable, false, "online sold-out must not be interpreted as physical branch unavailability");
 });
 
-test("only explicit physical collection unavailability can qualify a later Vanished observation", () => {
+test("only explicit physical collection unavailability can qualify Echo · No longer confirmed", () => {
   const onlineOnly = parseTotalCardsPhysicalAvailability(productHtml("Sold out Pickup Only"));
   assert.equal(onlineOnly.explicitPhysicalUnavailable, false);
 
@@ -96,7 +96,7 @@ test("official Gaming Centre page establishes the exact Total Cards branch witho
   assert.equal(saved[0].verification, "official_retailer_branch");
 });
 
-test("exact official in-store evidence creates Local Manifested while online stock remains irrelevant", async () => {
+test("exact official in-store evidence creates Echo · In-store confirmed while online stock remains irrelevant", async () => {
   const saved = [];
   const store = {
     async listRetailerLocations() { return [LOCATION]; },
@@ -115,7 +115,8 @@ test("exact official in-store evidence creates Local Manifested while online sto
   assert.equal(result.saved, 1);
   assert.equal(saved.length, 1);
   const event = saved[0];
-  assert.equal(event.kind, "manifested");
+  assert.equal(event.kind, "echo");
+  assert.equal(event.evidence.physicalEvidenceState, "verified");
   assert.equal(event.retailerId, "total-cards");
   assert.equal(event.locationId, LOCATION.id);
   assert.equal(event.productIdentityId, RESOLVED.product_id);
@@ -166,7 +167,7 @@ test("missing or ambiguous canonical product resolution saves nothing", async ()
   assert.equal(result.results[0].status, "ambiguous");
 });
 
-test("already Manifested exact branch/product is not duplicated", async () => {
+test("already verified exact branch/product is not duplicated", async () => {
   let writes = 0;
   const store = {
     async listRetailerLocations() { return [LOCATION]; },
@@ -181,10 +182,10 @@ test("already Manifested exact branch/product is not duplicated", async () => {
   });
   assert.equal(result.saved, 0);
   assert.equal(writes, 0);
-  assert.equal(result.results[0].status, "already_manifested");
+  assert.equal(result.results[0].status, "already_verified");
 });
 
-test("real Vanished requires explicit physical-negative evidence after prior exact-branch Manifested", async () => {
+test("Echo · No longer confirmed requires explicit physical-negative evidence after prior verified branch evidence", async () => {
   const saved = [];
   const store = {
     async listRetailerLocations() { return [LOCATION]; },
@@ -200,7 +201,8 @@ test("real Vanished requires explicit physical-negative evidence after prior exa
     now: Date.parse("2026-08-26T18:15:00+01:00"),
   });
   assert.equal(result.saved, 1);
-  assert.equal(saved[0].kind, "vanished");
+  assert.equal(saved[0].kind, "echo");
+  assert.equal(saved[0].evidence.physicalEvidenceState, "expired");
   assert.equal(saved[0].locationId, LOCATION.id);
   assert.equal(saved[0].productIdentityId, RESOLVED.product_id);
   assert.equal(saved[0].evidence.stockStatus, "collection_unavailable");

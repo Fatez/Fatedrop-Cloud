@@ -44,6 +44,27 @@ test("persists an exact matched connected branch with stable provider identity",
   assert.match(saved[0].id, /^loc_/);
 });
 
+test("matched pharmacy and fuel service results are rejected before branch persistence", async () => {
+  let saved = [];
+  const store = {
+    async upsertRetailerLocations(locations) {
+      saved = locations;
+      return { saved: locations.length };
+    },
+  };
+  const serviceRows = [
+    { ...smythsPlace, retailerId: "tesco-uk", providerPlaceId: "tesco-fuel", name: "Tesco Fuel Express" },
+    { ...smythsPlace, retailerId: "tesco-uk", providerPlaceId: "tesco-pharmacy", name: "Tesco Watford Pharmacy" },
+  ];
+  const result = await persistMatchedRetailerLocations(store, serviceRows);
+  assert.equal(result.status, "empty");
+  assert.equal(result.saved, 0);
+  assert.equal(result.received, 2);
+  assert.equal(result.rejected.length, 2);
+  assert.equal(saved.length, 0);
+  assert.ok(result.rejected.every((row) => String(row.reason).startsWith("service_location:")));
+});
+
 test("does not persist unmatched discovery-only shops", async () => {
   let called = false;
   const store = {
@@ -84,9 +105,9 @@ test("Local Radar persists exact chain matches but keeps stock truth unknown", a
   assert.equal(data.contractVersion, 2);
   assert.equal(data.mapPolicy.markerBudget, 72);
   assert.deepEqual(data.filters.retailerGroups, ["supermarkets", "large_retailers", "independents", "unclassified"]);
-  assert.equal(data.shops[0].retailerGroup, "large_retailers");
-  assert.equal(data.shops[0].localStockStatus, "unknown");
-  assert.equal(data.shops[0].stockEvidence, "online_catalogue_only");
+  assert.equal(saved[0].identityStatus, "provisional");
+  assert.equal(saved[0].openingDetails.stockStatus, "unknown");
+  assert.equal(data.shops.length, 0, "provisional live-provider matches stay off the public map until canonical");
 });
 
 test("branch persistence failure is observable but never turns discovery into false stock", async () => {
@@ -106,5 +127,5 @@ test("branch persistence failure is observable but never turns discovery into fa
   });
   assert.equal(data.providers.branchIdentity.status, "unavailable");
   assert.equal(data.providers.branchIdentity.saved, 0);
-  assert.equal(data.shops[0].localStockStatus, "unknown");
+  assert.equal(data.shops.length, 0, "failed provisional persistence cannot leak a discovery candidate onto the public map");
 });

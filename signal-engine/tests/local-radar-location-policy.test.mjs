@@ -35,10 +35,17 @@ test("Cloud owns retailer category and seller evidence independently from stock"
   assert.equal("localStockStatus" in policy, false);
 });
 
-test("unknown formats and unknown retailers fail closed to directory-only", () => {
-  const knownRetailerUnknownFormat = { retailerId: "smyths-uk", name: "Smyths Stevenage" };
-  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).visibilityClass, "directory-only");
-  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).reason, "store_format_unknown");
+test("canonical known-retailer branches derive a generic format while provisional and unknown identities fail closed", () => {
+  const canonicalKnownRetailer = { retailerId: "smyths-uk", name: "Smyths Stevenage", identityStatus: "canonical" };
+  const canonicalPolicy = normalizeLocationPolicy(canonicalKnownRetailer);
+  assert.equal(canonicalPolicy.storeFormat, "toy_store");
+  assert.equal(canonicalPolicy.storeFormatSource, "canonical_retailer_category");
+  assert.equal(classifyLocationQuality(canonicalKnownRetailer).visibilityClass, "eligible");
+
+  const provisionalKnownRetailer = { retailerId: "smyths-uk", name: "Smyths candidate", identityStatus: "provisional" };
+  assert.equal(normalizeLocationPolicy(provisionalKnownRetailer).storeFormat, "unknown");
+  assert.equal(classifyLocationQuality(provisionalKnownRetailer).visibilityClass, "unresolved");
+  assert.equal(isRadarEligibleLocation(provisionalKnownRetailer), false);
 
   const location = {
     retailerId: "new-independent",
@@ -53,6 +60,22 @@ test("unknown formats and unknown retailers fail closed to directory-only", () =
   assert.equal(policy.tcgSellerConfidence, 0);
   assert.equal(classifyLocationQuality(location).visibilityClass, "directory-only");
   assert.equal(isRadarEligibleLocation(location), false);
+});
+
+test("legacy canonical known-retailer candidates inherit public seller policy but never Echo authority", () => {
+  const location = {
+    retailerId: "tesco-uk",
+    name: "Tesco Watford",
+    storeFormat: "unknown",
+    identityStatus: "canonical",
+    tcgSellerStatus: "candidate",
+  };
+  const policy = normalizeLocationPolicy(location);
+  assert.equal(policy.storeFormat, "supermarket");
+  assert.equal(policy.tcgSellerStatus, "likely");
+  assert.equal(policy.tcgSellerStatusSource, "canonical_retailer_policy");
+  assert.equal(classifyLocationQuality(location).visibilityClass, "eligible");
+  assert.equal(isEchoEligibleLocation(location, {}, NOW), false);
 });
 
 test("unknown or invalid retailer groups remain unclassified rather than guessed independent", () => {
@@ -72,6 +95,9 @@ test("pharmacies, petrol stations, lockers, and service counters never appear as
   const examples = [
     ["Tesco Watford Pharmacy", "pharmacy"],
     ["Tesco Extra Petrol Station", "petrol_station"],
+    ["Tesco Fuel Express", "petrol_station"],
+    ["Tesco Fuel Chineham", "petrol_station"],
+    ["Tesco Esso Express", "petrol_station"],
     ["Tesco Parcel Locker", "locker"],
     ["Tesco Customer Service Counter", "service_counter"],
   ];
@@ -115,5 +141,5 @@ test("verified specialist status supports public branch relevance but never perm
   assert.equal(evidence.pokemonSeller, "verified");
   assert.equal(evidence.sourceCount, 2);
   assert.equal(evidence.visibilityClass, "eligible");
-  assert.match(evidence.caveat, /exact stock is still unknown until Manifested/i);
+  assert.match(evidence.caveat, /exact stock is still unknown until Echo · In-store confirmed/i);
 });

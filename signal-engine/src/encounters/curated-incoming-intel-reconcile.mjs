@@ -149,7 +149,10 @@ function asObservation(entry, target, location) {
       exactBranch: true,
       chainWide: false,
       explicitTcgRelevance: entry.explicitTcgRelevance === true,
-      availabilityVerified: false,
+availabilityVerified: false,
+alertChannel: "echo",
+availabilityScope: "physical_branch",
+physicalEvidenceState: "expected",
     },
   };
 }
@@ -210,7 +213,7 @@ export async function inspectCuratedIncomingIntelTargets({
     matchedBranches: matched.observations.length,
     unmatchedTargets: matched.unmatchedTargets,
     persisted: false,
-    truthRule: "Read-only exact-branch reconciliation only. No Local Radar observation, stock state or history is written.",
+    truthRule: "Read-only exact-branch reconciliation only. No Local Radar observation, stock state or history is written; physical intelligence is Echo-scoped.",
   };
 }
 
@@ -235,6 +238,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets: matched.unmatchedTargets,
-    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only; Echo requires an exact public-visible branch, relevant product evidence, an authoritative branch-specific source, and unexpired campaign evidence. Expiry removes Echo authority only and can never create Local Vanished or Manifested.",
+truthRule: "Curated incoming intelligence is Echo · Expected only; it requires an exact public-visible branch, relevant product evidence, an authoritative branch-specific source, and unexpired campaign evidence. Exact-branch verified physical availability remains Echo · In-store confirmed; expiry removes Echo authority and never creates Manifested or ordinary Vanished.",
   };
 }
