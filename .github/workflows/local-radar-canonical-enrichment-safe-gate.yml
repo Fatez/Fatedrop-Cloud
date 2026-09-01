@@ -1,0 +1,313 @@
+name: Local Radar canonical enrichment safe gate
+
+on:
+  push:
+    branches:
+      - feat/local-radar-location-quality-2026-09-01
+    paths:
+      - .github/workflows/local-radar-canonical-enrichment-safe-gate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TARGET_BRANCH: feat/local-radar-location-quality-2026-09-01
+      PINNED_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Pin isolated branch tip
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PINNED_SHA"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+          echo "PINNED_TIP=$PINNED_SHA"
+
+      - name: Apply Sol-aligned canonical enrichment patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new, label):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label} matched {count} times; expected exactly once')
+              p.write_text(text.replace(old, new, 1))
+
+          policy = 'signal-engine/src/encounters/local-radar-location-policy.mjs'
+          replace_once(
+              policy,
+              '  ["petrol_station", /\\b(petrol|fuel|filling)\\s+(station|forecourt)\\b|\\bpetrol\\s+station\\b|\\bfilling\\s+station\\b/i],',
+              '  ["petrol_station", /\\b(?:petrol|fuel)(?:\\s+(?:station|forecourt|express))?\\b|\\bfilling\\s+station\\b|\\bforecourt\\b|\\besso\\b/i],',
+              'service petrol/fuel pattern',
+          )
+          replace_once(
+              policy,
+              '''  const retailerCategory = enumValue(\n    record.retailerCategory ?? record.retailer_category,\n    RETAILER_CATEGORIES,\n    fallback.retailerCategory,\n  );\n  const retailerGroup = text(record.retailerGroup ?? record.retailer_group)''',
+              '''  const retailerCategory = enumValue(\n    record.retailerCategory ?? record.retailer_category,\n    RETAILER_CATEGORIES,\n    fallback.retailerCategory,\n  );\n  const rawStoreFormat = String(record.storeFormat ?? record.store_format ?? openingDetails?.storeFormat ?? "unknown").trim() || "unknown";\n  const knownCanonicalRetailer = Object.hasOwn(RETAILER_LOCATION_POLICY, retailerId);\n  const derivedStoreFormat = identityStatus === "canonical"\n    && text(rawStoreFormat) === "unknown"\n    && knownCanonicalRetailer\n    && fallback.retailerCategory !== "other"\n      ? fallback.retailerCategory\n      : rawStoreFormat;\n  const retailerGroup = text(record.retailerGroup ?? record.retailer_group)''',
+              'canonical format derivation setup',
+          )
+          replace_once(
+              policy,
+              '    storeFormat: String(record.storeFormat ?? record.store_format ?? openingDetails?.storeFormat ?? "unknown").trim() || "unknown",',
+              '    storeFormat: derivedStoreFormat,\n    storeFormatSource: derivedStoreFormat !== rawStoreFormat ? "canonical_retailer_category" : (text(rawStoreFormat) === "unknown" ? "unknown" : "source"),',
+              'canonical derived store format return',
+          )
+
+          radar = 'signal-engine/src/encounters/local-radar.mjs'
+          replace_once(
+              radar,
+              '''import {\n  LOCATION_POLICY_ENUMS,\n  normalizeLocationPolicy,\n  publicLocationEvidence,\n} from "./local-radar-location-policy.mjs";''',
+              '''import {\n  LOCATION_POLICY_ENUMS,\n  isRadarEligibleLocation,\n  normalizeLocationPolicy,\n  publicLocationEvidence,\n} from "./local-radar-location-policy.mjs";''',
+              'Local Radar policy import',
+          )
+          replace_once(
+              radar,
+              '''      storeFormat: locationPolicy.storeFormat,\n      operationalStatus: locationPolicy.operationalStatus,\n      locationEvidence: publicLocationEvidence(locationPolicy),''',
+              '''      storeFormat: locationPolicy.storeFormat,\n      operationalStatus: locationPolicy.operationalStatus,\n      identityStatus: locationPolicy.identityStatus,\n      locationEvidence: publicLocationEvidence(locationPolicy),''',
+              'fresh discovery identity projection',
+          )
+          replace_once(
+              radar,
+              '''  const radarShops = mergeCanonicalRetailerShops(discoveredShops, canonicalBranchResult.shops);''',
+              '''  const publicDiscoveredShops = discoveredShops.filter((shop) => isRadarEligibleLocation(shop));\n  const radarShops = mergeCanonicalRetailerShops(publicDiscoveredShops, canonicalBranchResult.shops);''',
+              'public discovery visibility gate',
+          )
+
+          canonical = 'signal-engine/src/encounters/canonical-retailer-locations.mjs'
+          replace_once(
+              canonical,
+              '''    operationalStatus: location.operationalStatus,\n    visibilityClass: location.visibilityClass,''',
+              '''    operationalStatus: location.operationalStatus,\n    identityStatus: location.identityStatus,\n    visibilityClass: location.visibilityClass,''',
+              'canonical shop identity projection',
+          )
+
+          persistence = Path('signal-engine/src/encounters/local-radar-branch-persistence.mjs')
+          text = persistence.read_text()
+          import_anchor = '''import {\n  normalizeRetailerLocationBatch,\n  upsertRetailerLocationsIntoStore,\n} from "./local-stock-store.mjs";\n'''
+          if text.count(import_anchor) != 1:
+              raise SystemExit('branch persistence import anchor mismatch')
+          text = text.replace(import_anchor, import_anchor + 'import { locationServiceKind } from "./local-radar-location-policy.mjs";\n', 1)
+          start = '''export async function persistMatchedRetailerLocations(store, shops = []) {\n  const candidates = (Array.isArray(shops) ? shops : []).map(branchCandidate).filter(Boolean);\n  const normalized = normalizeRetailerLocationBatch(candidates);'''
+          replacement = '''export async function persistMatchedRetailerLocations(store, shops = []) {\n  const input = Array.isArray(shops) ? shops : [];\n  const blocked = input\n    .filter((shop) => shop?.retailerId && locationServiceKind(shop))\n    .map((shop) => ({ name: shop.name || null, retailerId: shop.retailerId, reason: `service_location:${locationServiceKind(shop)}` }));\n  const candidates = input\n    .filter((shop) => !locationServiceKind(shop))\n    .map(branchCandidate)\n    .filter(Boolean);\n  const normalized = normalizeRetailerLocationBatch(candidates);\n  const rejected = [...blocked, ...normalized.rejected];'''
+          if text.count(start) != 1:
+              raise SystemExit(f'branch persistence start matched {text.count(start)} times; expected once')
+          text = text.replace(start, replacement, 1)
+          old_result = '''      rejected: normalized.rejected,\n      received: candidates.length,'''
+          if text.count(old_result) != 4:
+              raise SystemExit(f'branch persistence result anchor matched {text.count(old_result)} times; expected four')
+          text = text.replace(old_result, '''      rejected,\n      received: input.length,''')
+          persistence.write_text(text)
+
+          tests = Path('signal-engine/tests/local-radar-location-policy.test.mjs')
+          text = tests.read_text()
+          old = '''test("unknown formats and unknown retailers fail closed to directory-only", () => {\n  const knownRetailerUnknownFormat = { retailerId: "smyths-uk", name: "Smyths Stevenage" };\n  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).visibilityClass, "directory-only");\n  assert.equal(classifyLocationQuality(knownRetailerUnknownFormat).reason, "store_format_unknown");\n\n  const location = {\n    retailerId: "new-independent",\n    name: "English name for an Asian set specialist",\n    language: "English",\n    storeFormat: "specialist",\n  };'''
+          new = '''test("canonical known-retailer branches derive a generic format while provisional and unknown identities fail closed", () => {\n  const canonicalKnownRetailer = { retailerId: "smyths-uk", name: "Smyths Stevenage", identityStatus: "canonical" };\n  const canonicalPolicy = normalizeLocationPolicy(canonicalKnownRetailer);\n  assert.equal(canonicalPolicy.storeFormat, "toy_store");\n  assert.equal(canonicalPolicy.storeFormatSource, "canonical_retailer_category");\n  assert.equal(classifyLocationQuality(canonicalKnownRetailer).visibilityClass, "eligible");\n\n  const provisionalKnownRetailer = { retailerId: "smyths-uk", name: "Smyths candidate", identityStatus: "provisional" };\n  assert.equal(normalizeLocationPolicy(provisionalKnownRetailer).storeFormat, "unknown");\n  assert.equal(classifyLocationQuality(provisionalKnownRetailer).visibilityClass, "unresolved");\n  assert.equal(isRadarEligibleLocation(provisionalKnownRetailer), false);\n\n  const location = {\n    retailerId: "new-independent",\n    name: "English name for an Asian set specialist",\n    language: "English",\n    storeFormat: "specialist",\n  };'''
+          if text.count(old) != 1:
+              raise SystemExit('policy unknown-format test anchor mismatch')
+          text = text.replace(old, new, 1)
+          service_anchor = '''    ["Tesco Extra Petrol Station", "petrol_station"],\n    ["Tesco Parcel Locker", "locker"],'''
+          service_new = '''    ["Tesco Extra Petrol Station", "petrol_station"],\n    ["Tesco Fuel Express", "petrol_station"],\n    ["Tesco Fuel Chineham", "petrol_station"],\n    ["Tesco Esso Express", "petrol_station"],\n    ["Tesco Parcel Locker", "locker"],'''
+          if text.count(service_anchor) != 1:
+              raise SystemExit('policy service example anchor mismatch')
+          tests.write_text(text.replace(service_anchor, service_new, 1))
+
+          persistence_tests = Path('signal-engine/tests/local-radar-branch-persistence.test.mjs')
+          text = persistence_tests.read_text()
+          first_end = '''  assert.match(saved[0].id, /^loc_/);\n});\n'''
+          added = '''  assert.match(saved[0].id, /^loc_/);\n});\n\ntest("matched pharmacy and fuel service results are rejected before branch persistence", async () => {\n  let saved = [];\n  const store = {\n    async upsertRetailerLocations(locations) {\n      saved = locations;\n      return { saved: locations.length };\n    },\n  };\n  const serviceRows = [\n    { ...smythsPlace, retailerId: "tesco-uk", providerPlaceId: "tesco-fuel", name: "Tesco Fuel Express" },\n    { ...smythsPlace, retailerId: "tesco-uk", providerPlaceId: "tesco-pharmacy", name: "Tesco Watford Pharmacy" },\n  ];\n  const result = await persistMatchedRetailerLocations(store, serviceRows);\n  assert.equal(result.status, "empty");\n  assert.equal(result.saved, 0);\n  assert.equal(result.received, 2);\n  assert.equal(result.rejected.length, 2);\n  assert.equal(saved.length, 0);\n  assert.ok(result.rejected.every((row) => String(row.reason).startsWith("service_location:")));\n});\n'''
+          if text.count(first_end) != 1:
+              raise SystemExit('branch persistence test insertion anchor mismatch')
+          text = text.replace(first_end, added, 1)
+          old_public = '''  assert.equal(data.shops[0].retailerGroup, "large_retailers");\n  assert.equal(data.shops[0].localStockStatus, "unknown");\n  assert.equal(data.shops[0].stockEvidence, "online_catalogue_only");'''
+          new_public = '''  assert.equal(saved[0].identityStatus, "provisional");\n  assert.equal(saved[0].openingDetails.stockStatus, "unknown");\n  assert.equal(data.shops.length, 0, "provisional live-provider matches stay off the public map until canonical");'''
+          if text.count(old_public) != 1:
+              raise SystemExit('branch persistence public assertion anchor mismatch')
+          text = text.replace(old_public, new_public, 1)
+          old_failure = '''  assert.equal(data.providers.branchIdentity.status, "unavailable");\n  assert.equal(data.providers.branchIdentity.saved, 0);\n  assert.equal(data.shops[0].localStockStatus, "unknown");'''
+          new_failure = '''  assert.equal(data.providers.branchIdentity.status, "unavailable");\n  assert.equal(data.providers.branchIdentity.saved, 0);\n  assert.equal(data.shops.length, 0, "failed provisional persistence cannot leak a discovery candidate onto the public map");'''
+          if text.count(old_failure) != 1:
+              raise SystemExit('branch persistence failure assertion anchor mismatch')
+          persistence_tests.write_text(text.replace(old_failure, new_failure, 1))
+          PY
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Focused Local Radar proofs
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/local-radar-location-policy.test.mjs \
+            tests/local-radar-branch-persistence.test.mjs \
+            tests/local-radar-canonical-branches.test.mjs \
+            tests/local-radar-location-quality-review.test.mjs \
+            tests/curated-incoming-intel-reconcile.test.mjs \
+            tests/operator-local-radar-intake.test.mjs
+
+      - name: Full Signal Engine regression
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee ../local-radar-canonical-enrichment-full-suite.log
+          status=${PIPESTATUS[0]}
+          echo "FULL_SUITE_EXIT=$status"
+          tail -n 180 ../local-radar-canonical-enrichment-full-suite.log
+          exit "$status"
+
+      - name: Read-only UK public impact proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {
+            classifyLocationQuality,
+            isRadarEligibleLocation,
+            locationServiceKind,
+          } from './signal-engine/src/encounters/local-radar-location-policy.mjs';
+
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['London', 51.5074, -0.1278], ['Birmingham', 52.4862, -1.8904],
+            ['Manchester', 53.4808, -2.2426], ['Leeds', 53.8008, -1.5491],
+            ['Newcastle', 54.9783, -1.6178], ['Bristol', 51.4545, -2.5879],
+            ['Plymouth', 50.3755, -4.1427], ['Cardiff', 51.4816, -3.1791],
+            ['Glasgow', 55.8642, -4.2518], ['Edinburgh', 55.9533, -3.1883],
+            ['Aberdeen', 57.1497, -2.0943], ['Inverness', 57.4778, -4.2247],
+            ['Belfast', 54.5973, -5.9301],
+          ];
+          const all = new Map();
+          for (const [label, lat, lng] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
+            url.searchParams.set('radiusMiles', '100');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, {
+              headers: { 'user-agent': 'FateDrop-Local-Radar-Canonical-Enrichment-Review/1.0' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`${label}: HTTP ${response.status}`);
+            const body = await response.json();
+            for (const shop of Array.isArray(body.shops) ? body.shops : []) {
+              all.set(String(shop.id || `${shop.retailerId}|${shop.name}|${shop.postcode}`), shop);
+            }
+          }
+
+          const shops = [...all.values()];
+          const rows = shops.map((shop) => ({ shop, quality: classifyLocationQuality(shop), eligible: isRadarEligibleLocation(shop) }));
+          const kept = rows.filter((row) => row.eligible);
+          const removed = rows.filter((row) => !row.eligible);
+          const noise = rows.filter(({ shop }) => {
+            const haystack = `${shop.name || ''} ${shop.address || ''}`;
+            return Boolean(locationServiceKind(shop)) || /\b(pharmacy|chemist|petrol|fuel|filling station|forecourt|locker|inpost|service counter|customer service|esso)\b/i.test(haystack);
+          });
+          const noiseAfter = noise.filter((row) => row.eligible);
+          const byRetailer = new Map();
+          for (const row of rows) {
+            const retailerId = row.shop.retailerId || '(unmatched)';
+            const summary = byRetailer.get(retailerId) || { retailerId, beforePublic: 0, afterPublic: 0, excluded: 0, directoryOnly: 0, unresolved: 0 };
+            summary.beforePublic += 1;
+            if (row.eligible) summary.afterPublic += 1;
+            else if (row.quality.visibilityClass === 'excluded') summary.excluded += 1;
+            else if (row.quality.visibilityClass === 'directory-only') summary.directoryOnly += 1;
+            else summary.unresolved += 1;
+            byRetailer.set(retailerId, summary);
+          }
+          const report = {
+            generatedAt: new Date().toISOString(),
+            mode: 'READ_ONLY_PRODUCTION_PUBLIC_PROJECTION_WITH_REVIEW_CLASSIFIER',
+            totals: {
+              beforePublic: shops.length,
+              afterPublic: kept.length,
+              removed: removed.length,
+              obviousNoiseBefore: noise.length,
+              obviousNoiseAfter: noiseAfter.length,
+            },
+            retailers: [...byRetailer.values()].sort((a, b) => b.beforePublic - a.beforePublic),
+            removedSamples: removed.slice(0, 120).map(({ shop, quality }) => ({ retailerId: shop.retailerId, name: shop.name, postcode: shop.postcode, reason: quality.reason })),
+            survivingNoise: noiseAfter.slice(0, 50).map(({ shop, quality }) => ({ retailerId: shop.retailerId, name: shop.name, postcode: shop.postcode, reason: quality.reason })),
+          };
+          console.log(JSON.stringify(report, null, 2));
+          fs.writeFileSync('local-radar-canonical-enrichment-impact.json', JSON.stringify(report, null, 2));
+
+          if (shops.length < 2000) throw new Error(`UK mesh unexpectedly small: ${shops.length}`);
+          if (kept.length < 2000) throw new Error(`canonical enrichment still collapses useful map coverage: ${kept.length}`);
+          if (kept.length / shops.length < 0.85) throw new Error(`review gate removes too much public coverage: ${kept.length}/${shops.length}`);
+          if (removed.length < 1) throw new Error('review classifier removed no service/noise rows');
+          if (noiseAfter.length !== 0) throw new Error(`obvious service noise survives review gate: ${noiseAfter.length}`);
+          NODE
+
+      - name: Upload diagnostics and impact report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-radar-canonical-enrichment-review
+          path: |
+            local-radar-canonical-enrichment-full-suite.log
+            local-radar-canonical-enrichment-impact.json
+          if-no-files-found: warn
+          retention-days: 2
+
+      - name: Inspect exact review diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            signal-engine/src/encounters/local-radar-location-policy.mjs \
+            signal-engine/src/encounters/local-radar.mjs \
+            signal-engine/src/encounters/local-radar-branch-persistence.mjs \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/tests/local-radar-location-policy.test.mjs \
+            signal-engine/tests/local-radar-branch-persistence.test.mjs
+          git diff --cached --check
+          git diff --cached --stat
+          changed="$(git diff --cached --name-only)"
+          test "$changed" = $'signal-engine/src/encounters/canonical-retailer-locations.mjs\nsignal-engine/src/encounters/local-radar-branch-persistence.mjs\nsignal-engine/src/encounters/local-radar-location-policy.mjs\nsignal-engine/src/encounters/local-radar.mjs\nsignal-engine/tests/local-radar-branch-persistence.test.mjs\nsignal-engine/tests/local-radar-location-policy.test.mjs'
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+
+      - name: Commit review checkpoint only after every proof passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+          git add \
+            signal-engine/src/encounters/local-radar-location-policy.mjs \
+            signal-engine/src/encounters/local-radar.mjs \
+            signal-engine/src/encounters/local-radar-branch-persistence.mjs \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/tests/local-radar-location-policy.test.mjs \
+            signal-engine/tests/local-radar-branch-persistence.test.mjs
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(local-radar): preserve canonical branches while filtering service noise"
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "REVIEW_CHECKPOINT=$(git rev-parse HEAD)"
