@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deriveAlertFacets, listAlertFacetOptions } from "../src/core/alert-facets.mjs";
+import { alertFacetResolution, deriveAlertFacets, listAlertFacetOptions } from "../src/core/alert-facets.mjs";
 import { buildAlertFacetCoverage, loadAlertFacetCoverage } from "../src/telemetry/alert-facet-coverage.mjs";
 
 function persistedUnknown() {
@@ -26,11 +26,12 @@ function persistedUnknown() {
 }
 
 test("screenshot set identities enrich without weakening unknown-language semantics", () => {
-  const celebrations = deriveAlertFacets({ title: "Pokemon Celebrations Elite Trainer Box (25th Anniversary)" });
+  const celebrationsInput = { title: "Pokemon Celebrations Elite Trainer Box (25th Anniversary)" };
+  const celebrations = deriveAlertFacets(celebrationsInput);
   assert.equal(celebrations.languageGroup, "english");
   assert.equal(celebrations.setKey, "celebrations");
   assert.equal(celebrations.setName, "Celebrations");
-  assert.deepEqual(celebrations.resolution, { language: "resolved", set: "resolved" });
+  assert.deepEqual(alertFacetResolution(celebrationsInput), { language: "resolved", set: "resolved" });
 
   const ascendedHeroes = deriveAlertFacets({ title: "Pokemon TCG Mega Evolution Ascended Heroes Elite Trainer Box" });
   assert.equal(ascendedHeroes.languageGroup, "english");
@@ -42,55 +43,62 @@ test("screenshot set identities enrich without weakening unknown-language semant
   assert.equal(pitchBlack.setKey, "pitch-black");
   assert.equal(pitchBlack.setName, "Pitch Black");
 
-  const koreanTimeGazer = deriveAlertFacets({ title: "Pokemon TCG Time Gazer S10D Korean Booster Box" });
+  const koreanTimeGazerInput = { title: "Pokemon TCG Time Gazer S10D Korean Booster Box" };
+  const koreanTimeGazer = deriveAlertFacets(koreanTimeGazerInput);
   assert.equal(koreanTimeGazer.languageGroup, "korean");
   assert.equal(koreanTimeGazer.setKey, "time-gazer");
   assert.equal(koreanTimeGazer.setName, "Time Gazer");
-  assert.deepEqual(koreanTimeGazer.resolution, { language: "resolved", set: "resolved" });
+  assert.deepEqual(alertFacetResolution(koreanTimeGazerInput), { language: "resolved", set: "resolved" });
 
-  const ambiguousTimeGazer = deriveAlertFacets({ title: "Pokemon TCG Time Gazer Booster Box" });
+  const ambiguousTimeGazerInput = { title: "Pokemon TCG Time Gazer Booster Box" };
+  const ambiguousTimeGazer = deriveAlertFacets(ambiguousTimeGazerInput);
   assert.equal(ambiguousTimeGazer.languageGroup, "unknown");
   assert.equal(ambiguousTimeGazer.setKey, "time-gazer");
-  assert.deepEqual(ambiguousTimeGazer.resolution, { language: "ambiguous_multilingual", set: "resolved" });
+  assert.deepEqual(alertFacetResolution(ambiguousTimeGazerInput), { language: "ambiguous_multilingual", set: "resolved" });
 });
 
 test("exact standalone product identities are not falsely presented as expansion sets", () => {
-  const lucario = deriveAlertFacets({ title: "Pokemon TCG: Mega Lucario ex League Battle Deck" });
+  const lucarioInput = { title: "Pokemon TCG: Mega Lucario ex League Battle Deck" };
+  const lucario = deriveAlertFacets(lucarioInput);
   assert.equal(lucario.languageGroup, "english");
   assert.equal(lucario.source.language, "canonical_product_scope:mega-lucario-ex-league-battle-deck");
   assert.equal(lucario.setKey, "not-set-specific");
   assert.equal(lucario.setName, "Not set-specific");
-  assert.deepEqual(lucario.resolution, { language: "resolved", set: "not_applicable" });
+  assert.deepEqual(alertFacetResolution(lucarioInput), { language: "resolved", set: "not_applicable" });
 
-  const firstPartner = deriveAlertFacets({ title: "Pokemon TCG: First Partner Illustration Collection - Series 2" });
+  const firstPartnerInput = { title: "Pokemon TCG: First Partner Illustration Collection - Series 2" };
+  const firstPartner = deriveAlertFacets(firstPartnerInput);
   assert.equal(firstPartner.languageGroup, "english");
   assert.equal(firstPartner.setKey, "not-set-specific");
   assert.equal(firstPartner.setName, "Not set-specific");
-  assert.equal(firstPartner.resolution.set, "not_applicable");
+  assert.equal(alertFacetResolution(firstPartnerInput).set, "not_applicable");
 
-  const genericLeagueDeck = deriveAlertFacets({ title: "Pokemon TCG League Battle Deck" });
+  const genericLeagueDeckInput = { title: "Pokemon TCG League Battle Deck" };
+  const genericLeagueDeck = deriveAlertFacets(genericLeagueDeckInput);
   assert.equal(genericLeagueDeck.languageGroup, "unknown");
   assert.equal(genericLeagueDeck.setKey, "not-set-specific");
   assert.equal(genericLeagueDeck.setName, "Not set-specific");
-  assert.deepEqual(genericLeagueDeck.resolution, { language: "unresolved", set: "not_applicable" });
+  assert.deepEqual(alertFacetResolution(genericLeagueDeckInput), { language: "unresolved", set: "not_applicable" });
 
   const options = listAlertFacetOptions();
   assert.equal(options.sets.some((set) => set.key === "not-set-specific"), false);
 });
 
 test("UK geography and English-looking words still cannot manufacture language or set truth", () => {
-  const generic = deriveAlertFacets({
+  const genericInput = {
     title: "Pokemon TCG Premium Booster Box",
     retailerCountryCode: "GB",
-  });
+  };
+  const generic = deriveAlertFacets(genericInput);
   assert.equal(generic.languageGroup, "unknown");
   assert.equal(generic.setKey, null);
-  assert.deepEqual(generic.resolution, { language: "unresolved", set: "unresolved" });
+  assert.deepEqual(alertFacetResolution(genericInput), { language: "unresolved", set: "unresolved" });
 
-  const conflict = deriveAlertFacets({ title: "Japanese Pokemon Celebrations Elite Trainer Box" });
+  const conflictInput = { title: "Japanese Pokemon Celebrations Elite Trainer Box" };
+  const conflict = deriveAlertFacets(conflictInput);
   assert.equal(conflict.languageGroup, "unknown");
   assert.equal(conflict.setKey, "celebrations");
-  assert.equal(conflict.resolution.language, "conflict");
+  assert.equal(alertFacetResolution(conflictInput).language, "conflict");
   assert.match(conflict.source.language, /^language_conflict:/);
 });
 
