@@ -1,0 +1,315 @@
+name: Local Radar independent evidence safe gate
+
+on:
+  push:
+    branches:
+      - feat/local-radar-location-quality-2026-09-01
+    paths:
+      - .github/workflows/local-radar-independent-evidence-safe-gate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  generate-test-commit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      TARGET_BRANCH: feat/local-radar-location-quality-2026-09-01
+      PINNED_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Pin isolated branch tip
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PINNED_SHA"
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+
+      - name: Install dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Build export-only independent physical store master
+        working-directory: signal-engine
+        run: node src/encounters/build-uk-physical-store-master.mjs
+        env:
+          NODE_ENV: test
+
+      - name: Capture full read-only UK public Local Radar mesh
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['London', 51.5074, -0.1278],
+            ['Birmingham', 52.4862, -1.8904],
+            ['Manchester', 53.4808, -2.2426],
+            ['Leeds', 53.8008, -1.5491],
+            ['Newcastle', 54.9783, -1.6178],
+            ['Bristol', 51.4545, -2.5879],
+            ['Plymouth', 50.3755, -4.1427],
+            ['Cardiff', 51.4816, -3.1791],
+            ['Glasgow', 55.8642, -4.2518],
+            ['Edinburgh', 55.9533, -3.1883],
+            ['Aberdeen', 57.1497, -2.0943],
+            ['Inverness', 57.4778, -4.2247],
+            ['Belfast', 54.5973, -5.9301],
+          ];
+          const shops = new Map();
+          const probeResults = [];
+          const key = (shop) => String(shop?.id || [shop?.retailerId || 'unknown', shop?.name || '', shop?.postcode || '', shop?.address || ''].join('|'));
+          for (const [label, lat, lng] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
+            url.searchParams.set('radiusMiles', '100');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, {
+              headers: { 'user-agent': 'FateDrop-Local-Radar-Independent-Evidence/1.0' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`${label} Local Radar HTTP ${response.status}`);
+            const body = await response.json();
+            const rows = Array.isArray(body.shops) ? body.shops : [];
+            for (const shop of rows) shops.set(key(shop), shop);
+            probeResults.push({ label, shops: rows.length, branchIdentity: body?.providers?.branchIdentity || null });
+            await new Promise((resolve) => setTimeout(resolve, 300));
+          }
+          fs.mkdirSync('artifacts', { recursive: true });
+          fs.writeFileSync('artifacts/local-radar-public-mesh.json', JSON.stringify([...shops.values()], null, 2));
+          fs.writeFileSync('artifacts/local-radar-independent-evidence-probes.json', JSON.stringify({
+            generatedAt: new Date().toISOString(), mode: 'READ_ONLY_PUBLIC_UK_MESH', databaseAccess: 'NONE', rows: shops.size, probes: probeResults,
+          }, null, 2));
+          console.log(JSON.stringify({ rows: shops.size, probes: probeResults }, null, 2));
+          NODE
+
+      - name: Generate deterministic branch-identity evidence plan
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node src/encounters/build-local-radar-independent-branch-evidence-plan.mjs \
+            artifacts/local-radar-public-mesh.json \
+            artifacts/uk-physical-store-master.csv \
+            src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { validateIndependentBranchEvidencePlan } from './src/encounters/local-radar-independent-branch-evidence.mjs';
+          const path = 'src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json';
+          const plan = validateIndependentBranchEvidencePlan(JSON.parse(fs.readFileSync(path, 'utf8')));
+          const tesco = plan.masterCoverageByRetailer.find((row) => row.retailerId === 'tesco-uk');
+          if (plan.generatedFrom.sourceMode !== 'read_only_evidence_harvest_no_writes') throw new Error('plan source mode is not read-only');
+          if (plan.generatedFrom.legacyInputRows < 2200) throw new Error(`UK mesh unexpectedly small: ${plan.generatedFrom.legacyInputRows}`);
+          if (plan.counts.discoveryOnlyCandidates < 1450) throw new Error(`discovery population unexpectedly small: ${plan.counts.discoveryOnlyCandidates}`);
+          if (plan.counts.canonicalParents < 750) throw new Error(`independent canonical-parent recovery unexpectedly low: ${plan.counts.canonicalParents}`);
+          if (plan.counts.duplicateLegacyRows < 100) throw new Error(`expected duplicate collapse missing: ${plan.counts.duplicateLegacyRows}`);
+          if (plan.counts.exactConflict !== 0) throw new Error(`exact evidence conflicts require review: ${plan.counts.exactConflict}`);
+          if (plan.counts.ambiguousReview !== 0) throw new Error(`ambiguous evidence matches require review: ${plan.counts.ambiguousReview}`);
+          if (!tesco || tesco.independentMasterBranches < 800 || tesco.representedByLegacy < 750 || tesco.legacyRepresentationPct < 0.90) {
+            throw new Error(`Tesco quality-adjusted coverage is not healthy: ${JSON.stringify(tesco)}`);
+          }
+          console.log(JSON.stringify({ counts: plan.counts, tesco }, null, 2));
+          NODE
+
+      - name: Wire evidence overlay into canonical read path
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          canonical = Path('signal-engine/src/encounters/canonical-retailer-locations.mjs')
+          text = canonical.read_text()
+          import_anchor = '} from "./local-radar-location-policy.mjs";\n'
+          import_line = 'import { applyIndependentBranchEvidence } from "./local-radar-independent-branch-evidence.mjs";\n'
+          if import_line not in text:
+              if text.count(import_anchor) != 1:
+                  raise SystemExit('canonical import anchor mismatch')
+              text = text.replace(import_anchor, import_anchor + import_line, 1)
+          old = 'export function reconcileLocationQuality(locations = []) {\n  const input = (Array.isArray(locations) ? locations : []).filter(Boolean);\n  const reconciled = input.map((location) => attachQuality(location));'
+          new = 'export function reconcileLocationQuality(locations = []) {\n  const rawInput = (Array.isArray(locations) ? locations : []).filter(Boolean);\n  const { locations: input } = applyIndependentBranchEvidence(rawInput);\n  const reconciled = input.map((location) => attachQuality(location));'
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit('canonical reconciliation anchor mismatch')
+          canonical.write_text(text)
+
+          census = Path('signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs')
+          text = census.read_text()
+          verification_anchor = '  "curated_branch",\n]);'
+          verification_new = '  "curated_branch",\n  "independently_reconciled",\n]);'
+          if verification_new not in text:
+              if text.count(verification_anchor) != 1:
+                  raise SystemExit('trusted verification anchor mismatch')
+              text = text.replace(verification_anchor, verification_new, 1)
+          source_anchor = '  "curated_branch_seed",\n]);'
+          source_new = '  "curated_branch_seed",\n  "independent_branch_reconciliation",\n]);'
+          if source_new not in text:
+              if text.count(source_anchor) != 1:
+                  raise SystemExit('trusted source anchor mismatch')
+              text = text.replace(source_anchor, source_new, 1)
+          census.write_text(text)
+          PY
+
+      - name: Focused Phase 1 evidence proofs
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/local-radar-independent-branch-evidence.test.mjs \
+            tests/local-radar-provider-identity-precedence.test.mjs \
+            tests/local-radar-location-policy.test.mjs \
+            tests/local-radar-canonical-branches.test.mjs \
+            tests/local-radar-location-quality-review.test.mjs \
+            tests/local-radar-quality-adjusted-census.test.mjs \
+            tests/uk-physical-store-master.test.mjs \
+            tests/uk-physical-store-reconciliation.test.mjs
+
+      - name: Full Signal Engine regression
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee ../local-radar-independent-evidence-full-suite.log
+          status=${PIPESTATUS[0]}
+          echo "FULL_SUITE_EXIT=$status"
+          tail -n 200 ../local-radar-independent-evidence-full-suite.log
+          exit "$status"
+
+      - name: Prove raw and evidence-adjusted census side by side
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { buildQualityAdjustedLocalRadarCensus, hasTrustedCanonicalParentEvidence } from './src/encounters/local-radar-quality-adjusted-census.mjs';
+          import { reconcileLocationQuality } from './src/encounters/canonical-retailer-locations.mjs';
+          import { isEchoEligibleLocation, locationServiceKind } from './src/encounters/local-radar-location-policy.mjs';
+          import { validateIndependentBranchEvidencePlan } from './src/encounters/local-radar-independent-branch-evidence.mjs';
+
+          const rawRows = JSON.parse(fs.readFileSync('artifacts/local-radar-public-mesh.json', 'utf8'));
+          const plan = validateIndependentBranchEvidencePlan(JSON.parse(fs.readFileSync('src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json', 'utf8')));
+          const auditRows = rawRows.map((shop) => {
+            const e = shop?.locationEvidence || {};
+            return {
+              ...shop,
+              verification: shop?.verificationStatus ?? shop?.verification ?? null,
+              identityStatus: shop?.identityStatus ?? e.branchIdentity,
+              tcgSellerStatus: shop?.tcgSellerStatus ?? e.pokemonSeller,
+              tcgSellerConfidence: shop?.tcgSellerConfidence ?? e.confidence,
+              evidenceSourceCount: shop?.evidenceSourceCount ?? e.sourceCount,
+              lastVerifiedAt: shop?.lastVerifiedAt ?? e.lastVerifiedAt,
+            };
+          });
+
+          const rawCensus = buildQualityAdjustedLocalRadarCensus(rawRows);
+          const reconciled = reconcileLocationQuality(auditRows);
+          const byId = new Map(reconciled.map((row) => [row.id, row]));
+          const existingTrustedIds = new Set(auditRows.filter(hasTrustedCanonicalParentEvidence).map((row) => row.id));
+          const adjustedIds = new Set([...existingTrustedIds, ...plan.parents.map((row) => row.locationId)]);
+          const retainedIds = [...adjustedIds].filter((id) => byId.get(id)?.visibilityClass === 'eligible');
+          const eligible = reconciled.filter((row) => row.visibilityClass === 'eligible');
+          const serviceEligible = eligible.filter((row) => locationServiceKind(row));
+          const weakProviderEligible = eligible.filter((row) => String(row.verification || '').toLowerCase() === 'provider_discovered');
+          const branchIdentityOnlyEcho = eligible.filter((row) => isEchoEligibleLocation(row, {}, Date.now()));
+          const tescoPlan = plan.masterCoverageByRetailer.find((row) => row.retailerId === 'tesco-uk');
+
+          const report = {
+            generatedAt: new Date().toISOString(),
+            mode: 'READ_ONLY_PUBLIC_UK_MESH_PLUS_INDEPENDENT_MASTER',
+            databaseAccess: 'NONE',
+            productionDatabaseTouched: false,
+            rawDiagnostic: rawCensus.totals,
+            existingTrustedCanonicalParents: existingTrustedIds.size,
+            planCanonicalParents: plan.parents.length,
+            planDuplicateLegacyRows: plan.duplicates.length,
+            qualityAdjustedCanonicalParentsBefore: adjustedIds.size,
+            qualityAdjustedCanonicalParentsAfter: retainedIds.length,
+            qualityAdjustedSurvivalPct: adjustedIds.size ? retainedIds.length / adjustedIds.size : null,
+            eligibleAfterEvidence: eligible.length,
+            rawSurvivalPctAfterEvidence: rawRows.length ? eligible.length / rawRows.length : null,
+            serviceEligible: serviceEligible.length,
+            weakProviderEligible: weakProviderEligible.length,
+            branchIdentityOnlyEchoEligible: branchIdentityOnlyEcho.length,
+            tescoPlan,
+          };
+          fs.writeFileSync('artifacts/local-radar-independent-evidence-census.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+
+          if (rawRows.length < 2200) throw new Error(`raw census unexpectedly small: ${rawRows.length}`);
+          if (rawCensus.totals.uniqueCanonicalParentTotal < 60) throw new Error('original trusted-parent diagnostic disappeared');
+          if (rawCensus.totals.retainedCanonicalParentTotal !== rawCensus.totals.uniqueCanonicalParentTotal) throw new Error('pre-existing trusted parent lost');
+          if (adjustedIds.size < 800) throw new Error(`quality-adjusted denominator unexpectedly small: ${adjustedIds.size}`);
+          if (retainedIds.length !== adjustedIds.size) throw new Error(`legitimate canonical parents lost after overlay: ${retainedIds.length}/${adjustedIds.size}`);
+          if (eligible.length < 800) throw new Error(`public legitimate coverage remains too thin: ${eligible.length}`);
+          if (serviceEligible.length) throw new Error(`service junk remains public eligible: ${serviceEligible.length}`);
+          if (weakProviderEligible.length) throw new Error(`provider discovery alone remains public eligible: ${weakProviderEligible.length}`);
+          if (branchIdentityOnlyEcho.length) throw new Error(`branch identity alone created Echo eligibility: ${branchIdentityOnlyEcho.length}`);
+          if (!tescoPlan || tescoPlan.legacyRepresentationPct < 0.90) throw new Error('Tesco legitimate-parent coverage is below 90%');
+          NODE
+
+      - name: Inspect exact integration diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs \
+            signal-engine/src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json
+          git diff --cached --check
+          git diff --cached --stat
+          changed="$(git diff --cached --name-only)"
+          test "$changed" = $'signal-engine/src/encounters/canonical-retailer-locations.mjs\nsignal-engine/src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json\nsignal-engine/src/encounters/local-radar-quality-adjusted-census.mjs'
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+
+      - name: Upload Phase 1 evidence diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-radar-independent-evidence-phase1
+          path: |
+            signal-engine/artifacts/local-radar-independent-evidence-probes.json
+            signal-engine/artifacts/local-radar-independent-evidence-census.json
+            signal-engine/artifacts/uk-physical-store-retailer-summary.csv
+            signal-engine/artifacts/uk-physical-store-qa.json
+            local-radar-independent-evidence-full-suite.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Commit only after every Phase 1 evidence proof passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$TARGET_BRANCH"
+          test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
+          git add \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs \
+            signal-engine/src/encounters/data/local-radar-independent-branch-evidence-2026-09-01.json
+          git diff --cached --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(local-radar): recover independently corroborated canonical parents"
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "PHASE1_EVIDENCE_HEAD=$(git rev-parse HEAD)"
