@@ -1,0 +1,176 @@
+name: Local Radar public discovery safe gate v3
+
+on:
+  push:
+    branches:
+      - fix/local-radar-public-discovery-gate-2026-09-01
+    paths:
+      - .github/workflows/local-radar-public-discovery-safe-gate-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  safe-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Verify pinned branch tip
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git rev-parse origin/fix/local-radar-public-discovery-gate-2026-09-01)" = "${GITHUB_SHA}"
+
+      - name: Reuse proven patch and reconcile review fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk '
+            /^          python - <<'"'"'PY'"'"'$/ { capture=1; next }
+            capture && /^          PY$/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/local-radar-public-discovery-safe-gate.yml > /tmp/local-radar-patch.py
+          test -s /tmp/local-radar-patch.py
+          python /tmp/local-radar-patch.py
+
+          python - <<'PY'
+          from pathlib import Path
+
+          canonical_test = Path("signal-engine/tests/local-radar-canonical-branches.test.mjs")
+          text = canonical_test.read_text()
+          marker = r'\n\ntest("fresh discovery gate blocks service noise before map merge and persistence"'
+          index = text.find(marker)
+          if index < 0:
+              raise SystemExit("generated fresh-discovery integration test marker not found")
+          canonical_test.write_text(text[:index] + text[index:].replace(r'\n', '\n'))
+
+          review = Path("signal-engine/tests/local-radar-location-quality-review.test.mjs")
+          text = review.read_text()
+          old = '{ id: "tesco-unknown-format", retailerId: "tesco-uk", provider: "google_places", providerId: "watford-unknown", name: "Tesco Watford", address: "Watford", postcode: "WD18 0AA", latitude: 51.66, longitude: -0.40, storeFormat: "unknown" },'
+          new = '{ id: "tesco-unknown-format", retailerId: "tesco-uk", provider: "google_places", providerId: "watford-unknown", name: "Tesco Watford", address: "Watford", postcode: "WD18 0AA", latitude: 51.66, longitude: -0.40, storeFormat: "unknown", identityStatus: "provisional" },'
+          if text.count(old) != 1:
+              raise SystemExit("review provisional fixture match was not unique")
+          text = text.replace(old, new, 1)
+          text = text.replace('assert.equal(byId.get("tesco-unknown-format").visibilityClass, "directory-only");', 'assert.equal(byId.get("tesco-unknown-format").visibilityClass, "unresolved");', 1)
+          text = text.replace('  assert.equal(tesco.directoryOnly, 3);\n  assert.equal(tesco.excluded, 2);\n  assert.equal(tesco.unresolved, 0);', '  assert.equal(tesco.directoryOnly, 2);\n  assert.equal(tesco.excluded, 2);\n  assert.equal(tesco.unresolved, 1);', 1)
+          review.write_text(text)
+          PY
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Run focused Local Radar proofs
+        working-directory: signal-engine
+        run: |
+          node --test \
+            tests/local-radar-location-policy.test.mjs \
+            tests/local-radar-canonical-branches.test.mjs \
+            tests/local-radar-location-quality-review.test.mjs \
+            tests/curated-incoming-intel-reconcile.test.mjs \
+            tests/operator-local-radar-intake.test.mjs
+
+      - name: Run full Signal Engine regression
+        working-directory: signal-engine
+        run: npm test
+
+      - name: Verify real UK public-map impact read-only
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { classifyLocationQuality, isRadarEligibleLocation } from './signal-engine/src/encounters/local-radar-location-policy.mjs';
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['Watford/London',51.6565,-0.3903],['Birmingham',52.4862,-1.8904],['Manchester',53.4808,-2.2426],
+            ['Leeds',53.8008,-1.5491],['Bristol',51.4545,-2.5879],['Glasgow',55.8642,-4.2518],
+            ['Newcastle',54.9783,-1.6178],['Nottingham',52.9548,-1.1581],['Sheffield',53.3811,-1.4701],
+            ['Liverpool',53.4084,-2.9916],['Cardiff',51.4816,-3.1791],['Southampton',50.9097,-1.4044],['Edinburgh',55.9533,-3.1883]
+          ];
+          const all = new Map();
+          const key = (shop) => String(shop.id || [shop.retailerId||'',shop.name||'',shop.address||'',shop.postcode||''].join('|'));
+          for (const [label,lat,lng] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
+            url.searchParams.set('radiusMiles', '25');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-Local-Radar-Public-Gate-Proof/3.0' }, signal: AbortSignal.timeout(30000) });
+            if (!response.ok) throw new Error(`${label}: HTTP ${response.status}`);
+            const body = await response.json();
+            for (const shop of body.shops || []) all.set(key(shop), shop);
+          }
+          const shops = [...all.values()];
+          const kept = shops.filter(isRadarEligibleLocation);
+          const removed = shops.filter((shop) => !isRadarEligibleLocation(shop));
+          const noisePattern = /\b(pharmacy|chemist|petrol|fuel|filling[\s_-]+station|gas[\s_-]*station|forecourt|locker|inpost|service[\s_-]+counter|customer[\s_-]+service|click\s*(?:&|and)\s*collect)\b/i;
+          const remainingNoise = kept.filter((shop) => noisePattern.test(`${shop.name||''} ${shop.address||''}`));
+          const reasons = {};
+          const retailers = {};
+          for (const shop of shops) {
+            const retailerId = shop.retailerId || '(unmatched)';
+            retailers[retailerId] ||= { before: 0, after: 0, removed: 0 };
+            retailers[retailerId].before += 1;
+            if (isRadarEligibleLocation(shop)) retailers[retailerId].after += 1;
+            else {
+              retailers[retailerId].removed += 1;
+              const reason = classifyLocationQuality(shop).reason;
+              reasons[reason] = (reasons[reason] || 0) + 1;
+            }
+          }
+          const report = { before: shops.length, after: kept.length, removed: removed.length, remainingObviousNoise: remainingNoise.length, reasons, retailers };
+          console.log('LOCAL_RADAR_PUBLIC_IMPACT=' + JSON.stringify(report));
+          if (shops.length < 2000) throw new Error(`UK mesh unexpectedly small: ${shops.length}`);
+          if (kept.length < 2000) throw new Error(`Public gate still over-removes genuine branches: ${kept.length}/${shops.length}`);
+          if (removed.length < 90) throw new Error(`Expected obvious map noise to be removed; only ${removed.length} rows excluded`);
+          if (remainingNoise.length !== 0) throw new Error(`Obvious service noise remains after gate: ${remainingNoise.length}`);
+          NODE
+
+      - name: Inspect deterministic diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --short
+          git diff --check
+          changed="$(git status --short | sed -E 's/^.. //' | sort)"
+          printf '%s\n' "$changed"
+          for required in \
+            signal-engine/src/encounters/local-radar-location-policy.mjs \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/local-radar.mjs \
+            signal-engine/src/encounters/local-radar-branch-persistence.mjs \
+            signal-engine/tests/local-radar-location-policy.test.mjs \
+            signal-engine/tests/local-radar-canonical-branches.test.mjs \
+            signal-engine/tests/local-radar-location-quality-review.test.mjs; do
+            printf '%s\n' "$changed" | grep -Fx "$required" >/dev/null
+          done
+
+      - name: Commit review checkpoint only after all gates pass
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Fatez"
+          git config user.email "cdotkeeley@gmail.com"
+          git add \
+            signal-engine/src/encounters/local-radar-location-policy.mjs \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/local-radar.mjs \
+            signal-engine/src/encounters/local-radar-branch-persistence.mjs \
+            signal-engine/tests/local-radar-location-policy.test.mjs \
+            signal-engine/tests/local-radar-canonical-branches.test.mjs \
+            signal-engine/tests/local-radar-location-quality-review.test.mjs
+          git commit -m "fix(local-radar): gate fresh discovery without hiding real branches"
+          git push origin HEAD:fix/local-radar-public-discovery-gate-2026-09-01
