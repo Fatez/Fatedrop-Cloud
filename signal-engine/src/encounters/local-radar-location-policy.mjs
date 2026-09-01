@@ -39,6 +39,21 @@ const RETAILER_CATEGORIES = new Set([
 const SELLER_STATES = new Set(["verified", "likely", "candidate", "excluded", "conflicted"]);
 const OPERATIONAL_STATES = new Set(["open", "opening_soon", "closed", "unknown"]);
 const IDENTITY_STATES = new Set(["canonical", "provisional", "conflicted"]);
+const VISIBILITY_CLASSES = new Set(["eligible", "directory-only", "excluded", "unresolved"]);
+const STRONG_BRANCH_TCG_SOURCES = new Set([
+  "official_retailer_page",
+  "retailer_staff_report",
+  "retailer_submission",
+  "authorised_feed",
+  "operator_manual",
+]);
+
+const SERVICE_PATTERNS = Object.freeze([
+  ["pharmacy", /\b(pharmacy|chemist)\b/i],
+  ["petrol_station", /\b(petrol|fuel|filling)\s+(station|station\b|forecourt)|\bpetrol\s+station\b|\bfilling\s+station\b/i],
+  ["locker", /\b(parcel\s+locker|locker|inpost|amazon\s+locker)\b/i],
+  ["service_counter", /\b(customer\s+service|service\s+counter|click\s*(?:&|and)\s*collect\s+counter|collection\s+counter)\b/i],
+]);
 
 function text(value) {
   const result = String(value ?? "").trim().toLowerCase();
@@ -60,6 +75,26 @@ function epochSeconds(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return Math.floor(parsed > 10_000_000_000 ? parsed / 1000 : parsed);
+}
+
+function qualityHaystack(record = {}) {
+  const openingDetails = record.openingDetails ?? record.opening_details_json ?? {};
+  return [
+    record.name,
+    record.address,
+    record.storeFormat ?? record.store_format,
+    openingDetails?.storeFormat,
+    openingDetails?.locationType,
+    openingDetails?.category,
+  ].filter(Boolean).join(" ");
+}
+
+export function locationServiceKind(record = {}) {
+  const haystack = qualityHaystack(record);
+  for (const [kind, pattern] of SERVICE_PATTERNS) {
+    if (pattern.test(haystack)) return kind;
+  }
+  return null;
 }
 
 export function locationPolicyForRetailer(retailerId) {
@@ -84,10 +119,10 @@ export function normalizeLocationPolicy(record = {}) {
     : enumValue(record.tcgSellerStatus ?? record.tcg_seller_status, SELLER_STATES, fallback.tcgSellerStatus);
 
   const retailerCategory = enumValue(
-      record.retailerCategory ?? record.retailer_category,
-      RETAILER_CATEGORIES,
-      fallback.retailerCategory,
-    );
+    record.retailerCategory ?? record.retailer_category,
+    RETAILER_CATEGORIES,
+    fallback.retailerCategory,
+  );
   const retailerGroup = text(record.retailerGroup ?? record.retailer_group)
     || (retailerCategory === "supermarket" || retailerCategory === "warehouse_club"
       ? "supermarkets"
@@ -115,25 +150,63 @@ export function normalizeLocationPolicy(record = {}) {
   };
 }
 
-export function isRadarEligibleLocation(location = {}) {
+export function classifyLocationQuality(location = {}) {
+  const explicit = enumValue(
+    location.visibilityClass ?? location.visibility_class ?? location.openingDetails?.visibilityClass ?? location.opening_details_json?.visibilityClass,
+    VISIBILITY_CLASSES,
+    null,
+  );
+  const explicitReason = text(
+    location.visibilityReason ?? location.visibility_reason ?? location.openingDetails?.visibilityReason ?? location.opening_details_json?.visibilityReason,
+  );
+  if (explicit) return { visibilityClass: explicit, reason: explicitReason || "explicit_classification", serviceKind: locationServiceKind(location) };
+
   const policy = normalizeLocationPolicy(location);
-  return policy.operationalStatus !== "closed"
-    && policy.identityStatus !== "conflicted"
-    && !["excluded", "conflicted"].includes(policy.tcgSellerStatus);
+  const serviceKind = locationServiceKind(location);
+  if (policy.operationalStatus === "closed") return { visibilityClass: "excluded", reason: "closed", serviceKind };
+  if (policy.identityStatus === "conflicted" || policy.tcgSellerStatus === "conflicted") {
+    return { visibilityClass: "unresolved", reason: "identity_conflict", serviceKind };
+  }
+  if (policy.tcgSellerStatus === "excluded") return { visibilityClass: "excluded", reason: "seller_excluded", serviceKind };
+  if (serviceKind) return { visibilityClass: "excluded", reason: serviceKind, serviceKind };
+  if (policy.tcgSellerStatus === "candidate") return { visibilityClass: "directory-only", reason: "tcg_relevance_unverified", serviceKind: null };
+  if (policy.identityStatus === "provisional") return { visibilityClass: "unresolved", reason: "provisional_identity", serviceKind: null };
+  return { visibilityClass: "eligible", reason: policy.tcgSellerStatus === "verified" ? "branch_tcg_verified" : "canonical_retail_branch", serviceKind: null };
+}
+
+export function isRadarEligibleLocation(location = {}) {
+  return classifyLocationQuality(location).visibilityClass === "eligible";
+}
+
+export function hasExplicitTcgRelevance(location = {}, evidence = {}) {
+  const policy = normalizeLocationPolicy(location);
+  if (policy.tcgSellerStatus === "verified") return true;
+  const sourceType = text(evidence.sourceType ?? evidence.source_type);
+  return evidence.explicitTcgRelevance === true
+    && evidence.exactBranch === true
+    && Boolean(sourceType && STRONG_BRANCH_TCG_SOURCES.has(sourceType));
+}
+
+export function isEchoEligibleLocation(location = {}, evidence = {}) {
+  return isRadarEligibleLocation(location) && hasExplicitTcgRelevance(location, evidence);
 }
 
 export function publicLocationEvidence(location = {}) {
   const policy = normalizeLocationPolicy(location);
+  const quality = classifyLocationQuality(location);
   return {
     branchIdentity: policy.identityStatus,
     pokemonSeller: policy.tcgSellerStatus,
     confidence: policy.tcgSellerConfidence,
     sourceCount: policy.evidenceSourceCount,
     lastVerifiedAt: policy.lastVerifiedAt,
+    visibilityClass: quality.visibilityClass,
+    visibilityReason: quality.reason,
+    echoEligibleFromStoredEvidence: quality.visibilityClass === "eligible" && policy.tcgSellerStatus === "verified",
     caveat: policy.tcgSellerStatus === "verified"
       ? "Evidence supports Pokémon TCG sales at this branch; exact stock is still unknown until Manifested."
       : policy.tcgSellerStatus === "likely"
-        ? "This branch belongs to a retailer associated with Pokémon TCG sales; branch participation is not verified."
+        ? "This is a canonical retail branch of a retailer associated with Pokémon TCG sales; branch TCG participation is not verified until explicit evidence exists."
         : "Branch location only; Pokémon TCG sales at this branch are not verified.",
   };
 }
@@ -144,4 +217,5 @@ export const LOCATION_POLICY_ENUMS = Object.freeze({
   sellerStates: [...SELLER_STATES],
   operationalStates: [...OPERATIONAL_STATES],
   identityStates: [...IDENTITY_STATES],
+  visibilityClasses: [...VISIBILITY_CLASSES],
 });
