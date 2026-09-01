@@ -15,40 +15,70 @@ jobs:
         run: |
           set -euo pipefail
           node <<'NODE'
-          const targets = [
-            { name: 'The Card Vault', type: 'shopify', url: 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
-            { name: 'Shiny Vault', type: 'shopify', url: 'https://shinyvault.co.uk/collections/sealed/products.json?limit=250' },
-            { name: 'Cob & Pip', type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
-            { name: 'Tritex Games', type: 'woo', url: 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
-            { name: "Trainer's Haven", type: 'woo', url: 'https://trainershaven.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
+          const groups = [
+            { name: 'The Card Vault', attempts: [
+              { type: 'shopify', url: 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
+            ]},
+            { name: 'Shiny Vault', attempts: [
+              { type: 'shopify', url: 'https://shinyvault.co.uk/collections/sealed/products.json?limit=250' },
+              { type: 'shopify', url: 'https://shinyvault.co.uk/collections/all/products.json?limit=250' },
+              { type: 'shopify', url: 'https://shinyvault.co.uk/products.json?limit=250' },
+              { type: 'woo', url: 'https://shinyvault.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
+            ]},
+            { name: 'Cob & Pip', attempts: [
+              { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
+              { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-sealed/products.json?limit=250' },
+            ]},
+            { name: 'Tritex Games', attempts: [
+              { type: 'woo', url: 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
+            ]},
+            { name: "Trainer's Haven", attempts: [
+              { type: 'woo', url: 'https://trainershaven.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
+              { type: 'shopify', url: 'https://trainershaven.co.uk/products.json?limit=250' },
+            ]},
           ];
           const timeoutMs = 20000;
-          for (const target of targets) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
-            let response;
-            try {
-              response = await fetch(target.url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' }, signal: controller.signal });
-            } finally {
-              clearTimeout(timer);
+          const sealedPattern = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|premium|bundle|display|box\b|pack\b|poster|ultra premium/i;
+          const excludedPattern = /single|sleeve|binder|play\s?mat|toploader|graded|event ticket|accessor/i;
+          const winners = [];
+          for (const group of groups) {
+            let winner = null;
+            for (const target of group.attempts) {
+              const controller = new AbortController();
+              const timer = setTimeout(() => controller.abort(), timeoutMs);
+              try {
+                const response = await fetch(target.url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' }, signal: controller.signal });
+                if (!response.ok) {
+                  console.log(JSON.stringify({ retailer: group.name, url: target.url, status: response.status, ok: false }));
+                  continue;
+                }
+                const payload = await response.json();
+                const rows = target.type === 'shopify' ? payload?.products : payload;
+                if (!Array.isArray(rows) || rows.length === 0) {
+                  console.log(JSON.stringify({ retailer: group.name, url: target.url, status: response.status, ok: false, reason: 'empty' }));
+                  continue;
+                }
+                let knownStock = 0;
+                let sealed = 0;
+                for (const row of rows) {
+                  const title = String(target.type === 'shopify' ? row?.title : row?.name || '');
+                  if (sealedPattern.test(title) && !excludedPattern.test(title)) sealed += 1;
+                  if (target.type === 'shopify') {
+                    const variants = Array.isArray(row?.variants) ? row.variants : [];
+                    if (variants.some((v) => typeof v?.available === 'boolean')) knownStock += 1;
+                  } else if (typeof row?.is_in_stock === 'boolean') knownStock += 1;
+                }
+                const result = { retailer: group.name, type: target.type, url: target.url, status: response.status, products: rows.length, sealed, knownStock, ok: sealed > 0 && knownStock > 0 };
+                console.log(JSON.stringify(result));
+                if (result.ok) { winner = result; break; }
+              } catch (error) {
+                console.log(JSON.stringify({ retailer: group.name, url: target.url, ok: false, error: String(error?.message || error) }));
+              } finally {
+                clearTimeout(timer);
+              }
             }
-            if (!response.ok) throw new Error(`${target.name}: HTTP ${response.status}`);
-            const payload = await response.json();
-            const rows = target.type === 'shopify' ? payload?.products : payload;
-            if (!Array.isArray(rows) || rows.length === 0) throw new Error(`${target.name}: empty or invalid product payload`);
-            let knownStock = 0;
-            let sealed = 0;
-            for (const row of rows) {
-              const title = String(target.type === 'shopify' ? row?.title : row?.name || '');
-              if (/booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|premium|bundle|display|box\b|pack\b|poster|ultra premium/i.test(title)
-                && !/single|sleeve|binder|play\s?mat|toploader|graded|event ticket|accessor/i.test(title)) sealed += 1;
-              if (target.type === 'shopify') {
-                const variants = Array.isArray(row?.variants) ? row.variants : [];
-                if (variants.some((v) => typeof v?.available === 'boolean')) knownStock += 1;
-              } else if (typeof row?.is_in_stock === 'boolean') knownStock += 1;
-            }
-            console.log(JSON.stringify({ retailer: target.name, status: response.status, products: rows.length, sealed, knownStock }));
-            if (sealed === 0) throw new Error(`${target.name}: no sealed-shaped products in probe`);
-            if (knownStock === 0) throw new Error(`${target.name}: no usable stock evidence in probe`);
+            if (!winner) throw new Error(`${group.name}: no usable structured stock feed found`);
+            winners.push(winner);
           }
+          console.log('WAVE1_WINNERS=' + JSON.stringify(winners));
           NODE
