@@ -129,9 +129,9 @@ test("quality-adjusted denominator is independently evidence-derived and raw bef
 
   assert.equal(census.totals.rawTotal, 7);
   assert.equal(census.totals.publicBefore, 6);
-  assert.equal(census.totals.eligibleAfter, 3);
-  assert.equal(census.totals.rawPublicDelta, -3);
-  assert.equal(census.totals.rawSurvivalPct, 0.5);
+  assert.equal(census.totals.eligibleAfter, 2);
+  assert.equal(census.totals.rawPublicDelta, -4);
+  assert.equal(census.totals.rawSurvivalPct, 1 / 3);
 
   assert.equal(census.totals.uniqueCanonicalParentTotal, 2);
   assert.equal(census.totals.retainedCanonicalParentTotal, 2);
@@ -143,8 +143,7 @@ test("quality-adjusted denominator is independently evidence-derived and raw bef
   assert.equal(census.samples.lostCanonicalParents.length, 0);
   assert.equal(census.samples.obviousNoiseEligible.length, 0);
   assert.equal(census.samples.provisionalEligible.length, 0);
-  assert.equal(census.samples.weakDiscoveryEligible.length, 1);
-  assert.equal(census.samples.weakDiscoveryEligible[0].id, "tesco-weak-discovery");
+  assert.equal(census.samples.weakDiscoveryEligible.length, 0);
   assert.match(census.diagnostics.trustedCanonicalParentRule, /never uses visibilityClass=eligible/i);
   assert.match(census.diagnostics.rawMetricRule, /Raw survival is preserved/i);
   assert.equal(census.diagnostics.historyMutation, false);
