@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { takeCatalogueYield } from "./catalogue-yield-context.mjs";
+
+const retailerByRunId = new Map();
 
 function safeDiagnostics(value) {
   return value && typeof value === "object" ? value : {};
@@ -9,6 +12,7 @@ export function createRetailerRunId(retailerId) {
 }
 
 export async function recordRetailerRunStart(store, { runId, retailerId, startedAt }) {
+  retailerByRunId.set(runId, retailerId);
   if (!store || typeof store.pool !== "function") return { recorded: false, reason: "store_not_persistent" };
   const pool = await store.pool();
   await pool.query(
@@ -33,6 +37,14 @@ export async function recordRetailerRunFinish(store, {
   failureDetail = null,
   diagnostics = {},
 }) {
+  const retailerId = retailerByRunId.get(runId);
+  retailerByRunId.delete(runId);
+  const discovery = retailerId ? takeCatalogueYield(retailerId) : null;
+  const mergedDiagnostics = {
+    ...safeDiagnostics(diagnostics),
+    ...(discovery ? { discovery } : {}),
+  };
+
   if (!store || typeof store.pool !== "function") return { recorded: false, reason: "store_not_persistent" };
   const pool = await store.pool();
   await pool.query(
@@ -49,7 +61,7 @@ export async function recordRetailerRunFinish(store, {
       published,
       failureCode,
       failureDetail == null ? null : String(failureDetail).slice(0, 1500),
-      JSON.stringify(safeDiagnostics(diagnostics)),
+      JSON.stringify(mergedDiagnostics),
     ],
   );
   return { recorded: true, runId };
