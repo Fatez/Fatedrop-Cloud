@@ -60,13 +60,13 @@ jobs:
           if text.count(old_row) != 1:
               raise SystemExit(f'provisional fixture row matched {text.count(old_row)} times; expected once')
           text = text.replace(old_row, new_row, 1)
-          old_assert = '    assert.equal(byId.get("tesco-unknown-format").visibilityClass, "directory-only");'
-          new_assert = '    assert.equal(byId.get("tesco-unknown-format").visibilityClass, "unresolved");'
+          old_assert = '  assert.equal(byId.get("tesco-unknown-format").visibilityClass, "directory-only");'
+          new_assert = '  assert.equal(byId.get("tesco-unknown-format").visibilityClass, "unresolved");'
           if text.count(old_assert) != 1:
               raise SystemExit('provisional fixture assertion anchor mismatch')
           text = text.replace(old_assert, new_assert, 1)
-          old_counts = '''    assert.equal(tesco.directoryOnly, 3);\n    assert.equal(tesco.excluded, 2);\n    assert.equal(tesco.unresolved, 0);'''
-          new_counts = '''    assert.equal(tesco.directoryOnly, 2);\n    assert.equal(tesco.excluded, 2);\n    assert.equal(tesco.unresolved, 1);'''
+          old_counts = '''  assert.equal(tesco.directoryOnly, 3);\n  assert.equal(tesco.excluded, 2);\n  assert.equal(tesco.unresolved, 0);'''
+          new_counts = '''  assert.equal(tesco.directoryOnly, 2);\n  assert.equal(tesco.excluded, 2);\n  assert.equal(tesco.unresolved, 1);'''
           if text.count(old_counts) != 1:
               raise SystemExit('review count assertion anchor mismatch')
           review.write_text(text.replace(old_counts, new_counts, 1))
