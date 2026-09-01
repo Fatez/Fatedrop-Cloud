@@ -1,0 +1,149 @@
+name: Verify physical Echo lock v3
+
+on:
+  push:
+    branches: [feat/retailer-intelligence-surfaces-2026-09-01]
+    paths:
+      - ".github/workflows/verify-physical-echo-lock-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  disposable-worktree-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/retailer-intelligence-surfaces-2026-09-01
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Create disposable clean worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git status --porcelain
+          test -z "$(git status --porcelain)"
+          git worktree add --detach /tmp/fatedrop-physical-echo HEAD
+          cd /tmp/fatedrop-physical-echo
+          test -z "$(git status --porcelain)"
+
+      - name: Apply physical Echo patch only inside disposable worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/fatedrop-physical-echo
+          python - <<'PY'
+          from pathlib import Path
+          from textwrap import dedent
+          import re
+
+          helper = Path('.github/workflows/apply-physical-echo-intelligence-lock.yml').read_text()
+          marker = "python - <<'PY'\n"
+          code = helper.split(marker, 1)[1].split("\n          PY", 1)[0]
+          code = dedent(code)
+
+          original = '''def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected patch anchor missing in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))'''
+          instrumented = '''patch_counter = 0
+          def replace_once(path, old, new):
+              global patch_counter
+              patch_counter += 1
+              p = Path(path)
+              text = p.read_text()
+              exact_count = text.count(old)
+              if exact_count == 1:
+                  p.write_text(text.replace(old, new, 1))
+                  return
+              if exact_count > 1:
+                  raise SystemExit(f"patch {patch_counter} matched more than once in {path}")
+              lines = old.splitlines()
+              pattern = "\\n".join(r"[ \\t]*" + re.escape(line.strip()) + r"[ \\t]*" for line in lines)
+              matches = list(re.finditer(pattern, text))
+              if len(matches) != 1:
+                  raise SystemExit(f"patch {patch_counter} structural match count={len(matches)} in {path}")
+              match = matches[0]
+              p.write_text(text[:match.start()] + new + text[match.end():])'''
+          if original not in code:
+              raise SystemExit('could not instrument replace_once helper')
+          code = code.replace(original, instrumented, 1)
+          exec(compile(code, 'physical-echo-patch-v3.py', 'exec'), {'__name__': '__main__', 're': re})
+
+          # Observation-only notifications must retain the complete Echo card for audit/UI,
+          # while never invoking the publisher until radius targeting is explicit.
+          p = Path('signal-engine/src/encounters/retailer-intelligence-surfaces.mjs')
+          text = p.read_text()
+          old = 'notifications.push({ eventId: notification.eventId, productTitle: change.product.title, published: false, held: true, reason: "radius_targeting_required" });'
+          new = 'notifications.push({ ...notification, published: false, held: true, reason: "radius_targeting_required" });'
+          if text.count(old) != 1:
+              raise SystemExit(f'held notification audit anchor count={text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+
+          # Existing test must assert the returned held Echo card, not a publisher callback
+          # that is intentionally never called in observation-only mode.
+          p = Path('signal-engine/tests/retailer-intelligence-surfaces.test.mjs')
+          text = p.read_text()
+          old = '''  assert.equal(logs[0].kind, "echo");
+          assert.equal(notifications[0].stage, "ECHO");
+          assert.match(notifications[0].body, /not confirmed/i);'''
+          new = '''  assert.equal(logs[0].kind, "echo");
+          assert.equal(notifications.length, 0);
+          assert.equal(result.notificationResults[0].stage, "ECHO");
+          assert.equal(result.notificationResults[0].held, true);
+          assert.equal(result.notificationResults[0].reason, "radius_targeting_required");
+          assert.match(result.notificationResults[0].body, /not confirmed/i);'''
+          if text.count(old) != 1:
+              raise SystemExit(f'observation-only test anchor count={text.count(old)}')
+          p.write_text(text.replace(old, new, 1))
+
+          for rel in [
+              'signal-engine/src/encounters/retailer-intelligence-surfaces.mjs',
+              'signal-engine/tests/retailer-intelligence-surfaces.test.mjs',
+          ]:
+              p = Path(rel)
+              p.write_text("\n".join(line.rstrip() for line in p.read_text().splitlines()) + "\n")
+          PY
+          git diff --check
+
+      - name: Install Signal Engine dependencies
+        working-directory: /tmp/fatedrop-physical-echo/signal-engine
+        run: npm ci
+
+      - name: Run focused physical Echo and intelligence tests
+        working-directory: /tmp/fatedrop-physical-echo/signal-engine
+        run: node --test tests/physical-echo-contract.test.mjs tests/retailer-intelligence-surfaces.test.mjs
+
+      - name: Run full Signal Engine suite
+        working-directory: /tmp/fatedrop-physical-echo/signal-engine
+        run: npm test
+
+      - name: Install collector dependencies
+        working-directory: /tmp/fatedrop-physical-echo/collectors/pokemon-center-browser
+        run: npm ci
+
+      - name: Run collector suite
+        working-directory: /tmp/fatedrop-physical-echo/collectors/pokemon-center-browser
+        run: npm test
+
+      - name: Commit only after every gate passes
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/fatedrop-physical-echo
+          git diff --check
+          git add signal-engine collectors/pokemon-center-browser/src/index.mjs
+          git diff --cached --check
+          test -n "$(git diff --cached --name-only)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Lock physical stock to Echo intelligence"
+          git push origin HEAD:feat/retailer-intelligence-surfaces-2026-09-01
