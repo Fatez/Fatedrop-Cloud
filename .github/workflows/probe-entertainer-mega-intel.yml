@@ -1,0 +1,45 @@
+name: Probe Entertainer Mega intel
+
+on:
+  push:
+    branches:
+      - intel/entertainer-mega-2026-09-01
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fetch live Entertainer Pokemon allocation page
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const url = 'https://www.thetoyshop.com/pokemon-at-the-entertainer';
+          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop operator-intel verification/1.0', accept: 'text/html' } });
+          const html = await response.text();
+          console.log(JSON.stringify({status: response.status, finalUrl: response.url, bytes: html.length, fetchedAt: new Date().toISOString()}));
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const text = html
+            .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+            .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+            .replace(/<[^>]+>/g, '\n')
+            .replace(/&amp;/g, '&')
+            .replace(/&#8211;|&ndash;/g, '–')
+            .replace(/&#8217;|&rsquo;/g, '’')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/\r/g, '')
+            .split('\n').map(v => v.trim()).filter(Boolean);
+          const markers = [
+            'Pokémon TCG: Mega Evolution - Ascended Heroes 2 Pack Blister',
+            'Pokémon TCG: Mega Forces Tin (Styles Vary)',
+          ];
+          for (let m = 0; m < markers.length; m += 1) {
+            const start = text.findIndex(v => v.includes(markers[m]));
+            const endMarker = markers[m + 1];
+            const end = endMarker ? text.findIndex((v, i) => i > start && v.includes(endMarker)) : text.findIndex((v, i) => i > start && v.includes('Shop LEGO Pokémon'));
+            if (start < 0) throw new Error(`Missing marker: ${markers[m]}`);
+            const slice = text.slice(start, end > start ? end : start + 500);
+            console.log(`SECTION_${m + 1}=` + JSON.stringify(slice));
+          }
+          NODE
