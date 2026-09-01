@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify One Piece shadow resolver
+        run: node --test tests/one-piece-sealed-product-intelligence.test.mjs tests/one-piece-shadow-monitor.test.mjs
+
       - name: Capture silent baseline
         env:
           ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
