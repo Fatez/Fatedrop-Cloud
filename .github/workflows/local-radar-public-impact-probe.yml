@@ -1,0 +1,178 @@
+name: Local Radar public impact probe
+
+on:
+  push:
+    branches:
+      - feat/local-radar-location-quality-2026-09-01
+    paths:
+      - .github/workflows/local-radar-public-impact-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Probe current public Local Radar and simulate review visibility gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {
+            classifyLocationQuality,
+            isRadarEligibleLocation,
+            locationServiceKind,
+          } from './signal-engine/src/encounters/local-radar-location-policy.mjs';
+
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          // Representative UK collector catchments. This is deliberately read-only and uses
+          // the same public endpoint consumed by the FateDrop web proxy.
+          const probes = [
+            ['Watford / London', 'WD17 2UB'],
+            ['Birmingham', 'B1 1BB'],
+            ['Manchester', 'M1 1AE'],
+            ['Leeds', 'LS1 1UR'],
+            ['Bristol', 'BS1 1AA'],
+            ['Glasgow', 'G1 1AA'],
+          ];
+
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const all = new Map();
+          const probeResults = [];
+
+          function shopKey(shop) {
+            return String(shop?.id || [shop?.retailerId || 'indie', shop?.name || '', shop?.address || '', shop?.postcode || ''].join('|'));
+          }
+
+          for (const [label, postcode] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('postcode', postcode);
+            url.searchParams.set('radiusMiles', '25');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, {
+              headers: { 'user-agent': 'FateDrop-Local-Radar-Review-Probe/1.0' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`${label} public Local Radar HTTP ${response.status}`);
+            const body = await response.json();
+            const shops = Array.isArray(body.shops) ? body.shops : [];
+            for (const shop of shops) all.set(shopKey(shop), shop);
+            probeResults.push({
+              label,
+              postcode,
+              shops: shops.length,
+              branchIdentity: body?.providers?.branchIdentity || null,
+              shopProvider: body?.providers?.shops || null,
+            });
+            await sleep(500);
+          }
+
+          const shops = [...all.values()];
+          const classified = shops.map((shop) => {
+            const quality = classifyLocationQuality(shop);
+            return {
+              shop,
+              quality,
+              publicAfterStrictGate: isRadarEligibleLocation(shop),
+              serviceKind: locationServiceKind(shop),
+            };
+          });
+
+          const byRetailer = new Map();
+          const reasonCounts = {};
+          for (const row of classified) {
+            const retailerId = row.shop.retailerId || '(unmatched/discovered)';
+            const summary = byRetailer.get(retailerId) || {
+              retailerId,
+              beforePublic: 0,
+              afterStrictGate: 0,
+              removed: 0,
+              eligible: 0,
+              directoryOnly: 0,
+              excluded: 0,
+              unresolved: 0,
+            };
+            summary.beforePublic += 1;
+            summary[row.quality.visibilityClass === 'directory-only' ? 'directoryOnly' : row.quality.visibilityClass] += 1;
+            if (row.publicAfterStrictGate) summary.afterStrictGate += 1;
+            else summary.removed += 1;
+            byRetailer.set(retailerId, summary);
+            reasonCounts[row.quality.reason] = (reasonCounts[row.quality.reason] || 0) + 1;
+          }
+
+          const obviousNoise = classified.filter(({ shop, quality, serviceKind }) => {
+            const haystack = `${shop.name || ''} ${shop.address || ''}`.toLowerCase();
+            return Boolean(serviceKind)
+              || quality.reason === 'closed'
+              || /\b(pharmacy|chemist|petrol|fuel|filling station|forecourt|locker|inpost|service counter|customer service|click\s*(?:&|and)\s*collect)\b/i.test(haystack);
+          });
+
+          const removedSamples = classified
+            .filter((row) => !row.publicAfterStrictGate)
+            .slice(0, 60)
+            .map(({ shop, quality, serviceKind }) => ({
+              id: shop.id || null,
+              retailerId: shop.retailerId || null,
+              name: shop.name || null,
+              address: shop.address || null,
+              postcode: shop.postcode || null,
+              provider: shop.provider || null,
+              storeFormat: shop.storeFormat || null,
+              verificationStatus: shop.verificationStatus || null,
+              visibilityClass: quality.visibilityClass,
+              reason: quality.reason,
+              serviceKind,
+            }));
+
+          const report = {
+            generatedAt: new Date().toISOString(),
+            source: endpoint,
+            mode: 'READ_ONLY_PUBLIC_SURFACE_SIMULATION',
+            caveat: 'Before is the current production public Local Radar response deduplicated across representative UK catchments. AfterStrictGate applies the review branch visibility classifier to those real returned shop records. It does not mutate production and is not a full raw-DB census.',
+            probes: probeResults,
+            totals: {
+              uniqueCurrentPublicShops: shops.length,
+              afterStrictGate: classified.filter((row) => row.publicAfterStrictGate).length,
+              removedByStrictGate: classified.filter((row) => !row.publicAfterStrictGate).length,
+              obviousServiceNoiseCurrentlyPublic: obviousNoise.length,
+            },
+            reasons: reasonCounts,
+            retailers: [...byRetailer.values()].sort((a, b) => b.beforePublic - a.beforePublic || a.retailerId.localeCompare(b.retailerId)),
+            obviousNoiseSamples: obviousNoise.slice(0, 60).map(({ shop, quality, serviceKind }) => ({
+              id: shop.id || null,
+              retailerId: shop.retailerId || null,
+              name: shop.name || null,
+              address: shop.address || null,
+              postcode: shop.postcode || null,
+              provider: shop.provider || null,
+              storeFormat: shop.storeFormat || null,
+              visibilityClass: quality.visibilityClass,
+              reason: quality.reason,
+              serviceKind,
+            })),
+            removedSamples,
+          };
+
+          fs.writeFileSync('local-radar-public-impact.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report, null, 2));
+          NODE
+
+      - name: Upload review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-radar-public-impact
+          path: local-radar-public-impact.json
+          retention-days: 2
+          if-no-files-found: error
