@@ -1,0 +1,41 @@
+name: Audit Live Signal Flow
+
+on:
+  push:
+    branches:
+      - audit/live-signal-flow-2026-09-01
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe production signal summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://fatedrop-cloud-production.up.railway.app/api/signal-summary"
+          status="$(curl --silent --show-error --max-time 20 --output /tmp/signal-summary.json --write-out '%{http_code}' -H 'Accept: application/json' "$url")"
+          echo "HTTP_STATUS=$status"
+          test "$status" = "200"
+          node <<'NODE'
+          const fs = require('fs');
+          const payload = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
+          const source = payload.signalHealth || payload.health || payload;
+          const diagnostics = source.diagnostics || payload.diagnostics || {};
+          const selected = {
+            available: payload.available ?? source.available ?? null,
+            generatedAt: payload.generatedAt ?? source.generatedAt ?? null,
+            rootKeys: Object.keys(payload).sort(),
+            lifecycle: source.lifecycle ?? payload.lifecycle ?? null,
+            delivery: source.delivery ?? payload.delivery ?? null,
+            monitors: diagnostics.monitors ?? null,
+            reliability: diagnostics.reliability ?? null,
+            discovery: diagnostics.discovery ?? null,
+            localRadarOperator: payload.localRadarOperator ?? null,
+          };
+          console.log('FATEDROP_SIGNAL_FLOW=' + JSON.stringify(selected));
+          NODE
