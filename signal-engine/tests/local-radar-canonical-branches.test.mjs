@@ -17,6 +17,7 @@ const smythsBranch = {
   postcode: "SG1 1XN",
   latitude: 51.9016,
   longitude: -0.2106,
+  storeFormat: "toy_store",
   verification: "official_retailer_branch",
   updatedAt: Math.floor(Date.now() / 1000),
 };
