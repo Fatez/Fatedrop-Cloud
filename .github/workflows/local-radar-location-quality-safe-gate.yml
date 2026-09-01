@@ -56,6 +56,44 @@ jobs:
           path.write_text(text)
           PY
 
+      - name: Carry explicit branch TCG authority through operator intake
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          source = Path('signal-engine/src/encounters/operator-local-radar-intake.mjs')
+          text = source.read_text()
+          anchor = '  const sourceLabel = text(payload.sourceLabel, 180) || "FateDrop operator intelligence";\n'
+          if text.count(anchor) != 1:
+              raise SystemExit(f'operator sourceLabel anchor matched {text.count(anchor)} times; expected exactly once')
+          text = text.replace(anchor, anchor + '  const explicitTcgRelevance = payload.explicitTcgRelevance === true;\n', 1)
+          entry_anchor = '      sourceLabel,\n      observedAt:'
+          if text.count(entry_anchor) != 1:
+              raise SystemExit(f'operator entry anchor matched {text.count(entry_anchor)} times; expected exactly once')
+          text = text.replace(entry_anchor, '      sourceLabel,\n      explicitTcgRelevance,\n      observedAt:', 1)
+          source.write_text(text)
+
+          test_path = Path('signal-engine/tests/operator-local-radar-intake.test.mjs')
+          test_text = test_path.read_text()
+          body_anchor = '    sourceLabel: "The Entertainer official Pokémon TCG page",\n'
+          if test_text.count(body_anchor) != 1:
+              raise SystemExit(f'operator fixture sourceLabel anchor matched {test_text.count(body_anchor)} times; expected exactly once')
+          test_text = test_text.replace(body_anchor, body_anchor + '    explicitTcgRelevance: true,\n', 1)
+          confidence_anchor = '  assert.equal(parsed.entry.confidence, 0.68);\n'
+          if test_text.count(confidence_anchor) != 1:
+              raise SystemExit(f'operator fixture confidence anchor matched {test_text.count(confidence_anchor)} times; expected exactly once')
+          test_text = test_text.replace(confidence_anchor, confidence_anchor + '  assert.equal(parsed.entry.explicitTcgRelevance, true);\n', 1)
+          bromley = '{ id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN" }'
+          watford = '{ id: "loc-watford", retailerId: "entertainer-uk", name: "The Entertainer Watford", address: "Watford", postcode: "WD17 2UB" }'
+          if test_text.count(bromley) != 1 or test_text.count(watford) != 1:
+              raise SystemExit('operator canonical branch fixture anchors did not match exactly once')
+          test_text = test_text.replace(bromley, '{ id: "loc-bromley", retailerId: "entertainer-uk", name: "The Entertainer Bromley Lower Mall", address: "Bromley", postcode: "BR1 1DN", storeFormat: "toy_store" }', 1)
+          test_text = test_text.replace(watford, '{ id: "loc-watford", retailerId: "entertainer-uk", name: "The Entertainer Watford", address: "Watford", postcode: "WD17 2UB", storeFormat: "toy_store" }', 1)
+          test_path.write_text(test_text)
+          PY
+
       - name: Add review-only quality proof
         shell: bash
         run: |
@@ -140,7 +178,8 @@ jobs:
             tests/local-radar-location-policy.test.mjs \
             tests/local-radar-canonical-branches.test.mjs \
             tests/local-radar-location-quality-review.test.mjs \
-            tests/curated-incoming-intel-reconcile.test.mjs
+            tests/curated-incoming-intel-reconcile.test.mjs \
+            tests/operator-local-radar-intake.test.mjs
 
       - name: Full Signal Engine suite
         working-directory: signal-engine
@@ -172,7 +211,7 @@ jobs:
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
           changed="$(git diff --name-only)"
           echo "$changed"
-          test "$changed" = $'signal-engine/src/encounters/canonical-retailer-locations.mjs\nsignal-engine/tests/local-radar-location-quality-review.test.mjs'
+          test "$changed" = $'signal-engine/src/encounters/canonical-retailer-locations.mjs\nsignal-engine/src/encounters/operator-local-radar-intake.mjs\nsignal-engine/tests/local-radar-location-quality-review.test.mjs\nsignal-engine/tests/operator-local-radar-intake.test.mjs'
 
       - name: Commit only after every proof passes
         shell: bash
@@ -180,7 +219,11 @@ jobs:
           set -euo pipefail
           git fetch origin "$TARGET_BRANCH"
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
-          git add signal-engine/src/encounters/canonical-retailer-locations.mjs signal-engine/tests/local-radar-location-quality-review.test.mjs
+          git add \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/operator-local-radar-intake.mjs \
+            signal-engine/tests/local-radar-location-quality-review.test.mjs \
+            signal-engine/tests/operator-local-radar-intake.test.mjs
           git diff --cached --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
