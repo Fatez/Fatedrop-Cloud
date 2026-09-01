@@ -3,6 +3,11 @@ import { env } from "../config/env.mjs";
 import { dispatchDiscordSignals } from "../notifications/discord.mjs";
 import { dispatchSignalDeliveryOutbox } from "../notifications/signal-outbox.mjs";
 import { recordSignalDeliveryAttempt } from "../telemetry/signal-delivery.mjs";
+import {
+  createSignalFunnel,
+  finalizeSignalFunnel,
+  recordSignalFunnelOffer,
+} from "../telemetry/signal-funnel.mjs";
 import { createRetailerRunId, recordRetailerRunFinish, recordRetailerRunStart } from "../telemetry/retailer-runs.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
 import { resolveCanonicalRrp } from "./canonical-rrp-registry.mjs";
@@ -98,6 +103,19 @@ async function safeRunStart(store, payload) {
 async function safeRunFinish(store, payload) {
   try { await recordRetailerRunFinish(store, payload); }
   catch (error) { console.error("[monitor] run-finish telemetry failed", { runId: payload.runId, error: String(error?.message || error) }); }
+}
+
+function resultRunDiagnostics(result, extra = {}) {
+  return {
+    ...extra,
+    signalsCreated: result?.signalsCreated ?? 0,
+    signalConflicts: result?.signalConflicts ?? 0,
+    deduplicatedSignals: result?.deduplicatedSignals ?? 0,
+    signalFunnel: result?.signalFunnel ?? null,
+    rrpInherited: result?.rrpInherited ?? 0,
+    rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0,
+    rrpLearning: result?.rrpLearning ?? null,
+  };
 }
 
 async function loadRrpValueContext(store) {
@@ -233,6 +251,7 @@ async function persistMarketMemoryActions(store, actions, now) {
 export async function processRetailerProducts({ retailer, store, rawProducts, now = Math.floor(Date.now() / 1000), pagesScanned = 0, source = "catalogue", dispatchNotifications = true }) {
   throwIfRetailerScanAborted();
   const tcgCode = requireKnownTcg(retailer.tcg || "pokemon").code;
+  const lifecycleEnabled = canEmitTcgLifecycleAlerts(tcgCode);
   const baselineComplete = await store.isBaselineComplete(retailer.id);
   const quietBaseline = env.suppressBaselineSignals && !baselineComplete;
   const rrpContext = await loadRrpValueContext(store);
@@ -243,6 +262,7 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
   const signals = [];
   const rrpLearningActions = [];
   const marketMemoryActions = [];
+  const signalFunnel = createSignalFunnel({ lifecycleEnabled });
   let rrpInherited = 0;
   let rrpResolvedFromMemory = 0;
 
@@ -470,12 +490,20 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
 
     if (!offer.everAvailableAt && verifiedPurchasable(offer)) offer.everAvailableAt = now;
     const observation = { id: stableId("obs", offerId, String(now), offer.stockStatus, String(offer.pricePence)), offerId, retailerId: retailer.id, observedAt: now, stockStatus: offer.stockStatus, stockConfidence: offer.stockConfidence, stockQuantity: offer.stockQuantity, pricePence: offer.pricePence, evidence: offer.evidence };
-    const derivedSignals = canEmitTcgLifecycleAlerts(tcgCode)
+    const derivedSignals = lifecycleEnabled
       ? deriveSignals({ previousOffer, currentOffer: offer, isBaseline: quietBaseline, now })
       : [];
+    const observationPersisted = shouldPersistObservation(previousOffer, offer);
+    recordSignalFunnelOffer(signalFunnel, {
+      previousOffer,
+      currentOffer: offer,
+      isBaseline: quietBaseline,
+      observationPersisted,
+      candidateSignals: derivedSignals,
+    });
     products.push(product);
     offers.push(offer);
-    if (shouldPersistObservation(previousOffer, offer)) observations.push(observation);
+    if (observationPersisted) observations.push(observation);
     if (derivedSignals.length) signals.push(...derivedSignals);
   }
 
@@ -489,11 +517,16 @@ export async function processRetailerProducts({ retailer, store, rawProducts, no
     ? new Set(signalPersistence.acceptedSignalIds)
     : null;
   const canonicalSignals = acceptedIds ? signals.filter((signal) => acceptedIds.has(signal.id)) : signals;
+  const finalizedSignalFunnel = finalizeSignalFunnel(signalFunnel, {
+    signals,
+    signalPersistence,
+    signalSafety: burstSafety.diagnostics,
+  });
   const rrpLearning = await persistRrpLearningActions(store, rrpLearningActions);
   const marketMemory = await persistMarketMemoryActions(store, marketMemoryActions, completedAt);
 
   const discord = dispatchNotifications ? await deliverSignals(store, canonicalSignals) : emptyDiscordResult({ deferred: canonicalSignals.length > 0 });
-  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: canonicalSignals.length, signalConflicts: signalPersistence?.conflictSignalIds?.length || 0, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, marketMemory, signalSafety: burstSafety.diagnostics, signals: canonicalSignals, discord };
+  return { retailerId: retailer.id, retailerName: retailer.name, baseline: quietBaseline, pagesScanned, productsSeen: offers.length, signalsCreated: canonicalSignals.length, signalConflicts: signalPersistence?.conflictSignalIds?.length || 0, deduplicatedSignals: signalPersistence?.deduplicatedSignalIds?.length || 0, preparationClusters: preparationClusters.clusters.length, rrpInherited, rrpResolvedFromMemory, rrpLearning, marketMemory, signalSafety: burstSafety.diagnostics, signalFunnel: finalizedSignalFunnel, signals: canonicalSignals, discord };
 }
 
 export async function ingestRetailerProducts({ retailer, store, products, now = Math.floor(Date.now() / 1000) }) {
@@ -535,7 +568,7 @@ export async function ingestRetailerProducts({ retailer, store, products, now = 
       productsObserved: result?.productsSeen ?? 0,
       catalogueComplete: status === "success",
       failureCode: result?.skipReason ?? null,
-      diagnostics: { source: "external", signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0, rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0, rrpLearning: result?.rrpLearning ?? null },
+      diagnostics: resultRunDiagnostics(result, { source: "external" }),
     });
     return result;
   } catch (error) {
@@ -638,7 +671,7 @@ export async function scanRetailer({ retailer, store, now = Math.floor(Date.now(
       catalogueComplete: status === "success",
       failureCode: result?.skipReason || result?.failureCode || (result?.error ? "scan_failed" : null),
       failureDetail: result?.error || null,
-      diagnostics: { signalsCreated: result?.signalsCreated ?? 0, rrpInherited: result?.rrpInherited ?? 0, rrpResolvedFromMemory: result?.rrpResolvedFromMemory ?? 0, rrpLearning: result?.rrpLearning ?? null },
+      diagnostics: resultRunDiagnostics(result),
     });
     return result;
   } catch (error) {

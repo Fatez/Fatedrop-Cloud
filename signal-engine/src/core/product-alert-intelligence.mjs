@@ -15,7 +15,7 @@ function norm(value) {
 function sealedSubtype(productType, title) {
   if (productType === "elite_trainer_box" || /elite trainer box|\betb\b/.test(title)) return "ETB";
   if (productType === "booster_box" || /booster (?:box|display)/.test(title)) return "BOOSTER_BOX";
-  if (productType === "booster_bundle" || /booster bundle/.test(title)) return "BOOSTER_BUNDLE";
+  if (productType === "booster_bundle" || /booster bundle|\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten) pack bundle\b/.test(title)) return "BOOSTER_BUNDLE";
   if (productType === "collection_box" || /\bcollection\b/.test(title)) return "COLLECTION";
   if (productType === "booster_pack" || /booster pack|sleeved booster/.test(title)) return "BOOSTER_PACK";
   if (/blister/.test(title)) return "BLISTER";
@@ -56,7 +56,11 @@ export function classifyProductAlert({ title: rawTitle = "", productType: rawPro
 
   const accessoryEvidence = /sleeves?|binder|portfolio|deck box|play ?mat|top ?loader|card protector|dice|counter|token|storage box|card stand/.test(title);
   const merchandiseEvidence = /blind box|fridge magnet|\bmagnet\b|backpack|rucksack|\bbag\b|journal|notebook|\bpin\b|pin badge|plush|soft toy|figure|figurine|statue|hoodie|t-?shirt|shirt|jersey|clothing|apparel|\bcap\b|\bhat\b|mug|bottle|tumbler|key ?ring|keychain|key chain|lanyard|poster|print/.test(title);
-  const strongSealedEvidence = /elite trainer box|\betb\b|booster (?:box|display|bundle|pack)|sleeved booster|blister|build\s*(?:&|and)\s*battle|trainer toolkit|battle deck|theme deck|league battle deck|starter deck|\btin\b/.test(title);
+  const sealedMultiPackEvidence = /\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten) pack bundle\b/.test(title)
+    && !accessoryEvidence
+    && !merchandiseEvidence;
+  const strongSealedEvidence = /elite trainer box|\betb\b|booster (?:box|display|bundle|pack)|sleeved booster|blister|build\s*(?:&|and)\s*battle|trainer toolkit|battle deck|theme deck|league battle deck|starter deck|\btin\b/.test(title)
+    || sealedMultiPackEvidence;
   const tcgCollectionEvidence = /\btcg\b.*\bcollection\b|\bcollection\b.*\btcg\b/.test(title);
   const singleCardEvidence = /\bsingle card\b|\bindividual card\b|\bpromo card\b|\bpromo\b.*\bcard\b|reverse holo|holo rare|illustration rare|special illustration rare|secret rare|full art card|near mint|light play|lightly played/.test(title);
 

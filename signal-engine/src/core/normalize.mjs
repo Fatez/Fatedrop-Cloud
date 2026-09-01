@@ -51,6 +51,7 @@ export function productTypeFromTitle(title = "") {
   if (/elite trainer box|\betb\b/.test(t)) return "elite_trainer_box";
   if (/booster display|booster box/.test(t)) return "booster_box";
   if (/booster bundle/.test(t)) return "booster_bundle";
+  if (/\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten) pack bundle\b/.test(t)) return "booster_bundle";
   if (/booster pack|sleeved booster/.test(t)) return "booster_pack";
   if (/collection|premium collection|box/.test(t)) return "collection_box";
   if (/\btin\b/.test(t)) return "tin";
