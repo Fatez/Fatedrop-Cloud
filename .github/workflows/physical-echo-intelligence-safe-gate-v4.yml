@@ -37,8 +37,6 @@ jobs:
               raise SystemExit('could not extract VFS preflight script')
           code = dedent(safe.split(marker, 1)[1].split("\n          PY", 1)[0])
 
-          # Correct only the stale test-result field name. The canonical source
-          # contract exposes held results as notificationResults.
           stale = '''          assert.equal(result.notifications[0].held, true);
           assert.equal(result.notifications[0].reason, "radius_targeting_required");'''
           corrected = '''          assert.equal(result.notificationResults[0].held, true);
@@ -47,11 +45,8 @@ jobs:
               raise SystemExit(f'stale held-result assertion matched {code.count(stale)} times; expected exactly once')
           code = code.replace(stale, corrected, 1)
 
-          # Before VFS materialization, enrich the held result with the complete
-          # Echo card. This preserves stage/body/product/release metadata for
-          # audit and Local Radar rendering while still never calling publish().
           injection_anchor = 'print(f"PREFLIGHT_OK anchors={globals_dict.get(\'patch_counter\')} files={len(touched)}")'
-          injection = '''surface_path = VirtualPath('signal-engine/src/encounters/retailer-intelligence-surfaces.mjs')
+          injection = """surface_path = VirtualPath('signal-engine/src/encounters/retailer-intelligence-surfaces.mjs')
           surface_text = surface_path.read_text()
           old_hold = 'notifications.push({ eventId: notification.eventId, productTitle: change.product.title, published: false, held: true, reason: "radius_targeting_required" });'
           hold_spans = normalized_spans(surface_text, old_hold)
@@ -63,8 +58,6 @@ jobs:
           new_hold = 'notifications.push({ ...notification, published: false, held: true, reason: "radius_targeting_required" });'
           surface_path.write_text("\\n".join(source_lines[:hold_start] + [new_hold] + source_lines[hold_end:]) + ("\\n" if surface_text.endswith("\\n") else ""))
 
-          # Strengthen the focused test to prove the held result still carries
-          # Echo presentation metadata without invoking the publisher.
           test_path = VirtualPath('signal-engine/tests/retailer-intelligence-surfaces.test.mjs')
           test_text = test_path.read_text()
           old_assert = '''assert.equal(result.notificationResults[0].reason, "radius_targeting_required");
@@ -81,7 +74,7 @@ jobs:
           assert_start, assert_end = assert_spans[0]
           test_path.write_text("\\n".join(test_lines[:assert_start] + dedent(new_assert).strip("\\n").splitlines() + test_lines[assert_end:]) + ("\\n" if test_text.endswith("\\n") else ""))
 
-          ''' + injection_anchor
+          """ + injection_anchor
           if code.count(injection_anchor) != 1:
               raise SystemExit(f'VFS materialization anchor matched {code.count(injection_anchor)} times; expected exactly once')
           code = code.replace(injection_anchor, injection, 1)
