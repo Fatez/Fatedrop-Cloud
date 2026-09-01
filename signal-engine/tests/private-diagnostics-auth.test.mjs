@@ -12,6 +12,7 @@ test("internal diagnostic endpoints require one configured service bearer creden
     "/api/website-snapshot-health",
     "/api/fatefind-evaluator-preflight",
     "/api/signal-health",
+    "/api/signal-yield",
   ]) {
     assert.match(serverSource, new RegExp(pathname.replaceAll("/", "\\/")));
   }
