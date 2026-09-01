@@ -23,7 +23,7 @@ function physicalEvidenceState(shop) {
 }
 
 function priority(shop) {
-  return ({ verified: 0, reported: 1, expected: 2, expired: 3, unknown: 4 })[physicalEvidenceState(shop)] ?? 4;
+  return ({ verified: 0, expected: 1, reported: 2, expired: 3, unknown: 4 })[physicalEvidenceState(shop)] ?? 4;
 }
 
 export function prioritizeLocalRadarShops(shops = []) {

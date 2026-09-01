@@ -67,3 +67,11 @@ test("verified physical Echo projects as confirmed and outranks expected by trut
   assert.equal(ranked[0].localStockEvidence.physicalEvidenceState, "verified");
   assert.equal(ranked[1].localStockEvidence.physicalEvidenceState, "expected");
 });
+
+test("Expected allocation outranks Reported physical intelligence before distance", () => {
+  const ranked = prioritizeLocalRadarShops([
+    { id: "reported-near", name: "Reported Near", distanceMiles: 1, localStockEvidence: { physicalEvidenceState: "reported" } },
+    { id: "expected-far", name: "Expected Far", distanceMiles: 15, localStockEvidence: { physicalEvidenceState: "expected" } },
+  ]);
+  assert.deepEqual(ranked.map((shop) => shop.id), ["expected-far", "reported-near"]);
+});

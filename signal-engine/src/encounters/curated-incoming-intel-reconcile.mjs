@@ -122,6 +122,7 @@ function echoEvidence(entry) {
 }
 
 function asObservation(entry, target, location) {
+  const physicalEvidenceState = entry.physicalEvidenceState === "reported" ? "reported" : "expected";
   return {
     kind: entry.kind,
     retailerId: entry.retailerId,
@@ -131,7 +132,7 @@ function asObservation(entry, target, location) {
       localIntel: true,
       advisory: true,
       scope: "exact_branch_advisory",
-      evidenceLevel: "inventory_preparation",
+      evidenceLevel: physicalEvidenceState === "reported" ? "community_report" : "inventory_preparation",
       sourceType: entry.sourceType,
       sourceId: `${entry.sourceId}:${branchId(location)}`,
       sourceUrl: entry.sourceUrl,
@@ -152,7 +153,7 @@ function asObservation(entry, target, location) {
 availabilityVerified: false,
 alertChannel: "echo",
 availabilityScope: "physical_branch",
-physicalEvidenceState: "expected",
+physicalEvidenceState,
     },
   };
 }
@@ -238,6 +239,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets: matched.unmatchedTargets,
-truthRule: "Curated incoming intelligence is Echo · Expected only; it requires an exact public-visible branch, relevant product evidence, an authoritative branch-specific source, and unexpired campaign evidence. Exact-branch verified physical availability remains Echo · In-store confirmed; expiry removes Echo authority and never creates Manifested or ordinary Vanished.",
+truthRule: "Curated incoming intelligence remains physical Echo: first-party allocation evidence is Echo · Expected and reviewed human intelligence is Echo · Reported. Both require an exact public-visible branch, relevant product evidence, branch-specific sourcing and unexpired evidence. Exact-branch verified physical availability remains Echo · In-store confirmed; expiry removes Echo authority and never creates Manifested or ordinary Vanished.",
   };
 }

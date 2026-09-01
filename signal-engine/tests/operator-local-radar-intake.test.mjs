@@ -53,8 +53,12 @@ test("authorised official preparation evidence remains advisory Echo and builds 
   const notification = buildOperatorNotification(parsed, { matchedBranches: 2, unmatchedTargets: [] });
   assert.equal(notification.stage, "ECHO");
   assert.equal(notification.branchCount, 2);
-  assert.equal(notification.title, "FateDrop · Local Radar · Incoming stock");
-  assert.match(notification.body, /Check Local Radar to see if a participating store is near you\.$/);
+  assert.equal(notification.title, "FateDrop · Big Fate Signal · Echo");
+  assert.equal(notification.presentationType, "big_fate_signal");
+  assert.equal(notification.physicalEvidenceState, "expected");
+  assert.equal(notification.deliveryPolicy, "radius_targeted_only");
+  assert.equal(notification.radiusTargeted, false);
+  assert.match(notification.body, /Physical availability is not confirmed\.$/);
 });
 
 test("general operator intelligence remains Whisper without an explicit Echo request", () => {
@@ -66,6 +70,7 @@ test("general operator intelligence remains Whisper without an explicit Echo req
 test("authorised operator can explicitly publish manual Local Radar Echo evidence", () => {
   const parsed = parseOperatorIssue(operatorIssue({ body: { sourceType: "operator_manual", kind: "echo", confidence: 0.99 } }), NOW);
   assert.equal(parsed.entry.kind, "echo");
+  assert.equal(parsed.entry.physicalEvidenceState, "reported");
   assert.equal(parsed.entry.confidence, 0.8);
 });
 
@@ -83,7 +88,7 @@ test("broadcast is held if the advertised branch count cannot be proven", () => 
   }), null);
 });
 
-test("operator issue requires the canonical store and persists Expected intelligence before Web publication", async () => {
+test("operator issue requires the canonical store and persists physical Echo while national delivery is held", async () => {
   await assert.rejects(() => processOperatorIssue({ issue: operatorIssue(), now: NOW }), /requires the canonical store/);
 
   const saved = [];
@@ -111,7 +116,7 @@ test("operator issue requires the canonical store and persists Expected intellig
   process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
   try {
     const result = await processOperatorIssue({ issue: operatorIssue(), store, fetchImpl, now: NOW });
-    assert.equal(result.status, "published");
+    assert.equal(result.status, "ingested");
     assert.equal(result.matchedBranches, 2);
     assert.equal(saved.length, 2);
     for (const observation of saved) {
@@ -119,13 +124,50 @@ test("operator issue requires the canonical store and persists Expected intellig
       assert.equal(observation.evidence.localIntel, true);
       assert.equal(observation.evidence.advisory, true);
       assert.equal(observation.evidence.availabilityVerified, false);
+      assert.equal(observation.evidence.physicalEvidenceState, "expected");
     }
-    assert.equal(outbound.url, "https://fatedrop.co.uk/api/dashboard/local-radar-operator-alert");
-    assert.equal(outbound.options.headers.Authorization, "Bearer test-secret");
+    assert.equal(outbound, null);
+    assert.deepEqual(result.push, { published: false, reason: "radius_targeting_required" });
+  } finally {
+    if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
+    if (originalSecret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
+    else process.env.FATEDROP_METRICS_INGEST_SECRET = originalSecret;
+  }
+});
+
+test("authorised retailer-wide readiness movement publishes Echo without writing physical stock", async () => {
+  let writes = 0;
+  let outbound = null;
+  const store = { async upsertLocalStockObservations() { writes += 1; } };
+  const fetchImpl = async (url, options) => {
+    outbound = { url: String(url), options };
+    return new Response(JSON.stringify({ accepted: true, queued: 1, sent: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const issue = operatorIssue({
+    title: "[FATEDROP ECHO] Pokémon Centre readiness movement",
+    body: {
+      availabilityScope: "online_retailer_readiness",
+      sourceType: "operator_manual",
+      sourceUrl: "https://www.pokemoncenter.com/en-gb",
+      targetBranches: [],
+      expectedLabel: "Traffic and access movement observed",
+    },
+  });
+  const originalUrl = process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+  const originalSecret = process.env.FATEDROP_METRICS_INGEST_SECRET;
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.co.uk";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  try {
+    const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
+    assert.equal(result.status, "published");
+    assert.equal(writes, 0);
     const payload = JSON.parse(outbound.options.body);
-    assert.equal(payload.eventId, "local-radar-operator:301");
     assert.equal(payload.stage, "ECHO");
-    assert.equal(payload.branchCount, 2);
+    assert.equal(payload.route, "alerts");
+    assert.equal(payload.availabilityScope, "online_retailer_readiness");
+    assert.equal(payload.availabilityVerified, false);
+    assert.match(payload.body, /not confirmed stock/);
   } finally {
     if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
     else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
