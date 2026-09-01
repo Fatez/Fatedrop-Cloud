@@ -1,0 +1,60 @@
+name: Audit Deployed FateDrop Semantic Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/audit-deployed-semantic-contract-20260901.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  semantic-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout exact deployed Cloud main
+        uses: actions/checkout@v4
+        with:
+          ref: 209835163f2b7a2308d8285f381c4de38bab9864
+          fetch-depth: 1
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Prove canonical facet semantics on exact deployed source
+        working-directory: signal-engine
+        run: node --test tests/facet-identity-audit-regression.test.mjs tests/alert-facets.test.mjs
+
+      - name: Prove Railway is serving the same commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='209835163f2b7a2308d8285f381c4de38bab9864'
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+            'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+            > response.json
+          python - <<'PY'
+          import json
+          expected = '209835163f2b7a2308d8285f381c4de38bab9864'
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          actual = runtime.get('gitCommitSha')
+          assert actual == expected, (actual, expected)
+          print('DEPLOYED_GIT_SHA=' + str(actual))
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          PY
