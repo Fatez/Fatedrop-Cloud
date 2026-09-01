@@ -36,15 +36,15 @@ jobs:
           } from './signal-engine/src/encounters/local-radar-location-policy.mjs';
 
           const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
-          // Representative UK collector catchments. This is deliberately read-only and uses
-          // the same public endpoint consumed by the FateDrop web proxy.
+          // Representative UK collector catchments using coordinates so this exercises
+          // Local Radar's true radius path rather than exact-postcode candidate narrowing.
           const probes = [
-            ['Watford / London', 'WD17 2UB'],
-            ['Birmingham', 'B1 1BB'],
-            ['Manchester', 'M1 1AE'],
-            ['Leeds', 'LS1 1UR'],
-            ['Bristol', 'BS1 1AA'],
-            ['Glasgow', 'G1 1AA'],
+            ['Watford / London', 51.6565, -0.3903],
+            ['Birmingham', 52.4862, -1.8904],
+            ['Manchester', 53.4808, -2.2426],
+            ['Leeds', 53.8008, -1.5491],
+            ['Bristol', 51.4545, -2.5879],
+            ['Glasgow', 55.8642, -4.2518],
           ];
 
           const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -55,9 +55,10 @@ jobs:
             return String(shop?.id || [shop?.retailerId || 'indie', shop?.name || '', shop?.address || '', shop?.postcode || ''].join('|'));
           }
 
-          for (const [label, postcode] of probes) {
+          for (const [label, lat, lng] of probes) {
             const url = new URL(endpoint);
-            url.searchParams.set('postcode', postcode);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
             url.searchParams.set('radiusMiles', '25');
             url.searchParams.set('types', 'shops');
             url.searchParams.set('tcg', 'pokemon');
@@ -71,7 +72,8 @@ jobs:
             for (const shop of shops) all.set(shopKey(shop), shop);
             probeResults.push({
               label,
-              postcode,
+              lat,
+              lng,
               shops: shops.length,
               branchIdentity: body?.providers?.branchIdentity || null,
               shopProvider: body?.providers?.shops || null,
@@ -121,7 +123,7 @@ jobs:
 
           const removedSamples = classified
             .filter((row) => !row.publicAfterStrictGate)
-            .slice(0, 60)
+            .slice(0, 80)
             .map(({ shop, quality, serviceKind }) => ({
               id: shop.id || null,
               retailerId: shop.retailerId || null,
@@ -139,8 +141,8 @@ jobs:
           const report = {
             generatedAt: new Date().toISOString(),
             source: endpoint,
-            mode: 'READ_ONLY_PUBLIC_SURFACE_SIMULATION',
-            caveat: 'Before is the current production public Local Radar response deduplicated across representative UK catchments. AfterStrictGate applies the review branch visibility classifier to those real returned shop records. It does not mutate production and is not a full raw-DB census.',
+            mode: 'READ_ONLY_PUBLIC_RADIUS_SURFACE_SIMULATION',
+            caveat: 'Before is the current production public Local Radar response deduplicated across six representative 25-mile UK catchments. AfterStrictGate applies the review branch visibility classifier to those real returned shop records. It does not mutate production and is not a full raw-DB census.',
             probes: probeResults,
             totals: {
               uniqueCurrentPublicShops: shops.length,
@@ -150,7 +152,7 @@ jobs:
             },
             reasons: reasonCounts,
             retailers: [...byRetailer.values()].sort((a, b) => b.beforePublic - a.beforePublic || a.retailerId.localeCompare(b.retailerId)),
-            obviousNoiseSamples: obviousNoise.slice(0, 60).map(({ shop, quality, serviceKind }) => ({
+            obviousNoiseSamples: obviousNoise.slice(0, 80).map(({ shop, quality, serviceKind }) => ({
               id: shop.id || null,
               retailerId: shop.retailerId || null,
               name: shop.name || null,
