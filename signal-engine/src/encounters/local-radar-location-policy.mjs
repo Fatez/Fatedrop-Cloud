@@ -50,7 +50,7 @@ const STRONG_BRANCH_TCG_SOURCES = new Set([
 
 const SERVICE_PATTERNS = Object.freeze([
   ["pharmacy", /\b(pharmacy|chemist)\b/i],
-  ["petrol_station", /\b(petrol|fuel|filling)\s+(station|station\b|forecourt)|\bpetrol\s+station\b|\bfilling\s+station\b/i],
+  ["petrol_station", /\b(petrol|fuel|filling)\s+(station|forecourt)\b|\bpetrol\s+station\b|\bfilling\s+station\b/i],
   ["locker", /\b(parcel\s+locker|locker|inpost|amazon\s+locker)\b/i],
   ["service_counter", /\b(customer\s+service|service\s+counter|click\s*(?:&|and)\s*collect\s+counter|collection\s+counter)\b/i],
 ]);
@@ -75,6 +75,14 @@ function epochSeconds(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return Math.floor(parsed > 10_000_000_000 ? parsed / 1000 : parsed);
+}
+
+function timestampMs(value) {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric > 10_000_000_000 ? numeric : numeric * 1000;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function qualityHaystack(record = {}) {
@@ -169,8 +177,9 @@ export function classifyLocationQuality(location = {}) {
   }
   if (policy.tcgSellerStatus === "excluded") return { visibilityClass: "excluded", reason: "seller_excluded", serviceKind };
   if (serviceKind) return { visibilityClass: "excluded", reason: serviceKind, serviceKind };
-  if (policy.tcgSellerStatus === "candidate") return { visibilityClass: "directory-only", reason: "tcg_relevance_unverified", serviceKind: null };
   if (policy.identityStatus === "provisional") return { visibilityClass: "unresolved", reason: "provisional_identity", serviceKind: null };
+  if (text(policy.storeFormat) === "unknown") return { visibilityClass: "directory-only", reason: "store_format_unknown", serviceKind: null };
+  if (policy.tcgSellerStatus === "candidate") return { visibilityClass: "directory-only", reason: "tcg_relevance_unverified", serviceKind: null };
   return { visibilityClass: "eligible", reason: policy.tcgSellerStatus === "verified" ? "branch_tcg_verified" : "canonical_retail_branch", serviceKind: null };
 }
 
@@ -180,15 +189,30 @@ export function isRadarEligibleLocation(location = {}) {
 
 export function hasExplicitTcgRelevance(location = {}, evidence = {}) {
   const policy = normalizeLocationPolicy(location);
-  if (policy.tcgSellerStatus === "verified") return true;
   const sourceType = text(evidence.sourceType ?? evidence.source_type);
-  return evidence.explicitTcgRelevance === true
+  const branchEvidence = evidence.explicitTcgRelevance === true
     && evidence.exactBranch === true
     && Boolean(sourceType && STRONG_BRANCH_TCG_SOURCES.has(sourceType));
+  return policy.tcgSellerStatus === "verified" || branchEvidence;
 }
 
-export function isEchoEligibleLocation(location = {}, evidence = {}) {
-  return isRadarEligibleLocation(location) && hasExplicitTcgRelevance(location, evidence);
+export function isEchoEvidenceFresh(evidence = {}, now = Date.now()) {
+  const expiresAt = timestampMs(evidence.expiresAt ?? evidence.expires_at ?? evidence.validUntil ?? evidence.valid_until);
+  return Number.isFinite(expiresAt) && expiresAt > Number(now);
+}
+
+export function isEchoEligibleLocation(location = {}, evidence = {}, now = Date.now()) {
+  const sourceType = text(evidence.sourceType ?? evidence.source_type);
+  const authoritative = Boolean(sourceType && STRONG_BRANCH_TCG_SOURCES.has(sourceType));
+  const productRelevant = evidence.productRelevant === true
+    || Boolean(text(evidence.productIdentityId ?? evidence.product_identity_id ?? evidence.rawProductTitle ?? evidence.raw_product_title));
+  return isRadarEligibleLocation(location)
+    && evidence.exactBranch === true
+    && evidence.chainWide !== true
+    && authoritative
+    && hasExplicitTcgRelevance(location, evidence)
+    && productRelevant
+    && isEchoEvidenceFresh(evidence, now);
 }
 
 export function publicLocationEvidence(location = {}) {
@@ -202,7 +226,6 @@ export function publicLocationEvidence(location = {}) {
     lastVerifiedAt: policy.lastVerifiedAt,
     visibilityClass: quality.visibilityClass,
     visibilityReason: quality.reason,
-    echoEligibleFromStoredEvidence: quality.visibilityClass === "eligible" && policy.tcgSellerStatus === "verified",
     caveat: policy.tcgSellerStatus === "verified"
       ? "Evidence supports Pokémon TCG sales at this branch; exact stock is still unknown until Manifested."
       : policy.tcgSellerStatus === "likely"
