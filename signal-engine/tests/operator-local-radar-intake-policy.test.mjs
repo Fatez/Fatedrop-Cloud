@@ -48,9 +48,20 @@ test("authorised online readiness Echo does not require a physical branch or cla
     targetBranches: [],
   }), NOW);
   assert.equal(parsed.availabilityScope, "online_retailer_readiness");
+  assert.equal(parsed.entry.tcgCode, "pokemon");
   assert.equal(parsed.entry.kind, "echo");
   assert.equal(parsed.entry.physicalEvidenceState, null);
   assert.deepEqual(parsed.entry.targetBranches, []);
+});
+
+test("manual intake cannot bypass a TCG activation gate", () => {
+  assert.throws(() => parseOperatorIssue(issue({
+    tcgCode: "one-piece",
+    availabilityScope: "online_retailer_readiness",
+    kind: "echo",
+    sourceUrl: "https://example.com/one-piece",
+    targetBranches: [],
+  }), NOW), /Public lifecycle alerts are disabled for TCG: one-piece/);
 });
 
 test("manual input cannot self-upgrade to Expected or online Echo without an explicit Echo request", () => {

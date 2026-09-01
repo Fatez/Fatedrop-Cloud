@@ -44,6 +44,7 @@ jobs:
             && health.status === 'ok'
             && health.canonicalStoreConfigured === true
             && health.webBridgeConfigured === true
+            && health.githubAuthenticated === true
             && Number.isFinite(ageSeconds)
             && ageSeconds >= 0
             && ageSeconds <= 360;
@@ -62,6 +63,7 @@ jobs:
             intervalSeconds: health.intervalSeconds,
             canonicalStoreConfigured: health.canonicalStoreConfigured,
             webBridgeConfigured: health.webBridgeConfigured,
+            githubAuthenticated: health.githubAuthenticated,
             issuesSeen: health.issuesSeen,
             published: health.published,
             held: health.held,
@@ -90,6 +92,7 @@ jobs:
               ageSeconds: health?.ageSeconds ?? null,
               canonicalStoreConfigured: health?.canonicalStoreConfigured ?? null,
               webBridgeConfigured: health?.webBridgeConfigured ?? null,
+              githubAuthenticated: health?.githubAuthenticated ?? null,
               lastErrorCode: health?.lastErrorCode ?? null,
             }));
           } catch {

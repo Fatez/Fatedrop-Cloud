@@ -112,6 +112,56 @@ test('Cloud exposes one canonical episode while keeping Echo and Whisper outside
   });
 });
 
+test('manual online readiness is a durable inbox Echo without entering stock truth or duplicate push recovery', async () => {
+  const evidence = {
+    schemaVersion: 1,
+    stage: 'echo',
+    signalKind: 'operator_readiness',
+    availabilityScope: 'online_retailer_readiness',
+    availabilityVerified: false,
+    operatorIssue: 901,
+    tcgCode: 'pokemon',
+    retailerId: 'pokemon-center-uk',
+    retailerName: 'Pokémon Center UK',
+    productTitle: 'Pokémon Center retailer movement',
+    sourceType: 'operator_manual',
+    sourceUrl: 'https://www.pokemoncenter.com/en-gb',
+    sourceLabel: 'Operator intelligence',
+    expectedLabel: 'Traffic movement observed',
+    expiresAt: '2026-09-02T23:00:00.000Z',
+    confidence: 0.72,
+    evidenceBasis: 'Credible traffic movement observed; stock is not confirmed.',
+  };
+  const store = {
+    async pool() {
+      return {
+        async query(sql) {
+          if (sql.includes('FROM fatedrop_signal_events')) {
+            return { rows: [{ id: 'local-radar-operator:901', occurred_at: 1788292800, evidence_json: evidence }] };
+          }
+          return { rows: [] };
+        },
+      };
+    },
+  };
+  const [alert] = await listCanonicalPublicAlerts(store, { state: 'echo', limit: 10 });
+  assert.equal(alert.id, 'local-radar-operator:901');
+  assert.equal(alert.fateStage, 'ECHO');
+  assert.equal(alert.tcgCode, 'pokemon');
+  assert.equal(alert.signalKind, 'operator_readiness');
+  assert.equal(alert.deliveryPolicy, 'inbox_only');
+  assert.equal(alert.interruptEligible, false);
+  assert.equal(alert.confirmed, false);
+  assert.equal(alert.product.stockStatus, null);
+  assert.deepEqual(alert.availabilityTruth, {
+    signalEffect: 'none',
+    signalClaimsAvailability: false,
+    currentEpisodeState: null,
+    canonicalSourceStage: null,
+  });
+  assert.match(alert.notification.body, /not confirmed stock/);
+});
+
 test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
   assert.match(alertSource, /publicSignalSqlFilter/);
   assert.match(alertSource, /AND \$\{publicSignalSqlFilter\('s'\)\}/);

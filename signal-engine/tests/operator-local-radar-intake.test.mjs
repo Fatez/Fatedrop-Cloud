@@ -139,7 +139,11 @@ test("operator issue requires the canonical store and persists physical Echo whi
 test("authorised retailer-wide readiness movement publishes Echo without writing physical stock", async () => {
   let writes = 0;
   let outbound = null;
-  const store = { async upsertLocalStockObservations() { writes += 1; } };
+  const events = [];
+  const store = {
+    async upsertLocalStockObservations() { writes += 1; },
+    async appendSignalEvent(event) { events.push(event); },
+  };
   const fetchImpl = async (url, options) => {
     outbound = { url: String(url), options };
     return new Response(JSON.stringify({ accepted: true, queued: 1, sent: 1 }), { status: 200, headers: { "content-type": "application/json" } });
@@ -162,11 +166,17 @@ test("authorised retailer-wide readiness movement publishes Echo without writing
     const result = await processOperatorIssue({ issue, store, fetchImpl, now: NOW });
     assert.equal(result.status, "published");
     assert.equal(writes, 0);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "operator_retailer_readiness");
+    assert.equal(events[0].evidence.stage, "echo");
+    assert.equal(events[0].evidence.availabilityVerified, false);
+    assert.equal(events[0].evidence.tcgCode, "pokemon");
     const payload = JSON.parse(outbound.options.body);
     assert.equal(payload.stage, "ECHO");
     assert.equal(payload.route, "alerts");
     assert.equal(payload.availabilityScope, "online_retailer_readiness");
     assert.equal(payload.availabilityVerified, false);
+    assert.equal(payload.tcgCode, "pokemon");
     assert.match(payload.body, /not confirmed stock/);
   } finally {
     if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
@@ -174,4 +184,19 @@ test("authorised retailer-wide readiness movement publishes Echo without writing
     if (originalSecret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
     else process.env.FATEDROP_METRICS_INGEST_SECRET = originalSecret;
   }
+});
+
+test("operator readiness persists before delivery and inactive TCGs stay fail closed", async () => {
+  const issue = operatorIssue({
+    title: "[FATEDROP ECHO] One Piece readiness movement",
+    body: {
+      tcgCode: "one-piece",
+      availabilityScope: "online_retailer_readiness",
+      sourceType: "operator_manual",
+      sourceUrl: "https://example.com/one-piece",
+      targetBranches: [],
+      expectedLabel: "Credible movement observed",
+    },
+  });
+  assert.throws(() => parseOperatorIssue(issue, NOW), /Public lifecycle alerts are disabled for TCG: one-piece/);
 });

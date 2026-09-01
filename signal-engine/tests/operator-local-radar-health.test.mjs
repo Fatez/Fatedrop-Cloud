@@ -20,6 +20,7 @@ test("operator intake records a redacted heartbeat without changing alert truth"
   assert.match(intake, /retry = results\.filter/);
   assert.match(intake, /invalid = results\.filter/);
   assert.match(intake, /webBridgeConfigured/);
+  assert.match(intake, /githubAuthenticated/);
   assert.match(intake, /canonicalStoreConfigured/);
   assert.match(intake, /reconcileCuratedIncomingIntel/);
   assert.match(intake, /unmatchedTargets/);
@@ -80,6 +81,8 @@ test("public Signal summary exposes only aggregate operator health", () => {
   assert.match(publicContract, /available: health\.started === true/);
   assert.match(publicContract, /canonicalStoreConfigured: health\.canonicalStoreConfigured === true/);
   assert.match(publicContract, /webBridgeConfigured: health\.webBridgeConfigured === true/);
+  assert.match(publicContract, /githubAuthenticated: health\.githubAuthenticated === true/);
+  assert.match(publicContract, /&& health\.githubAuthenticated === true/);
   assert.match(publicContract, /issuesSeen: safeCount\(health\.issuesSeen\)/);
   assert.match(publicContract, /published: safeCount\(health\.published\)/);
   assert.match(publicContract, /held: safeCount\(health\.held\)/);
@@ -107,6 +110,7 @@ test("production operator monitor is read-only and checks only redacted public h
   assert.match(productionMonitor, /health\.status === 'ok'/);
   assert.match(productionMonitor, /health\.canonicalStoreConfigured === true/);
   assert.match(productionMonitor, /health\.webBridgeConfigured === true/);
+  assert.match(productionMonitor, /health\.githubAuthenticated === true/);
   assert.doesNotMatch(productionMonitor, /^\s*pull_request:/m);
   assert.doesNotMatch(productionMonitor, /local-radar-operator-alert/);
   assert.doesNotMatch(productionMonitor, /method:.*POST/i);

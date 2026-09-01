@@ -296,6 +296,7 @@ function safeOperatorHealth(now = Math.floor(Date.now() / 1000)) {
       && health.lastStatus === 'ok'
       && health.canonicalStoreConfigured === true
       && health.webBridgeConfigured === true
+      && health.githubAuthenticated === true
       && fresh,
     started: health.started === true,
     status: typeof health.lastStatus === 'string' ? health.lastStatus : 'unknown',
@@ -303,6 +304,7 @@ function safeOperatorHealth(now = Math.floor(Date.now() / 1000)) {
     intervalSeconds: safeCount(health.intervalSeconds),
     canonicalStoreConfigured: health.canonicalStoreConfigured === true,
     webBridgeConfigured: health.webBridgeConfigured === true,
+    githubAuthenticated: health.githubAuthenticated === true,
     issuesSeen: safeCount(health.issuesSeen),
     published: safeCount(health.published),
     held: safeCount(health.held),
