@@ -1,0 +1,146 @@
+name: Local Radar Evidence Harvest
+
+on:
+  push:
+    branches:
+      - feat/local-radar-location-quality-2026-09-01
+    paths:
+      - "signal-engine/src/encounters/local-radar-evidence-harvest.mjs"
+      - "signal-engine/tests/local-radar-evidence-harvest.test.mjs"
+      - ".github/workflows/local-radar-evidence-harvest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evidence-harvest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Checkout exact branch head
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prove harvest and master safety
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/local-radar-evidence-harvest.test.mjs \
+            tests/uk-physical-store-master.test.mjs \
+            tests/uk-physical-store-reconciliation.test.mjs
+
+      - name: Build export-only physical store master
+        run: node src/encounters/build-uk-physical-store-master.mjs
+        env:
+          # Deliberately no DATABASE_URL / Neon credentials. Branch identity evidence only.
+          NODE_ENV: test
+
+      - name: Capture full read-only UK public Local Radar mesh
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['London', 51.5074, -0.1278],
+            ['Birmingham', 52.4862, -1.8904],
+            ['Manchester', 53.4808, -2.2426],
+            ['Leeds', 53.8008, -1.5491],
+            ['Newcastle', 54.9783, -1.6178],
+            ['Bristol', 51.4545, -2.5879],
+            ['Plymouth', 50.3755, -4.1427],
+            ['Cardiff', 51.4816, -3.1791],
+            ['Glasgow', 55.8642, -4.2518],
+            ['Edinburgh', 55.9533, -3.1883],
+            ['Aberdeen', 57.1497, -2.0943],
+            ['Inverness', 57.4778, -4.2247],
+            ['Belfast', 54.5973, -5.9301],
+          ];
+
+          const shops = new Map();
+          const probeResults = [];
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const shopKey = (shop) => String(shop?.id || [shop?.retailerId || 'unknown', shop?.name || '', shop?.postcode || '', shop?.address || ''].join('|'));
+
+          for (const [label, lat, lng] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
+            url.searchParams.set('radiusMiles', '100');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, {
+              headers: { 'user-agent': 'FateDrop-Local-Radar-Evidence-Harvest/1.0' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`${label} Local Radar HTTP ${response.status}`);
+            const body = await response.json();
+            const rows = Array.isArray(body.shops) ? body.shops : [];
+            for (const shop of rows) shops.set(shopKey(shop), shop);
+            probeResults.push({ label, shops: rows.length, branchIdentity: body?.providers?.branchIdentity || null });
+            await sleep(300);
+          }
+
+          fs.mkdirSync('artifacts', { recursive: true });
+          fs.writeFileSync('artifacts/local-radar-public-mesh.json', JSON.stringify([...shops.values()], null, 2));
+          fs.writeFileSync('artifacts/local-radar-public-mesh-probes.json', JSON.stringify({
+            generatedAt: new Date().toISOString(),
+            mode: 'READ_ONLY_PUBLIC_UK_MESH',
+            databaseAccess: 'NONE',
+            rows: shops.size,
+            probes: probeResults,
+          }, null, 2));
+          console.log(JSON.stringify({ rows: shops.size, probes: probeResults }, null, 2));
+          NODE
+
+      - name: Reconcile discovery rows against independent master evidence
+        run: |
+          set -euo pipefail
+          node src/encounters/local-radar-evidence-harvest.mjs \
+            artifacts/local-radar-public-mesh.json \
+            artifacts/uk-physical-store-master.csv \
+            artifacts/local-radar-evidence-harvest.json
+
+      - name: Enforce read-only evidence invariants and show recovery summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync('artifacts/local-radar-evidence-harvest.json', 'utf8'));
+          console.log(JSON.stringify({ counts: report.counts, byRetailer: report.byRetailer }, null, 2));
+          if (report.mode !== 'read_only_evidence_harvest_no_writes') throw new Error('harvest mode is not read-only');
+          if (report.policy.productionDatabaseTouched !== false) throw new Error('production database touch detected');
+          if (report.policy.providerDiscoveryAloneCanonical !== false) throw new Error('provider discovery was allowed to manufacture canonical identity');
+          if (report.policy.echoAuthorityCreated !== false) throw new Error('harvest created Echo authority');
+          if (report.policy.stockStatus !== 'UNKNOWN' || report.policy.stockClaim !== false) throw new Error('harvest created stock truth');
+          if (report.counts.unresolvedDiscovery < 1) throw new Error('expected unresolved discovery population is empty');
+          NODE
+
+      - name: Upload evidence harvest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fatedrop-local-radar-evidence-harvest
+          path: |
+            signal-engine/artifacts/local-radar-evidence-harvest.json
+            signal-engine/artifacts/local-radar-public-mesh-probes.json
+            signal-engine/artifacts/uk-physical-store-master.csv
+            signal-engine/artifacts/uk-physical-store-retailer-summary.csv
+            signal-engine/artifacts/uk-physical-store-qa.json
+          if-no-files-found: error
+          retention-days: 7
