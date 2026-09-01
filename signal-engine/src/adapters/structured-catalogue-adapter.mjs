@@ -1,5 +1,6 @@
 import { fetchStructuredJson, sleep } from "../core/fetch.mjs";
 import { ADAPTER_TYPES } from "../retailers/registry.mjs";
+import { recordCatalogueYield } from "../telemetry/catalogue-yield-context.mjs";
 import { normalizeShopifyProducts } from "./shopify-normalizer.mjs";
 import { normalizeWooStoreProducts } from "./woocommerce-normalizer.mjs";
 
@@ -88,16 +89,20 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
       if (page < maxPages) await sleep(delayMs);
     }
 
-    return {
-      products: [...found.values()],
-      pages,
-      complete,
-      partialCatalogue: !complete,
+    const discovery = {
       rawProductsSeen,
       normalizedProductsSeen,
       filteredOutProducts,
       acceptedProductsSeen: found.size,
       pageLimitReached: !complete && pages.length >= maxPages,
+    };
+    recordCatalogueYield(retailer.id, discovery);
+    return {
+      products: [...found.values()],
+      pages,
+      complete,
+      partialCatalogue: !complete,
+      ...discovery,
     };
   }
 
@@ -106,15 +111,19 @@ export async function scanStructuredCatalogue(retailer, { allowUnapprovedFeed = 
   if (retailer.adapterType === ADAPTER_TYPES.WOOCOMMERCE) normalized = normalizeWooStoreProducts(payload, retailer);
   else throw new Error(`Unsupported structured adapter: ${retailer.adapterType}`);
   const products = filterProducts(normalized, retailer);
-  return {
-    products,
-    pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, normalizedCount: normalized.length, filteredOut: normalized.length - products.length, status }],
-    complete: true,
+  const discovery = {
     rawProductsSeen: Array.isArray(payload) ? payload.length : normalized.length,
     normalizedProductsSeen: normalized.length,
     filteredOutProducts: normalized.length - products.length,
     acceptedProductsSeen: products.length,
     pageLimitReached: false,
+  };
+  recordCatalogueYield(retailer.id, discovery);
+  return {
+    products,
+    pages: [{ pageUrl: retailer.catalogue.feedUrl, discovered: products.length, normalizedCount: normalized.length, filteredOut: normalized.length - products.length, status }],
+    complete: true,
+    ...discovery,
   };
 }
 
