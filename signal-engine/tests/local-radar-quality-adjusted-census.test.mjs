@@ -144,9 +144,59 @@ test("quality-adjusted denominator is independently evidence-derived and raw bef
   assert.equal(census.samples.obviousNoiseEligible.length, 0);
   assert.equal(census.samples.provisionalEligible.length, 0);
   assert.equal(census.samples.weakDiscoveryEligible.length, 0);
+  assert.equal(census.findingCounts.weakDiscoveryEligible, 0);
+  assert.equal(census.findingCounts.obviousNoiseEligible, 0);
+  assert.equal(census.findingCounts.provisionalEligible, 0);
+  assert.equal(census.findingCounts.lostCanonicalParents, 0);
+  assert.equal(census.findingCounts.providerDiscoveryRows, 4);
+  assert.ok(census.findingCounts.providerDiscoveryUnresolved > 0);
   assert.match(census.diagnostics.trustedCanonicalParentRule, /never uses visibilityClass=eligible/i);
   assert.match(census.diagnostics.rawMetricRule, /Raw survival is preserved/i);
   assert.equal(census.diagnostics.historyMutation, false);
+});
+
+test("finding totals are never truncated by the review sample limit", () => {
+  const census = buildQualityAdjustedLocalRadarCensus([
+    {
+      id: "discovery-one",
+      retailerId: "tesco-uk",
+      provider: "openstreetmap",
+      providerId: "osm:one",
+      name: "Tesco One",
+      latitude: 51.5,
+      longitude: -0.1,
+      verification: "provider_discovered",
+      identityStatus: "canonical",
+    },
+    {
+      id: "discovery-two",
+      retailerId: "tesco-uk",
+      provider: "openstreetmap",
+      providerId: "osm:two",
+      name: "Tesco Two",
+      latitude: 52.5,
+      longitude: -1.1,
+      verification: "provider_discovered",
+      identityStatus: "canonical",
+    },
+    {
+      id: "discovery-three",
+      retailerId: "argos-uk",
+      provider: "openstreetmap",
+      providerId: "osm:three",
+      name: "Argos Three",
+      latitude: 53.5,
+      longitude: -2.1,
+      verification: "provider_discovered",
+      identityStatus: "canonical",
+    },
+  ], { sampleLimit: 1 });
+
+  assert.equal(census.findingCounts.providerDiscoveryRows, 3);
+  assert.equal(census.findingCounts.providerDiscoveryUnresolved, 3);
+  assert.equal(census.findingCounts.unresolved, 3);
+  assert.equal(census.samples.providerDiscoveryUnresolved.length, 1);
+  assert.equal(census.samples.unresolved.length, 1);
 });
 
 test("trusted parent evidence requires branch-level provenance and never trusts chain name alone", () => {

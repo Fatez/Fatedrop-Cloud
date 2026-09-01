@@ -176,10 +176,7 @@ jobs:
           console.log(JSON.stringify({
             totals: report.totals,
             authorityCounts,
-            weakDiscoveryEligible: report.samples.weakDiscoveryEligible.length,
-            obviousNoiseEligible: report.samples.obviousNoiseEligible.length,
-            provisionalEligible: report.samples.provisionalEligible.length,
-            lostCanonicalParents: report.samples.lostCanonicalParents.length,
+            findingCounts: report.findingCounts,
           }, null, 2));
 
           const explainedEligible = Object.values(authorityCounts).reduce((sum, value) => sum + Number(value || 0), 0);
@@ -187,10 +184,10 @@ jobs:
           if (report.totals.uniqueCanonicalParentTotal < 1) throw new Error('trusted canonical-parent denominator unexpectedly empty');
           if (explainedEligible !== report.totals.eligibleAfter) throw new Error(`eligible authority reconciliation mismatch: ${explainedEligible}/${report.totals.eligibleAfter}`);
           if (authorityCounts.unexplained_eligible_authority) throw new Error(`unexplained eligible authority rows: ${authorityCounts.unexplained_eligible_authority}`);
-          if (report.samples.obviousNoiseEligible.length) throw new Error(`obvious service noise remains eligible: ${report.samples.obviousNoiseEligible.length}`);
-          if (report.samples.provisionalEligible.length) throw new Error(`provisional locations remain eligible: ${report.samples.provisionalEligible.length}`);
-          if (report.samples.weakDiscoveryEligible.length) throw new Error(`weak provider discoveries remain eligible: ${report.samples.weakDiscoveryEligible.length}`);
-          if (report.samples.lostCanonicalParents.length) throw new Error(`trusted canonical parent branches were lost: ${report.samples.lostCanonicalParents.length}`);
+          if (report.findingCounts.obviousNoiseEligible) throw new Error(`obvious service noise remains eligible: ${report.findingCounts.obviousNoiseEligible}`);
+          if (report.findingCounts.provisionalEligible) throw new Error(`provisional locations remain eligible: ${report.findingCounts.provisionalEligible}`);
+          if (report.findingCounts.weakDiscoveryEligible) throw new Error(`weak provider discoveries remain eligible: ${report.findingCounts.weakDiscoveryEligible}`);
+          if (report.findingCounts.lostCanonicalParents) throw new Error(`trusted canonical parent branches were lost: ${report.findingCounts.lostCanonicalParents}`);
           if (report.totals.qualityAdjustedSurvivalPct !== 1) {
             throw new Error(`quality-adjusted canonical-parent survival is not complete: ${report.totals.qualityAdjustedSurvivalPct}`);
           }

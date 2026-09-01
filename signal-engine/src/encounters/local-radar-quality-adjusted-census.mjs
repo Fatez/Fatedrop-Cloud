@@ -307,6 +307,8 @@ export function buildQualityAdjustedLocalRadarCensus(rawRows = [], {
   const weakDiscoveryEligible = reconciled.filter((row) => row.visibilityClass === "eligible"
     && discoveryProvider(row)
     && !hasTrustedCanonicalParentEvidence(row));
+  const providerDiscoveryRows = reconciled.filter(discoveryProvider);
+  const providerDiscoveryUnresolved = providerDiscoveryRows.filter((row) => row.visibilityClass === "unresolved");
   const obviousNoiseEligible = reconciled.filter((row) => row.visibilityClass === "eligible"
     && Boolean(locationServiceKind(row)));
   const provisionalEligible = reconciled.filter((row) => row.visibilityClass === "eligible"
@@ -338,16 +340,30 @@ export function buildQualityAdjustedLocalRadarCensus(rawRows = [], {
   const duplicates = reconciled.filter((row) => row.relationshipType === "duplicate_of");
   const childServices = reconciled.filter((row) => row.relationshipType === "child_service");
   const unresolved = reconciled.filter((row) => row.visibilityClass === "unresolved");
+  const findingCounts = {
+    removedNoise: removedNoise.length,
+    duplicateReconciliations: duplicates.length,
+    childServiceReconciliations: childServices.length,
+    unresolved: unresolved.length,
+    providerDiscoveryRows: providerDiscoveryRows.length,
+    providerDiscoveryUnresolved: providerDiscoveryUnresolved.length,
+    weakDiscoveryEligible: weakDiscoveryEligible.length,
+    obviousNoiseEligible: obviousNoiseEligible.length,
+    provisionalEligible: provisionalEligible.length,
+    lostCanonicalParents: lostCanonicalParents.length,
+  };
 
   return {
     totals,
     retailers: retailerRows,
     exclusionCountsByReason: reasonCounts,
+    findingCounts,
     samples: {
       removedNoise: removedNoise.slice(0, sampleLimit).map(compactLocation),
       duplicateReconciliations: duplicates.slice(0, sampleLimit).map(compactLocation),
       childServiceReconciliations: childServices.slice(0, sampleLimit).map(compactLocation),
       unresolved: unresolved.slice(0, sampleLimit).map(compactLocation),
+      providerDiscoveryUnresolved: providerDiscoveryUnresolved.slice(0, sampleLimit).map(compactLocation),
       weakDiscoveryEligible: weakDiscoveryEligible.slice(0, sampleLimit).map(compactLocation),
       obviousNoiseEligible: obviousNoiseEligible.slice(0, sampleLimit).map(compactLocation),
       provisionalEligible: provisionalEligible.slice(0, sampleLimit).map(compactLocation),
