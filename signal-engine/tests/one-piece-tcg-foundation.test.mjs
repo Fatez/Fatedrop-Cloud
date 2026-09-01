@@ -27,16 +27,17 @@ const sharedIdentity = Object.freeze({
   languageCode: 'en',
 });
 
-test('One Piece is registered as foundation-only and cannot emit production signals yet', () => {
+test('One Piece catalogue shadow is enabled while monitoring and production signals remain fail-closed', () => {
   assert.deepEqual(SUPPORTED_TCG_CODES.slice(0, 3), ['pokemon', 'one-piece', 'lorcana']);
   assert.equal(getTcgCapability('one-piece')?.catalogueFoundation, true);
-  assert.equal(canIngestTcgCatalogue('one-piece'), false);
+  assert.equal(getTcgCapability('one-piece')?.activationPhase, 'catalogue_shadow');
+  assert.equal(canIngestTcgCatalogue('one-piece'), true);
   assert.equal(canMonitorTcgRetailers('one-piece'), false);
   assert.equal(canEmitTcgLifecycleAlerts('one-piece'), false);
 });
 
 test('future TCG interests are discoverable but every operational capability remains fail-closed', () => {
-  const future = listPublicTcgCapabilities().filter((entry) => entry.code !== 'pokemon');
+  const future = listPublicTcgCapabilities().filter((entry) => !['pokemon', 'one-piece'].includes(entry.code));
   assert.ok(future.length >= 2);
   for (const entry of future) {
     assert.equal(entry.interestSelectable, true);
