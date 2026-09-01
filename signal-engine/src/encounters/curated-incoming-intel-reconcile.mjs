@@ -2,6 +2,7 @@ import {
   normalizeLocalStockObservationBatch,
   upsertLocalStockObservationsIntoStore,
 } from "./local-stock-store.mjs";
+import { isEchoEligibleLocation } from "./local-radar-location-policy.mjs";
 
 const ENTERTAINER_POKEMON_PAGE = "https://www.thetoyshop.com/pokemon-at-the-entertainer";
 
@@ -17,6 +18,7 @@ export const CURATED_INCOMING_INTEL = Object.freeze([
     sourceId: "the-entertainer:pokemon-at-the-entertainer:mega-forces-tin:2026-08-28",
     sourceUrl: ENTERTAINER_POKEMON_PAGE,
     sourceLabel: "The Entertainer official Pokémon TCG page",
+    explicitTcgRelevance: true,
     observedAt: "2026-08-26T15:45:00+01:00",
     expectedFrom: "2026-08-28T00:00:00+01:00",
     expectedTo: "2026-08-28T23:59:59+01:00",
@@ -89,7 +91,9 @@ async function listRetailerLocations(store, retailerId) {
   if (typeof store?.pool !== "function") return [];
   const pool = await store.pool();
   const { rows } = await pool.query(`
-    SELECT id,retailer_id,name,address,postcode,provider,provider_id,latitude,longitude
+    SELECT id,retailer_id,name,address,postcode,provider,provider_id,latitude,longitude,
+           opening_details_json,retailer_category,store_format,operational_status,
+           tcg_seller_status,tcg_seller_confidence,identity_status,last_verified_at
     FROM fatedrop_retailer_locations
     WHERE retailer_id=$1
     ORDER BY updated_at DESC
@@ -130,6 +134,7 @@ function asObservation(entry, target, location) {
       note: entry.note,
       targetBranch: target,
       matchedBranchName: branchName(location),
+      explicitTcgRelevance: entry.explicitTcgRelevance === true,
       availabilityVerified: false,
     },
   };
@@ -161,6 +166,14 @@ async function collectCuratedIncomingIntelMatches({ store, entries, now }) {
       const id = branchId(location);
       if (!id) {
         unmatchedTargets.push({ entryId: entry.id, target, reason: "branch_identity_missing", matches: 1 });
+        continue;
+      }
+      if (entry.kind === "echo" && !isEchoEligibleLocation(location, {
+        sourceType: entry.sourceType,
+        exactBranch: true,
+        explicitTcgRelevance: entry.explicitTcgRelevance === true,
+      })) {
+        unmatchedTargets.push({ entryId: entry.id, target, reason: "location_not_echo_eligible", matches: 1 });
         continue;
       }
       const key = `${entry.id}|${id}`;
@@ -212,6 +225,6 @@ export async function reconcileCuratedIncomingIntel({
     duplicates: Number(persisted.duplicates || 0),
     rejected: [...normalized.rejected, ...(persisted.rejected || [])],
     unmatchedTargets: matched.unmatchedTargets,
-    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only and can never create Local Manifested without separate exact-branch verified availability evidence.",
+    truthRule: "Curated incoming intelligence is advisory Whisper/Echo preparation evidence only; Echo additionally requires explicit TCG relevance at an exact public-eligible branch, and none of this can create Local Manifested without separate exact-branch verified availability evidence.",
   };
 }
