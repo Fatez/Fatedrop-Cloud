@@ -62,9 +62,12 @@ const ENGLISH_SET_FAMILIES = [
   ["black-bolt", "Black Bolt", ["black bolt"], "multilingual"],
   ["white-flare", "White Flare", ["white flare"], "multilingual"],
   ["mega-evolution", "Mega Evolution", ["mega evolution"], "english"],
+  ["ascended-heroes", "Ascended Heroes", ["ascended heroes"], "english"],
+  ["pitch-black", "Pitch Black", ["pitch black"], "english"],
   ["phantasmal-flames", "Phantasmal Flames", ["phantasmal flames"], "english"],
   ["perfect-order", "Perfect Order", ["perfect order"], "english"],
   ["chaos-rising", "Chaos Rising", ["chaos rising"], "english"],
+  ["celebrations", "Celebrations", ["celebrations", "25th anniversary celebrations"], "english"],
   ["crown-zenith", "Crown Zenith", ["crown zenith"], "english"],
   ["silver-tempest", "Silver Tempest", ["silver tempest"], "english"],
   ["lost-origin", "Lost Origin", ["lost origin"], "english"],
@@ -82,6 +85,7 @@ const INTERNATIONAL_ALIAS_FAMILIES = [
   ["nihil-zero", "Nihil Zero", ["nihil zero", "nullifying zero"], "unknown"],
   ["pokemon-151", "Pokémon 151", ["pokemon card 151", "pokemon 151"], "multilingual"],
   ["terastal-festival-ex", "Terastal Festival ex", ["terastal festival ex", "terastal festival"], "unknown"],
+  ["time-gazer", "Time Gazer", ["time gazer", "s10d time gazer"], "multilingual"],
   ["gem-1", "Gem Vol. 1", ["gem vol 1", "gem 1"], "unknown"],
   ["gem-2", "Gem Vol. 2", ["gem vol 2", "gem 2"], "unknown"],
   ["gem-3", "Gem Vol. 3", ["gem vol 3", "gem 3"], "unknown"],
@@ -90,12 +94,34 @@ const INTERNATIONAL_ALIAS_FAMILIES = [
   ["gem-6", "Gem Vol. 6", ["gem vol 6", "gem 6"], "unknown"],
 ];
 
+const CANONICAL_PRODUCT_LANGUAGE_FAMILIES = Object.freeze([
+  {
+    key: "mega-lucario-ex-league-battle-deck",
+    aliases: ["mega lucario ex league battle deck"],
+    languageScope: "english",
+  },
+  {
+    key: "first-partner-illustration-collection-series-2",
+    aliases: ["first partner illustration collection series 2"],
+    languageScope: "english",
+  },
+]);
+
 function languageScopeForMarket(market) {
   if (market === "JP") return "japanese";
   if (market === "KR") return "korean";
   if (market === "CN") return "simplified_chinese";
   if (market === "TW" || market === "HK") return "traditional_chinese";
   return "unknown";
+}
+
+function languageCodeForScope(languageScope) {
+  if (languageScope === "english") return "en";
+  if (languageScope === "japanese") return "ja";
+  if (languageScope === "korean") return "ko";
+  if (languageScope === "simplified_chinese") return "zh-Hans";
+  if (languageScope === "traditional_chinese") return "zh-Hant";
+  return null;
 }
 
 function authoritySetFamilies() {
@@ -248,47 +274,61 @@ function setFromTitle(title) {
 
 function canonicalSetLanguage(setFacet) {
   if (!setFacet?.setKey || !SINGLE_LANGUAGE_SCOPES.has(setFacet.languageScope)) return null;
-  const languageCode = setFacet.languageScope === "english" ? "en"
-    : setFacet.languageScope === "japanese" ? "ja"
-      : setFacet.languageScope === "korean" ? "ko"
-        : setFacet.languageScope === "simplified_chinese" ? "zh-Hans"
-          : "zh-Hant";
   return {
     languageGroup: setFacet.languageScope,
-    languageCode,
+    languageCode: languageCodeForScope(setFacet.languageScope),
     confidence: 0.99,
     source: `canonical_set_scope:${setFacet.setKey}`,
+    authorityKey: setFacet.setKey,
   };
 }
 
-function conflictLanguage(leftGroup, rightGroup, setKey, leftSource = "detected") {
+function canonicalProductLanguage(title) {
+  const normalized = fold(title);
+  if (!normalized) return null;
+  const padded = ` ${normalized} `;
+  for (const family of CANONICAL_PRODUCT_LANGUAGE_FAMILIES) {
+    const matched = family.aliases.map(fold).find((alias) => padded.includes(` ${alias} `));
+    if (!matched || !SINGLE_LANGUAGE_SCOPES.has(family.languageScope)) continue;
+    return {
+      languageGroup: family.languageScope,
+      languageCode: languageCodeForScope(family.languageScope),
+      confidence: 0.99,
+      source: `canonical_product_scope:${family.key}`,
+      authorityKey: family.key,
+    };
+  }
+  return null;
+}
+
+function conflictLanguage(leftGroup, rightGroup, authorityKey, leftSource = "detected") {
   return {
     languageGroup: "unknown",
     languageCode: null,
     confidence: 1,
-    source: `language_conflict:${leftSource}:${leftGroup}:${rightGroup}:${setKey}`,
+    source: `language_conflict:${leftSource}:${leftGroup}:${rightGroup}:${authorityKey}`,
+    authorityKey,
   };
 }
 
-function resolveLanguageFacet(detectedLanguageFacet, setFacet) {
-  const setLanguage = canonicalSetLanguage(setFacet);
-  if (!setLanguage) return detectedLanguageFacet;
+function resolveLanguageFacet(detectedLanguageFacet, canonicalLanguage) {
+  if (!canonicalLanguage) return detectedLanguageFacet;
 
   if (detectedLanguageFacet.languageGroup !== "unknown") {
-    if (detectedLanguageFacet.languageGroup !== setLanguage.languageGroup) {
+    if (detectedLanguageFacet.languageGroup !== canonicalLanguage.languageGroup) {
       return conflictLanguage(
         detectedLanguageFacet.languageGroup,
-        setLanguage.languageGroup,
-        setFacet.setKey,
+        canonicalLanguage.languageGroup,
+        canonicalLanguage.authorityKey,
         detectedLanguageFacet.source,
       );
     }
     return detectedLanguageFacet;
   }
 
-  if (detectedLanguageFacet.source === "unknown") return setLanguage;
-  if (detectedLanguageFacet.source === "ambiguous_chinese_marker" && !setLanguage.languageGroup.includes("chinese")) {
-    return conflictLanguage("chinese_unspecified", setLanguage.languageGroup, setFacet.setKey, detectedLanguageFacet.source);
+  if (detectedLanguageFacet.source === "unknown") return canonicalLanguage;
+  if (detectedLanguageFacet.source === "ambiguous_chinese_marker" && !canonicalLanguage.languageGroup.includes("chinese")) {
+    return conflictLanguage("chinese_unspecified", canonicalLanguage.languageGroup, canonicalLanguage.authorityKey, detectedLanguageFacet.source);
   }
   return detectedLanguageFacet;
 }
@@ -312,20 +352,27 @@ export function deriveAlertFacets({ title = "", language = null, region = null, 
   const descriptor = describeProductIdentity({ title, language, region });
   const titleLanguage = explicitTitleLanguage(title);
   const setFacet = setFromTitle(title);
-  const detectedLanguageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
-  const languageFacet = resolveLanguageFacet(detectedLanguageFacet, setFacet);
   const setLanguage = canonicalSetLanguage(setFacet);
+  const productLanguage = canonicalProductLanguage(title);
+  const canonicalLanguage = setLanguage || productLanguage;
+  const detectedLanguageFacet = languageFromDescriptor(descriptor.language || titleLanguage.language);
+  const languageFacet = resolveLanguageFacet(detectedLanguageFacet, canonicalLanguage);
 
   if (persisted) {
-    const persistedConflictsWithSet = setLanguage
+    const persistedConflictsWithCanonicalLanguage = canonicalLanguage
       && persisted.languageGroup !== "unknown"
-      && persisted.languageGroup !== setLanguage.languageGroup;
+      && persisted.languageGroup !== canonicalLanguage.languageGroup;
     const currentConflict = languageFacet.source.startsWith("language_conflict:");
 
-    if (persistedConflictsWithSet || currentConflict) {
+    if (persistedConflictsWithCanonicalLanguage || currentConflict) {
       const conflict = currentConflict
         ? languageFacet
-        : conflictLanguage(persisted.languageGroup, setLanguage.languageGroup, setFacet.setKey, `persisted_${persisted.source.language}`);
+        : conflictLanguage(
+          persisted.languageGroup,
+          canonicalLanguage.languageGroup,
+          canonicalLanguage.authorityKey,
+          `persisted_${persisted.source.language}`,
+        );
       return {
         ...persisted,
         languageGroup: conflict.languageGroup,
