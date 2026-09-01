@@ -10,27 +10,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Extract Shiny Vault product hook
+      - name: Extract Shiny Vault Storefront API call
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const base = 'https://shinyvault.co.uk/';
-          const candidates = [
-            'assets/useShopifyProducts-CC4yLbTQ.js',
-            'assets/ProductListing-DjI_PWGm.js',
-            'assets/query-D1_lVyFO.js',
+          const url = 'https://shinyvault.co.uk/assets/index-BCi4jaBn.js';
+          const r = await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          const js = await r.text();
+          console.log('INDEX_BYTES=' + js.length);
+          const patterns = [
+            /shopify.{0,800}/gi,
+            /storefront.{0,1200}/gi,
+            /graphql.{0,1200}/gi,
+            /products\s*\(.{0,1800}/gi,
+            /availableForSale.{0,1800}/gi,
+            /productByHandle.{0,1800}/gi,
+            /VITE_[A-Z0-9_]+.{0,500}/g,
+            /supabase.{0,1000}/gi,
           ];
-          for (const path of candidates) {
-            const url = new URL(path, base).toString();
-            const r = await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
-            console.log(JSON.stringify({ url, status: r.status }));
-            if (!r.ok) continue;
-            const js = await r.text();
-            console.log('FILE ' + path + ' BYTES=' + js.length);
-            const clues = [...new Set(js.match(/.{0,180}(?:supabase|shopify|from\(|rpc\(|\/api\/|products?|collections?|inventory|available|stock).{0,260}/gi) || [])];
-            console.log('CLUES ' + path + '=' + JSON.stringify(clues.slice(0, 60)));
-            const urls = [...new Set(js.match(/https?:\\?\/\\?\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%\\-]+/g) || [])];
-            console.log('URLS ' + path + '=' + JSON.stringify(urls.slice(0, 30)));
+          for (const pattern of patterns) {
+            const hits = [...new Set(js.match(pattern) || [])];
+            console.log('PATTERN ' + pattern + ' HITS=' + JSON.stringify(hits.slice(0, 20)));
           }
+          const apiPaths = [...new Set(js.match(/["'`]\/?~?api\/[A-Za-z0-9_?=&/${}.:-]+["'`]/g) || [])];
+          console.log('API_PATHS=' + JSON.stringify(apiPaths.slice(0, 100)));
+          const proxyPaths = [...new Set(js.match(/["'`]\/~[A-Za-z0-9_?=&/${}.:-]+["'`]/g) || [])];
+          console.log('PROXY_PATHS=' + JSON.stringify(proxyPaths.slice(0, 100)));
           NODE
