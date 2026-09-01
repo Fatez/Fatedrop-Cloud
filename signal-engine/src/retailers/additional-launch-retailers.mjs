@@ -1,5 +1,6 @@
 import { env } from "../config/env.mjs";
 import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } from "./registry.mjs";
+import { retailerWave1LaunchRetailers } from "./retailer-wave-1.mjs";
 
 const SEALED_PRODUCT = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|tech sticker|mini portfolio|first partner|ultra premium/i;
 const NON_PRODUCT = /\bsingle\b|code card|sleeve|\bbinder\b|play\s?mat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
@@ -141,5 +142,6 @@ export function additionalLaunchRetailers() {
     ...buildAdditionalLaunchRetailers(),
     travellingManUk(Boolean(env.retailers.travellingManUk)),
     theTcgShopUk(Boolean(env.retailers.theTcgShopUk)),
+    ...retailerWave1LaunchRetailers(),
   ].filter((retailer) => retailer.enabled);
 }
