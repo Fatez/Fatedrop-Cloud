@@ -1,6 +1,6 @@
 import {
   classifyLocationQuality,
-  hasExplicitTcgRelevance,
+  isEchoEligibleLocation,
   isRadarEligibleLocation,
   locationServiceKind,
   normalizeLocationPolicy,
@@ -168,6 +168,20 @@ function attachQuality(location, overrides = {}) {
   };
 }
 
+function disjointSet(size) {
+  const parent = Array.from({ length: size }, (_, index) => index);
+  function find(index) {
+    if (parent[index] !== index) parent[index] = find(parent[index]);
+    return parent[index];
+  }
+  function union(left, right) {
+    const a = find(left);
+    const b = find(right);
+    if (a !== b) parent[b] = a;
+  }
+  return { find, union };
+}
+
 export function reconcileLocationQuality(locations = []) {
   const input = (Array.isArray(locations) ? locations : []).filter(Boolean);
   const reconciled = input.map((location) => attachQuality(location));
@@ -202,28 +216,33 @@ export function reconcileLocationQuality(locations = []) {
     }
   }
 
-  const normalIndexes = reconciled
+  const candidates = reconciled
     .map((location, index) => ({ location, index }))
     .filter(({ location }) => !location.serviceKind && location.visibilityReason !== "closed");
-  const duplicateOf = new Map();
-  for (let left = 0; left < normalIndexes.length; left += 1) {
-    const a = normalIndexes[left];
-    if (duplicateOf.has(a.index)) continue;
-    for (let right = left + 1; right < normalIndexes.length; right += 1) {
-      const b = normalIndexes[right];
-      if (duplicateOf.has(b.index) || !duplicateBranch(a.location, b.location)) continue;
-      const keep = canonicalScore(a.location) >= canonicalScore(b.location) ? a : b;
-      const drop = keep.index === a.index ? b : a;
-      duplicateOf.set(drop.index, keep.index);
+  const sets = disjointSet(candidates.length);
+  for (let left = 0; left < candidates.length; left += 1) {
+    for (let right = left + 1; right < candidates.length; right += 1) {
+      if (duplicateBranch(candidates[left].location, candidates[right].location)) sets.union(left, right);
     }
   }
-  for (const [dropIndex, keepIndex] of duplicateOf.entries()) {
-    reconciled[dropIndex] = attachQuality(reconciled[dropIndex], {
-      visibilityClass: "excluded",
-      visibilityReason: "duplicate",
-      parentLocationId: reconciled[keepIndex].id,
-      relationshipType: "duplicate_of",
-    });
+  const groups = new Map();
+  for (let index = 0; index < candidates.length; index += 1) {
+    const root = sets.find(index);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(candidates[index]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const keep = [...group].sort((a, b) => canonicalScore(b.location) - canonicalScore(a.location))[0];
+    for (const drop of group) {
+      if (drop.index === keep.index) continue;
+      reconciled[drop.index] = attachQuality(reconciled[drop.index], {
+        visibilityClass: "excluded",
+        visibilityReason: "duplicate",
+        parentLocationId: reconciled[keep.index].id,
+        relationshipType: "duplicate_of",
+      });
+    }
   }
   return reconciled;
 }
@@ -245,16 +264,13 @@ function emptyAudit(retailerId) {
     excluded: 0,
     unresolved: 0,
     afterPublic: 0,
-    echoEligibleStored: 0,
+    echoEligible: 0,
     deltaPublic: 0,
     reasons: {},
   };
 }
 
-export async function auditCanonicalRetailerLocationQuality(store, {
-  retailerIds = [],
-  limit = 20000,
-} = {}) {
+async function loadQualityAuditState(store, { retailerIds = [], limit = 20000 } = {}) {
   const safeLimit = Math.min(20000, Math.max(1, Number(limit) || 20000));
   const wanted = [...new Set((Array.isArray(retailerIds) ? retailerIds : []).map((value) => text(value)).filter(Boolean))];
   const wantedSet = new Set(wanted);
@@ -285,7 +301,6 @@ export async function auditCanonicalRetailerLocationQuality(store, {
     else if (location.visibilityClass === "directory-only") summary.directoryOnly += 1;
     else if (location.visibilityClass === "excluded") summary.excluded += 1;
     else summary.unresolved += 1;
-    if (location.visibilityClass === "eligible" && hasExplicitTcgRelevance(location)) summary.echoEligibleStored += 1;
     summary.reasons[location.visibilityReason] = Number(summary.reasons[location.visibilityReason] || 0) + 1;
     summaries.set(location.retailerId, summary);
   }
@@ -300,7 +315,77 @@ export async function auditCanonicalRetailerLocationQuality(store, {
     summary.afterPublic = summary.eligible;
     summary.deltaPublic = summary.afterPublic - summary.beforePublic;
   }
-  return [...summaries.values()].sort((a, b) => a.retailerId.localeCompare(b.retailerId));
+  return { rows, normalized, reconciled, summaries };
+}
+
+export async function auditCanonicalRetailerLocationQuality(store, options = {}) {
+  const state = await loadQualityAuditState(store, options);
+  return [...state.summaries.values()].sort((a, b) => a.retailerId.localeCompare(b.retailerId));
+}
+
+export async function buildCanonicalRetailerLocationQualityReview(store, {
+  retailerIds = [],
+  limit = 20000,
+  echoEvents = [],
+  now = Date.now(),
+  sampleLimit = 25,
+} = {}) {
+  const state = await loadQualityAuditState(store, { retailerIds, limit });
+  const byId = new Map(state.reconciled.map((location) => [location.id, location]));
+  const echoIds = new Set();
+  for (const event of Array.isArray(echoEvents) ? echoEvents : []) {
+    const locationId = text(event.locationId ?? event.location_id);
+    const location = locationId ? byId.get(locationId) : null;
+    if (!location || !isEchoEligibleLocation(location, event, now)) continue;
+    echoIds.add(location.id);
+  }
+  for (const locationId of echoIds) {
+    const location = byId.get(locationId);
+    const summary = state.summaries.get(location.retailerId);
+    if (summary) summary.echoEligible += 1;
+  }
+
+  const removedSamples = state.reconciled
+    .filter((location) => oldPublicEligible(location) && location.visibilityClass !== "eligible")
+    .slice(0, Math.max(1, Number(sampleLimit) || 25))
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      postcode: location.postcode,
+      visibilityClass: location.visibilityClass,
+      reason: location.visibilityReason,
+      parentLocationId: location.parentLocationId,
+    }));
+  const reconciliations = state.reconciled
+    .filter((location) => location.relationshipType)
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      relationshipType: location.relationshipType,
+      parentLocationId: location.parentLocationId,
+      reason: location.visibilityReason,
+    }));
+  const unresolved = state.reconciled
+    .filter((location) => location.visibilityClass === "unresolved")
+    .slice(0, Math.max(1, Number(sampleLimit) || 25))
+    .map((location) => ({
+      id: location.id,
+      retailerId: location.retailerId,
+      name: location.name,
+      postcode: location.postcode,
+      reason: location.visibilityReason,
+    }));
+
+  return {
+    retailers: [...state.summaries.values()].sort((a, b) => a.retailerId.localeCompare(b.retailerId)),
+    removedSamples,
+    reconciliations,
+    unresolved,
+    echoEligibleBranchCount: echoIds.size,
+    truthRule: "Review-only classification. Raw locations, stock observations and lifecycle history remain unchanged; campaign expiry removes Echo authority without creating Vanished.",
+  };
 }
 
 export async function listCanonicalRetailerLocations(store, {
