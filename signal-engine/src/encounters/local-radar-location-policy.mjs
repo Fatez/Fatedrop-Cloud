@@ -47,6 +47,21 @@ const STRONG_BRANCH_TCG_SOURCES = new Set([
   "authorised_feed",
   "operator_manual",
 ]);
+const STRONG_CANONICAL_VERIFICATIONS = new Set([
+  "official_retailer_branch",
+  "curated_branch",
+  "operator_verified",
+  "independently_reconciled",
+  "canonical_reconciled",
+]);
+const STRONG_CANONICAL_SOURCE_TYPES = new Set([
+  "official_retailer_branch_page",
+  "official_branch_page",
+  "official_retailer_directory",
+  "curated_branch_seed",
+  "operator_manual",
+  "independent_branch_reconciliation",
+]);
 
 const SERVICE_PATTERNS = Object.freeze([
   ["pharmacy", /\b(pharmacy|chemist)\b/i],
@@ -97,6 +112,22 @@ function qualityHaystack(record = {}) {
   ].filter(Boolean).join(" ");
 }
 
+function hasStrongCanonicalBranchEvidence(record = {}, openingDetails = {}) {
+  const verification = text(record.verification ?? record.verificationStatus ?? record.verification_status);
+  const sourceType = text(record.sourceType ?? record.source_type ?? openingDetails?.sourceType);
+  const provider = text(record.provider);
+  const explicitReconciliation = record.canonicalReconciled === true
+    || record.canonical_reconciled === true
+    || openingDetails?.canonicalReconciled === true
+    || openingDetails?.identityReconciled === true;
+  const retailerOwnedProvider = provider === "fatedrop_curated_branch"
+    || Boolean(provider && (provider.includes("official_directory") || provider.includes("official_stockist")));
+  return STRONG_CANONICAL_VERIFICATIONS.has(verification)
+    || STRONG_CANONICAL_SOURCE_TYPES.has(sourceType)
+    || retailerOwnedProvider
+    || explicitReconciliation;
+}
+
 export function locationServiceKind(record = {}) {
   const haystack = qualityHaystack(record);
   for (const [kind, pattern] of SERVICE_PATTERNS) {
@@ -119,9 +150,13 @@ export function normalizeLocationPolicy(record = {}) {
   const openingDetails = record.openingDetails ?? record.opening_details_json ?? {};
   const conflictStatus = text(record.identityConflictStatus ?? record.identity_conflict_status)
     || (openingDetails?.identityConflict === true ? "conflicted" : null);
+  const verification = text(record.verification ?? record.verificationStatus ?? record.verification_status);
+  const discoveryOnly = verification === "provider_discovered" && !hasStrongCanonicalBranchEvidence(record, openingDetails);
   const identityStatus = conflictStatus === "conflicted"
     ? "conflicted"
-    : enumValue(record.identityStatus ?? record.identity_status, IDENTITY_STATES, "canonical");
+    : discoveryOnly
+      ? "provisional"
+      : enumValue(record.identityStatus ?? record.identity_status, IDENTITY_STATES, "canonical");
   const retailerCategory = enumValue(
     record.retailerCategory ?? record.retailer_category,
     RETAILER_CATEGORIES,
