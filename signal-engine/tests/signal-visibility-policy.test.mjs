@@ -55,10 +55,12 @@ test("coherent catalogue-wide price steps are quarantined without suppressing Ma
   assert.equal(effectiveSignalDeliveryPolicy(result.signals.find((item) => item.id === manifested.id)), "interrupt");
 });
 
-test("large Whisper interrupt bursts are held inbox-only instead of flooding a lifecycle channel", () => {
+test("large Whisper interrupt bursts keep the safe interrupt budget and hold only the excess", () => {
   const result = applySignalBurstSafety(Array.from({ length: 26 }, (_, index) => signal(index)));
-  assert.equal(result.diagnostics.burstHeld, 26);
-  assert.equal(result.signals.every((item) => effectiveSignalDeliveryPolicy(item) === "inbox_only"), true);
+  assert.equal(result.diagnostics.burstHeld, 1);
+  assert.equal(result.signals.filter((item) => effectiveSignalDeliveryPolicy(item) === "interrupt").length, 25);
+  assert.equal(result.signals.filter((item) => effectiveSignalDeliveryPolicy(item) === "inbox_only").length, 1);
+  assert.match(result.signals.at(-1).evidence.find((entry) => entry.kind === "delivery_policy_reason")?.value || "", /cap_25/);
 });
 
 test("central SQL policy applies the same legacy inference and persisted Vanished proof everywhere", () => {
