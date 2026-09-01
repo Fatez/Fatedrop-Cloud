@@ -4,6 +4,7 @@ import {
   validVanishedSqlFilter,
 } from "../core/signal-visibility-policy.mjs";
 import { classifyRetailerFailure, RETAILER_FAILURE_CLASSES } from "../core/retailer-failure-classification.mjs";
+import { loadAlertFacetCoverage } from "./alert-facet-coverage.mjs";
 
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const ORPHAN_GRACE_SECONDS = 120;
@@ -109,8 +110,24 @@ function discoveryDiagnostics(discoveryRows = []) {
     oldestActiveAt: epoch(row.oldest_active_at),
   };
 }
+function facetCoverageDiagnostics(value) {
+  if (value && typeof value === "object") return value;
+  return {
+    available: false,
+    reason: "facet_coverage_not_loaded",
+    sampleSize: 0,
+    actionableRows: 0,
+    unresolvedLanguage: 0,
+    ambiguousLanguage: 0,
+    unresolvedSet: 0,
+    languageConflicts: 0,
+    uniqueActionableTitles: 0,
+    sampleTruncated: false,
+    samples: [],
+  };
+}
 
-export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], orphanRows = [], freshnessRows = [], discoveryRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
+export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], orphanRows = [], freshnessRows = [], discoveryRows = [], facetCoverage = null, days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   const { safeDays, day0 } = safeWindow(days, now);
   const lifecycle = emptyLifecycle(day0, safeDays);
   const delivery = emptyDelivery(day0, safeDays);
@@ -136,13 +153,13 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     lifecycle[state].total = lifecycle[state].trend.reduce((sum, point) => sum + point.value, 0); lifecycle[state].today = lifecycle[state].trend.at(-1)?.value ?? 0;
     delivery[state].sent = delivery[state].trend.reduce((sum, point) => sum + point.sent, 0); delivery[state].policySkipped = delivery[state].trend.reduce((sum, point) => sum + point.policySkipped, 0); delivery[state].duplicateSuppressed = delivery[state].trend.reduce((sum, point) => sum + point.duplicateSuppressed, 0); delivery[state].issues = delivery[state].trend.reduce((sum, point) => sum + point.issues, 0); delivery[state].todaySent = delivery[state].trend.at(-1)?.sent ?? 0;
   }
-  return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }), monitors: monitorDiagnostics(monitorRows), discovery: discoveryDiagnostics(discoveryRows) } };
+  return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }), monitors: monitorDiagnostics(monitorRows), discovery: discoveryDiagnostics(discoveryRows), facets: facetCoverageDiagnostics(facetCoverage) } };
 }
 
 export async function loadSignalHealthSummary(store, { days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   if (!store || typeof store.pool !== "function") return { available: false, reason: "persistent_store_unavailable", generatedAt: now };
   const { safeDays, day0 } = safeWindow(days, now); const pool = await store.pool(); const reliabilitySince = Math.max(0, now - RELIABILITY_LOOKBACK_SECONDS); const orphanBefore = Math.max(0, now - ORPHAN_GRACE_SECONDS);
-  const [detections, deliveries, latency, orphans, freshness, discovery, rawMonitors] = await Promise.all([
+  const [detections, deliveries, latency, orphans, freshness, discovery, rawMonitors, facetCoverage] = await Promise.all([
     pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds FROM (SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord' AND a.attempted_at >= s.detected_at AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")}) sent GROUP BY GROUPING SETS ((state),())`, [day0]),
@@ -159,6 +176,7 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
       FROM fatedrop_retailer_discovery_evidence
       WHERE source_type='product_discovery_watch'`).catch(() => ({ rows: [{ discovery_available: false }] })),
     typeof store.listRetailers === "function" ? store.listRetailers().catch(() => []) : [],
+    loadAlertFacetCoverage(pool, { now }),
   ]);
-  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, monitorRows: rawMonitors, days: safeDays, now });
+  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, monitorRows: rawMonitors, facetCoverage, days: safeDays, now });
 }
