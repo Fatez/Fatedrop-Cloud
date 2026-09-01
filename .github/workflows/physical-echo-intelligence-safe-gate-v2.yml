@@ -39,6 +39,18 @@ jobs:
               raise SystemExit('could not extract physical Echo patch script')
           code = dedent(helper.split(marker, 1)[1].split("\n          PY", 1)[0])
 
+          # Make the one historically ambiguous evidence insertion anchor unique
+          # before any patch logic runs. This changes only the patch plan text.
+          ambiguous = '''replace_once(path,
+          '      evidenceLevel,\\n      sourceType,',
+          '      evidenceLevel,\\n      sourceType,\\n      alertChannel: "echo",\\n      availabilityScope: locationId ? "physical_branch" : "physical_retailer_chain",\\n      physicalEvidenceState,')'''
+          specific = '''replace_once(path,
+          '    evidence: {\\n      ...evidence,\\n      evidenceLevel,\\n      sourceType,',
+          '    evidence: {\\n      ...evidence,\\n      evidenceLevel,\\n      sourceType,\\n      alertChannel: "echo",\\n      availabilityScope: locationId ? "physical_branch" : "physical_retailer_chain",\\n      physicalEvidenceState,')'''
+          if code.count(ambiguous) != 1:
+              raise SystemExit(f'ambiguous patch-plan transform matched {code.count(ambiguous)} times; expected exactly once')
+          code = code.replace(ambiguous, specific, 1)
+
           vfs = {}
           touched = set()
 
@@ -100,6 +112,31 @@ jobs:
               'normalized_spans': normalized_spans,
           }
           exec(compile(code, 'physical-echo-safe-v2-patch.py', 'exec'), globals_dict)
+
+          # Update the existing intelligence-surface test inside the same virtual
+          # filesystem. The old assertion expected immediate publication; the
+          # canonical rule now requires allocation Echoes to be held until exact
+          # branch/radius targeting exists.
+          test_path = VirtualPath('signal-engine/tests/retailer-intelligence-surfaces.test.mjs')
+          test_text = test_path.read_text()
+          old_test = '''  assert.equal(logs[0].kind, "echo");
+          assert.equal(notifications[0].stage, "ECHO");
+          assert.match(notifications[0].body, /not confirmed/i);
+          assert.ok(result.changes.some((change) => change.reasons.includes("product_added")));'''
+          new_test = '''  assert.equal(logs[0].kind, "echo");
+          assert.equal(notifications.length, 0);
+          assert.equal(result.notificationsPublished, 0);
+          assert.equal(result.notificationsHeld, 1);
+          assert.equal(result.notifications[0].held, true);
+          assert.equal(result.notifications[0].reason, "radius_targeting_required");
+          assert.ok(result.changes.some((change) => change.reasons.includes("product_added")));'''
+          spans = normalized_spans(test_text, old_test)
+          print(f"TEST_ANCHOR radius_hold normalized_matches={len(spans)}")
+          if len(spans) != 1:
+              raise SystemExit(f'radius-hold test anchor matched {len(spans)} times; expected exactly once')
+          lines = test_text.splitlines()
+          start, end = spans[0]
+          test_path.write_text("\n".join(lines[:start] + dedent(new_test).strip("\n").splitlines() + lines[end:]) + ("\n" if test_text.endswith("\n") else ""))
 
           print(f"PREFLIGHT_OK anchors={globals_dict.get('patch_counter')} files={len(touched)}")
           for rel in sorted(touched):
