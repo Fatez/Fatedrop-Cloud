@@ -1,0 +1,133 @@
+name: Local Radar quality-adjusted census
+
+on:
+  push:
+    branches:
+      - feat/local-radar-location-quality-2026-09-01
+    paths:
+      - "signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs"
+      - "signal-engine/tests/local-radar-quality-adjusted-census.test.mjs"
+      - ".github/workflows/local-radar-quality-adjusted-census.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality-adjusted-census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Focused Phase 1 proofs
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test \
+            tests/local-radar-location-policy.test.mjs \
+            tests/local-radar-canonical-branches.test.mjs \
+            tests/local-radar-location-quality-review.test.mjs \
+            tests/local-radar-quality-adjusted-census.test.mjs
+
+      - name: Read-only UK public census with raw and quality-adjusted metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { buildQualityAdjustedLocalRadarCensus } from './signal-engine/src/encounters/local-radar-quality-adjusted-census.mjs';
+
+          const endpoint = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            ['London', 51.5074, -0.1278],
+            ['Birmingham', 52.4862, -1.8904],
+            ['Manchester', 53.4808, -2.2426],
+            ['Leeds', 53.8008, -1.5491],
+            ['Newcastle', 54.9783, -1.6178],
+            ['Bristol', 51.4545, -2.5879],
+            ['Plymouth', 50.3755, -4.1427],
+            ['Cardiff', 51.4816, -3.1791],
+            ['Glasgow', 55.8642, -4.2518],
+            ['Edinburgh', 55.9533, -3.1883],
+            ['Aberdeen', 57.1497, -2.0943],
+            ['Inverness', 57.4778, -4.2247],
+            ['Belfast', 54.5973, -5.9301],
+          ];
+
+          const shops = new Map();
+          const probeResults = [];
+          const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+          const shopKey = (shop) => String(shop?.id || [shop?.retailerId || 'unknown', shop?.name || '', shop?.postcode || '', shop?.address || ''].join('|'));
+
+          for (const [label, lat, lng] of probes) {
+            const url = new URL(endpoint);
+            url.searchParams.set('lat', String(lat));
+            url.searchParams.set('lng', String(lng));
+            url.searchParams.set('radiusMiles', '100');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+            const response = await fetch(url, {
+              headers: { 'user-agent': 'FateDrop-Local-Radar-Quality-Census/1.0' },
+              signal: AbortSignal.timeout(30000),
+            });
+            if (!response.ok) throw new Error(`${label} Local Radar HTTP ${response.status}`);
+            const body = await response.json();
+            const rows = Array.isArray(body.shops) ? body.shops : [];
+            for (const shop of rows) shops.set(shopKey(shop), shop);
+            probeResults.push({ label, shops: rows.length, branchIdentity: body?.providers?.branchIdentity || null });
+            await sleep(300);
+          }
+
+          const census = buildQualityAdjustedLocalRadarCensus([...shops.values()]);
+          const report = {
+            generatedAt: new Date().toISOString(),
+            source: endpoint,
+            mode: 'READ_ONLY_PUBLIC_UK_MESH',
+            databaseAccess: 'NONE',
+            caveat: 'The original raw before/after diagnostic is preserved. The quality-adjusted denominator is independently derived from branch-level canonical evidence carried on the public rows and never from the new classifier eligible output. Direct Neon census remains a separate read-only verification path when connector access permits.',
+            probes: probeResults,
+            ...census,
+          };
+
+          fs.writeFileSync('local-radar-quality-adjusted-census.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify({
+            totals: report.totals,
+            weakDiscoveryEligible: report.samples.weakDiscoveryEligible.length,
+            obviousNoiseEligible: report.samples.obviousNoiseEligible.length,
+            provisionalEligible: report.samples.provisionalEligible.length,
+            lostCanonicalParents: report.samples.lostCanonicalParents.length,
+          }, null, 2));
+
+          if (report.totals.publicBefore < 1) throw new Error('raw public census unexpectedly empty');
+          if (report.totals.uniqueCanonicalParentTotal < 1) throw new Error('trusted canonical-parent denominator unexpectedly empty');
+          if (report.samples.obviousNoiseEligible.length) throw new Error(`obvious service noise remains eligible: ${report.samples.obviousNoiseEligible.length}`);
+          if (report.samples.provisionalEligible.length) throw new Error(`provisional locations remain eligible: ${report.samples.provisionalEligible.length}`);
+          if (report.samples.weakDiscoveryEligible.length) throw new Error(`weak provider discoveries remain eligible: ${report.samples.weakDiscoveryEligible.length}`);
+          if (report.samples.lostCanonicalParents.length) throw new Error(`trusted canonical parent branches were lost: ${report.samples.lostCanonicalParents.length}`);
+          if (report.totals.qualityAdjustedSurvivalPct !== 1) {
+            throw new Error(`quality-adjusted canonical-parent survival is not complete: ${report.totals.qualityAdjustedSurvivalPct}`);
+          }
+          NODE
+
+      - name: Upload Phase 1 census artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-radar-quality-adjusted-census
+          path: local-radar-quality-adjusted-census.json
+          if-no-files-found: warn
+          retention-days: 3
