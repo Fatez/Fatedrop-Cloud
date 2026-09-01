@@ -268,7 +268,7 @@ export const retailers = [
   shopifyPokemonRetailer({ id: "titan-cards", name: "Titan Cards", enabled: env.retailers.titanCards, baseUrl: "https://titancards.co.uk/", collection: "/collections/pokemon-sealed-products", maxPages: 6, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "eterna-cards", name: "Eterna Cards", enabled: env.retailers.eternaCards, baseUrl: "https://eternacards.co.uk/", collection: "/collections/pokemon-tcg-sealed-products", maxPages: 8, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "card-collective", name: "Card Collective UK", enabled: env.retailers.cardCollective, baseUrl: "https://card-collective.com/", collection: "/collections/pokemon-tcg", maxPages: 6 }),
-  shopifyPokemonRetailer({ id: "jet-cards", name: "JET Cards", enabled: env.retailers.jetCards, baseUrl: "https://jetcards.uk/", collection: "/collections/pokemon-trading-cards", maxPages: 6 }),
+  shopifyPokemonRetailer({ id: "jet-cards", name: "JET Cards", enabled: env.retailers.jetCards, baseUrl: "https://jetcards.uk/", collection: "/collections/pokemon-trading-cards", maxPages: 12 }),
   shopifyPokemonRetailer({ id: "gathering-games", name: "Gathering Games", enabled: env.retailers.gatheringGames, baseUrl: "https://gatheringgames.co.uk/", collection: "/collections/pokemon", maxPages: 6 }),
   shopifyPokemonRetailer({ id: "zatu-games", name: "Zatu Games", enabled: env.retailers.zatuGames, baseUrl: "https://zatu.com/", collection: "/collections/other-sealed-product-pokemon", retailerClass: RETAILER_CLASSES.SPECIALIST, maxPages: 4, delayMs: 2500, include: SEALED_POKEMON }),
 ].filter((retailer) => retailer.enabled);
