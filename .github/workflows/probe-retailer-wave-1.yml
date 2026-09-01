@@ -10,110 +10,56 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe retailer wave 1 routes
+      - name: Probe structured wave 1 retailers and inspect Shiny Vault
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const groups = [
-            { name: 'The Card Vault', attempts: [
-              { type: 'shopify', url: 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
-            ]},
-            { name: 'Cob & Pip', attempts: [
-              { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250' },
-              { type: 'shopify', url: 'https://cobandpip.co.uk/collections/pokemon-sealed/products.json?limit=250' },
-              { type: 'shopify', url: 'https://cobandpip.co.uk/products.json?limit=250' },
-            ]},
-            { name: 'Tritex Games', attempts: [
-              { type: 'woo', url: 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
-            ]},
-            { name: "Trainer's Haven", attempts: [
-              { type: 'woo', url: 'https://trainershaven.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon' },
-              { type: 'shopify', url: 'https://trainershaven.co.uk/products.json?limit=250' },
-            ]},
+          const structured = [
+            ['The Card Vault', 'shopify', 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250'],
+            ['Cob & Pip', 'shopify', 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250'],
+            ['Tritex Games', 'woo', 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon'],
+            ["Trainer's Haven", 'woo', 'https://trainershaven.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon'],
           ];
-          const timeoutMs = 20000;
           const sealedPattern = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|premium|bundle|display|box\b|pack\b|poster|ultra premium/i;
           const excludedPattern = /single|sleeve|binder|play\s?mat|toploader|graded|event ticket|league challenge|accessor/i;
-          const winners = [];
-          const failures = [];
+          for (const [name, type, url] of structured) {
+            const r = await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
+            if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+            const payload = await r.json();
+            const rows = type === 'shopify' ? payload.products : payload;
+            let sealed = 0, knownStock = 0;
+            for (const row of rows) {
+              const title = String(type === 'shopify' ? row?.title : row?.name || '');
+              if (sealedPattern.test(title) && !excludedPattern.test(title)) sealed += 1;
+              if (type === 'shopify') {
+                if ((row?.variants || []).some((v) => typeof v?.available === 'boolean')) knownStock += 1;
+              } else if (typeof row?.is_in_stock === 'boolean') knownStock += 1;
+            }
+            console.log(JSON.stringify({ retailer: name, type, url, products: rows.length, sealed, knownStock }));
+            if (!rows.length || !sealed || !knownStock) throw new Error(`${name}: unusable stock feed`);
+          }
 
-          async function request(url) {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), timeoutMs);
+          const base = 'https://shinyvault.co.uk/collections/sealed';
+          const r = await fetch(base, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
+          const html = await r.text();
+          console.log(JSON.stringify({ retailer: 'Shiny Vault', status: r.status, htmlBytes: html.length }));
+          const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)]
+            .map((m) => new URL(m[1], base).toString());
+          const links = [...new Set([...html.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map((m) => new URL(m[1], base).toString()))];
+          console.log('SHINY_SCRIPTS=' + JSON.stringify(scripts.slice(0, 30)));
+          console.log('SHINY_INTERESTING_LINKS=' + JSON.stringify(links.filter((u) => /product|api|shopify|cdn|asset|next|supabase/i.test(u)).slice(0, 50)));
+          const inlineClues = [...new Set((html.match(/.{0,100}(?:shopify|supabase|\/api\/|products?|collections?).{0,160}/gi) || []))];
+          console.log('SHINY_INLINE_CLUES=' + JSON.stringify(inlineClues.slice(0, 30)));
+
+          for (const scriptUrl of scripts.slice(0, 20)) {
             try {
-              return await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' }, signal: controller.signal });
-            } finally {
-              clearTimeout(timer);
-            }
+              const sr = await fetch(scriptUrl, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
+              if (!sr.ok) continue;
+              const js = await sr.text();
+              if (!/shopify|supabase|\/api\/|product/i.test(js)) continue;
+              const clues = [...new Set((js.match(/.{0,120}(?:shopify|supabase|\/api\/|products?|collections?).{0,180}/gi) || []))];
+              console.log('SHINY_SCRIPT_CLUES ' + scriptUrl + ' ' + JSON.stringify(clues.slice(0, 15)));
+            } catch {}
           }
-
-          for (const group of groups) {
-            let winner = null;
-            for (const target of group.attempts) {
-              try {
-                const response = await request(target.url);
-                if (!response.ok) {
-                  console.log(JSON.stringify({ retailer: group.name, url: target.url, status: response.status, ok: false }));
-                  continue;
-                }
-                const payload = await response.json();
-                const rows = target.type === 'shopify' ? payload?.products : payload;
-                if (!Array.isArray(rows) || rows.length === 0) {
-                  console.log(JSON.stringify({ retailer: group.name, url: target.url, status: response.status, ok: false, reason: 'empty' }));
-                  continue;
-                }
-                let knownStock = 0;
-                let sealed = 0;
-                for (const row of rows) {
-                  const title = String(target.type === 'shopify' ? row?.title : row?.name || '');
-                  if (sealedPattern.test(title) && !excludedPattern.test(title)) sealed += 1;
-                  if (target.type === 'shopify') {
-                    const variants = Array.isArray(row?.variants) ? row.variants : [];
-                    if (variants.some((v) => typeof v?.available === 'boolean')) knownStock += 1;
-                  } else if (typeof row?.is_in_stock === 'boolean') knownStock += 1;
-                }
-                const result = { retailer: group.name, type: target.type, url: target.url, status: response.status, products: rows.length, sealed, knownStock, ok: sealed > 0 && knownStock > 0 };
-                console.log(JSON.stringify(result));
-                if (result.ok) { winner = result; break; }
-              } catch (error) {
-                console.log(JSON.stringify({ retailer: group.name, url: target.url, ok: false, error: String(error?.message || error) }));
-              }
-            }
-            if (winner) winners.push(winner);
-            else failures.push(group.name);
-          }
-
-          // Shiny Vault does not expose the normal Shopify/Woo JSON routes. Probe the
-          // public sealed catalogue for a bounded HTML adapter instead.
-          try {
-            const url = 'https://shinyvault.co.uk/collections/sealed';
-            const response = await request(url);
-            const html = await response.text();
-            const productLinks = [...html.matchAll(/href=["']([^"']*\/products\/[^"'#?]+)["']/gi)]
-              .map((m) => new URL(m[1], url).toString());
-            const uniqueLinks = [...new Set(productLinks)];
-            const addToCartEvidence = /add to (?:cart|basket)|buy now/i.test(html);
-            const productTextHits = (html.match(/booster|elite trainer|\betb\b|collection|tin\b|blister|bundle|box\b|pack\b/gi) || []).length;
-            const result = {
-              retailer: 'Shiny Vault',
-              type: 'generic_html',
-              url,
-              status: response.status,
-              productLinks: uniqueLinks.length,
-              sampleLinks: uniqueLinks.slice(0, 5),
-              productTextHits,
-              addToCartEvidence,
-              ok: response.ok && uniqueLinks.length > 0 && productTextHits > 0,
-            };
-            console.log(JSON.stringify(result));
-            if (result.ok) winners.push(result);
-            else failures.push('Shiny Vault');
-          } catch (error) {
-            console.log(JSON.stringify({ retailer: 'Shiny Vault', type: 'generic_html', ok: false, error: String(error?.message || error) }));
-            failures.push('Shiny Vault');
-          }
-
-          console.log('WAVE1_WINNERS=' + JSON.stringify(winners));
-          if (failures.length) throw new Error(`Wave 1 routes failed: ${failures.join(', ')}`);
           NODE
