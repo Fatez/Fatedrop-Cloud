@@ -41,9 +41,29 @@ test('UK retailer location never invents language, market, printing or variant e
 
 test('One Piece set and product normalisation covers hyphenless codes and sealed families', () => {
   assert.deepEqual(onePieceSetCodes('One Piece OPK02 Korean booster box and ST23 Starter Deck'), ['OPK-02', 'ST-23']);
+  assert.deepEqual(onePieceSetCodes('One Piece IB06 Illustration Box and TS02 Tin Pack Set'), ['IB-06', 'TS-02']);
   assert.equal(onePieceProductType('One Piece ST-23 Starter Deck'), 'starter_deck');
   assert.equal(onePieceProductType('One Piece OP-13 Booster Case'), 'booster_case');
   assert.equal(onePieceProductType('One Piece DP-07 Double Pack'), 'double_pack');
+  assert.equal(onePieceProductType('One Piece IB-06 Illustration Box Vol.6'), 'illustration_box');
+  assert.equal(onePieceProductType('One Piece TS-02 Tin Pack Set Vol.2'), 'tin_pack_set');
+});
+
+test('verified illustration box and tin pack sealed families stay matched without invented language', () => {
+  const illustrationBox = classifyOnePieceSealedOffer({ title: 'One Piece Card Game: Illustration Box Vol.6 (IB-06)' });
+  const tinPackSet = classifyOnePieceSealedOffer({ title: 'One Piece Tin Pack Set Vol.2 [TS-02]' });
+
+  assert.equal(illustrationBox.status, 'matched');
+  assert.equal(illustrationBox.identity.setCode, 'IB-06');
+  assert.equal(illustrationBox.identity.productType, 'illustration_box');
+  assert.equal(illustrationBox.identity.languageCode, null);
+  assert.ok(illustrationBox.reasons.includes('language_unresolved'));
+
+  assert.equal(tinPackSet.status, 'matched');
+  assert.equal(tinPackSet.identity.setCode, 'TS-02');
+  assert.equal(tinPackSet.identity.productType, 'tin_pack_set');
+  assert.equal(tinPackSet.identity.languageCode, null);
+  assert.ok(tinPackSet.reasons.includes('language_unresolved'));
 });
 
 test('conflicting set or language evidence never becomes a matched identity', () => {
