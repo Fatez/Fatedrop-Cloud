@@ -1,0 +1,87 @@
+name: One Piece shadow observation
+
+on:
+  push:
+    branches:
+      - ops/one-piece-shadow-observation-2026-09-01
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture silent baseline
+        env:
+          ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
+        run: |
+          npm run one-piece:shadow > "$RUNNER_TEMP/one-piece-shadow-1.json"
+          node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/one-piece-shadow-1.json","utf8")); if(r.mode!=="observation_only"||r.publicBrowseEnabled!==false||r.lifecycleAlertsEnabled!==false) process.exit(2); console.log(JSON.stringify({phase:"baseline",totals:r.totals,retailers:r.retailers,silentBaselineRetailers:r.silentBaselineRetailers},null,2));'
+
+      - name: Capture second shadow scan
+        env:
+          ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
+        run: |
+          sleep 15
+          npm run one-piece:shadow -- --baseline="$RUNNER_TEMP/one-piece-shadow-1.json" > "$RUNNER_TEMP/one-piece-shadow-2.json"
+          node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/one-piece-shadow-2.json","utf8")); if(r.mode!=="observation_only"||r.publicBrowseEnabled!==false||r.lifecycleAlertsEnabled!==false) process.exit(2); console.log(JSON.stringify({phase:"shadow",totals:r.totals,retailers:r.retailers,episodes:r.episodes},null,2));'
+
+      - name: Build review checkpoint
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = process.env.RUNNER_TEMP;
+          const baseline = JSON.parse(fs.readFileSync(`${path}/one-piece-shadow-1.json`, 'utf8'));
+          const shadow = JSON.parse(fs.readFileSync(`${path}/one-piece-shadow-2.json`, 'utf8'));
+          const checkpoint = {
+            generatedAt: new Date().toISOString(),
+            activationBoundary: {
+              publicBrowseEnabled: shadow.publicBrowseEnabled,
+              lifecycleAlertsEnabled: shadow.lifecycleAlertsEnabled,
+              mode: shadow.mode,
+            },
+            baseline: {
+              totals: baseline.totals,
+              retailers: baseline.retailers,
+              silentBaselineRetailers: baseline.silentBaselineRetailers,
+            },
+            shadow: {
+              totals: shadow.totals,
+              retailers: shadow.retailers,
+              episodes: shadow.episodes,
+            },
+            reviewRequiredBeforeInternalAlerts: true,
+          };
+          fs.writeFileSync(`${path}/one-piece-shadow-checkpoint.json`, JSON.stringify(checkpoint, null, 2));
+          console.log(JSON.stringify(checkpoint, null, 2));
+          NODE
+
+      - name: Upload observation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-piece-shadow-observation
+          path: |
+            ${{ runner.temp }}/one-piece-shadow-1.json
+            ${{ runner.temp }}/one-piece-shadow-2.json
+            ${{ runner.temp }}/one-piece-shadow-checkpoint.json
+          if-no-files-found: warn
+          retention-days: 7
