@@ -10,32 +10,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe Shiny Vault Storefront GraphQL directly
+      - name: Probe Shiny Vault standard Shopify JSON fallback
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const asset = 'https://shinyvault.co.uk/assets/index-BCi4jaBn.js';
-          const js = await (await fetch(asset)).text();
-          for (const pattern of [/.{0,600}Zc=`.{0,600}/g, /.{0,500}Xc=.{0,500}/g, /.{0,500}Qc=.{0,500}/g, /.{0,500}eu=.{0,500}/g]) {
-            console.log('ASSIGN=' + JSON.stringify((js.match(pattern) || []).slice(0, 10)));
+          const urls = [
+            'https://shinyvault-theme-1w7qn.myshopify.com/products.json?limit=250',
+            'https://shinyvault-theme-1w7qn.myshopify.com/collections/sealed/products.json?limit=250',
+          ];
+          let usable = false;
+          for (const url of urls) {
+            const r = await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0', accept: 'application/json' }, redirect: 'follow' });
+            const text = await r.text();
+            let payload = null;
+            try { payload = JSON.parse(text); } catch {}
+            const products = Array.isArray(payload?.products) ? payload.products : [];
+            const stock = products.filter((p) => (p?.variants || []).some((v) => typeof v?.available === 'boolean')).length;
+            const sealed = products.filter((p) => /booster|elite trainer|\betb\b|collection|tin\b|blister|bundle|box\b|pack\b|premium/i.test(String(p?.title || ''))).length;
+            console.log(JSON.stringify({ url, status: r.status, finalUrl: r.url, contentType: r.headers.get('content-type'), products: products.length, sealed, stock, bodyPrefix: text.slice(0, 120) }));
+            if (r.ok && products.length && stock) usable = true;
           }
-          const hostMatch = js.match(/Xc=\"([^\"]+\.myshopify\.com)\"/);
-          const versionMatch = js.match(/Qc=\"([^\"]+)\"/);
-          const tokenMatch = js.match(/eu=\"([a-f0-9]+)\"/i);
-          if (!hostMatch || !versionMatch || !tokenMatch) throw new Error('Could not extract Storefront configuration');
-          const endpoint = `https://${hostMatch[1]}/api/${versionMatch[1]}/graphql.json`;
-          const token = tokenMatch[1];
-          const query = `query Wave1($first:Int!,$query:String){products(first:$first,query:$query){edges{node{id handle title tags description variants(first:20){edges{node{id title sku availableForSale price{amount currencyCode}}}}}}}}`;
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json', 'X-Shopify-Storefront-Access-Token': token, 'user-agent': 'FateDrop qualification probe/1.0' },
-            body: JSON.stringify({ query, variables: { first: 100, query: 'tag:sealed' } }),
-          });
-          const payload = await response.json();
-          const edges = payload?.data?.products?.edges || [];
-          let variants = 0, available = 0;
-          for (const edge of edges) for (const v of edge?.node?.variants?.edges || []) { variants += 1; if (v?.node?.availableForSale === true) available += 1; }
-          console.log(JSON.stringify({ retailer: 'Shiny Vault', endpoint, status: response.status, products: edges.length, variants, available, errors: payload?.errors || null }));
-          if (!response.ok || !edges.length || !variants) throw new Error('Shiny Vault Storefront product query unusable');
+          if (!usable) throw new Error('No standard Shopify JSON route usable');
           NODE
