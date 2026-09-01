@@ -1,9 +1,11 @@
 import { createStore } from "../stores/index.mjs";
 import { additionalLaunchRetailers } from "./additional-launch-retailers.mjs";
+import { ensureApprovedRetailersMonitored } from "./approved-monitor-promotion.mjs";
 import { deduplicateRetailerCandidates } from "./discovery.mjs";
 import { ensureDiscoveryCandidatesInRegistry } from "./discovery-candidate-sync.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES, RRP_AUTHORITY, normalizeRetailerCandidate } from "./registry.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
+import { RETAILER_WAVE_1_IDS } from "./retailer-wave-1.mjs";
 import { ensureStaticRetailersInRegistry } from "./static-registry-sync.mjs";
 import { ukRetailerDiscoverySeeds } from "./uk-discovery-seeds.mjs";
 import { ukRetailerNetwork100Seeds20260901 } from "./uk-retailer-network-100-2026-09-01.mjs";
@@ -88,6 +90,11 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
       ...ukRetailerNetwork100Seeds20260901,
     ]),
   });
+
+  const wave1Ids = new Set(RETAILER_WAVE_1_IDS);
+  const wave1 = launch.filter((retailer) => wave1Ids.has(retailer.id));
+  await ensureApprovedRetailersMonitored({ registry, retailers: wave1 });
+
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
   return selectRuntimeRetailers({ staticRetailers: launch, registryRetailers: monitored });
 }
