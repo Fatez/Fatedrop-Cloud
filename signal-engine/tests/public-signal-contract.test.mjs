@@ -37,6 +37,8 @@ test('public signal summary exposes only safe dashboard aggregates', () => {
   assert.match(publicContract, /pending: safeCount\(discovery\.pending\)/);
   assert.doesNotMatch(publicContract, /diagnostics: summary\.diagnostics/);
   assert.doesNotMatch(publicContract, /monitorRows/);
+  assert.doesNotMatch(publicContract, /identityFacets/);
+  assert.doesNotMatch(publicContract, /includeIdentityFacets:\s*true/);
 
   for (const privateField of [
     'orphanedSignalIds',

@@ -47,6 +47,18 @@ test("signal health summary separates detections, delivery policy, duplicate sup
       latest_processed_at: now - 90,
       oldest_active_at: now - 600,
     }],
+    identityFacetRows: [{
+      record_kind: "signal",
+      signal_id: "sig-unresolved",
+      offer_id: "offer-unresolved",
+      canonical_product_id: "prd-unresolved",
+      canonical_key: "booster_box:unresolved",
+      retailer_name: "Retailer A",
+      tcg: "pokemon",
+      title: "Pokémon Unresolved Booster Box",
+      observed_at: now - 30,
+      evidence: [],
+    }],
   });
 
   assert.equal(summary.available, true);
@@ -91,6 +103,9 @@ test("signal health summary separates detections, delivery policy, duplicate sup
     latestProcessedAt: now - 90,
     oldestActiveAt: now - 600,
   });
+  assert.equal(summary.diagnostics.identityFacets.available, true);
+  assert.equal(summary.diagnostics.identityFacets.totals.unresolvedCanonicalIdentity, 1);
+  assert.equal(summary.diagnostics.identityFacets.candidates[0].canonicalProductId, "prd-unresolved");
   assert.equal(summary.lifecycle.manifested.trend.length, 7);
   assert.equal(summary.delivery.manifested.trend.length, 7);
 });
@@ -147,6 +162,42 @@ test("signal health loader uses the live retailer ledger instead of a historical
   assert.equal(summary.diagnostics.monitors.freshRetailerIds[0], "raw-healthy");
   assert.equal(summary.diagnostics.discovery.available, true);
   assert.equal(summary.diagnostics.discovery.processed, 3);
+  assert.equal(summary.diagnostics.identityFacets.available, false);
+});
+
+test("identity audit reads are opt-in for authenticated operator health only", async () => {
+  const now = 1_800_000_000;
+  let identityQuerySeen = false;
+  const query = async (sql) => {
+    if (sql.includes("latest_signal_at")) return { rows: [{ latest_signal_at: null, latest_discord_attempt_at: null, recent_signals: 0, recent_discord_attempts: 0 }] };
+    if (sql.includes("fatedrop_retailer_discovery_evidence")) return { rows: [{ discovery_available: true }] };
+    if (sql.includes("WITH recent_signals AS")) {
+      identityQuerySeen = true;
+      assert.match(sql, /LIMIT 5000/);
+      return { rows: [{
+        record_kind: "signal",
+        signal_id: "sig-audit",
+        offer_id: "offer-audit",
+        canonical_product_id: "prd-audit",
+        canonical_key: "booster_box:audit",
+        retailer_name: "Retailer A",
+        tcg: "pokemon",
+        title: "Pokémon Unresolved Booster Box",
+        observed_at: now - 20,
+        evidence: [],
+      }] };
+    }
+    return { rows: [] };
+  };
+  const store = {
+    pool: async () => ({ query }),
+    listRetailers: async () => [],
+  };
+
+  const summary = await loadSignalHealthSummary(store, { days: 2, now, includeIdentityFacets: true });
+  assert.equal(identityQuerySeen, true);
+  assert.equal(summary.diagnostics.identityFacets.available, true);
+  assert.equal(summary.diagnostics.identityFacets.totals.unresolvedCanonicalIdentity, 1);
 });
 
 test("signal health loader fails closed when a persistent ledger is unavailable", async () => {

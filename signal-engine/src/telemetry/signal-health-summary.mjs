@@ -4,7 +4,7 @@ import {
   validVanishedSqlFilter,
 } from "../core/signal-visibility-policy.mjs";
 import { classifyRetailerFailure, RETAILER_FAILURE_CLASSES } from "../core/retailer-failure-classification.mjs";
-import { facetResolutionDiagnostics } from "./facet-resolution-audit.mjs";
+import { buildIdentityFacetAudit } from "./identity-facet-audit.mjs";
 
 const LIFECYCLE_STATES = ["whisper", "echo", "manifested", "vanished"];
 const ORPHAN_GRACE_SECONDS = 120;
@@ -111,7 +111,7 @@ function discoveryDiagnostics(discoveryRows = []) {
   };
 }
 
-export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], orphanRows = [], freshnessRows = [], discoveryRows = [], facetRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
+export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = [], latencyRows = [], monitorRows = [], orphanRows = [], freshnessRows = [], discoveryRows = [], identityFacetRows = [], days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
   const { safeDays, day0 } = safeWindow(days, now);
   const lifecycle = emptyLifecycle(day0, safeDays);
   const delivery = emptyDelivery(day0, safeDays);
@@ -137,13 +137,13 @@ export function buildSignalHealthSummary({ detectionRows = [], deliveryRows = []
     lifecycle[state].total = lifecycle[state].trend.reduce((sum, point) => sum + point.value, 0); lifecycle[state].today = lifecycle[state].trend.at(-1)?.value ?? 0;
     delivery[state].sent = delivery[state].trend.reduce((sum, point) => sum + point.sent, 0); delivery[state].policySkipped = delivery[state].trend.reduce((sum, point) => sum + point.policySkipped, 0); delivery[state].duplicateSuppressed = delivery[state].trend.reduce((sum, point) => sum + point.duplicateSuppressed, 0); delivery[state].issues = delivery[state].trend.reduce((sum, point) => sum + point.issues, 0); delivery[state].todaySent = delivery[state].trend.at(-1)?.sent ?? 0;
   }
-  return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }), monitors: monitorDiagnostics(monitorRows), discovery: discoveryDiagnostics(discoveryRows), facets: facetResolutionDiagnostics(facetRows) } };
+  return { available: true, generatedAt: now, days: safeDays, day0, lifecycle, delivery, diagnostics: { absentLifecycleStages: LIFECYCLE_STATES.filter((state) => lifecycle[state].total === 0), duplicateSignalsSuppressed: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].duplicateSuppressed, 0), discordDeliveryIssues: LIFECYCLE_STATES.reduce((sum, state) => sum + delivery[state].issues, 0), discordLatency: overallLatency, reliability: reliabilityDiagnostics({ orphanRows, freshnessRows, now }), monitors: monitorDiagnostics(monitorRows), discovery: discoveryDiagnostics(discoveryRows), identityFacets: buildIdentityFacetAudit(identityFacetRows) } };
 }
 
-export async function loadSignalHealthSummary(store, { days = 7, now = Math.floor(Date.now() / 1000) } = {}) {
+export async function loadSignalHealthSummary(store, { days = 7, now = Math.floor(Date.now() / 1000), includeIdentityFacets = false } = {}) {
   if (!store || typeof store.pool !== "function") return { available: false, reason: "persistent_store_unavailable", generatedAt: now };
   const { safeDays, day0 } = safeWindow(days, now); const pool = await store.pool(); const reliabilitySince = Math.max(0, now - RELIABILITY_LOOKBACK_SECONDS); const orphanBefore = Math.max(0, now - ORPHAN_GRACE_SECONDS);
-  const [detections, deliveries, latency, orphans, freshness, discovery, facetAudit, rawMonitors] = await Promise.all([
+  const [detections, deliveries, latency, orphans, freshness, discovery, identityFacets, rawMonitors] = await Promise.all([
     pool.query(`SELECT s.state,(FLOOR(s.detected_at / 86400.0) * 86400)::bigint AS measured_at,COUNT(*)::int AS count FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT s.state,(FLOOR(a.attempted_at / 86400.0) * 86400)::bigint AS measured_at,a.result,COALESCE(a.detail,'') AS detail,COUNT(*)::int AS count FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} GROUP BY s.state,measured_at,a.result,a.detail ORDER BY measured_at ASC`, [day0]),
     pool.query(`SELECT COALESCE(state,'__all__') AS state,COUNT(*)::int AS sample_size, percentile_cont(0.5) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS median_seconds, percentile_cont(0.95) WITHIN GROUP (ORDER BY latency_seconds)::numeric AS p95_seconds FROM (SELECT s.state,(a.attempted_at-s.detected_at)::numeric AS latency_seconds FROM fatedrop_signal_delivery_attempts a INNER JOIN fatedrop_signals s ON s.id=a.signal_id WHERE a.attempted_at >= $1 AND a.result='sent' AND a.channel='discord' AND a.attempted_at >= s.detected_at AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")}) sent GROUP BY GROUPING SETS ((state),())`, [day0]),
@@ -159,8 +159,27 @@ export async function loadSignalHealthSummary(store, { days = 7, now = Math.floo
       (MIN(observed_at) FILTER (WHERE COALESCE(evidence->'canonical_pipeline'->>'status','pending') IN ('pending','retry')))::bigint AS oldest_active_at
       FROM fatedrop_retailer_discovery_evidence
       WHERE source_type='product_discovery_watch'`).catch(() => ({ rows: [{ discovery_available: false }] })),
-    pool.query(`SELECT s.id,s.state,s.retailer_id,s.retailer_name,s.title,s.detected_at,s.evidence FROM fatedrop_signals s WHERE s.detected_at >= $1 AND s.state IN ('whisper','echo','manifested','vanished') AND ${publicSignalSqlFilter("s")} AND ${validVanishedSqlFilter("s")} ORDER BY s.detected_at DESC LIMIT 500`, [day0]).catch(() => ({ rows: [] })),
+    includeIdentityFacets ? pool.query(`WITH recent_signals AS (
+      SELECT 'signal'::text AS record_kind,s.id AS signal_id,s.offer_id,s.product_id AS canonical_product_id,
+        p.canonical_key,p.tcg,s.retailer_id,s.retailer_name,s.title,s.product_type,s.detected_at AS observed_at,s.evidence
+      FROM fatedrop_signals s
+      LEFT JOIN fatedrop_products p ON p.id=s.product_id
+      WHERE s.detected_at >= $1
+      ORDER BY s.detected_at DESC
+      LIMIT 5000
+    ), recent_offers AS (
+      SELECT 'offer'::text AS record_kind,NULL::text AS signal_id,o.offer_id,o.product_id AS canonical_product_id,
+        p.canonical_key,p.tcg,o.retailer_id,o.retailer_name,o.title,p.product_type,o.last_seen_at AS observed_at,'[]'::jsonb AS evidence
+      FROM fatedrop_retail_offers o
+      LEFT JOIN fatedrop_products p ON p.id=o.product_id
+      WHERE o.last_seen_at >= $1
+      ORDER BY o.last_seen_at DESC
+      LIMIT 5000
+    )
+    SELECT * FROM recent_signals
+    UNION ALL
+    SELECT * FROM recent_offers`, [day0]).catch(() => ({ rows: null })) : Promise.resolve({ rows: null }),
     typeof store.listRetailers === "function" ? store.listRetailers().catch(() => []) : [],
   ]);
-  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, facetRows: facetAudit.rows, monitorRows: rawMonitors, days: safeDays, now });
+  return buildSignalHealthSummary({ detectionRows: detections.rows, deliveryRows: deliveries.rows, latencyRows: latency.rows, orphanRows: orphans.rows, freshnessRows: freshness.rows, discoveryRows: discovery.rows, identityFacetRows: identityFacets.rows, monitorRows: rawMonitors, days: safeDays, now });
 }
