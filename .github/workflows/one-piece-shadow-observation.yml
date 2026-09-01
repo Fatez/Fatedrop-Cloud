@@ -33,7 +33,7 @@ jobs:
         env:
           ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
         run: |
-          npm run one-piece:shadow > "$RUNNER_TEMP/one-piece-shadow-1.json"
+          node src/one-piece-shadow-report-cli.mjs > "$RUNNER_TEMP/one-piece-shadow-1.json"
           node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/one-piece-shadow-1.json","utf8")); if(r.mode!=="observation_only"||r.publicBrowseEnabled!==false||r.lifecycleAlertsEnabled!==false) process.exit(2); console.log(JSON.stringify({phase:"baseline",totals:r.totals,retailers:r.retailers,silentBaselineRetailers:r.silentBaselineRetailers},null,2));'
 
       - name: Capture second shadow scan
@@ -41,7 +41,7 @@ jobs:
           ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
         run: |
           sleep 15
-          npm run one-piece:shadow -- --baseline="$RUNNER_TEMP/one-piece-shadow-1.json" > "$RUNNER_TEMP/one-piece-shadow-2.json"
+          node src/one-piece-shadow-report-cli.mjs --baseline="$RUNNER_TEMP/one-piece-shadow-1.json" > "$RUNNER_TEMP/one-piece-shadow-2.json"
           node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/one-piece-shadow-2.json","utf8")); if(r.mode!=="observation_only"||r.publicBrowseEnabled!==false||r.lifecycleAlertsEnabled!==false) process.exit(2); console.log(JSON.stringify({phase:"shadow",totals:r.totals,retailers:r.retailers,episodes:r.episodes},null,2));'
 
       - name: Build review checkpoint
