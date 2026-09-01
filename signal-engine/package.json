@@ -9,6 +9,7 @@
     "start": "node --import ./src/notifications/lifecycle-push-heartbeat.mjs src/server-production.mjs",
     "scan": "node src/scan-once.mjs",
     "telemetry:yield": "node src/signal-yield-report-cli.mjs",
+    "one-piece:shadow": "node src/one-piece-shadow-report-cli.mjs",
     "rrp:asmodee": "node src/rrp-sync-asmodee.mjs",
     "trader:catalogue": "node src/trader/catalogue/sync-all-cli.mjs",
     "trader:catalogue:compile": "node src/trader/catalogue/compile-snapshots-cli.mjs",
