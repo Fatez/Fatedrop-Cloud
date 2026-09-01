@@ -20,6 +20,7 @@ import { getBetaRuntimeReadiness, recordBetaRuntimeReadiness, refreshBetaRuntime
 import { getDiscordRouteHealth, refreshDiscordRouteHealth } from "./telemetry/discord-route-health.mjs";
 import { buildFateFindEvaluatorPreflight } from "./telemetry/fatefind-evaluator-preflight.mjs";
 import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
+import { loadSignalYieldReport } from "./telemetry/signal-yield-report.mjs";
 import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mjs";
 import { createRetailerRunId, recordRetailerRunFinish } from "./telemetry/retailer-runs.mjs";
 
@@ -37,6 +38,7 @@ const PRIVATE_DIAGNOSTIC_PATHS = new Set([
   "/api/website-snapshot-health",
   "/api/fatefind-evaluator-preflight",
   "/api/signal-health",
+  "/api/signal-yield",
 ]);
 const store = createStore();
 const retailers = await loadRuntimeRetailers({
@@ -195,6 +197,21 @@ server.on("request", async (req, res) => {
         "access-control-allow-origin": "*",
       });
       res.end(JSON.stringify(summary));
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/api/signal-yield") {
+      const hours = Math.max(1, Math.min(24 * 30, Number.parseInt(url.searchParams.get("hours") || "24", 10) || 24));
+      const report = await loadSignalYieldReport(store, {
+        hours,
+        configuredRetailers: retailers,
+        globalIntervalSeconds: env.scanIntervalSeconds,
+      });
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+        "access-control-allow-origin": "*",
+      });
+      res.end(JSON.stringify(report));
       return;
     }
     if (req.method === "GET" && url.pathname === "/api/retailers") {

@@ -1,0 +1,146 @@
+name: Monitor FateDrop Signal Starvation Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/monitor-signal-starvation-production.yml"
+      - "signal-engine/src/telemetry/signal-starvation-watch.mjs"
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  signal-starvation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out watchdog classifier
+        uses: actions/checkout@v4
+
+      - name: Fetch sanitized production signal summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://fatedrop-cloud-production.up.railway.app/api/signal-summary?days=2"
+          for attempt in 1 2 3; do
+            status="$(curl --silent --show-error --max-time 10 \
+              --output /tmp/signal-summary.json \
+              --write-out '%{http_code}' \
+              -H 'Accept: application/json' \
+              "$url" || true)"
+            if [ "$status" = "200" ] && node -e "const p=require('/tmp/signal-summary.json'); process.exit(p && typeof p==='object' ? 0 : 1)"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 5; fi
+          done
+          echo "Production signal summary could not be read after bounded retries."
+          exit 1
+
+      - name: Classify production starvation
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { classifySignalStarvation } from './signal-engine/src/telemetry/signal-starvation-watch.mjs';
+
+          const summary = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
+          const classification = classifySignalStarvation(summary);
+          fs.writeFileSync('/tmp/starvation-classification.json', JSON.stringify(classification, null, 2));
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `alert=${classification.shouldAlert === true ? 'true' : 'false'}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `status=${classification.status || 'unknown'}\n`);
+          console.log(JSON.stringify(classification));
+          NODE
+
+      - name: Open, refresh or close the production starvation issue
+        if: always() && steps.classify.outcome == 'success'
+        uses: actions/github-script@v7
+        env:
+          WATCH_ALERT: ${{ steps.classify.outputs.alert }}
+          WATCH_STATUS: ${{ steps.classify.outputs.status }}
+        with:
+          script: |
+            const fs = require('fs');
+            const title = '[P0] FateDrop production signal starvation';
+            const classification = JSON.parse(fs.readFileSync('/tmp/starvation-classification.json', 'utf8'));
+            const summary = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const existing = issues.find((issue) => !issue.pull_request && issue.title === title);
+            const alerting = process.env.WATCH_ALERT === 'true';
+            const status = process.env.WATCH_STATUS || 'unknown';
+
+            if (alerting) {
+              const minutes = Number.isFinite(Number(classification.silenceSeconds))
+                ? Math.round(Number(classification.silenceSeconds) / 60)
+                : null;
+              const percent = (value) => Number.isFinite(Number(value))
+                ? `${Math.round(Number(value) * 100)}%`
+                : 'unknown';
+              const body = [
+                'FateDrop production signal generation has crossed the starvation SLO.',
+                '',
+                `- Severity: **${status.toUpperCase()}**`,
+                `- Reason: \`${classification.reason}\``,
+                `- Signal silence: ${minutes == null ? 'unknown' : `${minutes} minutes`}`,
+                `- Active retailers: ${classification.activeRetailers ?? 'unknown'}`,
+                `- Fresh retailers: ${classification.freshRetailers ?? 'unknown'} (${percent(classification.freshCoverage)})`,
+                `- Blocked retailers: ${classification.blockedRetailers ?? 'unknown'} (${percent(classification.blockedCoverage)})`,
+                `- Degraded retailers: ${classification.degradedRetailers ?? 'unknown'} (${percent(classification.degradedCoverage)})`,
+                `- Latest signal epoch: ${classification.latestSignalAt ?? 'none in reliability window'}`,
+                `- Summary generated: ${summary.generatedAt || 'unknown'}`,
+                '',
+                'This watchdog is diagnostic only. It must not weaken lifecycle, identity, market, language, purchasability, deduplication or alert-delivery truth rules.',
+                '',
+                `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              ].join('\n');
+
+              if (existing) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: existing.number,
+                  body,
+                });
+              } else {
+                await github.rest.issues.create({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  title,
+                  body,
+                });
+              }
+              return;
+            }
+
+            if (status === 'healthy' && existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Production signal activity is back inside the starvation SLO. Closing automatically from workflow run ${context.runId}.`,
+              });
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                state: 'closed',
+              });
+            }
+
+      - name: Fail the watchdog run while starvation is active
+        if: steps.classify.outputs.alert == 'true'
+        shell: bash
+        run: |
+          cat /tmp/starvation-classification.json
+          exit 1
