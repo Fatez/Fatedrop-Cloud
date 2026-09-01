@@ -1,8 +1,12 @@
 import { createStore } from "../stores/index.mjs";
 import { additionalLaunchRetailers } from "./additional-launch-retailers.mjs";
+import { deduplicateRetailerCandidates } from "./discovery.mjs";
+import { ensureDiscoveryCandidatesInRegistry } from "./discovery-candidate-sync.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES, RRP_AUTHORITY, normalizeRetailerCandidate } from "./registry.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
 import { ensureStaticRetailersInRegistry } from "./static-registry-sync.mjs";
+import { ukRetailerDiscoverySeeds } from "./uk-discovery-seeds.mjs";
+import { ukRetailerNetwork100Seeds20260901 } from "./uk-retailer-network-100-2026-09-01.mjs";
 
 function compilePattern(value, field) {
   if (!value) throw new Error(`${field} is required for generic HTML runtime`);
@@ -77,6 +81,13 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
   if (typeof canonicalStore?.pool !== "function") throw new Error("Retailer registry runtime requires the canonical PostgreSQL store");
   const registry = new PostgresRetailerRegistry(databaseUrl, { poolProvider: () => canonicalStore.pool() });
   await ensureStaticRetailersInRegistry({ registry, staticRetailers: launch });
+  await ensureDiscoveryCandidatesInRegistry({
+    registry,
+    candidates: deduplicateRetailerCandidates([
+      ...ukRetailerDiscoverySeeds,
+      ...ukRetailerNetwork100Seeds20260901,
+    ]),
+  });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
   return selectRuntimeRetailers({ staticRetailers: launch, registryRetailers: monitored });
 }
