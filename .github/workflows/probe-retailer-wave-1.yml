@@ -10,56 +10,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Probe structured wave 1 retailers and inspect Shiny Vault
+      - name: Extract Shiny Vault product hook
         shell: bash
         run: |
           set -euo pipefail
           node <<'NODE'
-          const structured = [
-            ['The Card Vault', 'shopify', 'https://thecardvault.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250'],
-            ['Cob & Pip', 'shopify', 'https://cobandpip.co.uk/collections/pokemon-tcg-sealed-products/products.json?limit=250'],
-            ['Tritex Games', 'woo', 'https://www.tritex-games.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon'],
-            ["Trainer's Haven", 'woo', 'https://trainershaven.co.uk/wp-json/wc/store/v1/products?per_page=100&search=Pokemon'],
+          const base = 'https://shinyvault.co.uk/';
+          const candidates = [
+            'assets/useShopifyProducts-CC4yLbTQ.js',
+            'assets/ProductListing-DjI_PWGm.js',
+            'assets/query-D1_lVyFO.js',
           ];
-          const sealedPattern = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|premium|bundle|display|box\b|pack\b|poster|ultra premium/i;
-          const excludedPattern = /single|sleeve|binder|play\s?mat|toploader|graded|event ticket|league challenge|accessor/i;
-          for (const [name, type, url] of structured) {
+          for (const path of candidates) {
+            const url = new URL(path, base).toString();
             const r = await fetch(url, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
-            if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
-            const payload = await r.json();
-            const rows = type === 'shopify' ? payload.products : payload;
-            let sealed = 0, knownStock = 0;
-            for (const row of rows) {
-              const title = String(type === 'shopify' ? row?.title : row?.name || '');
-              if (sealedPattern.test(title) && !excludedPattern.test(title)) sealed += 1;
-              if (type === 'shopify') {
-                if ((row?.variants || []).some((v) => typeof v?.available === 'boolean')) knownStock += 1;
-              } else if (typeof row?.is_in_stock === 'boolean') knownStock += 1;
-            }
-            console.log(JSON.stringify({ retailer: name, type, url, products: rows.length, sealed, knownStock }));
-            if (!rows.length || !sealed || !knownStock) throw new Error(`${name}: unusable stock feed`);
-          }
-
-          const base = 'https://shinyvault.co.uk/collections/sealed';
-          const r = await fetch(base, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
-          const html = await r.text();
-          console.log(JSON.stringify({ retailer: 'Shiny Vault', status: r.status, htmlBytes: html.length }));
-          const scripts = [...html.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)]
-            .map((m) => new URL(m[1], base).toString());
-          const links = [...new Set([...html.matchAll(/(?:href|src)=["']([^"']+)["']/gi)].map((m) => new URL(m[1], base).toString()))];
-          console.log('SHINY_SCRIPTS=' + JSON.stringify(scripts.slice(0, 30)));
-          console.log('SHINY_INTERESTING_LINKS=' + JSON.stringify(links.filter((u) => /product|api|shopify|cdn|asset|next|supabase/i.test(u)).slice(0, 50)));
-          const inlineClues = [...new Set((html.match(/.{0,100}(?:shopify|supabase|\/api\/|products?|collections?).{0,160}/gi) || []))];
-          console.log('SHINY_INLINE_CLUES=' + JSON.stringify(inlineClues.slice(0, 30)));
-
-          for (const scriptUrl of scripts.slice(0, 20)) {
-            try {
-              const sr = await fetch(scriptUrl, { headers: { 'user-agent': 'FateDrop qualification probe/1.0' } });
-              if (!sr.ok) continue;
-              const js = await sr.text();
-              if (!/shopify|supabase|\/api\/|product/i.test(js)) continue;
-              const clues = [...new Set((js.match(/.{0,120}(?:shopify|supabase|\/api\/|products?|collections?).{0,180}/gi) || []))];
-              console.log('SHINY_SCRIPT_CLUES ' + scriptUrl + ' ' + JSON.stringify(clues.slice(0, 15)));
-            } catch {}
+            console.log(JSON.stringify({ url, status: r.status }));
+            if (!r.ok) continue;
+            const js = await r.text();
+            console.log('FILE ' + path + ' BYTES=' + js.length);
+            const clues = [...new Set(js.match(/.{0,180}(?:supabase|shopify|from\(|rpc\(|\/api\/|products?|collections?|inventory|available|stock).{0,260}/gi) || [])];
+            console.log('CLUES ' + path + '=' + JSON.stringify(clues.slice(0, 60)));
+            const urls = [...new Set(js.match(/https?:\\?\/\\?\/[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%\\-]+/g) || [])];
+            console.log('URLS ' + path + '=' + JSON.stringify(urls.slice(0, 30)));
           }
           NODE
