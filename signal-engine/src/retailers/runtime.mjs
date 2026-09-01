@@ -2,6 +2,7 @@ import { createStore } from "../stores/index.mjs";
 import { additionalLaunchRetailers } from "./additional-launch-retailers.mjs";
 import { deduplicateRetailerCandidates } from "./discovery.mjs";
 import { ensureDiscoveryCandidatesInRegistry } from "./discovery-candidate-sync.mjs";
+import { monitorRecoveryOverrides } from "./monitor-recovery-overrides.mjs";
 import { ADAPTER_TYPES, RETAILER_STATES, RRP_AUTHORITY, normalizeRetailerCandidate } from "./registry.mjs";
 import { PostgresRetailerRegistry } from "./postgres-registry.mjs";
 import { ensureStaticRetailersInRegistry } from "./static-registry-sync.mjs";
@@ -89,5 +90,8 @@ export async function loadRuntimeRetailers({ staticRetailers = [], registryEnabl
     ]),
   });
   const monitored = await registry.list({ states: [RETAILER_STATES.MONITORED], limit: 5000 });
-  return selectRuntimeRetailers({ staticRetailers: launch, registryRetailers: monitored });
+  return selectRuntimeRetailers({
+    staticRetailers: [...launch, ...monitorRecoveryOverrides],
+    registryRetailers: monitored,
+  });
 }
