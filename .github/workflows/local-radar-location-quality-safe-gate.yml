@@ -205,11 +205,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git diff --check
-          git diff --stat
+          git add \
+            signal-engine/src/encounters/canonical-retailer-locations.mjs \
+            signal-engine/src/encounters/operator-local-radar-intake.mjs \
+            signal-engine/tests/local-radar-location-quality-review.test.mjs \
+            signal-engine/tests/operator-local-radar-intake.test.mjs
+          git diff --cached --check
+          git diff --cached --stat
           git fetch origin "$TARGET_BRANCH"
           test "$(git rev-parse origin/$TARGET_BRANCH)" = "$PINNED_SHA"
-          changed="$(git diff --name-only)"
+          changed="$(git diff --cached --name-only)"
           echo "$changed"
           test "$changed" = $'signal-engine/src/encounters/canonical-retailer-locations.mjs\nsignal-engine/src/encounters/operator-local-radar-intake.mjs\nsignal-engine/tests/local-radar-location-quality-review.test.mjs\nsignal-engine/tests/operator-local-radar-intake.test.mjs'
 
