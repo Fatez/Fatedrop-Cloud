@@ -1,7 +1,7 @@
 import { normalizeWhitespace, stableId } from '../../core/normalize.mjs';
 
-const SET_CODE_PATTERN = /\b(OPK|OP|EB|PRB|ST|DP|LD)-?\s?(\d{1,2})\b/gi;
-const SEALED_EVIDENCE = /\b(?:booster (?:box|display|pack|case)|starter deck|double pack|gift collection|devil fruit collection|premium card collection|treasure booster set|deck collection|learn together deck set)\b/i;
+const SET_CODE_PATTERN = /\b(OPK|OP|EB|PRB|ST|DP|LD|IB|TS)-?\s?(\d{1,2})\b/gi;
+const SEALED_EVIDENCE = /\b(?:booster (?:box|display|pack|case)|starter deck|double pack|gift collection|devil fruit collection|premium card collection|treasure booster set|deck collection|learn together deck set|illustration box|tin pack set)\b/i;
 const NON_SEALED_EVIDENCE = /\b(?:single cards?|singles|graded|psa|cgc|bgs|opened|unsealed|empty box|mystery|break|rip and ship|accessor(?:y|ies)|sleeves?|binder|play\s?mat|deck box)\b/i;
 
 function unique(values) {
@@ -32,6 +32,8 @@ export function onePieceProductType(title = '') {
   if (/\bpremium card collection\b/.test(value)) return 'premium_card_collection';
   if (/\btreasure booster set\b/.test(value)) return 'treasure_booster_set';
   if (/\bdeck collection\b/.test(value)) return 'deck_collection';
+  if (/\billustration box\b/.test(value)) return 'illustration_box';
+  if (/\btin pack set\b/.test(value)) return 'tin_pack_set';
   return 'unknown';
 }
 
@@ -136,6 +138,6 @@ export function classifyOnePieceSealedOffer(product = {}, { retailerId = product
 }
 
 export const ONE_PIECE_SHADOW_FILTERS = Object.freeze({
-  include: /one piece|\b(?:OPK|OP|EB|PRB|ST|DP|LD)-?\s?\d{1,2}\b/i,
+  include: /one piece|\b(?:OPK|OP|EB|PRB|ST|DP|LD|IB|TS)-?\s?\d{1,2}\b/i,
   exclude: NON_SEALED_EVIDENCE,
 });
