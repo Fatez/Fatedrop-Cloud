@@ -29,8 +29,9 @@ export function classifySignalStarvation(summary, {
     };
   }
 
-  const generatedAt = Number.isFinite(Number(now))
-    ? Number(now)
+  const explicitNow = now == null ? null : Number(now);
+  const generatedAt = explicitNow != null && Number.isFinite(explicitNow)
+    ? explicitNow
     : Math.floor(Date.parse(String(summary.generatedAt || "")) / 1000);
   if (!Number.isFinite(generatedAt) || generatedAt <= 0) {
     return {
