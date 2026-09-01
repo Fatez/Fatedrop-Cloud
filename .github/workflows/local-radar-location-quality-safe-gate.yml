@@ -72,82 +72,12 @@ jobs:
           const NOW = Date.parse("2026-09-01T12:00:00Z");
 
           const rows = [
-            {
-              id: "tesco-parent",
-              retailerId: "tesco-uk",
-              provider: "official_retailer_directory",
-              providerId: "watford-extra",
-              name: "Tesco Extra Watford",
-              address: "Watford",
-              postcode: "WD17 1AA",
-              latitude: 51.656,
-              longitude: -0.395,
-              storeFormat: "superstore",
-              verification: "official_retailer_branch",
-              updatedAt: 2000,
-            },
-            {
-              id: "tesco-duplicate",
-              retailerId: "tesco-uk",
-              provider: "google_places",
-              providerId: "duplicate-watford",
-              name: "Tesco Extra Watford",
-              address: "Watford",
-              postcode: "WD17 1AA",
-              latitude: 51.65601,
-              longitude: -0.39501,
-              storeFormat: "superstore",
-              updatedAt: 1000,
-            },
-            {
-              id: "tesco-pharmacy",
-              retailerId: "tesco-uk",
-              provider: "google_places",
-              providerId: "watford-pharmacy",
-              name: "Tesco Watford Pharmacy",
-              address: "Tesco Extra Watford",
-              postcode: "WD17 1AA",
-              latitude: 51.65602,
-              longitude: -0.39502,
-              storeFormat: "pharmacy",
-            },
-            {
-              id: "tesco-petrol",
-              retailerId: "tesco-uk",
-              provider: "google_places",
-              providerId: "watford-petrol",
-              name: "Tesco Watford Petrol Station",
-              address: "Watford",
-              postcode: "WD17 1AA",
-              latitude: 51.6564,
-              longitude: -0.3954,
-              storeFormat: "petrol_station",
-            },
-            {
-              id: "tesco-unknown-format",
-              retailerId: "tesco-uk",
-              provider: "google_places",
-              providerId: "watford-unknown",
-              name: "Tesco Watford",
-              address: "Watford",
-              postcode: "WD18 0AA",
-              latitude: 51.66,
-              longitude: -0.40,
-              storeFormat: "unknown",
-            },
-            {
-              id: "tesco-closed",
-              retailerId: "tesco-uk",
-              provider: "official_retailer_directory",
-              providerId: "closed",
-              name: "Tesco Old Watford",
-              address: "Watford",
-              postcode: "WD19 0AA",
-              latitude: 51.67,
-              longitude: -0.41,
-              storeFormat: "superstore",
-              operationalStatus: "closed",
-            },
+            { id: "tesco-parent", retailerId: "tesco-uk", provider: "official_retailer_directory", providerId: "watford-extra", name: "Tesco Extra Watford", address: "Watford", postcode: "WD17 1AA", latitude: 51.656, longitude: -0.395, storeFormat: "superstore", verification: "official_retailer_branch", updatedAt: 2000 },
+            { id: "tesco-duplicate", retailerId: "tesco-uk", provider: "google_places", providerId: "duplicate-watford", name: "Tesco Extra Watford", address: "Watford", postcode: "WD17 1AA", latitude: 51.65601, longitude: -0.39501, storeFormat: "superstore", updatedAt: 1000 },
+            { id: "tesco-pharmacy", retailerId: "tesco-uk", provider: "google_places", providerId: "watford-pharmacy", name: "Tesco Watford Pharmacy", address: "Tesco Extra Watford", postcode: "WD17 1AA", latitude: 51.65602, longitude: -0.39502, storeFormat: "pharmacy" },
+            { id: "tesco-petrol", retailerId: "tesco-uk", provider: "google_places", providerId: "watford-petrol", name: "Tesco Watford Petrol Station", address: "Watford", postcode: "WD17 1AA", latitude: 51.6564, longitude: -0.3954, storeFormat: "petrol_station" },
+            { id: "tesco-unknown-format", retailerId: "tesco-uk", provider: "google_places", providerId: "watford-unknown", name: "Tesco Watford", address: "Watford", postcode: "WD18 0AA", latitude: 51.66, longitude: -0.40, storeFormat: "unknown" },
+            { id: "tesco-closed", retailerId: "tesco-uk", provider: "official_retailer_directory", providerId: "closed", name: "Tesco Old Watford", address: "Watford", postcode: "WD19 0AA", latitude: 51.67, longitude: -0.41, storeFormat: "superstore", operationalStatus: "closed" },
           ];
 
           test("duplicate branches are resolved before child services choose a canonical parent", () => {
@@ -167,39 +97,15 @@ jobs:
           });
 
           test("review report contains before/after counts, reasons, reconciliations, removed samples and fresh event-scoped Echo authority", async () => {
-            const store = {
-              async listRetailerLocations() { return rows; },
-            };
+            const store = { async listRetailerLocations() { return rows; } };
             const review = await buildCanonicalRetailerLocationQualityReview(store, {
               now: NOW,
-              echoEvents: [{
-                locationId: "tesco-parent",
-                sourceType: "official_retailer_page",
-                exactBranch: true,
-                chainWide: false,
-                explicitTcgRelevance: true,
-                productRelevant: true,
-                productIdentityId: "pokemon:test-product",
-                expiresAt: "2026-09-02T12:00:00Z",
-              }, {
-                locationId: "tesco-unknown-format",
-                sourceType: "official_retailer_page",
-                exactBranch: true,
-                explicitTcgRelevance: true,
-                productRelevant: true,
-                productIdentityId: "pokemon:test-product",
-                expiresAt: "2026-09-02T12:00:00Z",
-              }, {
-                locationId: "tesco-parent",
-                sourceType: "official_retailer_page",
-                exactBranch: true,
-                explicitTcgRelevance: true,
-                productRelevant: true,
-                productIdentityId: "pokemon:expired",
-                expiresAt: "2026-08-31T12:00:00Z",
-              }],
+              echoEvents: [
+                { locationId: "tesco-parent", sourceType: "official_retailer_page", exactBranch: true, chainWide: false, explicitTcgRelevance: true, productRelevant: true, productIdentityId: "pokemon:test-product", expiresAt: "2026-09-02T12:00:00Z" },
+                { locationId: "tesco-unknown-format", sourceType: "official_retailer_page", exactBranch: true, explicitTcgRelevance: true, productRelevant: true, productIdentityId: "pokemon:test-product", expiresAt: "2026-09-02T12:00:00Z" },
+                { locationId: "tesco-parent", sourceType: "official_retailer_page", exactBranch: true, explicitTcgRelevance: true, productRelevant: true, productIdentityId: "pokemon:expired", expiresAt: "2026-08-31T12:00:00Z" },
+              ],
             });
-
             assert.equal(review.retailers.length, 1);
             const tesco = review.retailers[0];
             assert.equal(tesco.retailerId, "tesco-uk");
@@ -238,7 +144,23 @@ jobs:
 
       - name: Full Signal Engine suite
         working-directory: signal-engine
-        run: npm test
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee ../local-radar-full-suite.log
+          status=${PIPESTATUS[0]}
+          echo "FULL_SUITE_EXIT=$status"
+          tail -n 160 ../local-radar-full-suite.log
+          exit "$status"
+
+      - name: Upload full-suite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-radar-full-suite-diagnostics
+          path: local-radar-full-suite.log
+          if-no-files-found: error
+          retention-days: 1
 
       - name: Inspect and pin final diff
         shell: bash
