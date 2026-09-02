@@ -8,7 +8,6 @@ import { compareGroups, rankGroups } from "../core/fate-verdict.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { commercialPricePence } from "../core/price-quality.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
-import { handleOperatorGlobalEchoRetractionHttp } from "./operator-global-echo-retraction-http.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
 import { getTcgCapability } from "../trader/tcg-registry.mjs";
@@ -389,7 +388,6 @@ export function createHttpServer({ store }) {
         });
         return res.end();
       }
-      if (await handleOperatorGlobalEchoRetractionHttp(req, res, { store, ingestAuthorized: authorizedApi, readJsonBody: readBody })) return;
       if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, service: "fatedrop-signal-engine", version: "0.2.0" });
       if (req.method === "GET" && url.pathname === "/api/status") {
         const [stats, retailerHealth] = await Promise.all([store.stats(), store.listRetailers()]);
