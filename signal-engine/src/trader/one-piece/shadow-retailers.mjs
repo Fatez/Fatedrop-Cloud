@@ -111,7 +111,6 @@ export const onePieceShadowRetailers = Object.freeze([
     skuPattern: /\/one-piece-card-game-([^/?#]+)/i,
     maxPages: 12,
     delayMs: 2200,
-    stencilTemplate: 'category/product-listing',
   }),
   genericHtmlShadowRetailer({
     id: 'chaos-cards',
