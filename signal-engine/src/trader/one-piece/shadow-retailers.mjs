@@ -109,7 +109,10 @@ export const onePieceShadowRetailers = Object.freeze([
     catalogueUrls: ['https://magicmadhouse.co.uk/one-piece-card-game/'],
     productUrlPattern: /magicmadhouse\.co\.uk\/one-piece-card-game-[a-z0-9][a-z0-9-]+\/?(?:\?.*)?$/i,
     skuPattern: /\/one-piece-card-game-([^/?#]+)/i,
-    maxPages: 12,
+    // The top-level One Piece catalogue is a valid public HTML surface, but
+    // later synthetic pagination can return a hard 404. Keep shadow discovery
+    // bounded to the proven root page rather than interpreting a 404 as stock.
+    maxPages: 1,
     delayMs: 2200,
   }),
   genericHtmlShadowRetailer({
