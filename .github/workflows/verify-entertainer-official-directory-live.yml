@@ -1,0 +1,42 @@
+name: Verify Entertainer official directory live
+
+on:
+  push:
+    branches:
+      - verify/entertainer-official-directory-live-2026-09-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-official-directory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Inspect official Toyshop directory discovery
+        run: |
+          node --input-type=module <<'NODE'
+          import { discoverToyshopBranchUrls } from './src/encounters/national-branch-directory-sync.mjs';
+          const rows = await discoverToyshopBranchUrls();
+          const entertainer = rows.filter((row) => row.retailerId === 'entertainer-uk');
+          const wanted = ['york', 'yate', 'yeovil'];
+          const matches = Object.fromEntries(wanted.map((needle) => [
+            needle,
+            entertainer.filter((row) => String(row.url || '').toLowerCase().includes(needle)).map((row) => ({ url: row.url, discoveryProvider: row.discoveryProvider }))
+          ]));
+          console.log(JSON.stringify({ total: rows.length, entertainer: entertainer.length, matches }, null, 2));
+          if (!wanted.some((needle) => matches[needle].length > 0)) {
+            throw new Error('Official Toyshop directory discovery did not reach any late Entertainer verification branch');
+          }
+          NODE
