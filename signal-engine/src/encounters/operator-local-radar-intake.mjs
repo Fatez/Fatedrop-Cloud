@@ -8,6 +8,10 @@ import {
   inspectCuratedIncomingIntelTargets,
   reconcileCuratedIncomingIntel,
 } from "./curated-incoming-intel-reconcile.mjs";
+import {
+  normalizeOperatorIssueSupersessionList,
+  supersedeOperatorPhysicalEchoObservations,
+} from "./operator-allocation-supersession.mjs";
 
 const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
@@ -191,9 +195,13 @@ export function parseOperatorIssue(issue, now = Date.now()) {
     : null;
   const issueNumber = Number(issue.number);
   if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error("Operator issue number is invalid");
+  const supersedesOperatorIssues = normalizeOperatorIssueSupersessionList(payload.supersedesOperatorIssues, issueNumber);
+  if (supersedesOperatorIssues.length && testOnly) throw new Error("TEST ONLY operator issues cannot supersede production allocation evidence");
+  if (supersedesOperatorIssues.length && availabilityScope !== "physical_branch") throw new Error("Only physical-branch operator allocations may supersede earlier allocation issues");
 
   return {
     issueNumber,
+    supersedesOperatorIssues,
     testOnly,
     eventId: testOnly ? `local-radar-operator-test:${issueNumber}` : `local-radar-operator:${issueNumber}`,
     availabilityScope,
@@ -410,6 +418,30 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
   const reconciliation = parsed.testOnly
     ? await inspectCuratedIncomingIntelTargets({ store, entries: [parsed.entry], now })
     : await reconcileCuratedIncomingIntel({ store, entries: [parsed.entry], now });
+  const supersessionRequested = !parsed.testOnly && parsed.supersedesOperatorIssues.length > 0;
+  const newEvidenceAvailable = reconciliation.matchedBranches > 0
+    && (Number(reconciliation.saved || 0) + Number(reconciliation.duplicates || 0)) > 0;
+  if (supersessionRequested && !newEvidenceAvailable) {
+    return {
+      status: "held",
+      testOnly: false,
+      eventId: parsed.eventId,
+      matchedBranches: reconciliation.matchedBranches,
+      expectedBranches: parsed.entry.targetBranches.length,
+      unmatchedTargets: reconciliation.unmatchedTargets,
+      supersession: { superseded: 0, operatorIssueNumbers: parsed.supersedesOperatorIssues, reason: "replacement_evidence_not_persisted" },
+      truthRule: `${reconciliation.truthRule} Earlier allocation evidence remains active because no replacement branch evidence was persisted.`,
+    };
+  }
+  const supersession = supersessionRequested
+    ? await supersedeOperatorPhysicalEchoObservations({
+        store,
+        retailerId: parsed.entry.retailerId,
+        operatorIssueNumbers: parsed.supersedesOperatorIssues,
+        supersededByOperatorIssue: parsed.issueNumber,
+        now,
+      })
+    : { superseded: 0, operatorIssueNumbers: [] };
   const notification = buildOperatorNotification(parsed, reconciliation);
   if (!notification) {
     return {
@@ -419,6 +451,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
       matchedBranches: reconciliation.matchedBranches,
       expectedBranches: parsed.entry.targetBranches.length,
       unmatchedTargets: reconciliation.unmatchedTargets,
+      supersession,
       truthRule: reconciliation.truthRule,
     };
   }
@@ -430,6 +463,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
       matchedBranches: reconciliation.matchedBranches,
       expectedBranches: parsed.entry.targetBranches.length,
       push: { published: false, reason: "radius_targeting_required" },
+      supersession,
       truthRule: `${reconciliation.truthRule} Physical interrupt delivery is held until recipient radius targeting is proven.`,
     };
   }
@@ -441,6 +475,7 @@ export async function processOperatorIssue({ issue, store, fetchImpl = fetch, no
     matchedBranches: reconciliation.matchedBranches,
     expectedBranches: parsed.entry.targetBranches.length,
     push,
+    supersession,
     truthRule: reconciliation.truthRule,
   };
 }
