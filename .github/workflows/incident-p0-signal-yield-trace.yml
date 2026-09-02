@@ -19,18 +19,18 @@ jobs:
       FATEDROP_SIGNAL_API_TOKEN: ${{ secrets.FATEDROP_SIGNAL_API_TOKEN }}
       FATEDROP_METRICS_INGEST_SECRET: ${{ secrets.FATEDROP_METRICS_INGEST_SECRET }}
     steps:
-      - name: Capture production signal summary and 12h yield
+      - name: Capture production signal trace
         shell: bash
         run: |
           set -euo pipefail
           base="https://fatedrop-cloud-production.up.railway.app"
 
-          public_status="$(curl --silent --show-error --max-time 15 \
-            --output /tmp/signal-summary.json \
-            --write-out '%{http_code}' \
-            -H 'Accept: application/json' \
-            "$base/api/signal-summary?days=2" || true)"
-          echo "public_summary_http_status=$public_status"
+          curl --silent --show-error --max-time 15 -H 'Accept: application/json' \
+            "$base/api/signal-summary?days=2" > /tmp/signal-summary.json
+          curl --silent --show-error --max-time 15 -H 'Accept: application/json' \
+            "$base/api/retailers" > /tmp/retailers.json
+          curl --silent --show-error --max-time 15 -H 'Accept: application/json' \
+            "$base/api/signals?limit=100" > /tmp/signals.json
 
           token="${FATEDROP_SIGNAL_API_TOKEN:-}"
           if [ -z "$token" ] && [ -n "${FATEDROP_METRICS_INGEST_SECRET:-}" ]; then
@@ -57,21 +57,50 @@ jobs:
 
           node <<'NODE'
           const fs = require('node:fs');
+          const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+          const summary = read('/tmp/signal-summary.json');
+          const retailerPayload = read('/tmp/retailers.json');
+          const signalPayload = read('/tmp/signals.json');
 
-          if (fs.existsSync('/tmp/signal-summary.json')) {
-            const summary = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
-            console.log('PUBLIC_SUMMARY');
-            console.log(JSON.stringify({
-              generatedAt: summary.generatedAt ?? null,
-              counts: summary.counts ?? null,
-              delivery: summary.delivery ?? null,
-              diagnostics: summary.diagnostics ?? null,
-              localRadarOperator: summary.localRadarOperator ?? null,
-            }, null, 2));
-          }
+          console.log('PUBLIC_SUMMARY');
+          console.log(JSON.stringify({
+            generatedAt: summary.generatedAt ?? null,
+            delivery: summary.delivery ?? null,
+            diagnostics: summary.diagnostics ?? null,
+            localRadarOperator: summary.localRadarOperator ?? null,
+          }, null, 2));
+
+          const retailers = Array.isArray(retailerPayload.retailers) ? retailerPayload.retailers : [];
+          console.log('PUBLIC_RETAILERS');
+          console.log(JSON.stringify(retailers.map((r) => ({
+            id: r.id,
+            name: r.name,
+            monitoring: r.monitoring ?? null,
+            health: r.health ?? null,
+            status: r.status ?? null,
+            failureClass: r.failureClass ?? null,
+            failureCode: r.failureCode ?? null,
+            lastScanAt: r.lastScanAt ?? null,
+            lastSuccessAt: r.lastSuccessAt ?? null,
+            baselineCompleted: r.baselineCompleted ?? null,
+          })), null, 2));
+
+          const signals = Array.isArray(signalPayload.signals) ? signalPayload.signals : [];
+          console.log('PUBLIC_LAST_SIGNALS');
+          console.log(JSON.stringify(signals.slice(0, 100).map((s) => ({
+            id: s.id,
+            tcgCode: s.tcgCode,
+            state: s.state,
+            retailerId: s.retailerId,
+            retailerName: s.retailerName,
+            title: s.title,
+            stockStatus: s.stockStatus,
+            detectedAt: s.detectedAt,
+            reason: s.reason,
+          })), null, 2));
 
           if (fs.existsSync('/tmp/signal-yield.json')) {
-            const report = JSON.parse(fs.readFileSync('/tmp/signal-yield.json', 'utf8'));
+            const report = read('/tmp/signal-yield.json');
             console.log('PRIVATE_SIGNAL_YIELD');
             console.log(JSON.stringify({
               available: report.available ?? null,
@@ -79,20 +108,7 @@ jobs:
               since: report.since ?? null,
               totals: report.totals ?? null,
               telemetryGaps: report.telemetryGaps ?? null,
-              retailers: Array.isArray(report.retailers) ? report.retailers.map((row) => ({
-                retailerId: row.retailerId,
-                retailerName: row.retailerName,
-                configured: row.configured,
-                scanner: row.scanner,
-                scans: row.scans,
-                discovery: row.discovery,
-                changes: row.changes,
-                candidates: row.candidates,
-                accepted: row.accepted,
-                canonicalSuppression: row.canonicalSuppression,
-                delivery: row.delivery,
-                health: row.health,
-              })) : [],
+              retailers: Array.isArray(report.retailers) ? report.retailers : [],
             }, null, 2));
           } else {
             console.log('PRIVATE_SIGNAL_YIELD unavailable: no repository diagnostic secret was usable.');
