@@ -24,19 +24,42 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Inspect official Toyshop directory discovery
+      - name: Parse exact official Entertainer branch pages
         run: |
           node --input-type=module <<'NODE'
-          import { discoverToyshopBranchUrls } from './src/encounters/national-branch-directory-sync.mjs';
-          const rows = await discoverToyshopBranchUrls();
-          const entertainer = rows.filter((row) => row.retailerId === 'entertainer-uk');
-          const wanted = ['york', 'yate', 'yeovil'];
-          const matches = Object.fromEntries(wanted.map((needle) => [
-            needle,
-            entertainer.filter((row) => String(row.url || '').toLowerCase().includes(needle)).map((row) => ({ url: row.url, discoveryProvider: row.discoveryProvider }))
-          ]));
-          console.log(JSON.stringify({ total: rows.length, entertainer: entertainer.length, matches }, null, 2));
-          if (!wanted.some((needle) => matches[needle].length > 0)) {
-            throw new Error('Official Toyshop directory discovery did not reach any late Entertainer verification branch');
+          import { parseOfficialBranchPage } from './src/encounters/national-branch-directory-sync.mjs';
+
+          const branches = [
+            { label: 'York', url: 'https://www.thetoyshop.com/store/york' },
+            { label: 'Yate', url: 'https://www.thetoyshop.com/store/yate' },
+            { label: 'Yeovil', url: 'https://www.thetoyshop.com/store/yeovil' },
+          ];
+
+          const results = [];
+          for (const branch of branches) {
+            try {
+              const parsed = await parseOfficialBranchPage({
+                url: branch.url,
+                retailerId: 'entertainer-uk',
+                provider: 'entertainer_official_directory',
+              });
+              results.push({ label: branch.label, url: branch.url, ...parsed });
+            } catch (error) {
+              results.push({ label: branch.label, url: branch.url, location: null, reason: String(error?.message || error) });
+            }
+          }
+
+          console.log(JSON.stringify(results, null, 2));
+          const valid = results.filter((row) =>
+            row.location
+            && row.location.retailerId === 'entertainer-uk'
+            && row.location.verification === 'official_retailer_branch'
+            && row.location.postcode
+            && Number.isFinite(row.location.latitude)
+            && Number.isFinite(row.location.longitude)
+          );
+
+          if (valid.length !== branches.length) {
+            throw new Error(`Exact official Entertainer branch parsing incomplete: ${valid.length}/${branches.length}`);
           }
           NODE
