@@ -148,7 +148,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const retailerName = text(payload.retailerName, 120);
   const rawProductTitle = text(payload.rawProductTitle, 220);
   const tcgCode = requireKnownTcg(text(payload.tcgCode, 80) || "pokemon").code;
-  const targetBranches = stringList(payload.targetBranches, 100, 180);
+  const targetBranches = stringList(payload.targetBranches, 500, 180);
   const availabilityScope = payload.availabilityScope === "online_retailer_readiness"
     ? "online_retailer_readiness"
     : "physical_branch";
