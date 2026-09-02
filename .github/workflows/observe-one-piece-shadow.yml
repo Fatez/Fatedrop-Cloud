@@ -1,0 +1,120 @@
+name: Observe One Piece Shadow
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+  pull_request:
+    paths:
+      - '.github/workflows/observe-one-piece-shadow.yml'
+      - 'signal-engine/src/one-piece-shadow-report-cli.mjs'
+      - 'signal-engine/src/trader/one-piece/**'
+      - 'signal-engine/src/adapters/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-piece-shadow-observation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: Observation-only One Piece shadow
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install Signal Engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Restore previous silent baseline
+        id: baseline-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .fatedrop/one-piece-shadow-baseline.json
+          key: one-piece-shadow-baseline-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            one-piece-shadow-baseline-${{ github.ref_name }}-
+
+      - name: Run observation-only shadow scan
+        env:
+          ONE_PIECE_SHADOW_OBSERVATION_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p .fatedrop
+          baseline_arg=()
+          if [[ -s .fatedrop/one-piece-shadow-baseline.json ]]; then
+            baseline_arg=("--baseline=../.fatedrop/one-piece-shadow-baseline.json")
+          fi
+          cd signal-engine
+          npm run one-piece:shadow -- "${baseline_arg[@]}" > ../.fatedrop/one-piece-shadow-report.json
+
+      - name: Preserve next baseline and publish summary
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const reportPath = '.fatedrop/one-piece-shadow-report.json';
+          const baselinePath = '.fatedrop/one-piece-shadow-baseline.json';
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          if (!report || report.mode !== 'observation_only') throw new Error('One Piece report left observation-only mode');
+          if (report.publicBrowseEnabled !== false) throw new Error('One Piece public browse unexpectedly enabled');
+          if (report.lifecycleAlertsEnabled !== false) throw new Error('One Piece lifecycle alerts unexpectedly enabled');
+          if (!report.baseline) throw new Error('One Piece shadow report did not return a baseline');
+
+          fs.writeFileSync(baselinePath, JSON.stringify({ baseline: report.baseline }, null, 2));
+
+          const retailers = Array.isArray(report.retailers) ? report.retailers : [];
+          const healthy = retailers.filter((row) => row.healthy === true).length;
+          const unhealthy = retailers.length - healthy;
+          const totals = report.totals || {};
+          const lines = [
+            '## One Piece shadow observation',
+            '',
+            `- Mode: **${report.mode}**`,
+            `- Public browse: **${report.publicBrowseEnabled ? 'ON' : 'OFF'}**`,
+            `- Lifecycle alerts: **${report.lifecycleAlertsEnabled ? 'ON' : 'OFF'}**`,
+            `- Retailers observed: **${retailers.length}**`,
+            `- Healthy: **${healthy}**`,
+            `- Unhealthy/held: **${unhealthy}**`,
+            `- Offers seen: **${totals.offersSeen || 0}**`,
+            `- Matched: **${totals.matched || 0}**`,
+            `- Unresolved: **${totals.unresolved || 0}**`,
+            `- Conflicting: **${totals.conflicting || 0}**`,
+            `- Shadow episodes: **${totals.episodes || 0}**`,
+            `- Silent baseline: **${report.silentBaseline === true ? 'yes' : 'no'}**`,
+            '',
+            'This workflow is observation-only. It does not publish canonical lifecycle alerts or enable public One Piece monitoring.',
+          ];
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
+          NODE
+
+      - name: Save silent baseline
+        if: always() && hashFiles('.fatedrop/one-piece-shadow-baseline.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .fatedrop/one-piece-shadow-baseline.json
+          key: one-piece-shadow-baseline-${{ github.ref_name }}-${{ github.run_id }}
+
+      - name: Upload observation report
+        if: always() && hashFiles('.fatedrop/one-piece-shadow-report.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-piece-shadow-report-${{ github.run_id }}
+          path: .fatedrop/one-piece-shadow-report.json
+          if-no-files-found: error
+          retention-days: 14
