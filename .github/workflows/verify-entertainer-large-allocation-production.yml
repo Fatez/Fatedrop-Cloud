@@ -1,0 +1,86 @@
+name: Verify Entertainer large allocation production
+
+on:
+  push:
+    branches:
+      - verify/entertainer-large-allocation-production-2026-09-02
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-local-radar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe post-100 Entertainer branches
+        shell: bash
+        run: |
+          node <<'NODE'
+          const base = 'https://fatedrop-cloud-production.up.railway.app/api/local-radar';
+          const probes = [
+            { label: 'York', latitude: 53.9590, longitude: -1.0815 },
+            { label: 'Yeovil', latitude: 50.9421, longitude: -2.6333 },
+            { label: 'Yate', latitude: 51.5402, longitude: -2.4135 },
+          ];
+
+          const allMatches = [];
+          for (const probe of probes) {
+            const url = new URL(base);
+            url.searchParams.set('latitude', String(probe.latitude));
+            url.searchParams.set('longitude', String(probe.longitude));
+            url.searchParams.set('radiusMiles', '15');
+            url.searchParams.set('types', 'shops');
+            url.searchParams.set('tcg', 'pokemon');
+
+            const response = await fetch(url, { signal: AbortSignal.timeout(20000) });
+            if (!response.ok) throw new Error(`${probe.label}: Local Radar returned HTTP ${response.status}`);
+            const data = await response.json();
+            if (data?.success !== true || !Array.isArray(data?.shops)) {
+              throw new Error(`${probe.label}: Local Radar response contract invalid`);
+            }
+
+            const matches = [];
+            for (const shop of data.shops) {
+              if (shop?.retailerId !== 'entertainer-uk') continue;
+              for (const product of Array.isArray(shop.localStockProducts) ? shop.localStockProducts : []) {
+                if (!/30th\s+celebration/i.test(String(product?.title || ''))) continue;
+                matches.push({
+                  probe: probe.label,
+                  branch: shop.name,
+                  distanceMiles: shop.distanceMiles,
+                  product: product.title,
+                  lifecycleState: product.lifecycleState,
+                  alertChannel: product.alertChannel,
+                  physicalEvidenceState: product.physicalEvidenceState,
+                  localState: product.localState,
+                  status: product.status,
+                  expectedLabel: product.expectedLabel,
+                  sourceUrl: product.sourceUrl,
+                });
+              }
+            }
+
+            console.log(JSON.stringify({
+              probe: probe.label,
+              shops: data.shops.length,
+              provider: data.providers?.localStock,
+              matches,
+            }, null, 2));
+            allMatches.push(...matches);
+          }
+
+          const valid = allMatches.filter((match) =>
+            match.lifecycleState === 'echo'
+            && match.alertChannel === 'echo'
+            && match.physicalEvidenceState === 'expected'
+            && match.localState === 'expected'
+          );
+
+          if (!valid.length) {
+            throw new Error('No post-100 Entertainer 30th Celebration Echo · Expected branch was returned by production Local Radar');
+          }
+
+          console.log('PRODUCTION_VERIFIED', JSON.stringify({ validMatches: valid }, null, 2));
+          NODE
