@@ -1,0 +1,56 @@
+name: Probe Entertainer official directory coverage
+
+on:
+  push:
+    branches:
+      - verify/entertainer-large-allocation-production-2026-09-02
+    paths:
+      - .github/workflows/probe-entertainer-official-directory.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe-official-directory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare official source and bounded fallback coverage
+        working-directory: signal-engine
+        run: |
+          node --input-type=module <<'NODE'
+          import {
+            TOYSHOP_STORE_FALLBACK_SEEDS,
+            crawlToyshopOfficialStoreGraph,
+            discoverToyshopBranchUrls,
+          } from './src/encounters/national-branch-directory-sync.mjs';
+
+          const late = /\/(?:york|yate|yeovil)$/i;
+          const summarize = (rows) => ({
+            count: rows.length,
+            providers: [...new Set(rows.map((row) => row.discoveryProvider).filter(Boolean))],
+            late: rows.filter((row) => late.test(new URL(row.url).pathname)).map((row) => row.url),
+            lastTen: rows.slice(-10).map((row) => row.url),
+          });
+
+          const official = await discoverToyshopBranchUrls({
+            fetchImpl: fetch,
+            fallbackDiscoveryLimit: 250,
+          });
+          console.log('OFFICIAL_DISCOVERY', JSON.stringify(summarize(official), null, 2));
+
+          const fallback120 = await crawlToyshopOfficialStoreGraph({
+            fetchImpl: fetch,
+            seeds: TOYSHOP_STORE_FALLBACK_SEEDS,
+            discoveryLimit: 120,
+          });
+          console.log('FALLBACK_120', JSON.stringify(summarize(fallback120), null, 2));
+
+          const fallback250 = await crawlToyshopOfficialStoreGraph({
+            fetchImpl: fetch,
+            seeds: TOYSHOP_STORE_FALLBACK_SEEDS,
+            discoveryLimit: 250,
+          });
+          console.log('FALLBACK_250', JSON.stringify(summarize(fallback250), null, 2));
+          NODE
