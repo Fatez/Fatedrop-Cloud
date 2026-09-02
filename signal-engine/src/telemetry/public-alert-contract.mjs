@@ -154,6 +154,20 @@ function observedDuration(seconds) {
   return hourRemainder ? `${days}d ${hourRemainder}h` : `${days}d`;
 }
 
+function notificationDuration(seconds) {
+  if (seconds == null || !Number.isFinite(seconds) || seconds < 0) return null;
+  const whole = Math.floor(seconds);
+  if (whole < 60) return `${whole}s`;
+  const roundedMinutes = Math.max(1, Math.round(whole / 60));
+  if (roundedMinutes < 60) return `${roundedMinutes}m`;
+  const hours = Math.floor(roundedMinutes / 60);
+  const minuteRemainder = roundedMinutes % 60;
+  if (hours < 24) return minuteRemainder ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const hourRemainder = hours % 24;
+  return hourRemainder ? `${days}d ${hourRemainder}h` : `${days}d`;
+}
+
 function liveWindow(row) {
   if (row.state === 'manifested') {
     const episodeAvailable = row.stock_episode_availability_state === 'available'
@@ -376,35 +390,37 @@ function notificationCopy(row, priceIntelligence, links, productIntelligence) {
   const price = pounds(row.price_pence);
   const rrp = pounds(priceIntelligence.rrpPence);
   const delta = priceIntelligence.rrpDeltaPercent;
-  const lines = [price ? `${row.retailer_name} · ${price}` : row.retailer_name];
-  if (stage === 'WHISPER') lines.push('Catalogue or product movement detected · stock is not confirmed');
-  if (stage === 'ECHO') lines.push('Queue, traffic or security readiness changed · get ready · stock is not confirmed');
-  if (stage === 'MANIFESTED') lines.push(signalKindFrom(row) === 'new_listing_live'
-    ? 'New verified retailer availability'
-    : 'Verified availability began at this retailer');
-  if (stage === 'VANISHED') {
-    lines.push('Observed availability is no longer verified');
-    const duration = observedDuration(row.observed_duration_seconds);
-    if (duration) lines.push(`Observed live for ${duration}`);
+  const retailerAndPrice = price ? `${row.retailer_name} · ${price}` : row.retailer_name;
+  let lines = [retailerAndPrice];
+
+  if (stage === 'WHISPER') {
+    lines.push('Product movement detected · Stock not confirmed');
+  } else if (stage === 'ECHO') {
+    const kind = signalKindFrom(row);
+    const activity = kind === 'queue'
+      ? 'Queue activity detected'
+      : kind === 'security'
+        ? 'Security activity detected'
+        : kind === 'access_blocked'
+          ? 'Retailer access changed'
+          : 'Retailer activity detected';
+    lines = [`${row.retailer_name} · ${activity}`, 'Possible drop approaching · Stock not confirmed'];
+  } else if (stage === 'MANIFESTED') {
+    const rrpComparison = !rrp || delta == null
+      ? null
+      : delta === 0
+        ? `At RRP (${rrp})`
+        : delta > 0
+          ? `${delta.toFixed(1)}% above RRP (${rrp})`
+          : `${Math.abs(delta).toFixed(1)}% below RRP (${rrp})`;
+    lines.push(`Verified online${rrpComparison ? ` · ${rrpComparison}` : ''}`);
+  } else if (stage === 'VANISHED') {
+    const duration = notificationDuration(row.observed_duration_seconds);
+    lines.push(`No longer verified${duration ? ` · Was live for ${duration}` : ''}`);
   }
-  if (rrp && delta != null) {
-    const direction = delta === 0 ? 'at RRP' : delta > 0 ? `${delta.toFixed(1)}% over RRP` : `${Math.abs(delta).toFixed(1)}% below RRP`;
-    lines.push(`${direction} · RRP ${rrp}`);
-  }
-  if (priceIntelligence.verdict === 'BETTER_OFFER_FOUND' && priceIntelligence.lowestKnown?.comparisonPricePence != null) {
-    const lowest = pounds(priceIntelligence.lowestKnown.comparisonPricePence);
-    const saving = pounds(priceIntelligence.savingsPence);
-    const basis = priceIntelligence.comparisonBasis === 'delivered' ? 'delivered' : 'item price';
-    lines.push(`Better offer: ${lowest} at ${priceIntelligence.lowestKnown.retailer}${saving ? ` · save ${saving}` : ''} · ${basis}`);
-  } else if (priceIntelligence.verdict === 'LOWEST_KNOWN') {
-    lines.push('FateDrop verdict: lowest known comparable offer');
-  } else if (stage === 'VANISHED' && links.alternatives.length) {
-    lines.push(`${links.alternatives.length} live alternative${links.alternatives.length === 1 ? '' : 's'} prepared`);
-  } else {
-    lines.push('FateDrop verdict: no fair price comparison yet');
-  }
+
   return {
-    title: `FateDrop · ${stageLabel} · ${row.title}`,
+    title: `${stageLabel} · ${row.title}`,
     body: lines.join('\n'),
     data: {
       route: 'alerts',
@@ -522,7 +538,7 @@ function toOperatorReadinessAlert(row) {
     intent: 'inspect',
     label: 'VIEW READINESS EVIDENCE',
   };
-  const body = `${productTitle} · ${expectedLabel}. This is readiness evidence, not confirmed stock.`;
+  const body = `${retailerName} · ${expectedLabel}\nPossible drop approaching · Stock not confirmed`;
   return {
     id,
     tcgCode,
@@ -611,7 +627,7 @@ function toOperatorReadinessAlert(row) {
       fateFindQuery: productTitle,
     },
     notification: {
-      title: 'FateDrop · Echo · Be ready',
+      title: `Echo · ${productTitle}`,
       body,
       data: {
         route: 'alerts',

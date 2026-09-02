@@ -177,7 +177,8 @@ test("authorised retailer-wide readiness movement publishes Echo without writing
     assert.equal(payload.availabilityScope, "online_retailer_readiness");
     assert.equal(payload.availabilityVerified, false);
     assert.equal(payload.tcgCode, "pokemon");
-    assert.match(payload.body, /not confirmed stock/);
+    assert.equal(payload.title, "Echo · Pokémon TCG: TEST Local Radar Incoming Stock");
+    assert.equal(payload.body, "The Entertainer · Traffic and access movement observed\nPossible drop approaching · Stock not confirmed");
   } finally {
     if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
     else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;

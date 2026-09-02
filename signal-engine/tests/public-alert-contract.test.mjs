@@ -159,7 +159,8 @@ test('manual online readiness is a durable inbox Echo without entering stock tru
     currentEpisodeState: null,
     canonicalSourceStage: null,
   });
-  assert.match(alert.notification.body, /not confirmed stock/);
+  assert.equal(alert.notification.title, 'Echo · Pokémon Center retailer movement');
+  assert.equal(alert.notification.body, 'Pokémon Center UK · Traffic movement observed\nPossible drop approaching · Stock not confirmed');
 });
 
 test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
@@ -261,11 +262,64 @@ test('event kinds explain activity without inventing another lifecycle engine', 
   })), { state: 'manifested', limit: 1 });
   assert.equal(newRetailer.opportunity.eventKind, 'new_retailer_available');
   assert.equal(newRetailer.opportunity.currentViewKind, 'still_available');
-  assert.match(newRetailer.notification.body, /New verified retailer availability/);
+  assert.match(newRetailer.notification.body, /Verified online/);
 
   const [echo] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({ state: 'echo' })), { state: 'echo', limit: 1 });
   assert.equal(echo.opportunity.eventKind, 'retailer_behaviour_changed');
   assert.equal(echo.opportunity.current, false);
+});
+
+test('lifecycle push copy is concise while preserving canonical alert truth', async () => {
+  const [manifested] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({
+    id: 'sig_manifested_copy',
+    state: 'manifested',
+    retailer_name: 'Card Collective UK',
+    title: 'Mega Dream ex',
+    price_pence: 1049,
+    canonical_rrp_pence: 253,
+    stock_episode_id: 'ep_manifested_copy',
+    stock_episode_availability_state: 'available',
+    stock_episode_manifested_at: 100,
+    stock_episode_vanished_at: null,
+    current_live_confirmation_at: 190,
+  })), { state: 'manifested', limit: 1 });
+  assert.equal(manifested.notification.title, 'Manifested · Mega Dream ex');
+  assert.equal(manifested.notification.body, 'Card Collective UK · £10.49\nVerified online · 314.6% above RRP (£2.53)');
+  assert.equal(manifested.priceIntelligence.rrpPence, 253);
+  assert.equal(manifested.priceIntelligence.rrpDeltaPercent, 314.6);
+  assert.equal(manifested.notification.data.verdict, manifested.priceIntelligence.verdict);
+
+  const [vanished] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({
+    id: 'sig_vanished_copy',
+    retailer_name: 'Magic Madhouse',
+    title: 'Trick or Trade',
+    price_pence: 275,
+    observed_duration_seconds: 2754,
+  })), { state: 'vanished', limit: 1 });
+  assert.equal(vanished.notification.title, 'Vanished · Trick or Trade');
+  assert.equal(vanished.notification.body, 'Magic Madhouse · £2.75\nNo longer verified · Was live for 46m');
+  assert.equal(vanished.notification.data.observedDurationSeconds, 2754);
+  assert.equal(vanished.liveWindow.observedDurationSeconds, 2754);
+
+  const [whisper] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({
+    id: 'sig_whisper_copy',
+    state: 'whisper',
+    retailer_name: 'Chaos Cards',
+    title: 'Upcoming Collection',
+  })), { state: 'whisper', limit: 1 });
+  assert.equal(whisper.notification.title, 'Whisper · Upcoming Collection');
+  assert.equal(whisper.notification.body, 'Chaos Cards · £49.99\nProduct movement detected · Stock not confirmed');
+
+  const [echo] = await listCanonicalPublicAlerts(storeReturning(vanishedRow({
+    id: 'sig_echo_copy',
+    state: 'echo',
+    retailer_name: 'Pokémon Center UK',
+    title: 'Retailer readiness',
+    evidence: [{ kind: 'signal_kind', value: 'queue' }],
+  })), { state: 'echo', limit: 1 });
+  assert.equal(echo.notification.title, 'Echo · Retailer readiness');
+  assert.equal(echo.notification.body, 'Pokémon Center UK · Queue activity detected\nPossible drop approaching · Stock not confirmed');
+  assert.equal(echo.availabilityTruth.signalClaimsAvailability, false);
 });
 
 test('current opportunity mode is enforced inside Cloud SQL and orders by fresh verification', async () => {
