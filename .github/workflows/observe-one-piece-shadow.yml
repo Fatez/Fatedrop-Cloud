@@ -43,13 +43,12 @@ jobs:
         run: npm ci
 
       - name: Restore previous silent baseline
-        id: baseline-restore
         uses: actions/cache/restore@v4
         with:
           path: .fatedrop/one-piece-shadow-baseline.json
-          key: one-piece-shadow-baseline-${{ github.ref_name }}-${{ github.run_id }}
+          key: one-piece-shadow-baseline-v1-${{ github.run_id }}
           restore-keys: |
-            one-piece-shadow-baseline-${{ github.ref_name }}-
+            one-piece-shadow-baseline-v1-
 
       - name: Run observation-only shadow scan
         env:
@@ -62,7 +61,7 @@ jobs:
             baseline_arg=("--baseline=../.fatedrop/one-piece-shadow-baseline.json")
           fi
           cd signal-engine
-          npm run one-piece:shadow -- "${baseline_arg[@]}" > ../.fatedrop/one-piece-shadow-report.json
+          node src/one-piece-shadow-report-cli.mjs "${baseline_arg[@]}" > ../.fatedrop/one-piece-shadow-report.json
 
       - name: Preserve next baseline and publish summary
         run: |
@@ -108,7 +107,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .fatedrop/one-piece-shadow-baseline.json
-          key: one-piece-shadow-baseline-${{ github.ref_name }}-${{ github.run_id }}
+          key: one-piece-shadow-baseline-v1-${{ github.run_id }}
 
       - name: Upload observation report
         if: always() && hashFiles('.fatedrop/one-piece-shadow-report.json') != ''
