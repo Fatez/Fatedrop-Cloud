@@ -25,17 +25,61 @@ function run(products, { complete = true } = {}) {
   return { retailer, result: { products, complete } };
 }
 
-test('five UK One Piece retailers remain disabled, unapproved and observation-only', () => {
-  assert.equal(onePieceShadowRetailers.length, 5);
-  assert.equal(new Set(onePieceShadowRetailers.map((entry) => entry.id)).size, 5);
+test('expanded UK One Piece shadow network remains disabled, unapproved and observation-only', () => {
+  const expectedIds = [
+    'cob-and-pip',
+    'lz-collectibles',
+    'card-goblin',
+    'the-card-club-uk',
+    'shake-central',
+    'magic-madhouse',
+    'chaos-cards',
+    'double-sleeved',
+    'total-cards',
+    'titan-cards',
+    'eterna-cards',
+    'jet-cards',
+    'gathering-games',
+    'zatu-games',
+  ];
+
+  assert.equal(onePieceShadowRetailers.length, expectedIds.length);
+  assert.deepEqual(onePieceShadowRetailers.map((entry) => entry.id), expectedIds);
+  assert.equal(new Set(onePieceShadowRetailers.map((entry) => entry.id)).size, expectedIds.length);
+
   for (const entry of onePieceShadowRetailers) {
     assert.equal(entry.tcg, 'one-piece');
+    assert.deepEqual(entry.tcgs, ['one-piece']);
     assert.equal(entry.enabled, false);
     assert.equal(entry.observationOnly, true);
+    assert.equal(entry.rrpAuthority, 'none');
+    assert.equal(entry.officialRrpSource, false);
     assert.equal(entry.catalogue.feedApproved, false);
     assert.equal(entry.catalogue.marketCountry, 'GB');
-    assert.match(entry.catalogue.feedUrl, /\/collections\/.+\/products\.json\?limit=250$/);
+
+    if (entry.catalogue.feedUrl) {
+      assert.match(entry.catalogue.feedUrl, /\/collections\/.+\/products\.json\?limit=250$/);
+    } else {
+      assert.ok(Array.isArray(entry.catalogueUrls));
+      assert.ok(entry.catalogueUrls.length > 0);
+    }
   }
+});
+
+test('existing FateDrop retailer identities are projected into One Piece shadow without changing their IDs', () => {
+  const expectedSharedIds = [
+    'magic-madhouse',
+    'chaos-cards',
+    'double-sleeved',
+    'total-cards',
+    'titan-cards',
+    'eterna-cards',
+    'jet-cards',
+    'gathering-games',
+    'zatu-games',
+  ];
+  const ids = new Set(onePieceShadowRetailers.map((entry) => entry.id));
+  for (const id of expectedSharedIds) assert.equal(ids.has(id), true, `${id} should reuse the canonical retailer identity`);
 });
 
 test('the first successful retailer observation creates a silent baseline with no alert surface', () => {
