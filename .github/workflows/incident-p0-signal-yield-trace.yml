@@ -1,0 +1,100 @@
+name: P0 Signal Starvation Yield Trace
+
+on:
+  push:
+    branches:
+      - diag/p0-signal-starvation-trace-2026-09-02
+    paths:
+      - ".github/workflows/incident-p0-signal-yield-trace.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FATEDROP_SIGNAL_API_TOKEN: ${{ secrets.FATEDROP_SIGNAL_API_TOKEN }}
+      FATEDROP_METRICS_INGEST_SECRET: ${{ secrets.FATEDROP_METRICS_INGEST_SECRET }}
+    steps:
+      - name: Capture production signal summary and 12h yield
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://fatedrop-cloud-production.up.railway.app"
+
+          public_status="$(curl --silent --show-error --max-time 15 \
+            --output /tmp/signal-summary.json \
+            --write-out '%{http_code}' \
+            -H 'Accept: application/json' \
+            "$base/api/signal-summary?days=2" || true)"
+          echo "public_summary_http_status=$public_status"
+
+          token="${FATEDROP_SIGNAL_API_TOKEN:-}"
+          if [ -z "$token" ] && [ -n "${FATEDROP_METRICS_INGEST_SECRET:-}" ]; then
+            token="$(node <<'NODE'
+          const crypto = require('node:crypto');
+          const secret = process.env.FATEDROP_METRICS_INGEST_SECRET || '';
+          process.stdout.write(secret
+            ? crypto.createHmac('sha256', secret).update('fatedrop:private-diagnostics:v1').digest('hex')
+            : '');
+          NODE
+          )"
+          fi
+
+          yield_status="000"
+          if [ -n "$token" ]; then
+            yield_status="$(curl --silent --show-error --max-time 20 \
+              --output /tmp/signal-yield.json \
+              --write-out '%{http_code}' \
+              -H 'Accept: application/json' \
+              -H "Authorization: Bearer $token" \
+              "$base/api/signal-yield?hours=12" || true)"
+          fi
+          echo "private_yield_http_status=$yield_status"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          if (fs.existsSync('/tmp/signal-summary.json')) {
+            const summary = JSON.parse(fs.readFileSync('/tmp/signal-summary.json', 'utf8'));
+            console.log('PUBLIC_SUMMARY');
+            console.log(JSON.stringify({
+              generatedAt: summary.generatedAt ?? null,
+              counts: summary.counts ?? null,
+              delivery: summary.delivery ?? null,
+              diagnostics: summary.diagnostics ?? null,
+              localRadarOperator: summary.localRadarOperator ?? null,
+            }, null, 2));
+          }
+
+          if (fs.existsSync('/tmp/signal-yield.json')) {
+            const report = JSON.parse(fs.readFileSync('/tmp/signal-yield.json', 'utf8'));
+            console.log('PRIVATE_SIGNAL_YIELD');
+            console.log(JSON.stringify({
+              available: report.available ?? null,
+              generatedAt: report.generatedAt ?? null,
+              since: report.since ?? null,
+              totals: report.totals ?? null,
+              telemetryGaps: report.telemetryGaps ?? null,
+              retailers: Array.isArray(report.retailers) ? report.retailers.map((row) => ({
+                retailerId: row.retailerId,
+                retailerName: row.retailerName,
+                configured: row.configured,
+                scanner: row.scanner,
+                scans: row.scans,
+                discovery: row.discovery,
+                changes: row.changes,
+                candidates: row.candidates,
+                accepted: row.accepted,
+                canonicalSuppression: row.canonicalSuppression,
+                delivery: row.delivery,
+                health: row.health,
+              })) : [],
+            }, null, 2));
+          } else {
+            console.log('PRIVATE_SIGNAL_YIELD unavailable: no repository diagnostic secret was usable.');
+          }
+          NODE
