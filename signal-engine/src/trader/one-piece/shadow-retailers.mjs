@@ -172,7 +172,7 @@ export const onePieceShadowRetailers = Object.freeze([
     id: 'zatu-games',
     name: 'Zatu Games',
     baseUrl: 'https://zatu.com/',
-    collection: '/collections/one-piece-card-game',
+    collection: '/collections/one-piece',
     retailerClass: RETAILER_CLASSES.SPECIALIST,
     maxPages: 4,
     delayMs: 2500,
