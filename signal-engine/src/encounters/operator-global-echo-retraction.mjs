@@ -79,17 +79,34 @@ async function requireOwnerRole(client, userId) {
   return cleanUserId;
 }
 
-export async function readManualGlobalEchoRetraction({ store, eventId }) {
+function normalizeEventIds(eventIds) {
+  if (!Array.isArray(eventIds)) return [];
+  return [...new Set(eventIds.map((value) => cleanText(value, 180)).filter(Boolean))].slice(0, 100);
+}
+
+export async function readManualGlobalEchoRetractions({ store, eventIds }) {
   if (!store || typeof store.pool !== "function") throw taggedError("STORE_REQUIRED", "Canonical store is required.");
-  const targetEventId = cleanText(eventId, 180);
-  const retractionId = operatorEchoRetractionId(targetEventId);
-  if (!targetEventId || !retractionId) throw taggedError("EVENT_REQUIRED", "Echo event id is required.");
+  const targets = normalizeEventIds(eventIds);
+  if (!targets.length) return new Map();
+  const retractionIds = targets.map(operatorEchoRetractionId);
   const pool = await store.pool();
   const { rows } = await pool.query(
-    "SELECT id,kind,occurred_at,evidence_json FROM fatedrop_signal_events WHERE id=$1 AND kind=$2 LIMIT 1",
-    [retractionId, RETRACTION_KIND],
+    "SELECT id,kind,occurred_at,evidence_json FROM fatedrop_signal_events WHERE kind=$1 AND id=ANY($2::text[])",
+    [RETRACTION_KIND, retractionIds],
   );
-  return parseOperatorEchoRetraction(rows[0], targetEventId);
+  const byTarget = new Map();
+  for (const row of rows) {
+    const retraction = parseOperatorEchoRetraction(row);
+    if (retraction && targets.includes(retraction.targetEventId)) byTarget.set(retraction.targetEventId, retraction);
+  }
+  return byTarget;
+}
+
+export async function readManualGlobalEchoRetraction({ store, eventId }) {
+  const targetEventId = cleanText(eventId, 180);
+  if (!targetEventId) throw taggedError("EVENT_REQUIRED", "Echo event id is required.");
+  const retractions = await readManualGlobalEchoRetractions({ store, eventIds: [targetEventId] });
+  return retractions.get(targetEventId) || null;
 }
 
 export async function retractManualGlobalEcho({ store, eventId, reason, retractedBy, now = Date.now() }) {
