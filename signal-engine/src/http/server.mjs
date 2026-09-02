@@ -8,6 +8,7 @@ import { compareGroups, rankGroups } from "../core/fate-verdict.mjs";
 import { recordRetailerReadiness } from "../core/network-readiness.mjs";
 import { commercialPricePence } from "../core/price-quality.mjs";
 import { buildRrpValueContext, resolveRrpValue } from "../core/rrp-value-reference.mjs";
+import { handleOperatorGlobalEchoRetractionHttp } from "./operator-global-echo-retraction-http.mjs";
 import { publishWebsiteSnapshot } from "../notifications/website.mjs";
 import { syncAsmodeeRrp } from "../rrp/asmodee-authority.mjs";
 import { getTcgCapability } from "../trader/tcg-registry.mjs";
@@ -104,7 +105,7 @@ async function resolveSelectedConfigurationGroup(store, productId, tcgCode) {
     title: product.title,
     productType: product.productType,
     tcg: product.tcg || "pokemon",
-    linkedProduct: product,
+    linkedProduct,
   }, rrpContext);
   return productConfigurationGroup(product, rrp);
 }
@@ -267,8 +268,6 @@ async function appTruePrice(store, url) {
     if (!["in_stock", "low_stock", "preorder"].includes(offer.stockStatus)) continue;
     if (q && searchMatchScore(q, { title: offer.title, sku: offer.retailerSku }) <= 0) continue;
 
-    // £0 / £0.01 and any other non-commercial observations remain available to
-    // monitoring intelligence, but cannot enter True Price or Fate Verdict.
     const canonicalPricePence = commercialPricePence(offer.pricePence);
     if (!Number.isFinite(canonicalPricePence)) continue;
 
@@ -345,15 +344,8 @@ async function appFateVerdict(store, req, body) {
 
   let leftGroup = leftId ? truePrice.groups.find((group) => group.id === leftId) || null : null;
   let rightGroup = rightId ? truePrice.groups.find((group) => group.id === rightId) || null : null;
-
-  // A selected configuration can disappear from the live-offer group list between
-  // the App loading the selector and the head-to-head request (for example, a scan
-  // confirms it just sold out). Preserve the canonical configuration identity so
-  // the authoritative reason becomes NO_QUALIFYING_LIVE_OFFERS, not a false
-  // IDENTITY_UNRESOLVED. This does not make an out-of-stock offer eligible.
   if (leftId && !leftGroup) leftGroup = await resolveSelectedConfigurationGroup(store, leftId, tcgCode);
   if (rightId && !rightGroup) rightGroup = await resolveSelectedConfigurationGroup(store, rightId, tcgCode);
-
   const pairVerdict = leftId && rightId ? compareGroups(leftGroup, rightGroup) : null;
 
   return {
@@ -367,10 +359,7 @@ async function appFateVerdict(store, req, body) {
     pairVerdict,
     source: "FATEDROP_CLOUD",
     rulesVersion: "fate-verdict-v2",
-    runtime: {
-      gitCommitSha: process.env.RAILWAY_GIT_COMMIT_SHA || null,
-      deploymentId: process.env.RAILWAY_DEPLOYMENT_ID || null,
-    },
+    runtime: { gitCommitSha: process.env.RAILWAY_GIT_COMMIT_SHA || null, deploymentId: process.env.RAILWAY_DEPLOYMENT_ID || null },
     disclaimer: "RRP/reference percentage uses commercial item price against the verified value baseline. True Price adds known mandatory delivery; unknown delivery remains unknown and never becomes £0.",
     notice: "Canonical FateDrop Cloud verdict is live.",
   };
@@ -388,34 +377,17 @@ export function createHttpServer({ store }) {
         });
         return res.end();
       }
+      if (await handleOperatorGlobalEchoRetractionHttp(req, res, { store, ingestAuthorized: authorizedApi, readJsonBody: readBody })) return;
       if (req.method === "GET" && url.pathname === "/health") return json(res, 200, { ok: true, service: "fatedrop-signal-engine", version: "0.2.0" });
       if (req.method === "GET" && url.pathname === "/api/status") {
         const [stats, retailerHealth] = await Promise.all([store.stats(), store.listRetailers()]);
-        return json(res, 200, {
-          success: true,
-          monitor: {
-            baselineComplete: retailerHealth.some((item) => item.baselineCompleted),
-            productsTracked: stats.productsTracked,
-            offersTracked: stats.offersTracked,
-            currentlyAvailable: stats.currentlyAvailable,
-            retailers: retailerHealth.length,
-          },
-          state: { retailers: retailerHealth },
-        });
+        return json(res, 200, { success: true, monitor: { baselineComplete: retailerHealth.some((item) => item.baselineCompleted), productsTracked: stats.productsTracked, offersTracked: stats.offersTracked, currentlyAvailable: stats.currentlyAvailable, retailers: retailerHealth.length }, state: { retailers: retailerHealth } });
       }
       if (req.method === "GET" && url.pathname === "/api/catalogue") return json(res, 200, await appCatalogue(store, url));
       if (req.method === "GET" && url.pathname === "/api/true-price") return json(res, 200, await appTruePrice(store, url));
       if (req.method === "POST" && url.pathname === "/api/fatefind/matches") {
         const body = await readBody(req);
-        if (body?.mode !== "verdict") {
-          return json(res, 400, {
-            success: false,
-            mode: "verdict",
-            source: "FATEDROP_CLOUD",
-            error: "INVALID_VERDICT_MODE",
-            reason: "mode must be verdict",
-          });
-        }
+        if (body?.mode !== "verdict") return json(res, 400, { success: false, mode: "verdict", source: "FATEDROP_CLOUD", error: "INVALID_VERDICT_MODE", reason: "mode must be verdict" });
         return json(res, 200, await appFateVerdict(store, req, body));
       }
       if (req.method === "GET" && url.pathname === "/api/signals") {
@@ -427,76 +399,20 @@ export function createHttpServer({ store }) {
         const signals = raw.map(publicSignal).filter(Boolean).slice(0, limit);
         return json(res, 200, { success: true, count: signals.length, generatedAt: new Date().toISOString(), signals });
       }
-      if (req.method === "GET" && url.pathname === "/v1/network") {
-        if (!authorizedApi(req)) return unauthorized(res);
-        return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), stats: await store.stats(), retailers: await store.listRetailers() });
-      }
-      if (req.method === "GET" && url.pathname === "/v1/retailers") {
-        if (!authorizedApi(req)) return unauthorized(res);
-        return json(res, 200, { retailers: await store.listRetailers() });
-      }
-      if (req.method === "GET" && url.pathname === "/v1/network/history") {
-        if (!authorizedApi(req)) return unauthorized(res);
-        const limit = Math.max(1, Math.min(180, Number.parseInt(url.searchParams.get("limit") || "30", 10)));
-        return json(res, 200, { snapshots: await store.listNetworkSnapshots(limit) });
-      }
-      if (req.method === "GET" && url.pathname === "/v1/signals") {
-        if (!authorizedApi(req)) return unauthorized(res);
-        const limit = Math.max(1, Math.min(250, Number.parseInt(url.searchParams.get("limit") || "100", 10)));
-        const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10));
-        const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit });
-        return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), signals });
-      }
+      if (req.method === "GET" && url.pathname === "/v1/network") { if (!authorizedApi(req)) return unauthorized(res); return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), stats: await store.stats(), retailers: await store.listRetailers() }); }
+      if (req.method === "GET" && url.pathname === "/v1/retailers") { if (!authorizedApi(req)) return unauthorized(res); return json(res, 200, { retailers: await store.listRetailers() }); }
+      if (req.method === "GET" && url.pathname === "/v1/network/history") { if (!authorizedApi(req)) return unauthorized(res); const limit = Math.max(1, Math.min(180, Number.parseInt(url.searchParams.get("limit") || "30", 10))); return json(res, 200, { snapshots: await store.listNetworkSnapshots(limit) }); }
+      if (req.method === "GET" && url.pathname === "/v1/signals") { if (!authorizedApi(req)) return unauthorized(res); const limit = Math.max(1, Math.min(250, Number.parseInt(url.searchParams.get("limit") || "100", 10))); const since = Math.max(0, Number.parseInt(url.searchParams.get("since") || "0", 10)); const signals = await store.listSignals({ states: parseCsv(url.searchParams.get("state")), retailerIds: parseCsv(url.searchParams.get("retailer")), since, limit }); return json(res, 200, { generatedAt: Math.floor(Date.now() / 1000), signals }); }
       if (req.method === "POST" && url.pathname === "/internal/network-state") {
         if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
-        const body = await readBody(req);
-        const retailer = retailers.find((item) => item.id === body.retailerId);
-        if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
-        const result = await recordRetailerReadiness({
-          retailer,
-          store,
-          state: String(body.state || ""),
-          previousState: body.previousState ? String(body.previousState) : null,
-          observedAt: Number.isFinite(body.observedAt) ? Math.trunc(body.observedAt) : Math.floor(Date.now() / 1000),
-          evidence: Array.isArray(body.evidence) ? body.evidence : [],
-        });
+        const body = await readBody(req); const retailer = retailers.find((item) => item.id === body.retailerId); if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
+        const result = await recordRetailerReadiness({ retailer, store, state: String(body.state || ""), previousState: body.previousState ? String(body.previousState) : null, observedAt: Number.isFinite(body.observedAt) ? Math.trunc(body.observedAt) : Math.floor(Date.now() / 1000), evidence: Array.isArray(body.evidence) ? body.evidence : [] });
         return json(res, 200, { result });
       }
-      if (req.method === "POST" && url.pathname === "/internal/rrp/asmodee-sync") {
-        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
-        if (!env.databaseUrl) return json(res, 503, { error: "DATABASE_URL is not configured" });
-        const result = await syncAsmodeeRrp({ databaseUrl: env.databaseUrl });
-        return json(res, 200, { success: true, result });
-      }
-      if (req.method === "POST" && url.pathname === "/internal/scan") {
-        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
-        const body = await readBody(req);
-        const selected = body.retailerIds?.length ? retailers.filter((item) => body.retailerIds.includes(item.id)) : retailers;
-        const results = await scanAll({ retailers: selected, store });
-        const website = await publishWebsiteSnapshot({ store });
-        return json(res, 200, { results, website });
-      }
-      if (req.method === "POST" && url.pathname === "/internal/discovery-observations") {
-        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
-        const body = await readBody(req);
-        const retailer = retailers.find((item) => item.id === body.retailerId);
-        if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
-        const observations = Array.isArray(body.observations) ? body.observations : [];
-        if (!observations.length) return json(res, 400, { error: "observations must be a non-empty array" });
-        const result = await ingestRetailerDiscoveryObservations({ retailer, store, observations });
-        const website = await publishWebsiteSnapshot({ store });
-        return json(res, 200, { result, website });
-      }
-      if (req.method === "POST" && url.pathname === "/internal/ingest") {
-        if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res);
-        const body = await readBody(req);
-        const retailer = retailers.find((item) => item.id === body.retailerId);
-        if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" });
-        if (!Array.isArray(body.products) || body.products.length === 0) return json(res, 400, { error: "products must be a non-empty array" });
-        const result = await ingestRetailerProducts({ retailer, store, products: body.products });
-        const website = await publishWebsiteSnapshot({ store });
-        return json(res, 200, { result, website });
-      }
+      if (req.method === "POST" && url.pathname === "/internal/rrp/asmodee-sync") { if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res); if (!env.databaseUrl) return json(res, 503, { error: "DATABASE_URL is not configured" }); const result = await syncAsmodeeRrp({ databaseUrl: env.databaseUrl }); return json(res, 200, { success: true, result }); }
+      if (req.method === "POST" && url.pathname === "/internal/scan") { if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res); const body = await readBody(req); const selected = body.retailerIds?.length ? retailers.filter((item) => body.retailerIds.includes(item.id)) : retailers; const results = await scanAll({ retailers: selected, store }); const website = await publishWebsiteSnapshot({ store }); return json(res, 200, { results, website }); }
+      if (req.method === "POST" && url.pathname === "/internal/discovery-observations") { if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res); const body = await readBody(req); const retailer = retailers.find((item) => item.id === body.retailerId); if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" }); const observations = Array.isArray(body.observations) ? body.observations : []; if (!observations.length) return json(res, 400, { error: "observations must be a non-empty array" }); const result = await ingestRetailerDiscoveryObservations({ retailer, store, observations }); const website = await publishWebsiteSnapshot({ store }); return json(res, 200, { result, website }); }
+      if (req.method === "POST" && url.pathname === "/internal/ingest") { if (!env.ingestSecret || req.headers["x-fatedrop-secret"] !== env.ingestSecret) return unauthorized(res); const body = await readBody(req); const retailer = retailers.find((item) => item.id === body.retailerId); if (!retailer) return json(res, 400, { error: "Unknown or disabled retailer" }); if (!Array.isArray(body.products) || body.products.length === 0) return json(res, 400, { error: "products must be a non-empty array" }); const result = await ingestRetailerProducts({ retailer, store, products: body.products }); const website = await publishWebsiteSnapshot({ store }); return json(res, 200, { result, website }); }
       return json(res, 404, { error: "Not found" });
     } catch (error) {
       return json(res, 500, { error: "Signal engine error", detail: process.env.NODE_ENV === "development" ? String(error?.message || error) : undefined });
