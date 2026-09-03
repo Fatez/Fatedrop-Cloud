@@ -27,13 +27,13 @@ const exactCardValues = [
 ];
 
 const printingValues = [
-  { printingId: 'a1', amount: 10, currencyCode: 'GBP', observedAt: 100 },
-  { printingId: 'a2', amount: 20, currencyCode: 'GBP', observedAt: 100 },
-  { printingId: 'b1', amount: 5, currencyCode: 'GBP', observedAt: 100 },
-  { printingId: 'b2', amount: 7, currencyCode: 'GBP', observedAt: 100 },
+  { printingId: 'a1', amount: 10, currencyCode: 'GBP', observedAt: 100, sourceName:'cardmarket',providerPolicyKey:'cardmarket-public-download',metricUsed:'trendPrice',confidence:'high' },
+  { printingId: 'a2', amount: 20, currencyCode: 'GBP', observedAt: 100, sourceName:'cardmarket',providerPolicyKey:'cardmarket-public-download',metricUsed:'trendPrice',confidence:'high' },
+  { printingId: 'b1', amount: 5, currencyCode: 'GBP', observedAt: 100, sourceName:'cardmarket',providerPolicyKey:'cardmarket-public-download',metricUsed:'trendPrice',confidence:'high' },
+  { printingId: 'b2', amount: 7, currencyCode: 'GBP', observedAt: 100, sourceName:'cardmarket',providerPolicyKey:'cardmarket-public-download',metricUsed:'trendPrice',confidence:'high' },
 ];
 
-test('collector summary returns portfolio, game breakdowns, set completion and missing values', () => {
+test('collector summary returns portfolio, game breakdowns, set completion and priced missing cards', () => {
   const result = computeFateCollectorSummary({
     sets,
     canonicalCards,
@@ -73,6 +73,10 @@ test('collector summary returns portfolio, game breakdowns, set completion and m
   assert.equal(setA.value.ownedValue, 10);
   assert.equal(setA.value.missingValue, 20);
   assert.equal(setA.missingCards[0].collectorNumber, '2');
+  assert.equal(setA.missingCards[0].priceStatus,'available');
+  assert.equal(setA.missingCards[0].fatePrice.amount,20);
+  assert.equal(setA.missingCards[0].fatePrice.sourceName,'cardmarket');
+  assert.equal(setA.missingCards[0].fatePrice.providerPolicyKey,'cardmarket-public-download');
 
   const setB = result.sets.find((row) => row.setId === 'set-b');
   assert.equal(setB.completionPercent, 100);
