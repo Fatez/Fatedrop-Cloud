@@ -33,6 +33,8 @@ export function buildChecklistPrintingValues({
   const code = currency(currencyCode);
   const language = text(preferredLanguageCode).toLowerCase();
   if (!language) throw new TypeError('preferredLanguageCode is required for checklist valuation');
+  const variant = text(preferredVariantCode).toLowerCase();
+  if (!variant) throw new TypeError('preferredVariantCode is required for checklist valuation');
 
   const byPrinting = new Map();
   for (const card of canonicalCards) {
@@ -59,7 +61,7 @@ export function buildChecklistPrintingValues({
   for (const [printingId, identities] of byPrinting) {
     const representative = selectPreferredPrintingRepresentative(identities, {
       preferredLanguageCode: language,
-      preferredVariantCode,
+      preferredVariantCode: variant,
     });
     if (!representative) continue;
 
@@ -74,11 +76,15 @@ export function buildChecklistPrintingValues({
     });
     representatives.push(descriptor);
 
-    // The preferred language is an explicit contract, not a hint. If the
-    // canonical catalogue lacks that language for this printing, leave it
-    // unpriced rather than silently selecting another language.
+    // Language and finish are explicit valuation contracts, not hints. If the
+    // canonical catalogue lacks either preferred identity dimension for this
+    // printing, leave it unpriced rather than borrowing another market lane.
     if (representativeLanguage !== language) {
       unpricedRepresentatives.push(Object.freeze({ ...descriptor, reason: 'preferred_language_unavailable' }));
+      continue;
+    }
+    if (representativeVariant !== variant) {
+      unpricedRepresentatives.push(Object.freeze({ ...descriptor, reason: 'preferred_variant_unavailable' }));
       continue;
     }
 
@@ -105,7 +111,7 @@ export function buildChecklistPrintingValues({
     setId: canonicalSetId,
     currencyCode: code,
     preferredLanguageCode: language,
-    preferredVariantCode: text(preferredVariantCode).toLowerCase() || null,
+    preferredVariantCode: variant,
     printingValues: Object.freeze(printingValues),
     representatives: Object.freeze(representatives),
     unpricedRepresentatives: Object.freeze(unpricedRepresentatives),
