@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { adaptCardmarketPriceGuideSnapshot } from './cardmarket-adapter.mjs';
 import { adaptCardmarketCatalogue } from './cardmarket-catalogue-adapter.mjs';
+import { assertFatePriceProviderApproved } from './provider-policy.mjs';
 
 export const CARDMARKET_POKEMON_SOURCE_URLS = Object.freeze({
   priceGuide: 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json',
@@ -105,6 +106,12 @@ export async function fetchCardmarketJsonArtifact(urlValue, {
   maxBytes = DEFAULT_MAX_BYTES,
   fetchedAt = Date.now(),
 } = {}) {
+  // Cardmarket's public downloadable catalogue/price-guide files are the only
+  // reviewed Cardmarket acquisition mode approved for FateDrop V1. Keeping the
+  // policy assertion inside the fetch path prevents a future caller from
+  // bypassing the legal/source review boundary by reusing this transport.
+  assertFatePriceProviderApproved('cardmarket-public-download');
+
   requireFunction(fetchImpl, 'fetchImpl');
   const url = approvedUrl(urlValue);
   const safeTimeoutMs = positiveInteger(timeoutMs, DEFAULT_TIMEOUT_MS, 'timeoutMs');

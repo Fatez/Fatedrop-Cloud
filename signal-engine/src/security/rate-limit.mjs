@@ -15,6 +15,9 @@ const POLICIES = Object.freeze([
   { method: "POST", prefix: "/v1/trader/", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "trader-write" },
   { method: "PATCH", prefix: "/v1/trader/", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "trader-write" },
   { method: "DELETE", prefix: "/v1/trader/", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "trader-write" },
+  { method: "GET", path: "/v1/market/pulse", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "market-pulse" },
+  { method: "GET", prefix: "/v1/collectors/", limit: 60, windowMs: DEFAULT_WINDOW_MS, name: "collectors-read" },
+  { method: "POST", prefix: "/v1/collectors/", limit: 10, windowMs: DEFAULT_WINDOW_MS, name: "collectors-write" },
 ]);
 
 function firstHeaderValue(value) {

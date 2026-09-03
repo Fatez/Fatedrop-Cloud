@@ -303,6 +303,35 @@ export async function listVerifiedCardsFromStore(store, {
   return rows.map(dbCard);
 }
 
+export async function listVerifiedCardsByIdsFromStore(store, fateCardIds, { limit = 2000 } = {}) {
+  if (!Array.isArray(fateCardIds)) throw new TypeError('fateCardIds must be an array');
+  const safeLimit = Math.min(2000, Math.max(1, Number(limit) || 2000));
+  const ids = [...new Set(fateCardIds.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, safeLimit);
+  if (!ids.length) return [];
+
+  if (typeof store?.read === 'function') {
+    const catalogue = fileCatalogue(await store.read());
+    return ids
+      .map((id) => catalogue.cards[id])
+      .filter((card) => card?.verificationStatus === 'verified')
+      .map((card) => publicCard(card,catalogue.printings[card.printingId],catalogue.sets[card.setId],catalogue.series[card.seriesId],catalogue.tcgs[card.tcgId]));
+  }
+  if (typeof store?.pool !== 'function') return [];
+  const pool = await store.pool();
+  const { rows } = await pool.query(`SELECT c.*,p.name,p.rarity,p.supertype,s.name AS set_name,ser.name AS series_name,t.code AS tcg_code
+    FROM fatedrop_card_identities c
+    JOIN fatedrop_card_printings p ON p.id=c.printing_id
+    JOIN fatedrop_card_sets s ON s.id=c.set_id
+    JOIN fatedrop_card_series ser ON ser.id=c.series_id
+    JOIN fatedrop_tcgs t ON t.id=c.tcg_id
+    WHERE c.id=ANY($1::text[])
+      AND c.verification_status='verified'
+      AND p.verification_status='verified'
+      AND s.verification_status='verified'`, [ids]);
+  const byId = new Map(rows.map((row) => [row.id, dbCard(row)]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
 export async function getVerifiedCardFromStore(store, fateCardId) {
   const id = String(fateCardId || '').trim();
   if (!id) return null;

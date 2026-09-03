@@ -4,6 +4,8 @@ import {
   normaliseMarketIngestRun,
   normaliseMarketObservationCandidate,
 } from './market-observation.mjs';
+import { assertFatePriceProviderApproved } from './provider-policy.mjs';
+import { requireKnownTcg } from '../tcg-registry.mjs';
 
 export const CARDMARKET_SOURCE_NAME = 'cardmarket';
 export const CARDMARKET_NATIVE_CURRENCY = 'EUR';
@@ -76,6 +78,10 @@ function normaliseLane(lane) {
   return value;
 }
 
+function normaliseTcgCode(tcgCode) {
+  return requireKnownTcg(tcgCode).code;
+}
+
 function requireMapping(mapping, row, lane) {
   requireObject(mapping, 'mapping');
   const productId = String(requirePositiveInteger(row.idProduct, 'row.idProduct'));
@@ -95,9 +101,6 @@ function requireMapping(mapping, row, lane) {
     throw new TypeError('mapping.sourceVariantKey is required');
   }
 
-  // The caller must resolve a mapping for the requested price lane. We retain
-  // the lane separately rather than deriving FateDrop's canonical variant from
-  // Cardmarket pricing fields.
   return Object.freeze({
     id: mapping.id.trim(),
     cardIdentityId: mapping.cardIdentityId.trim(),
@@ -122,22 +125,20 @@ export function hasMeaningfulCardmarketLane(row, lane) {
   requireObject(row, 'row');
   const normalizedLane = normaliseLane(lane);
   const prices = lanePrices(row, normalizedLane);
-
-  // Cardmarket can emit zero placeholders for a lane that has no useful market.
-  // A lane needs at least one positive signal before it becomes canonical market
-  // evidence. The raw row can still be retained in an ingest rejection.
   return Object.values(prices).some((value) => value != null && value > 0);
 }
 
-export function adaptCardmarketPriceGuideSnapshot(payload) {
+export function adaptCardmarketPriceGuideSnapshot(payload, { tcgCode = 'pokemon' } = {}) {
   requireObject(payload, 'priceGuide');
+  const canonicalTcgCode = normaliseTcgCode(tcgCode);
   const version = requirePositiveInteger(payload.version, 'priceGuide.version');
   const sourceEffectiveAt = normaliseProviderDate(payload.createdAt);
   const priceGuides = requireArray(payload.priceGuides, 'priceGuide.priceGuides');
   const providerCreatedAt = new Date(sourceEffectiveAt).toISOString();
-  const sourceSnapshotId = `pokemon-price-guide-v${version}-${providerCreatedAt}`;
+  const sourceSnapshotId = `${canonicalTcgCode}-price-guide-v${version}-${providerCreatedAt}`;
 
   return Object.freeze({
+    tcgCode: canonicalTcgCode,
     sourceName: CARDMARKET_SOURCE_NAME,
     sourceVersion: String(version),
     sourceSnapshotId,
@@ -159,6 +160,7 @@ export function adaptCardmarketPriceGuideRow(row, {
   if (snapshot.sourceName !== CARDMARKET_SOURCE_NAME) {
     throw new TypeError('snapshot must be a Cardmarket snapshot');
   }
+  normaliseTcgCode(snapshot.tcgCode);
   if (!hasMeaningfulCardmarketLane(row, normalizedLane)) return null;
 
   const resolvedMapping = requireMapping(mapping, row, normalizedLane);
@@ -182,6 +184,7 @@ export function adaptCardmarketPriceGuideRow(row, {
     sourceEffectiveAt: snapshot.sourceEffectiveAt,
     ...prices,
     metricsJson: {
+      tcgCode: snapshot.tcgCode,
       providerCategoryId: idCategory,
       priceGuideLane: normalizedLane,
     },
@@ -193,12 +196,14 @@ export async function buildCardmarketPriceGuideBatch(payload, {
   resolveMapping,
   observedAt = Date.now(),
   lanes = CARDMARKET_PRICE_LANES,
+  tcgCode = 'pokemon',
 } = {}) {
   if (typeof resolveMapping !== 'function') {
     throw new TypeError('resolveMapping function is required');
   }
 
-  const snapshot = adaptCardmarketPriceGuideSnapshot(payload);
+  const providerPolicy = assertFatePriceProviderApproved('cardmarket-public-download');
+  const snapshot = adaptCardmarketPriceGuideSnapshot(payload, { tcgCode });
   const selectedLanes = Object.freeze([...new Set(lanes.map(normaliseLane))]);
   const ingestRunId = makeMarketIngestRunId(snapshot.sourceName, snapshot.sourceSnapshotId);
   const observations = [];
@@ -215,6 +220,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
         sourceName: CARDMARKET_SOURCE_NAME,
         sourceRecordId,
         priceGuideLane: lane,
+        tcgCode: snapshot.tcgCode,
       });
 
       if (!mapping) {
@@ -227,6 +233,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
           rejectionCode: 'identity_unresolved',
           rejectionDetail: `No exact canonical mapping resolved for Cardmarket ${lane} price lane`,
           rawPayload: {
+            tcgCode: snapshot.tcgCode,
             priceGuideLane: lane,
             row,
           },
@@ -253,6 +260,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
           rejectionCode: 'mapping_conflict',
           rejectionDetail: error instanceof Error ? error.message : String(error),
           rawPayload: {
+            tcgCode: snapshot.tcgCode,
             priceGuideLane: lane,
             row,
           },
@@ -274,6 +282,9 @@ export async function buildCardmarketPriceGuideBatch(payload, {
     recordsAccepted: observations.length,
     recordsRejected: rejections.length,
     metadataJson: {
+      tcgCode: snapshot.tcgCode,
+      providerPolicyKey: providerPolicy.key,
+      acquisitionMode: providerPolicy.acquisitionMode,
       providerCreatedAt: new Date(snapshot.sourceEffectiveAt).toISOString(),
       sourceCurrency: snapshot.currencyCode,
       sourceRows: snapshot.priceGuides.length,
