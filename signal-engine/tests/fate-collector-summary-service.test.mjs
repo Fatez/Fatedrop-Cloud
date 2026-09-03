@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { getFateCollectorSummaryFromStore } from '../src/trader/collection/collector-summary-service.mjs';
 
 const NOW = Date.parse('2026-09-03T12:00:00.000Z');
+const DAY = 24 * 60 * 60 * 1000;
 
 function catalogue() {
   return {
@@ -95,11 +96,11 @@ function collection() {
   };
 }
 
-function run() {
+function run(id, sourceSnapshotId) {
   return {
-    id: 'run_1',
+    id,
     sourceName: 'cardmarket',
-    sourceSnapshotId: 'pokemon-price-guide-v1',
+    sourceSnapshotId,
     metadataJson: {
       providerPolicyKey: 'cardmarket-public-download',
       acquisitionMode: 'public-download',
@@ -107,30 +108,60 @@ function run() {
   };
 }
 
-function priceObservation(id, cardIdentityId, trendPrice) {
+function priceObservation({ id, runId, snapshotId, cardIdentityId, trendPrice, sourceEffectiveAt }) {
   return {
     id,
-    ingestRunId: 'run_1',
+    ingestRunId: runId,
     cardIdentityId,
     sourceName: 'cardmarket',
-    sourceSnapshotId: 'pokemon-price-guide-v1',
+    sourceSnapshotId: snapshotId,
     currencyCode: 'EUR',
-    sourceEffectiveAt: NOW - 60 * 60 * 1000,
-    observedAt: NOW - 60 * 60 * 1000 + 1000,
+    sourceEffectiveAt,
+    observedAt: sourceEffectiveAt + 1000,
     trendPrice,
   };
 }
 
-function storeWithPrices({ includeMissingCardPrice = true } = {}) {
-  const observations = {
-    card_1: priceObservation('obs_1', 'card_1', 10),
+function storeWithPrices({ includeMissingCardPrice = true, includeHistory = false } = {}) {
+  const currentAt = NOW - 60 * 60 * 1000;
+  const ingestRuns = {
+    current: run('current', 'current-snapshot'),
   };
-  if (includeMissingCardPrice) observations.card_2 = priceObservation('obs_2', 'card_2', 20);
+  const observations = {
+    current_card_1: priceObservation({
+      id: 'current_card_1', runId: 'current', snapshotId: 'current-snapshot', cardIdentityId: 'card_1', trendPrice: 10, sourceEffectiveAt: currentAt,
+    }),
+  };
+  if (includeMissingCardPrice) {
+    observations.current_card_2 = priceObservation({
+      id: 'current_card_2', runId: 'current', snapshotId: 'current-snapshot', cardIdentityId: 'card_2', trendPrice: 20, sourceEffectiveAt: currentAt,
+    });
+  }
+
+  if (includeHistory) {
+    ingestRuns.seven = run('seven', 'seven-snapshot');
+    ingestRuns.thirty = run('thirty', 'thirty-snapshot');
+    const sevenAt = NOW - 7 * DAY - 60 * 60 * 1000;
+    const thirtyAt = NOW - 30 * DAY - 60 * 60 * 1000;
+    observations.seven_card_1 = priceObservation({
+      id: 'seven_card_1', runId: 'seven', snapshotId: 'seven-snapshot', cardIdentityId: 'card_1', trendPrice: 8, sourceEffectiveAt: sevenAt,
+    });
+    observations.seven_card_2 = priceObservation({
+      id: 'seven_card_2', runId: 'seven', snapshotId: 'seven-snapshot', cardIdentityId: 'card_2', trendPrice: 16, sourceEffectiveAt: sevenAt,
+    });
+    observations.thirty_card_1 = priceObservation({
+      id: 'thirty_card_1', runId: 'thirty', snapshotId: 'thirty-snapshot', cardIdentityId: 'card_1', trendPrice: 5, sourceEffectiveAt: thirtyAt,
+    });
+    observations.thirty_card_2 = priceObservation({
+      id: 'thirty_card_2', runId: 'thirty', snapshotId: 'thirty-snapshot', cardIdentityId: 'card_2', trendPrice: 10, sourceEffectiveAt: thirtyAt,
+    });
+  }
+
   const state = {
     traderCatalogue: catalogue(),
     traderCollection: collection(),
     fateValueLab: {
-      ingestRuns: { run_1: run() },
+      ingestRuns,
       observations,
       rejections: {},
     },
@@ -165,6 +196,32 @@ test('collector summary connects owned, set and missing values to approved Fate 
   assert.equal(result.evidence.requestedPriceIdentityCount, 2);
   assert.equal(result.evidence.resolvedPriceIdentityCount, 2);
   assert.equal(result.evidence.rejectedPricingProvenanceCount, 0);
+  assert.equal(result.summary.movement.sevenDay.status, 'unavailable');
+  assert.equal(result.summary.movement.thirtyDay.status, 'unavailable');
+});
+
+test('collector summary calculates 7D/30D movement from historical approved prices', async () => {
+  const result = await getFateCollectorSummaryFromStore(storeWithPrices({ includeHistory: true }), {
+    userId: 'user_1',
+    currencyCode: 'EUR',
+    preferredLanguageCode: 'en',
+    preferredVariantCode: 'standard',
+    asOf: NOW,
+  });
+
+  assert.equal(result.summary.movement.basis, 'current-holdings-repriced');
+  assert.equal(result.summary.movement.sevenDay.collection.status, 'available');
+  assert.equal(result.summary.movement.sevenDay.collection.amountChange, 2);
+  assert.equal(result.summary.movement.sevenDay.collection.percentChange, 25);
+  assert.equal(result.summary.movement.thirtyDay.collection.amountChange, 5);
+  assert.equal(result.summary.movement.thirtyDay.collection.percentChange, 100);
+
+  const set7 = result.summary.movement.sevenDay.sets[0];
+  assert.equal(set7.value.fullSet.amountChange, 6);
+  assert.equal(set7.value.owned.amountChange, 2);
+  assert.equal(set7.value.missing.amountChange, 4);
+  assert.equal(result.evidence.sevenDayValuationStatus, 'available');
+  assert.equal(result.evidence.thirtyDayValuationStatus, 'available');
 });
 
 test('collector summary exposes partial coverage instead of inventing missing-card value', async () => {
