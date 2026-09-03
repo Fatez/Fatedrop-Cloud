@@ -5,6 +5,7 @@ import {
   POKEMON_WIZARD_REFERENCE_POLICY,
   buildPokemonWizardManualReference,
   comparePokemonWizardReference,
+  comparePokemonWizardReferenceWithFx,
 } from '../src/trader/value/pokemon-wizard-reference.mjs';
 
 const NOW = Date.parse('2026-09-03T10:30:00.000Z');
@@ -89,4 +90,64 @@ test('cross-currency comparisons fail closed instead of inventing FX', () => {
     referenceCurrency: 'USD',
     benchmarkCurrency: 'EUR',
   });
+});
+
+test('cross-currency research comparison requires explicit FX evidence and remains transient', () => {
+  const result = comparePokemonWizardReferenceWithFx(reference(), {
+    price: 110,
+    currencyCode: 'EUR',
+  }, {
+    fromCurrency: 'USD',
+    toCurrency: 'EUR',
+    rate: 0.86,
+    source: 'manual mid-market research reference',
+    observedAt: NOW,
+  });
+
+  assert.equal(result.comparable, true);
+  assert.equal(result.fxApplied, true);
+  assert.equal(result.originalReferenceCurrency, 'USD');
+  assert.equal(result.referenceCurrency, 'EUR');
+  assert.equal(result.fxRate, 0.86);
+  assert.equal(result.persistenceAuthorized, false);
+  assert.equal(result.redistributionAuthorized, false);
+  assert.ok(Math.abs(result.referencePrice - 107.93) < 1e-12);
+  assert.ok(Math.abs(result.delta - (-2.07)) < 1e-12);
+});
+
+test('FX evidence must point from the reference currency to the benchmark currency', () => {
+  assert.throws(() => comparePokemonWizardReferenceWithFx(reference(), {
+    price: 110,
+    currencyCode: 'EUR',
+  }, {
+    fromCurrency: 'EUR',
+    toCurrency: 'USD',
+    rate: 1.16,
+    source: 'wrong-way test rate',
+    observedAt: NOW,
+  }), /direction must match/);
+});
+
+test('FX path rejects missing provenance and same-currency misuse', () => {
+  assert.throws(() => comparePokemonWizardReferenceWithFx(reference(), {
+    price: 110,
+    currencyCode: 'EUR',
+  }, {
+    fromCurrency: 'USD',
+    toCurrency: 'EUR',
+    rate: 0.86,
+    source: '',
+    observedAt: NOW,
+  }), /fxEvidence.source/);
+
+  assert.throws(() => comparePokemonWizardReferenceWithFx(reference(), {
+    price: 110,
+    currencyCode: 'USD',
+  }, {
+    fromCurrency: 'USD',
+    toCurrency: 'USD',
+    rate: 1,
+    source: 'unnecessary rate',
+    observedAt: NOW,
+  }), /unnecessary/);
 });
