@@ -10,6 +10,8 @@ import { handleFatePulse } from '../src/trader/value/http.mjs';
 
 const FLAGS=Object.freeze({enabled:true,catalogueEnabled:true,collectionEnabled:true});
 const USER=async()=>({id:'user_1',fateId:'FD-TEST'});
+const NOW=Date.parse('2026-09-03T12:00:00.000Z');
+const DAY=24*60*60*1000;
 
 function request(method,url,body=null){
   const raw=body==null?null:JSON.stringify(body);
@@ -19,6 +21,11 @@ function response(){return{status:null,body:null,writeHead(status){this.status=s
 async function fileStore(){
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'fatedrop-market-runtime-'));
   return new FileStore(path.join(dir,'store.json'));
+}
+
+function run(id,snapshot){return{id,sourceName:'cardmarket',sourceSnapshotId:snapshot,metadataJson:{providerPolicyKey:'cardmarket-public-download',acquisitionMode:'public-download'}};}
+function marketObservation({id,runId,snapshot,cardIdentityId,day,trendPrice,effectiveAt}){
+  return{id,ingestRunId:runId,cardIdentityId,sourceName:'cardmarket',sourceSnapshotId:snapshot,sourceRecordId:cardIdentityId,sourceVariantKey:'normal',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:day,trendPrice,observedAt:effectiveAt+1000,sourceEffectiveAt:effectiveAt};
 }
 
 async function seedStore(){
@@ -37,15 +44,26 @@ async function seedStore(){
         c1:{id:'c1',tcgId:'tcg',seriesId:'series',setId:'set',printingId:'p1',collectorNumber:'1',variantCode:'standard',languageCode:'en',verificationStatus:'verified'},
         c2:{id:'c2',tcgId:'tcg',seriesId:'series',setId:'set',printingId:'p2',collectorNumber:'2',variantCode:'standard',languageCode:'en',verificationStatus:'verified'},
       },
-      cardSourceMappings:{m1:{id:'m1',cardIdentityId:'c1',sourceName:'cardmarket',sourceRecordId:'1',sourceVariantKey:'standard'}},
+      cardSourceMappings:{
+        m1:{id:'m1',cardIdentityId:'c1',sourceName:'cardmarket',sourceRecordId:'c1',sourceVariantKey:'normal'},
+        m2:{id:'m2',cardIdentityId:'c2',sourceName:'cardmarket',sourceRecordId:'c2',sourceVariantKey:'normal'},
+      },
       cardProvenance:{},
     };
     state.fateValueLab={
-      ingestRuns:{},
+      ingestRuns:{
+        run30:run('run30','prices-2026-08-04'),
+        run7:run('run7','prices-2026-08-27'),
+        runCurrent:run('runCurrent','prices-2026-09-03'),
+      },
       rejections:{},
       observations:{
-        before:{id:'before',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:10,observedAt:1},
-        current:{id:'current',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:11,observedAt:2},
+        c1_30:marketObservation({id:'c1_30',runId:'run30',snapshot:'prices-2026-08-04',cardIdentityId:'c1',day:'2026-08-04',trendPrice:6,effectiveAt:NOW-30*DAY-60*60*1000}),
+        c2_30:marketObservation({id:'c2_30',runId:'run30',snapshot:'prices-2026-08-04',cardIdentityId:'c2',day:'2026-08-04',trendPrice:12,effectiveAt:NOW-30*DAY-60*60*1000}),
+        c1_7:marketObservation({id:'c1_7',runId:'run7',snapshot:'prices-2026-08-27',cardIdentityId:'c1',day:'2026-08-27',trendPrice:8,effectiveAt:NOW-7*DAY-60*60*1000}),
+        c2_7:marketObservation({id:'c2_7',runId:'run7',snapshot:'prices-2026-08-27',cardIdentityId:'c2',day:'2026-08-27',trendPrice:16,effectiveAt:NOW-7*DAY-60*60*1000}),
+        c1_now:marketObservation({id:'c1_now',runId:'runCurrent',snapshot:'prices-2026-09-03',cardIdentityId:'c1',day:'2026-09-03',trendPrice:10,effectiveAt:NOW-60*60*1000}),
+        c2_now:marketObservation({id:'c2_now',runId:'runCurrent',snapshot:'prices-2026-09-03',cardIdentityId:'c2',day:'2026-09-03',trendPrice:20,effectiveAt:NOW-60*60*1000}),
       },
     };
     state.traderCollection={
@@ -78,8 +96,7 @@ test('FatePulse exposes factual exact-day movement while uncalibrated scores sta
   await handleFatePulse(request('GET','/v1/market/pulse?tcg=pokemon'),res,{store:await seedStore()});
   assert.equal(res.status,200);
   assert.equal(res.body.data.status,'available');
-  assert.equal(res.body.data.pulse.movement.d1.medianPercent,10);
-  assert.equal(res.body.data.pulse.movement.d7.contributors,0);
+  assert.equal(res.body.data.pulse.movement.d7.contributors,2);
   assert.equal(res.body.data.intelligence.volatility,null);
   assert.equal('cards' in res.body.data.pulse,false,'public summary does not expose a giant card payload');
 });
@@ -94,14 +111,17 @@ test('Fate Collectors stays dark and authenticated at the route boundary',async(
   assert.equal(anonymous.status,401);
 });
 
-test('Fate Collectors reads owner-scoped completion without inventing a valuation',async()=>{
+test('Fate Collectors exposes owner-scoped completion, value and movement from approved evidence',async()=>{
   const res=response();
-  await handleFateCollectors(request('GET','/v1/collectors/summary?currency=EUR&language=en'),res,{store:await seedStore(),flags:FLAGS,resolveUser:USER});
+  await handleFateCollectors(request('GET',`/v1/collectors/summary?currency=EUR&language=en&variant=standard`),res,{store:await seedStore(),flags:FLAGS,resolveUser:USER});
   assert.equal(res.status,200);
   assert.equal(res.body.data.summary.cardUnits,1);
   assert.equal(res.body.data.summary.closestSet.completionPercent,50);
-  assert.equal(res.body.data.summary.collection.totalValue,null);
-  assert.equal(res.body.data.evidence.completeSetValuesConnected,false);
+  assert.equal(res.body.data.summary.collection.totalValue,10);
+  assert.equal(res.body.data.summary.sets[0].value.fullSetValue,30);
+  assert.equal(res.body.data.summary.sets[0].value.missingValue,20);
+  assert.equal(res.body.data.evidence.completeSetValuesConnected,true);
+  assert.equal(res.body.data.evidence.rejectedPricingProvenanceCount,0);
 });
 
 test('Collectr endpoint previews a user export without mutating ownership',async()=>{
