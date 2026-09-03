@@ -1,5 +1,6 @@
 const DAY_MS = 86_400_000;
 const PERIODS = Object.freeze({ d1: 1, d7: 7, d30: 30 });
+const GAP_EXAMPLE_LIMIT = 100;
 
 function pct(numerator, denominator) {
   if (!denominator) return null;
@@ -48,12 +49,15 @@ function groupCoverage(cards, mappedCardIds, keyFn) {
 
 function buildReport({ sourceName, canonicalSchemaAvailable, marketHistorySchemaAvailable, cards, mappings, observations, historyStats }) {
   const verifiedCards = cards.filter((card) => card.verificationStatus === 'verified');
-  const mappedCardIds = new Set(mappings.map((mapping) => mapping.cardIdentityId));
   const verifiedCardIds = new Set(verifiedCards.map((card) => card.id));
+  const validMappings = mappings.filter((mapping) => verifiedCardIds.has(mapping.cardIdentityId));
+  const mappedCardIds = new Set(validMappings.map((mapping) => mapping.cardIdentityId));
+  const invalidMappingCount = mappings.length - validMappings.length;
   const validObservations = observations.filter((observation) => verifiedCardIds.has(observation.cardIdentityId));
   const observationCardIds = new Set(validObservations.map((observation) => observation.cardIdentityId));
   const verifiedSets = new Set(verifiedCards.map((card) => card.setCode).filter(Boolean));
   const verifiedTcgs = new Set(verifiedCards.map((card) => card.tcgCode).filter(Boolean));
+  const unmappedCards = verifiedCards.filter((card) => !mappedCardIds.has(card.id));
 
   const marketDays = [...new Set(validObservations.map((item) => dayText(item.marketDay)).filter(Boolean))].sort();
   const latestMarketDay = dayText(historyStats.latestMarketDay) ?? marketDays.at(-1) ?? null;
@@ -85,8 +89,10 @@ function buildReport({ sourceName, canonicalSchemaAvailable, marketHistorySchema
   if (!canonicalSchemaAvailable) issues.push('canonical_card_schema_missing');
   if (canonicalSchemaAvailable && verifiedCards.length === 0) issues.push('no_verified_cards');
   if (verifiedCards.length > 0 && mappedCardIds.size < verifiedCards.length) issues.push('source_mapping_coverage_incomplete');
+  if (invalidMappingCount > 0) issues.push('source_mapping_targets_unverified');
   if (!marketHistorySchemaAvailable) issues.push('market_history_schema_missing');
   if (marketHistorySchemaAvailable && Number(historyStats.observationCount || 0) === 0) issues.push('no_market_history');
+  if (Number(historyStats.rejectionCount || 0) > 0) issues.push('ingest_rejections_present');
   if (latestMarketDay) {
     for (const period of Object.keys(PERIODS)) {
       const coverage = exactBaselineCoverage[period];
@@ -103,13 +109,18 @@ function buildReport({ sourceName, canonicalSchemaAvailable, marketHistorySchema
       verifiedTcgs: verifiedTcgs.size,
       verifiedSets: verifiedSets.size,
       verifiedCards: verifiedCards.length,
-      mappedCards: [...mappedCardIds].filter((id) => verifiedCardIds.has(id)).length,
-      unmappedVerifiedCards: verifiedCards.filter((card) => !mappedCardIds.has(card.id)).length,
-      mappingCoveragePct: pct([...mappedCardIds].filter((id) => verifiedCardIds.has(id)).length, verifiedCards.length),
+      mappedCards: mappedCardIds.size,
+      unmappedVerifiedCards: unmappedCards.length,
+      mappingCoveragePct: pct(mappedCardIds.size, verifiedCards.length),
       sourceMappings: mappings.length,
+      validSourceMappings: validMappings.length,
+      invalidSourceMappings: invalidMappingCount,
     }),
     history: Object.freeze({
+      ingestRuns: Number(historyStats.ingestRuns || 0),
       observations: Number(historyStats.observationCount || 0),
+      rejections: Number(historyStats.rejectionCount || 0),
+      rejectionCodes: Object.freeze({ ...(historyStats.rejectionCodes || {}) }),
       observedCards: observationCardIds.size,
       distinctMarketDays: Number(historyStats.distinctMarketDays ?? marketDays.length),
       earliestMarketDay,
@@ -117,10 +128,27 @@ function buildReport({ sourceName, canonicalSchemaAvailable, marketHistorySchema
       currentLaneCount: currentLanes.size,
       exactBaselineCoverage: Object.freeze(exactBaselineCoverage),
     }),
+    gaps: Object.freeze({
+      unmappedCardExamples: Object.freeze(unmappedCards.slice(0, GAP_EXAMPLE_LIMIT).map((card) => Object.freeze({
+        cardIdentityId: card.id,
+        tcgCode: card.tcgCode ?? null,
+        setCode: card.setCode ?? null,
+      }))),
+      unmappedExamplesTruncated: unmappedCards.length > GAP_EXAMPLE_LIMIT,
+    }),
     byTcg: Object.freeze(groupCoverage(verifiedCards, mappedCardIds, (card) => card.tcgCode || 'unknown')),
     bySet: Object.freeze(groupCoverage(verifiedCards, mappedCardIds, (card) => `${card.tcgCode || 'unknown'}|${card.setCode || card.setId || 'unknown'}`)),
     issues: Object.freeze(issues),
   });
+}
+
+function rejectionCodeCounts(rejections) {
+  const counts = {};
+  for (const rejection of rejections) {
+    const code = String(rejection?.rejectionCode || 'unknown');
+    counts[code] = (counts[code] || 0) + 1;
+  }
+  return counts;
 }
 
 function fileData(state, sourceName) {
@@ -144,8 +172,11 @@ function fileData(state, sourceName) {
   const mappings = Object.values(catalogue.cardSourceMappings || {})
     .filter((mapping) => mapping?.sourceName === sourceName)
     .map((mapping) => ({ cardIdentityId: mapping.cardIdentityId, sourceVariantKey: mapping.sourceVariantKey }));
-  const allObservations = Object.values(state?.fateValueLab?.observations || {})
+  const lab = state?.fateValueLab;
+  const allObservations = Object.values(lab?.observations || {})
     .filter((observation) => observation?.sourceName === sourceName);
+  const runs = Object.values(lab?.ingestRuns || {}).filter((run) => run?.sourceName === sourceName);
+  const rejections = Object.values(lab?.rejections || {}).filter((rejection) => rejection?.sourceName === sourceName);
   const observations = allObservations.map((observation) => ({
     cardIdentityId: observation.cardIdentityId,
     sourceVariantKey: observation.sourceVariantKey,
@@ -157,12 +188,15 @@ function fileData(state, sourceName) {
   const days = allObservations.map((item) => dayText(item.marketDay)).filter(Boolean).sort();
   return {
     canonicalSchemaAvailable: Boolean(state?.traderCatalogue),
-    marketHistorySchemaAvailable: Boolean(state?.fateValueLab),
+    marketHistorySchemaAvailable: Boolean(lab),
     cards,
     mappings,
     observations,
     historyStats: {
+      ingestRuns: runs.length,
       observationCount: allObservations.length,
+      rejectionCount: rejections.length,
+      rejectionCodes: rejectionCodeCounts(rejections),
       distinctMarketDays: new Set(days).size,
       earliestMarketDay: days[0] ?? null,
       latestMarketDay: days.at(-1) ?? null,
@@ -177,17 +211,22 @@ async function postgresData(store, sourceName) {
       to_regclass('public.fatedrop_card_source_mappings') IS NOT NULL AS card_mappings,
       to_regclass('public.fatedrop_card_sets') IS NOT NULL AS card_sets,
       to_regclass('public.fatedrop_tcgs') IS NOT NULL AS tcgs,
-      to_regclass('public.fatedrop_market_observations') IS NOT NULL AS market_observations`);
+      to_regclass('public.fatedrop_market_ingest_runs') IS NOT NULL AS market_runs,
+      to_regclass('public.fatedrop_market_observations') IS NOT NULL AS market_observations,
+      to_regclass('public.fatedrop_market_ingest_rejections') IS NOT NULL AS market_rejections`);
   const flags = schema.rows[0] || {};
   const canonicalSchemaAvailable = Boolean(flags.card_identities && flags.card_mappings && flags.card_sets && flags.tcgs);
-  const marketHistorySchemaAvailable = Boolean(flags.market_observations);
+  const marketHistorySchemaAvailable = Boolean(flags.market_runs && flags.market_observations && flags.market_rejections);
+  const emptyStats = {
+    ingestRuns: 0, observationCount: 0, rejectionCount: 0, rejectionCodes: {},
+    distinctMarketDays: 0, earliestMarketDay: null, latestMarketDay: null,
+  };
 
   if (!canonicalSchemaAvailable) {
     return {
       canonicalSchemaAvailable,
       marketHistorySchemaAvailable,
-      cards: [], mappings: [], observations: [],
-      historyStats: { observationCount: 0, distinctMarketDays: 0, earliestMarketDay: null, latestMarketDay: null },
+      cards: [], mappings: [], observations: [], historyStats: emptyStats,
     };
   }
 
@@ -197,12 +236,10 @@ async function postgresData(store, sourceName) {
                   FROM fatedrop_card_identities c
                   LEFT JOIN fatedrop_tcgs t ON t.id=c.tcg_id
                   LEFT JOIN fatedrop_card_series s ON s.id=c.series_id
-                  LEFT JOIN fatedrop_card_sets cs ON cs.id=c.set_id
-                 WHERE c.verification_status='verified'`),
+                  LEFT JOIN fatedrop_card_sets cs ON cs.id=c.set_id`),
     pool.query(`SELECT m.card_identity_id,m.source_variant_key
                   FROM fatedrop_card_source_mappings m
-                  JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
-                 WHERE m.source_name=$1 AND c.verification_status='verified'`, [sourceName]),
+                 WHERE m.source_name=$1`, [sourceName]),
   ]);
 
   const cards = cardResult.rows.map((row) => ({
@@ -222,16 +259,23 @@ async function postgresData(store, sourceName) {
     return {
       canonicalSchemaAvailable,
       marketHistorySchemaAvailable,
-      cards, mappings, observations: [],
-      historyStats: { observationCount: 0, distinctMarketDays: 0, earliestMarketDay: null, latestMarketDay: null },
+      cards, mappings, observations: [], historyStats: emptyStats,
     };
   }
 
-  const statsResult = await pool.query(`SELECT COUNT(*)::bigint AS observation_count,
+  const statsResult = await pool.query(`SELECT
+      (SELECT COUNT(*)::bigint FROM fatedrop_market_ingest_runs WHERE source_name=$1) AS ingest_runs,
+      COUNT(*)::bigint AS observation_count,
       COUNT(DISTINCT market_day)::bigint AS distinct_market_days,
       MIN(market_day)::text AS earliest_market_day,
-      MAX(market_day)::text AS latest_market_day
+      MAX(market_day)::text AS latest_market_day,
+      (SELECT COUNT(*)::bigint FROM fatedrop_market_ingest_rejections WHERE source_name=$1) AS rejection_count
     FROM fatedrop_market_observations WHERE source_name=$1`, [sourceName]);
+  const rejectionResult = await pool.query(`SELECT rejection_code,COUNT(*)::bigint AS count
+      FROM fatedrop_market_ingest_rejections
+     WHERE source_name=$1
+     GROUP BY rejection_code
+     ORDER BY rejection_code`, [sourceName]);
   const stats = statsResult.rows[0] || {};
   const latestMarketDay = dayText(stats.latest_market_day);
   let observations = [];
@@ -262,7 +306,10 @@ async function postgresData(store, sourceName) {
     mappings,
     observations,
     historyStats: {
+      ingestRuns: Number(stats.ingest_runs || 0),
       observationCount: Number(stats.observation_count || 0),
+      rejectionCount: Number(stats.rejection_count || 0),
+      rejectionCodes: Object.fromEntries(rejectionResult.rows.map((row) => [row.rejection_code, Number(row.count)])),
       distinctMarketDays: Number(stats.distinct_market_days || 0),
       earliestMarketDay: stats.earliest_market_day,
       latestMarketDay: stats.latest_market_day,
