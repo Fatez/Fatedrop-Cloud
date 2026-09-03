@@ -88,10 +88,27 @@ test('missing preferred language fails closed for that printing', () => {
     fatePrices: [price('p1-jp-standard', 10)],
     currencyCode: 'EUR',
     preferredLanguageCode: 'en',
+    preferredVariantCode: 'standard',
   });
 
   assert.equal(result.printingValues.length, 0);
   assert.equal(result.unpricedRepresentatives[0].reason, 'preferred_language_unavailable');
+});
+
+test('missing preferred variant fails closed instead of borrowing another finish', () => {
+  const canonicalCards = [card('p1-en-reverse', 'p1', 'en', 'reverse')];
+
+  const result = buildChecklistPrintingValues({
+    setId: 'set-1',
+    canonicalCards,
+    fatePrices: [price('p1-en-reverse', 100)],
+    currencyCode: 'EUR',
+    preferredLanguageCode: 'en',
+    preferredVariantCode: 'standard',
+  });
+
+  assert.equal(result.printingValues.length, 0);
+  assert.equal(result.unpricedRepresentatives[0].reason, 'preferred_variant_unavailable');
 });
 
 test('preferred language is required so valuation never infers language from market or user location', () => {
