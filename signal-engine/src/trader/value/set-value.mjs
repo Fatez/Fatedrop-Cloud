@@ -27,12 +27,32 @@ function roundMoney(value) {
   return Number(value.toFixed(2));
 }
 
-function coverageBand(percent) {
-  if (percent === 100) return 'complete';
-  if (percent >= 90) return 'high';
-  if (percent >= 70) return 'medium';
-  if (percent > 0) return 'low';
+function percent(numerator, denominator) {
+  if (denominator === 0) return 100;
+  return Number(((numerator / denominator) * 100).toFixed(1));
+}
+
+function coverageBand(value) {
+  if (value === 100) return 'complete';
+  if (value >= 90) return 'high';
+  if (value >= 70) return 'medium';
+  if (value > 0) return 'low';
   return 'none';
+}
+
+function coverageSummary(expectedCount, pricedCount) {
+  const safeExpected = Number(expectedCount);
+  const safePriced = Number(pricedCount);
+  const unpricedCount = Math.max(0, safeExpected - safePriced);
+  const coveragePercent = percent(safePriced, safeExpected);
+  return Object.freeze({
+    expectedCount: safeExpected,
+    pricedCount: safePriced,
+    unpricedCount,
+    coveragePercent,
+    coverageBand: coverageBand(coveragePercent),
+    complete: unpricedCount === 0,
+  });
 }
 
 export function computeFateSetValue({
@@ -59,8 +79,19 @@ export function computeFateSetValue({
       priceCoveragePercent: 0,
       priceCoverageBand: 'none',
       fullSetValue: null,
+      knownSetValue: 0,
+      ownedExpectedCount: null,
+      ownedPricedCount: null,
+      ownedUnpricedCount: null,
+      ownedPriceCoveragePercent: null,
       ownedValue: null,
+      knownOwnedValue: null,
+      missingExpectedCount: null,
+      missingPricedCount: null,
+      missingUnpricedCount: null,
+      missingPriceCoveragePercent: null,
       missingValue: null,
+      knownMissingValue: null,
     });
   }
 
@@ -71,7 +102,11 @@ export function computeFateSetValue({
       .map((card) => text(card.printingId))
       .filter(Boolean),
   );
-  const owned = new Set([...ownedPrintingIds].map(text).filter(Boolean));
+  const owned = new Set(
+    [...ownedPrintingIds]
+      .map(text)
+      .filter((printingId) => printingId && printingIds.has(printingId)),
+  );
   const values = new Map();
 
   for (const raw of printingValues) {
@@ -89,43 +124,66 @@ export function computeFateSetValue({
     if (!existing || candidate.observedAt > existing.observedAt) values.set(printingId, candidate);
   }
 
-  let fullSetKnownValue = 0;
-  let ownedKnownValue = 0;
-  let missingKnownValue = 0;
+  let knownSetValue = 0;
+  let knownOwnedValue = 0;
+  let knownMissingValue = 0;
+  let ownedPricedCount = 0;
+  let missingPricedCount = 0;
   const unpricedPrintingIds = [];
 
   for (const printingId of printingIds) {
+    const isOwned = owned.has(printingId);
     const value = values.get(printingId);
     if (!value) {
       unpricedPrintingIds.push(printingId);
       continue;
     }
-    fullSetKnownValue += value.amount;
-    if (owned.has(printingId)) ownedKnownValue += value.amount;
-    else missingKnownValue += value.amount;
+
+    knownSetValue += value.amount;
+    if (isOwned) {
+      knownOwnedValue += value.amount;
+      ownedPricedCount += 1;
+    } else {
+      knownMissingValue += value.amount;
+      missingPricedCount += 1;
+    }
   }
 
-  const expectedCount = printingIds.size;
-  const pricedCount = values.size;
-  const unpricedCount = expectedCount - pricedCount;
-  const priceCoveragePercent = Number(((pricedCount / expectedCount) * 100).toFixed(1));
-  const completePricing = unpricedCount === 0;
+  const setCoverage = coverageSummary(printingIds.size, values.size);
+  const ownedCoverage = coverageSummary(owned.size, ownedPricedCount);
+  const missingExpectedCount = printingIds.size - owned.size;
+  const missingCoverage = coverageSummary(missingExpectedCount, missingPricedCount);
 
   return Object.freeze({
-    status: completePricing ? 'available' : pricedCount > 0 ? 'partial' : 'unavailable',
-    reason: completePricing ? null : pricedCount > 0 ? 'price_coverage_incomplete' : 'no_price_evidence',
+    status: setCoverage.complete ? 'available' : values.size > 0 ? 'partial' : 'unavailable',
+    reason: setCoverage.complete ? null : values.size > 0 ? 'price_coverage_incomplete' : 'no_price_evidence',
     setId,
     currencyCode: code,
-    expectedCount,
-    pricedCount,
-    unpricedCount,
-    priceCoveragePercent,
-    priceCoverageBand: coverageBand(priceCoveragePercent),
-    fullSetValue: completePricing ? roundMoney(fullSetKnownValue) : null,
-    knownSetValue: roundMoney(fullSetKnownValue),
-    ownedValue: roundMoney(ownedKnownValue),
-    missingValue: completePricing ? roundMoney(missingKnownValue) : null,
-    knownMissingValue: roundMoney(missingKnownValue),
+
+    expectedCount: setCoverage.expectedCount,
+    pricedCount: setCoverage.pricedCount,
+    unpricedCount: setCoverage.unpricedCount,
+    priceCoveragePercent: setCoverage.coveragePercent,
+    priceCoverageBand: setCoverage.coverageBand,
+    fullSetValue: setCoverage.complete ? roundMoney(knownSetValue) : null,
+    knownSetValue: roundMoney(knownSetValue),
+
+    ownedExpectedCount: ownedCoverage.expectedCount,
+    ownedPricedCount: ownedCoverage.pricedCount,
+    ownedUnpricedCount: ownedCoverage.unpricedCount,
+    ownedPriceCoveragePercent: ownedCoverage.coveragePercent,
+    ownedPriceCoverageBand: ownedCoverage.coverageBand,
+    ownedValue: ownedCoverage.complete ? roundMoney(knownOwnedValue) : null,
+    knownOwnedValue: roundMoney(knownOwnedValue),
+
+    missingExpectedCount: missingCoverage.expectedCount,
+    missingPricedCount: missingCoverage.pricedCount,
+    missingUnpricedCount: missingCoverage.unpricedCount,
+    missingPriceCoveragePercent: missingCoverage.coveragePercent,
+    missingPriceCoverageBand: missingCoverage.coverageBand,
+    missingValue: missingCoverage.complete ? roundMoney(knownMissingValue) : null,
+    knownMissingValue: roundMoney(knownMissingValue),
+
     unpricedPrintingIds: Object.freeze(unpricedPrintingIds.sort()),
   });
 }
