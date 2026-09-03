@@ -2,13 +2,22 @@ import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifi
 import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
 import { buildChecklistPrintingValues } from '../value/checklist-prices.mjs';
 import { loadFatePricesFromStore } from '../value/fate-price-service.mjs';
+import { computeFateCollectorMovement } from './collector-movement.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { selectPreferredPrintingRepresentative } from './set-progress.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
   return value.trim();
+}
+
+function requireTimestamp(value, field) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) throw new TypeError(`${field} must be a positive timestamp`);
+  return number;
 }
 
 function cardId(card) {
@@ -44,6 +53,75 @@ function checklistPriceCandidateIds(canonicalCards, {
   return ids;
 }
 
+function buildPrintingValues({
+  sets,
+  canonicalCards,
+  fatePrices,
+  currencyCode,
+  preferredLanguageCode,
+  preferredVariantCode,
+}) {
+  const printingValues = [];
+  for (const set of sets) {
+    const checklistPrices = buildChecklistPrintingValues({
+      setId: set.id,
+      canonicalCards,
+      fatePrices,
+      currencyCode,
+      preferredLanguageCode,
+      preferredVariantCode,
+    });
+    printingValues.push(...checklistPrices.printingValues);
+  }
+  return printingValues;
+}
+
+async function buildValuationSnapshot({
+  store,
+  sets,
+  canonicalCards,
+  collectionItems,
+  priceCandidateIds,
+  currencyCode,
+  preferredLanguageCode,
+  preferredVariantCode,
+  asOf,
+}) {
+  const valuation = await loadFatePricesFromStore(store, {
+    cardIdentityIds: priceCandidateIds,
+    currencyCode,
+    asOf,
+  });
+  const availableFatePrices = valuation.prices.filter((price) => price.status === 'available');
+  const printingValues = buildPrintingValues({
+    sets,
+    canonicalCards,
+    fatePrices: availableFatePrices,
+    currencyCode,
+    preferredLanguageCode,
+    preferredVariantCode,
+  });
+  const summary = computeFateCollectorSummary({
+    sets,
+    canonicalCards,
+    collectionItems,
+    exactCardValues: availableFatePrices,
+    printingValues,
+    currencyCode,
+    preferredLanguageCode,
+    preferredVariantCode,
+  });
+  return Object.freeze({ valuation, summary });
+}
+
+function hasCompleteCurrentValue(summary) {
+  if (summary?.collection?.totalValue != null) return true;
+  return (summary?.sets || []).some((set) => {
+    const value = set?.value;
+    return value?.fullSetValue != null || value?.ownedValue != null || value?.missingValue != null;
+  });
+}
+
 function topLevelStatus({ collectionItems, unresolvedCollectionItemCount, summary, valuation }) {
   if (collectionItems.length === 0) return Object.freeze({ status: 'empty', reason: 'collection_empty' });
   if (unresolvedCollectionItemCount > 0) return Object.freeze({ status: 'partial', reason: 'collection_identity_unresolved' });
@@ -67,6 +145,10 @@ export async function getFateCollectorSummaryFromStore(store, {
   const currency = requireText(currencyCode, 'currencyCode').toUpperCase();
   const language = requireText(preferredLanguageCode, 'preferredLanguageCode').toLowerCase();
   const variant = requireText(preferredVariantCode, 'preferredVariantCode').toLowerCase();
+  const currentAsOf = requireTimestamp(asOf, 'asOf');
+  const sevenDayAsOf = currentAsOf - 7 * DAY_MS;
+  const thirtyDayAsOf = currentAsOf - 30 * DAY_MS;
+
   const collectionItems = await listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 });
   const ownedCardIds = [...new Set(collectionItems.map((item) => item.fateCardId).filter(Boolean))];
   const ownedCards = await listVerifiedCardsByIdsFromStore(store, ownedCardIds, { limit: 2000 });
@@ -92,38 +174,65 @@ export async function getFateCollectorSummaryFromStore(store, {
       preferredVariantCode: variant,
     }),
   ])];
-  const valuation = await loadFatePricesFromStore(store, {
-    cardIdentityIds: priceCandidateIds,
-    currencyCode: currency,
-    asOf,
-  });
-  const availableFatePrices = valuation.prices.filter((price) => price.status === 'available');
 
-  const printingValues = [];
-  for (const set of sets) {
-    const checklistPrices = buildChecklistPrintingValues({
-      setId: set.id,
-      canonicalCards,
-      fatePrices: availableFatePrices,
-      currencyCode: currency,
-      preferredLanguageCode: language,
-      preferredVariantCode: variant,
-    });
-    printingValues.push(...checklistPrices.printingValues);
-  }
-
-  const summary = computeFateCollectorSummary({
+  const current = await buildValuationSnapshot({
+    store,
     sets,
     canonicalCards,
     collectionItems,
-    exactCardValues: availableFatePrices,
-    printingValues,
+    priceCandidateIds,
     currencyCode: currency,
     preferredLanguageCode: language,
     preferredVariantCode: variant,
+    asOf: currentAsOf,
   });
+
+  let sevenDay = null;
+  let thirtyDay = null;
+  if (priceCandidateIds.length > 0
+      && current.valuation.status !== 'building'
+      && hasCompleteCurrentValue(current.summary)) {
+    sevenDay = await buildValuationSnapshot({
+      store,
+      sets,
+      canonicalCards,
+      collectionItems,
+      priceCandidateIds,
+      currencyCode: currency,
+      preferredLanguageCode: language,
+      preferredVariantCode: variant,
+      asOf: sevenDayAsOf,
+    });
+    thirtyDay = await buildValuationSnapshot({
+      store,
+      sets,
+      canonicalCards,
+      collectionItems,
+      priceCandidateIds,
+      currencyCode: currency,
+      preferredLanguageCode: language,
+      preferredVariantCode: variant,
+      asOf: thirtyDayAsOf,
+    });
+  }
+
+  const movement = computeFateCollectorMovement({
+    currentSummary: current.summary,
+    sevenDaySummary: sevenDay?.summary ?? null,
+    thirtyDaySummary: thirtyDay?.summary ?? null,
+    currencyCode: currency,
+    currentAsOf,
+    sevenDayAsOf,
+    thirtyDayAsOf,
+  });
+  const summary = Object.freeze({ ...current.summary, movement });
   const unresolvedCollectionItemCount = collectionItems.filter((item) => !resolvedIds.has(item.fateCardId)).length;
-  const top = topLevelStatus({ collectionItems, unresolvedCollectionItemCount, summary, valuation });
+  const top = topLevelStatus({
+    collectionItems,
+    unresolvedCollectionItemCount,
+    summary: current.summary,
+    valuation: current.valuation,
+  });
 
   return Object.freeze({
     contractVersion: 1,
@@ -135,13 +244,18 @@ export async function getFateCollectorSummaryFromStore(store, {
       verifiedOwnedIdentities: ownedCards.length,
       unresolvedCollectionItemCount,
       completeSetValuesConnected: true,
-      valuationStatus: valuation.status,
-      valuationReason: valuation.reason,
-      requestedPriceIdentityCount: valuation.requestedCardCount,
-      resolvedPriceIdentityCount: valuation.availablePriceCount,
-      unavailablePriceIdentityCount: valuation.unavailablePriceCount,
-      rejectedPricingProvenanceCount: valuation.rejectedProvenanceCount,
-      pricingEvidenceSourceType: valuation.evidenceSourceType,
+      valuationStatus: current.valuation.status,
+      valuationReason: current.valuation.reason,
+      requestedPriceIdentityCount: current.valuation.requestedCardCount,
+      resolvedPriceIdentityCount: current.valuation.availablePriceCount,
+      unavailablePriceIdentityCount: current.valuation.unavailablePriceCount,
+      rejectedPricingProvenanceCount: current.valuation.rejectedProvenanceCount,
+      pricingEvidenceSourceType: current.valuation.evidenceSourceType,
+      movementBasis: movement.basis,
+      sevenDayValuationStatus: sevenDay?.valuation.status ?? 'unavailable',
+      sevenDayValuationReason: sevenDay?.valuation.reason ?? 'historical_baseline_not_loaded',
+      thirtyDayValuationStatus: thirtyDay?.valuation.status ?? 'unavailable',
+      thirtyDayValuationReason: thirtyDay?.valuation.reason ?? 'historical_baseline_not_loaded',
     }),
   });
 }
