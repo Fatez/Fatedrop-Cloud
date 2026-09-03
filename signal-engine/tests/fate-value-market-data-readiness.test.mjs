@@ -75,6 +75,9 @@ test('reports verified catalogue and exact Cardmarket mapping coverage by game a
   assert.equal(report.canonical.mappingCoveragePct, 66.666667);
   assert.equal(report.canonical.verifiedTcgs, 2);
   assert.equal(report.canonical.verifiedSets, 2);
+  assert.deepEqual(report.gaps.unmappedCardExamples, [{
+    cardIdentityId: 'p2', tcgCode: 'pokemon', setCode: 'sv08',
+  }]);
 
   const pokemon = report.byTcg.find((item) => item.key === 'pokemon');
   const onePiece = report.byTcg.find((item) => item.key === 'one-piece');
@@ -140,6 +143,35 @@ test('staged cards and other providers do not inflate Cardmarket readiness', asy
   const report = await buildMarketDataReadinessReport(store(state));
   assert.equal(report.canonical.verifiedCards, 3);
   assert.equal(report.canonical.mappedCards, 2);
+  assert.equal(report.canonical.validSourceMappings, 2);
+  assert.equal(report.canonical.invalidSourceMappings, 1);
   assert.equal(report.history.observedCards, 2);
   assert.equal(report.history.currentLaneCount, 2);
+  assert.ok(report.issues.includes('source_mapping_targets_unverified'));
+});
+
+test('ingest rejections are surfaced as reconciliation gaps', async () => {
+  const state = makeState();
+  state.fateValueLab.ingestRuns.run1 = { id: 'run1', sourceName: 'cardmarket' };
+  state.fateValueLab.rejections.r1 = {
+    id: 'r1', sourceName: 'cardmarket', rejectionCode: 'identity_unresolved',
+  };
+  state.fateValueLab.rejections.r2 = {
+    id: 'r2', sourceName: 'cardmarket', rejectionCode: 'identity_unresolved',
+  };
+  state.fateValueLab.rejections.r3 = {
+    id: 'r3', sourceName: 'cardmarket', rejectionCode: 'mapping_conflict',
+  };
+  state.fateValueLab.rejections.foreign = {
+    id: 'foreign', sourceName: 'other-source', rejectionCode: 'identity_unresolved',
+  };
+
+  const report = await buildMarketDataReadinessReport(store(state));
+  assert.equal(report.history.ingestRuns, 1);
+  assert.equal(report.history.rejections, 3);
+  assert.deepEqual(report.history.rejectionCodes, {
+    identity_unresolved: 2,
+    mapping_conflict: 1,
+  });
+  assert.ok(report.issues.includes('ingest_rejections_present'));
 });
