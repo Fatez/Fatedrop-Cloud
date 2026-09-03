@@ -31,6 +31,12 @@ function uniqueIds(values) {
   return Object.freeze([...new Set(values.map(text).filter(Boolean))]);
 }
 
+function effectiveAt(row) {
+  const raw = row?.sourceEffectiveAt ?? row?.observedAt;
+  const number = Number(raw);
+  return Number.isFinite(number) ? number : null;
+}
+
 function postgresObservation(row) {
   return Object.freeze({
     id: row.id,
@@ -67,12 +73,16 @@ function postgresRun(row) {
   });
 }
 
-async function loadFileEvidence(store, cardIdentityIds, currencyCode) {
+async function loadFileEvidence(store, cardIdentityIds, currencyCode, asOf) {
   const state = await store.read();
   const cardIds = new Set(cardIdentityIds);
   const observations = Object.values(state?.fateValueLab?.observations || {})
     .filter((row) => cardIds.has(text(row?.cardIdentityId)))
-    .filter((row) => text(row?.currencyCode).toUpperCase() === currencyCode);
+    .filter((row) => text(row?.currencyCode).toUpperCase() === currencyCode)
+    .filter((row) => {
+      const at = effectiveAt(row);
+      return at == null || at <= asOf;
+    });
   const ingestRuns = Object.values(state?.fateValueLab?.ingestRuns || {});
   return Object.freeze({
     evidenceSourceType: 'file',
@@ -82,7 +92,7 @@ async function loadFileEvidence(store, cardIdentityIds, currencyCode) {
   });
 }
 
-async function loadPostgresEvidence(store, cardIdentityIds, currencyCode) {
+async function loadPostgresEvidence(store, cardIdentityIds, currencyCode, asOf) {
   const pool = await store.pool();
   try {
     const { rows } = await pool.query(
@@ -102,10 +112,11 @@ async function loadPostgresEvidence(store, cardIdentityIds, currencyCode) {
            JOIN fatedrop_market_ingest_runs r ON r.id=o.ingest_run_id
           WHERE o.card_identity_id = ANY($1::text[])
             AND o.currency_code=$2
+            AND COALESCE(o.source_effective_at,o.observed_at) <= $3
        )
-       SELECT * FROM ranked WHERE rn <= $3
+       SELECT * FROM ranked WHERE rn <= $4
        ORDER BY card_identity_id,COALESCE(source_effective_at,observed_at) DESC,observed_at DESC,id DESC`,
-      [cardIdentityIds, currencyCode, POSTGRES_OBSERVATIONS_PER_CARD],
+      [cardIdentityIds, currencyCode, asOf, POSTGRES_OBSERVATIONS_PER_CARD],
     );
 
     const observations = [];
@@ -135,9 +146,9 @@ async function loadPostgresEvidence(store, cardIdentityIds, currencyCode) {
   }
 }
 
-async function loadEvidence(store, cardIdentityIds, currencyCode) {
-  if (typeof store?.read === 'function') return loadFileEvidence(store, cardIdentityIds, currencyCode);
-  if (typeof store?.pool === 'function') return loadPostgresEvidence(store, cardIdentityIds, currencyCode);
+async function loadEvidence(store, cardIdentityIds, currencyCode, asOf) {
+  if (typeof store?.read === 'function') return loadFileEvidence(store, cardIdentityIds, currencyCode, asOf);
+  if (typeof store?.pool === 'function') return loadPostgresEvidence(store, cardIdentityIds, currencyCode, asOf);
   throw new Error('Fate Price evidence store is unavailable');
 }
 
@@ -168,6 +179,7 @@ export async function loadFatePricesFromStore(store, {
       status: 'available',
       reason: null,
       currencyCode: code,
+      asOf: effectiveAsOf,
       requestedCardCount: 0,
       availablePriceCount: 0,
       unavailablePriceCount: 0,
@@ -177,12 +189,13 @@ export async function loadFatePricesFromStore(store, {
     });
   }
 
-  const evidence = await loadEvidence(store, ids, code);
+  const evidence = await loadEvidence(store, ids, code, effectiveAsOf);
   if (!evidence.schemaAvailable) {
     return Object.freeze({
       status: 'building',
       reason: 'market_history_schema_missing',
       currencyCode: code,
+      asOf: effectiveAsOf,
       requestedCardCount: ids.length,
       availablePriceCount: 0,
       unavailablePriceCount: ids.length,
@@ -210,6 +223,7 @@ export async function loadFatePricesFromStore(store, {
     status: availablePriceCount === ids.length ? 'available' : availablePriceCount > 0 ? 'partial' : 'unavailable',
     reason: availablePriceCount === ids.length ? null : availablePriceCount > 0 ? 'price_coverage_incomplete' : 'no_current_approved_price_evidence',
     currencyCode: code,
+    asOf: effectiveAsOf,
     requestedCardCount: ids.length,
     availablePriceCount,
     unavailablePriceCount,
