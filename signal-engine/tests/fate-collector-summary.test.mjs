@@ -33,7 +33,7 @@ const printingValues = [
   { printingId: 'b2', amount: 7, currencyCode: 'GBP', observedAt: 100 },
 ];
 
-test('collector summary returns portfolio, set completion, missing values and closest incomplete set', () => {
+test('collector summary returns portfolio, game breakdowns, set completion and missing values', () => {
   const result = computeFateCollectorSummary({
     sets,
     canonicalCards,
@@ -47,9 +47,24 @@ test('collector summary returns portfolio, set completion, missing values and cl
   assert.equal(result.collection.totalValue, 27);
   assert.equal(result.cardUnits, 4);
   assert.equal(result.setsOwned, 2);
+  assert.equal(result.progressAvailableSetCount,2);
   assert.equal(result.closestSet.setId, 'set-a');
   assert.equal(result.closestSet.completionPercent, 50);
   assert.equal(result.closestSet.missingCount, 1);
+
+  const pokemon=result.games.find((game)=>game.tcgCode==='pokemon');
+  assert.equal(pokemon.collection.totalValue,10);
+  assert.equal(pokemon.cardUnits,1);
+  assert.equal(pokemon.setsOwned,1);
+  assert.equal(pokemon.closestSet.setId,'set-a');
+  assert.equal(pokemon.closestSet.completionPercent,50);
+
+  const onePiece=result.games.find((game)=>game.tcgCode==='one-piece');
+  assert.equal(onePiece.collection.totalValue,17);
+  assert.equal(onePiece.cardUnits,3);
+  assert.equal(onePiece.setsOwned,1);
+  assert.equal(onePiece.closestSet.setId,'set-b');
+  assert.equal(onePiece.closestSet.completionPercent,100);
 
   const setA = result.sets.find((row) => row.setId === 'set-a');
   assert.equal(setA.ownedCount, 1);
@@ -65,7 +80,7 @@ test('collector summary returns portfolio, set completion, missing values and cl
   assert.equal(setB.value.missingValue, 0);
 });
 
-test('collector summary preserves unavailable catalogue states instead of fabricating progress', () => {
+test('owned set counts survive unavailable checklist progress instead of disappearing', () => {
   const result = computeFateCollectorSummary({
     sets: [{ id: 'set-a', name: 'Set A', tcgCode: 'pokemon', total: 3, printedTotal: 3 }],
     canonicalCards: canonicalCards.filter((card) => card.setId === 'set-a'),
@@ -75,7 +90,12 @@ test('collector summary preserves unavailable catalogue states instead of fabric
     currencyCode: 'GBP',
   });
 
+  assert.equal(result.setsOwned,1,'the user still owns cards from the set even while completion is unavailable');
+  assert.equal(result.progressAvailableSetCount,0);
   assert.equal(result.unavailableSetCount, 1);
   assert.equal(result.sets[0].status, 'unavailable');
   assert.equal(result.sets[0].reason, 'canonical_checklist_incomplete');
+  assert.equal(result.games[0].tcgCode,'pokemon');
+  assert.equal(result.games[0].setsOwned,1);
+  assert.equal(result.games[0].unavailableSetCount,1);
 });
