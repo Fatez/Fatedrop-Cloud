@@ -40,6 +40,7 @@ function setSummaryUnavailable(set, catalogue) {
     totalCount: null,
     missingCount: null,
     completionPercent: null,
+    missingCards: Object.freeze([]),
     value: null,
   });
 }
@@ -85,6 +86,40 @@ function ownedSetIdsByTcg(canonicalCards, collectionItems) {
     byTcg.get(card.tcgCode).add(card.setId);
   }
   return byTcg;
+}
+
+function printingPriceIndex(printingValues) {
+  const index=new Map();
+  for(const raw of printingValues){
+    const printingId=text(raw?.printingId);
+    const amount=Number(raw?.amount);
+    if(!printingId||!Number.isFinite(amount)||amount<0)continue;
+    const candidate=Object.freeze({
+      amount,
+      currencyCode:text(raw.currencyCode).toUpperCase()||null,
+      observedAt:raw.observedAt==null?null:Number(raw.observedAt),
+      sourceName:text(raw.sourceName)||null,
+      providerPolicyKey:text(raw.providerPolicyKey)||null,
+      metricUsed:text(raw.metricUsed)||null,
+      confidence:text(raw.confidence)||null,
+    });
+    const existing=index.get(printingId);
+    const candidateAt=Number(candidate.observedAt??0);
+    const existingAt=Number(existing?.observedAt??0);
+    if(!existing||candidateAt>=existingAt)index.set(printingId,candidate);
+  }
+  return index;
+}
+
+function enrichMissingCards(missingCards, priceIndex) {
+  return Object.freeze((missingCards||[]).map((card)=>{
+    const price=priceIndex.get(text(card.printingId))??null;
+    return Object.freeze({
+      ...card,
+      priceStatus:price?'available':'unavailable',
+      fatePrice:price,
+    });
+  }));
 }
 
 function buildGameSummaries({
@@ -142,6 +177,7 @@ export function computeFateCollectorSummary({
     cardValues: exactCardValues,
     currencyCode,
   });
+  const priceIndex=printingPriceIndex(printingValues);
 
   const setSummaries = sets.map((set) => {
     const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
@@ -174,7 +210,7 @@ export function computeFateCollectorSummary({
       totalCount: progress.totalCount,
       missingCount: progress.missingCount,
       completionPercent: progress.completionPercent,
-      missingCards: progress.missingCards,
+      missingCards: enrichMissingCards(progress.missingCards,priceIndex),
       value,
     });
   });
