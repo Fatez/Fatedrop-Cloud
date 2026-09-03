@@ -13,12 +13,16 @@ Status: isolated development only. Do not merge or deploy.
 - Added a store-backed collection-progress service and read-only `npm run collectors:readiness` audit.
 - Added Collectr CSV parsing, canonical matching, review states, import provenance, non-destructive reconciliation and full dry-run preview.
 - Purchase-price / collector cost-basis work was removed from V1. Users should not have to record what they paid.
+- Added deterministic Fate Price resolution from approved, current, same-currency exact-card evidence.
+- Added ingest-run → market-observation permission provenance joining so provider name alone is never treated as legal/source authority.
+- Added explicit checklist representative pricing; language/finish are never substituted merely to fill a price gap.
 - Added Fate Set Value calculation with independent full-set / owned-checklist / missing-card price coverage.
 - Added exact-identity collection portfolio valuation so variants and quantity retain financial value even though completion collapses them to one checklist slot.
 - Graded cards fail closed for valuation until graded-market evidence exists; raw-card pricing is not reused for slabs.
 - Added amount/% movement calculation for 7D/30D history once complete historical valuations exist.
 - Added a read-only collector summary orchestrator for collection value, card units, sets owned, closest incomplete set, set completion, missing cards and set-value outputs.
 - Added pricing-source permission policy and in-code approval gate.
+- Cardmarket price snapshots/batches are now TCG-namespaced and record acquisition-policy provenance for Pokémon, One Piece, Lorcana and future registered TCGs.
 - Added focused tests for the above; full repository execution remains for Codespace/Sol.
 
 ## Correct valuation boundaries
@@ -33,7 +37,21 @@ These are intentionally different:
 
 No complete monetary total may be shown when required prices are missing. In that case FateDrop exposes `known value + coverage` instead.
 
-Currency is never silently mixed. Historical movement only compares complete valuations in the same currency.
+Currency is never silently mixed or converted. Historical movement only compares complete valuations in the same currency.
+
+## Fate Price V1 rule
+
+For one exact canonical card:
+
+1. require matching exact card identity;
+2. require explicitly requested currency;
+3. require non-stale evidence;
+4. require an approved `providerPolicyKey` proven via its ingest run;
+5. choose the freshest eligible observation;
+6. within that observation use `marketPrice → trendPrice → avg7d → avg30d`;
+7. never promote `lowPrice` to default market value.
+
+Fate Price returns source, acquisition policy, metric, freshness and confidence alongside the amount.
 
 ## Pricing-source permission review — 2026-09-03
 
@@ -45,11 +63,11 @@ Approved V1 acquisition route:
 
 Not approved:
 
-- **Pokémon Wizard:** benchmark/UX reference only; its terms prohibit scraping/systematic extraction and reproduction/redistribution of pricing data without permission.
-- **TCGplayer:** approval required for the intended commercial/aggregation use; do not ingest under current terms.
+- **Pokémon Wizard:** benchmark/UX reference only; do not scrape/systematically extract/reproduce/redistribute its pricing without permission.
+- **TCGplayer:** approval required for the intended commercial/aggregation use.
 - **Cardmarket authenticated API:** not the approved route; use the separately published public downloads.
 
-The Cardmarket download client now asserts the approved `cardmarket-public-download` policy inside the actual fetch path.
+The Cardmarket download client asserts `cardmarket-public-download` inside the actual fetch path.
 
 Do not guess One Piece/Lorcana direct artifact IDs from third-party examples. Resolve and verify the official Cardmarket download hrefs in Codespace before enabling those game-specific URLs.
 
@@ -98,20 +116,23 @@ Do not create parallel catalogue, collection or pricing truth.
 
 - New focused tests are written.
 - No GitHub CI/status run is attached to the current branch checkpoint.
-- The current execution environment cannot run the complete repo suite against GitHub, so `npm test` in Codespace is required before this work is treated as verified.
+- The current execution environment cannot run the complete repo suite, so `npm test` in Codespace is required before this work is treated as verified.
 
 ## Safe next work for Sol/Codespace
 
 1. Run `npm test`; fix all failures before extension.
-2. Run Pokémon catalogue sync in plan-only mode and review matched/ambiguous/rejected/unmatched sets.
-3. Finish/prove complete verified Pokémon catalogue population.
-4. Re-run `collectors:readiness` until intended sets are actually ready.
-5. Verify official Cardmarket public-download URLs for Pokémon, One Piece and Lorcana; do not scrape HTML.
-6. Test the Fate Value market-history migration on a temporary/test database branch only.
-7. Wire resolved canonical Fate Price values into the new set/collection summary calculations.
-8. Build One Piece canonical catalogue population from its existing evidence contract.
-9. Add Lorcana catalogue ingestion with identical fail-closed identity rules.
-10. Implement transactional Confirm Import writes across collection ownership + import provenance only.
+2. Specifically verify the new completion, Collectr, provider-policy, Cardmarket multi-TCG, provenance, Fate Price, checklist-price, set-value, collection-value, movement and summary tests.
+3. Run Pokémon catalogue sync in plan-only mode and review matched/ambiguous/rejected/unmatched sets.
+4. Finish/prove complete verified Pokémon catalogue population.
+5. Re-run `collectors:readiness` until intended sets are actually ready.
+6. Verify official Cardmarket public-download URLs for Pokémon, One Piece and Lorcana; do not scrape HTML.
+7. Test the Fate Value market-history migration on a temporary/test database branch only.
+8. Build the read service that joins stored market observations to ingest-run provenance and feeds `resolveFatePrice`.
+9. Add explicit, independently sourced/provenanced FX only if GBP display is required from EUR source evidence.
+10. Wire resolved Fate Prices into the collector summary.
+11. Build One Piece canonical catalogue population from its existing evidence contract.
+12. Add Lorcana catalogue ingestion with identical fail-closed identity rules.
+13. Implement transactional Confirm Import writes across collection ownership + import provenance only.
 
 ## Locked rules
 
