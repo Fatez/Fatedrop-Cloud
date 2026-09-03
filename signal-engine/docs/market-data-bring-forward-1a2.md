@@ -45,6 +45,20 @@ The `normal`/`holo` values above are Cardmarket source-mapping keys. They do **n
 
 No network fetching is hidden inside the persistence helper. Fetch/validation and persistence remain separable so a source artifact can be rehearsed before it is written.
 
+### Dry-run-first market cycle
+
+`cardmarket-market-cycle.mjs` composes the hardened source fetch, exact mapping, batch preparation and readiness audit into one operator-facing function.
+
+Its default mode is `dry-run`:
+
+- source transport and freshness checks still run;
+- the artifact SHA-256 and provider snapshot identity are reported;
+- accepted/rejected lane counts are calculated;
+- no market ledger mutation is authorized;
+- current readiness is returned alongside the proposed batch result.
+
+Persistence requires the caller to explicitly select `mode: 'persist'`. There is no automatic scheduler in this phase and no production invocation is added by this branch.
+
 ## Readiness audit
 
 `market-data-readiness.mjs` is a read-only gate for both file-backed development state and PostgreSQL.
@@ -52,16 +66,19 @@ No network fetching is hidden inside the persistence helper. Fetch/validation an
 It reports, per source:
 
 - whether the canonical card schema is available;
-- whether the market-history schema is available;
+- whether the complete market-history schema is available;
 - verified TCG/set/card counts;
 - verified cards with exact source mappings;
-- unmapped verified cards and mapping coverage percentage;
+- mappings that target staged/missing identities;
+- unmapped verified cards, bounded reconciliation examples and mapping coverage percentage;
 - mapping coverage by TCG and set;
+- ingest-run, observation and rejection counts;
+- rejection counts grouped by reason code;
 - stored observation count and distinct market days;
 - earliest/latest market day;
 - currently represented market lanes;
 - exact 1-day, 7-day and 30-day baseline coverage from the latest market day;
-- explicit issue codes such as `market_history_schema_missing`, `source_mapping_coverage_incomplete` and `d7_baseline_coverage_incomplete`.
+- explicit issue codes such as `market_history_schema_missing`, `source_mapping_coverage_incomplete`, `source_mapping_targets_unverified`, `ingest_rejections_present` and `d7_baseline_coverage_incomplete`.
 
 It does not emit a synthetic confidence score.
 
@@ -116,6 +133,12 @@ It creates the append-only ingest-run, market-observation and rejection tables p
    - Do not treat 1D/7D/30D movement as broadly representative until exact baseline coverage is visible and acceptable for the intended game/set scope.
    - Missing baseline stays missing; nearby dates are not substituted.
 
+## Historical-data boundary
+
+The current Cardmarket price-guide artifact is treated as a dated provider snapshot. Phase 1A.2 does not fabricate historical daily snapshots from rolling `avg1`, `avg7` or `avg30` fields. Those provider metrics remain evidence fields, not replacements for FateDrop's own exact daily observations.
+
+Therefore exact D1/D7/D30 Pulse history matures as dated snapshots accumulate unless a separately verified historical source/backfill is approved later.
+
 ## Operational measurements to watch
 
 The most important readiness numbers are:
@@ -123,7 +146,8 @@ The most important readiness numbers are:
 - verified canonical cards;
 - exact Cardmarket-mapped cards;
 - mapping coverage %;
-- unresolved/rejected source lanes;
+- mappings targeting non-verified identities;
+- unresolved/rejected source lanes and rejection reasons;
 - latest provider effective timestamp;
 - distinct stored market days;
 - current market-lane count;
