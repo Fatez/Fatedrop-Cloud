@@ -86,13 +86,24 @@ function normalizeCondition(value) {
   return map[key] ?? 'unknown';
 }
 
-function stableRowKey(row, occurrence) {
-  const parts = [
-    row.tcgCode ?? '', row.setName, row.cardName, row.collectorNumber,
-    row.variantLabel, row.languageCode ?? '', row.conditionCode,
-    row.gradingCompany, row.gradeLabel, row.purchasePriceText, row.dateAdded,
+function sourceIdentityParts(row) {
+  return [
+    row.tcgCode ?? '',
+    row.setName,
+    row.collectorNumber,
+    row.variantLabel,
+    row.languageCode ?? '',
+    row.gradingCompany,
+    row.gradeLabel,
   ];
-  const digest = createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24);
+}
+
+function stableRowKey(row, occurrence) {
+  // This key identifies a logical exported row across refreshes. Mutable user
+  // metadata such as quantity and condition deliberately does not participate,
+  // otherwise an ordinary refresh would create a duplicate collection item.
+  // Purchase-price/date fields are intentionally ignored in Fate Collectors V1.
+  const digest = createHash('sha256').update(sourceIdentityParts(row).join('|')).digest('hex').slice(0, 24);
   return `collectr_${digest}_${occurrence}`;
 }
 
@@ -132,9 +143,6 @@ export function parseCollectrCsv(csvText) {
       gradingCompany:field(raw,['Grading Company','Grader']) || '',
       gradeLabel:field(raw,['Grade']) || '',
       quantity,
-      purchasePriceText:field(raw,['Purchase Price','Price Paid','Cost Basis']) || '',
-      currencyCode:field(raw,['Currency','Currency Code']).toUpperCase() || null,
-      dateAdded:field(raw,['Date Added','Added At','Purchase Date']) || '',
     };
 
     const errors = [];
@@ -149,7 +157,7 @@ export function parseCollectrCsv(csvText) {
       continue;
     }
 
-    const base = [candidate.tcgCode,candidate.setName,candidate.cardName,candidate.collectorNumber,candidate.variantLabel,candidate.languageCode ?? '',candidate.conditionCode,candidate.gradingCompany,candidate.gradeLabel,candidate.purchasePriceText,candidate.dateAdded].join('|');
+    const base = sourceIdentityParts(candidate).join('|');
     const occurrence = (occurrences.get(base) ?? 0) + 1;
     occurrences.set(base, occurrence);
     parsed.push(Object.freeze({ ...candidate, sourceRecordKey:stableRowKey(candidate, occurrence) }));
