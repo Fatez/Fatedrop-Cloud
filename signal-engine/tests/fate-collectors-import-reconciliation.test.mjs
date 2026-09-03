@@ -21,7 +21,7 @@ test('existing imported row becomes update instead of duplicate create',()=>{
   const plan=planCollectionImportReconciliation({
     matches:[exact()],
     existingSources:[{sourceName:'collectr',sourceRecordKey:'r1',collectionItemId:'i1'}],
-    existingItems:[{id:'i1',fateCardId:'card1',quantity:1,conditionCode:'near_mint',copyState:'raw',revision:3,status:'active'}],
+    existingItems:[{id:'i1',fateCardId:'card1',quantity:1,tradeQuantity:0,conditionCode:'near_mint',copyState:'raw',revision:3,status:'active'}],
   });
   assert.equal(plan.summary.create,0);
   assert.equal(plan.summary.update,1);
@@ -29,11 +29,24 @@ test('existing imported row becomes update instead of duplicate create',()=>{
   assert.equal(plan.updates[0].expectedRevision,3);
 });
 
+test('refresh never silently reduces quantity below copies already marked for trade',()=>{
+  const plan=planCollectionImportReconciliation({
+    matches:[exact({quantity:1})],
+    existingSources:[{sourceName:'collectr',sourceRecordKey:'r1',collectionItemId:'i1'}],
+    existingItems:[{id:'i1',fateCardId:'card1',quantity:3,tradeQuantity:2,conditionCode:'near_mint',copyState:'raw',revision:3,status:'active'}],
+  });
+  assert.equal(plan.summary.update,0);
+  assert.equal(plan.summary.hold,1);
+  assert.equal(plan.holds[0].reason,'import_quantity_below_trade_quantity');
+  assert.equal(plan.holds[0].tradeQuantity,2);
+  assert.equal(plan.holds[0].requestedQuantity,1);
+});
+
 test('missing rows are reported stale but never auto-deleted',()=>{
   const plan=planCollectionImportReconciliation({
     matches:[],
     existingSources:[{sourceName:'collectr',sourceRecordKey:'old',collectionItemId:'i1'}],
-    existingItems:[{id:'i1',fateCardId:'card1',quantity:1,conditionCode:'near_mint',copyState:'raw',revision:1,status:'active'}],
+    existingItems:[{id:'i1',fateCardId:'card1',quantity:1,tradeQuantity:0,conditionCode:'near_mint',copyState:'raw',revision:1,status:'active'}],
   });
   assert.equal(plan.summary.staleSourceRecords,1);
   assert.equal(plan.staleSources[0].sourceRecordKey,'old');
