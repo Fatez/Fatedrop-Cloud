@@ -47,6 +47,19 @@ function sourceState(state) {
   return state.traderCollection;
 }
 
+function publicSource(row) {
+  return Object.freeze({
+    id:row.id,
+    collectionItemId:row.collection_item_id ?? row.collectionItemId,
+    sourceName:row.source_name ?? row.sourceName,
+    sourceRecordKey:row.source_record_key ?? row.sourceRecordKey,
+    importBatchKey:row.import_batch_key ?? row.importBatchKey ?? null,
+    observedAt:(row.observed_at ?? row.observedAt) == null ? null : Number(row.observed_at ?? row.observedAt),
+    createdAt:Number(row.created_at ?? row.createdAt),
+    updatedAt:Number(row.updated_at ?? row.updatedAt),
+  });
+}
+
 async function ownsActiveFileItem(store, userId, itemId) {
   const data = sourceState(await store.read());
   const item = data.items[itemId];
@@ -96,17 +109,7 @@ export async function recordCollectionItemImportSource(store, { userId, itemId, 
     ON CONFLICT (id) DO UPDATE SET observed_at=COALESCE(EXCLUDED.observed_at,fatedrop_collection_item_sources.observed_at),updated_at=EXCLUDED.updated_at
     RETURNING id,collection_item_id,source_name,source_record_key,import_batch_key,observed_at,created_at,updated_at`,
   [id,ownedItemId,normalized.sourceName,normalized.sourceRecordKey,normalized.importBatchKey,normalized.observedAt,now]);
-  const row = rows[0];
-  return Object.freeze({
-    id:row.id,
-    collectionItemId:row.collection_item_id,
-    sourceName:row.source_name,
-    sourceRecordKey:row.source_record_key,
-    importBatchKey:row.import_batch_key,
-    observedAt:row.observed_at == null ? null : Number(row.observed_at),
-    createdAt:Number(row.created_at),
-    updatedAt:Number(row.updated_at),
-  });
+  return publicSource(rows[0]);
 }
 
 export async function listCollectionItemImportSources(store, { userId, itemId }) {
@@ -118,21 +121,41 @@ export async function listCollectionItemImportSources(store, { userId, itemId })
     return Object.values(data.itemSources)
       .filter((entry) => entry.collectionItemId === ownedItemId)
       .sort((a,b) => a.createdAt - b.createdAt)
-      .map((entry) => Object.freeze({ ...entry }));
+      .map(publicSource);
   }
   if (typeof store?.pool !== 'function') return [];
   if (!await ownsActivePostgresItem(store, ownerId, ownedItemId)) return [];
   const pool = await store.pool();
   const { rows } = await pool.query(`SELECT id,collection_item_id,source_name,source_record_key,import_batch_key,observed_at,created_at,updated_at
     FROM fatedrop_collection_item_sources WHERE collection_item_id=$1 ORDER BY created_at,id`, [ownedItemId]);
-  return rows.map((row) => Object.freeze({
-    id:row.id,
-    collectionItemId:row.collection_item_id,
-    sourceName:row.source_name,
-    sourceRecordKey:row.source_record_key,
-    importBatchKey:row.import_batch_key,
-    observedAt:row.observed_at == null ? null : Number(row.observed_at),
-    createdAt:Number(row.created_at),
-    updatedAt:Number(row.updated_at),
-  }));
+  return rows.map(publicSource);
+}
+
+export async function listCollectionImportSourcesFromStore(store, { userId, sourceName = null } = {}) {
+  const ownerId = requireText(userId,'userId');
+  const wantedSource = optionalText(sourceName)?.toLowerCase() ?? null;
+  if (typeof store?.read === 'function') {
+    const data = sourceState(await store.read());
+    const ownedCollections = new Set(Object.values(data.collections).filter((collection)=>collection.userId === ownerId).map((collection)=>collection.id));
+    const activeItemIds = new Set(Object.values(data.items)
+      .filter((item)=>item.status !== 'removed' && ownedCollections.has(item.collectionId))
+      .map((item)=>item.id));
+    return Object.values(data.itemSources)
+      .filter((entry)=>activeItemIds.has(entry.collectionItemId))
+      .filter((entry)=>!wantedSource || String(entry.sourceName).toLowerCase() === wantedSource)
+      .sort((a,b)=>a.createdAt-b.createdAt || a.id.localeCompare(b.id))
+      .map(publicSource);
+  }
+  if (typeof store?.pool !== 'function') return [];
+  const pool=await store.pool();
+  const values=[ownerId];
+  let sourceClause='';
+  if (wantedSource) { values.push(wantedSource); sourceClause=` AND LOWER(s.source_name)=$${values.length}`; }
+  const { rows }=await pool.query(`SELECT s.id,s.collection_item_id,s.source_name,s.source_record_key,s.import_batch_key,s.observed_at,s.created_at,s.updated_at
+    FROM fatedrop_collection_item_sources s
+    JOIN fatedrop_collection_items i ON i.id=s.collection_item_id
+    JOIN fatedrop_collections c ON c.id=i.collection_id
+    WHERE c.user_id=$1 AND i.status='active'${sourceClause}
+    ORDER BY s.created_at,s.id`,values);
+  return rows.map(publicSource);
 }
