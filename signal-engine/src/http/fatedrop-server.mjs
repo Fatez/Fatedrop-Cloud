@@ -26,6 +26,8 @@ import { handleFateTraderBinder, isFateTraderBinderPath } from "../trader/binder
 import { handleFateTraderMatching, isFateTraderMatchingPath } from "../trader/matching/http.mjs";
 import { handleFateTraderTrust, isFateTraderTrustPath } from "../trader/trust/http.mjs";
 import { handleFateTraderSafeExchange, isFateTraderSafeExchangePath } from "../trader/safe-exchange/http.mjs";
+import { handleFateCollectors, isFateCollectorsPath } from "../trader/collection/collectors-http.mjs";
+import { handleFatePulse, isFatePulsePath } from "../trader/value/http.mjs";
 import { listPublicTcgCapabilities } from "../trader/tcg-registry.mjs";
 import { createHttpServer as createLegacyHttpServer } from "./server.mjs";
 
@@ -259,6 +261,8 @@ export function createFateDropHttpServer({ store, retailers = [], placesSearch, 
     if(req.method==="GET"&&url.pathname==="/api/signal-summary"){await handlePublicSignalSummary(req,res,{store});return;}
     if(req.method==="GET"&&url.pathname==="/api/alert-facets"){await handlePublicAlertFacets(req,res);return;}
     if(req.method==="GET"&&url.pathname==="/api/tcgs"){return json(res,200,{success:true,contractVersion:1,source:"FATEDROP_CLOUD",tcgs:listPublicTcgCapabilities()});}
+    if(isFatePulsePath(url.pathname)){await handleFatePulse(req,res,{store});return;}
+    if(isFateCollectorsPath(url.pathname)){await handleFateCollectors(req,res,{store});return;}
     const isLiveRetailRead=(req.method==="GET"&&(url.pathname==="/api/catalogue"||url.pathname==="/api/true-price"))||(req.method==="POST"&&url.pathname==="/api/fatefind/matches");
     if(isLiveRetailRead){return liveReadHandler(req,res);}
     if(isFateTraderCataloguePath(url.pathname)){await handleFateTraderCatalogue(req,res,{store});return;}

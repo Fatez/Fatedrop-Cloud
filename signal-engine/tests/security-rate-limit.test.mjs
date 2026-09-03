@@ -77,4 +77,7 @@ test("expensive public routes have explicit rate-limit policies", () => {
   assert.equal(rateLimitPolicy("GET", "/api/true-price")?.limit, 90);
   assert.equal(rateLimitPolicy("GET", "/api/catalogue")?.limit, 120);
   assert.equal(rateLimitPolicy("GET", "/v1/trader/finder")?.limit, 30);
+  assert.equal(rateLimitPolicy("GET", "/v1/market/pulse")?.limit, 60);
+  assert.equal(rateLimitPolicy("GET", "/v1/collectors/summary")?.limit, 60);
+  assert.equal(rateLimitPolicy("POST", "/v1/collectors/import/collectr/preview")?.limit, 10);
 });
