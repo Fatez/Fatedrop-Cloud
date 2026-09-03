@@ -99,6 +99,17 @@ export function planCollectionImportReconciliation({
     }
     const nextQuantity=built.input.quantity;
     const nextCondition=built.input.conditionCode;
+    if (Number(item.tradeQuantity ?? 0) > nextQuantity) {
+      holds.push(Object.freeze({
+        match,
+        reason:'import_quantity_below_trade_quantity',
+        existingSource,
+        item,
+        requestedQuantity:nextQuantity,
+        tradeQuantity:Number(item.tradeQuantity ?? 0),
+      }));
+      continue;
+    }
     if (Number(item.quantity) === nextQuantity && text(item.conditionCode) === text(nextCondition)) {
       unchanged.push(Object.freeze({match,item,source:existingSource}));
       continue;
