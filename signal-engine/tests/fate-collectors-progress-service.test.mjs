@@ -6,14 +6,14 @@ import path from 'node:path';
 import { FileStore } from '../src/stores/file-store.mjs';
 import { getCollectionSetProgressFromStore } from '../src/trader/collection/progress-service.mjs';
 
-async function seed() {
+async function seed({ declaredTotal = 2 } = {}) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fatedrop-progress-service-'));
   const store = new FileStore(path.join(dir, 'store.json'));
   await store.mutate((state) => {
     state.traderCatalogue = {
       tcgs:{ fdtcg_pokemon:{id:'fdtcg_pokemon',code:'pokemon',name:'Pokémon TCG'} },
       series:{ s1:{id:'s1',tcgId:'fdtcg_pokemon',name:'Era',verificationStatus:'verified'} },
-      sets:{ set1:{id:'set1',tcgId:'fdtcg_pokemon',seriesId:'s1',name:'Set One',verificationStatus:'verified'} },
+      sets:{ set1:{id:'set1',tcgId:'fdtcg_pokemon',seriesId:'s1',name:'Set One',total:declaredTotal,printedTotal:declaredTotal,verificationStatus:'verified'} },
       setSourceMappings:{},
       printings:{
         p1:{id:'p1',name:'Alpha',verificationStatus:'verified'},
@@ -34,15 +34,26 @@ async function seed() {
   return store;
 }
 
-test('service joins verified catalogue with owned collection items', async () => {
+test('service joins verified complete catalogue with owned collection items', async () => {
   const store = await seed();
   const progress = await getCollectionSetProgressFromStore(store,{userId:'u1',setId:'set1',preferredLanguageCode:'en'});
   assert.equal(progress.status,'available');
+  assert.equal(progress.catalogue.status,'complete');
   assert.equal(progress.totalCount,2);
   assert.equal(progress.ownedCount,1);
   assert.equal(progress.missingCount,1);
   assert.equal(progress.completionPercent,50);
   assert.equal(progress.missingCards[0].fateCardId,'c2');
+});
+
+test('service fails closed when catalogue has fewer verified printings than declared', async () => {
+  const store = await seed({declaredTotal:3});
+  const progress = await getCollectionSetProgressFromStore(store,{userId:'u1',setId:'set1'});
+  assert.equal(progress.status,'unavailable');
+  assert.equal(progress.reason,'canonical_checklist_incomplete');
+  assert.equal(progress.catalogue.expectedTotal,3);
+  assert.equal(progress.catalogue.observedTotal,2);
+  assert.equal(progress.completionPercent,null);
 });
 
 test('service fails closed for an unknown/unverified set', async () => {
