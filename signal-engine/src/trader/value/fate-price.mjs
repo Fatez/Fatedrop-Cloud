@@ -111,7 +111,7 @@ function confidenceFor({ sourceEstimates, valuationAsOf, anchorAsOf, fairLow, fa
   else if (ageMs <= 72 * 60 * 60 * 1000) reasons.push('fresh_within_72h');
   else reasons.push('aging_market_evidence');
 
-  if (spreadPercent != null && spreadPercent <= 15) reasons.push('stable_guide_signals');
+  if (spreadPercent != null && spreadPercent <= 20) reasons.push('stable_guide_signals');
   else if (spreadPercent != null && spreadPercent <= 30) reasons.push('moderate_guide_spread');
   else reasons.push('wide_guide_spread');
 
@@ -226,19 +226,22 @@ export function calculateFatePrice(observations, {
   const exact = observations.filter((observation) => observation?.cardIdentityId === id);
   if (!exact.length) return unavailable(id, 'NO_VERIFIED_MARKET_EVIDENCE', { filter });
 
-  const groups = new Map();
+  const allGroups = new Map();
   for (const observation of exact) {
     const scope = scopeOf(observation);
-    if (!scope.currencyCode || !matchesScope(scope, filter)) continue;
+    if (!scope.currencyCode) continue;
     const key = scopeKey(scope);
-    const entry = groups.get(key) ?? { scope, observations: [] };
+    const entry = allGroups.get(key) ?? { scope, observations: [] };
     entry.observations.push(observation);
-    groups.set(key, entry);
+    allGroups.set(key, entry);
   }
 
-  const availableScopes = [...groups.values()]
+  const availableScopes = [...allGroups.values()]
     .map((entry) => entry.scope)
     .sort((left, right) => scopeKey(left).localeCompare(scopeKey(right)));
+  const groups = new Map(
+    [...allGroups.entries()].filter(([, entry]) => matchesScope(entry.scope, filter)),
+  );
   if (!groups.size) return unavailable(id, 'NO_MARKET_EVIDENCE_FOR_SCOPE', { scopes: availableScopes, filter });
   if (groups.size > 1) return unavailable(id, 'AMBIGUOUS_MARKET_SCOPE', { scopes: availableScopes, filter });
 
