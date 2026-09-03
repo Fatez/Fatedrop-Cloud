@@ -5,6 +5,7 @@ import { Pool } from 'pg';
 import { normaliseMarketIngestRun, normaliseMarketObservationCandidate } from '../src/trader/value/market-observation.mjs';
 import { persistMarketEvidenceBatch } from '../src/trader/value/market-store.mjs';
 import { buildMarketPulseSnapshotFromStore } from '../src/trader/value/market-pulse-data.mjs';
+import { buildMarketDataReadinessReport } from '../src/trader/value/market-data-readiness.mjs';
 
 const connectionString = process.env.FATE_VALUE_TEST_DATABASE_URL;
 if (!connectionString) throw new Error('FATE_VALUE_TEST_DATABASE_URL is required');
@@ -119,7 +120,21 @@ try {
   assert.deepEqual(pulse.cards[0].movement.d7, { amount: 25, percent: 25 });
   assert.equal(pulse.movement.d7.coveragePct, 100);
 
-  console.log('Market Pulse PostgreSQL read bridge smoke rehearsal passed');
+  const readiness = await buildMarketDataReadinessReport(store, { sourceName: SOURCE });
+  assert.equal(readiness.canonicalSchemaAvailable, true);
+  assert.equal(readiness.marketHistorySchemaAvailable, true);
+  assert.equal(readiness.history.observations, 2);
+  assert.equal(readiness.history.observedCards, 1);
+  assert.equal(readiness.history.latestMarketDay, '2026-09-03');
+  assert.equal(readiness.history.currentLaneCount, 1);
+  assert.deepEqual(readiness.history.exactBaselineCoverage.d7, {
+    baselineMarketDay: '2026-08-27',
+    eligibleLanes: 1,
+    coveredLanes: 1,
+    coveragePct: 100,
+  });
+
+  console.log('Market Pulse PostgreSQL read bridge and readiness smoke rehearsal passed');
 } finally {
   await pool.end();
 }
