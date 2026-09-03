@@ -37,7 +37,7 @@ function pilotSets(sets, pilotKey) {
 
 async function auditSet({ store, products, set, expansion }) {
   const cards = await listVerifiedCardsFromStore(store, { setId: set.id, languageCode: 'en', limit: 500 });
-  const completeness = assessCanonicalSetCompleteness({ set, canonicalCards: cards });
+  const completeness = assessCanonicalSetCompleteness({ set, canonicalCards: cards, requiredLanguageCode:'en' });
   const base = {
     setId: set.id,
     setName: set.name,
