@@ -1,5 +1,6 @@
 import { PostgresStore } from '../../stores/postgres-store.mjs';
 import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
+import { selectCataloguePilot } from './pilots.mjs';
 import { selectVerifiedSetCrosswalk } from './selection.mjs';
 import { createPokemonTcgClient, createTcgdexClient } from './source-clients.mjs';
 
@@ -65,14 +66,20 @@ function problemBreakdown(plan) {
 async function main() {
   const write = process.argv.includes('--write');
   const requestedSetIds = csvSetIds(argValue('sets'));
-  const maxSets = positiveInt(argValue('max-sets'), requestedSetIds.length || 10, 100);
+  const pilotKey = String(argValue('pilot') || '').trim();
+  if (pilotKey && requestedSetIds.length) throw new Error('--pilot and --sets are mutually exclusive');
+
   const maxCardsPerChunk = positiveInt(argValue('max-cards'), 100, 250);
   const startAfterSetId = argValue('start-after');
 
   const tcgdexClient = createTcgdexClient({ languageCode: 'en' });
   const pokemonTcgClient = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null });
   const plan = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient });
-  const selection = selectVerifiedSetCrosswalk(plan, requestedSetIds);
+  const selection = pilotKey
+    ? selectCataloguePilot(plan, pilotKey)
+    : selectVerifiedSetCrosswalk(plan, requestedSetIds);
+  const defaultMaxSets = selection.mode === 'all' ? 10 : Math.max(1, selection.selected.length);
+  const maxSets = positiveInt(argValue('max-sets'), defaultMaxSets, 100);
   const report = {
     mode: write ? 'write' : 'plan',
     generatedAt: new Date().toISOString(),
@@ -80,6 +87,7 @@ async function main() {
     counts: plan.counts,
     selection: {
       mode: selection.mode,
+      pilotKey: selection.pilotKey || null,
       requestedSetIds: selection.requestedSetIds,
       selectedCount: selection.selected.length,
       maxSets,
