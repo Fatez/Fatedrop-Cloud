@@ -178,6 +178,7 @@ test('batch only asks resolver for meaningful lanes', async () => {
     sourceName: 'cardmarket',
     sourceRecordId: '668227',
     priceGuideLane: 'standard',
+    tcgCode: 'pokemon',
   }]);
   assert.equal(result.observations.length, 1);
   assert.equal(result.rejections.length, 0);
