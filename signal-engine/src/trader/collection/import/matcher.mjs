@@ -1,4 +1,5 @@
-import { listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../../catalogue/store.mjs';
+import { listVerifiedCardSetsFromStore } from '../../catalogue/store.mjs';
+import { readCollectorVerifiedSetCardsFromStore } from '../collector-read-store.mjs';
 
 function text(value) {
   return value == null ? '' : String(value).trim();
@@ -46,7 +47,7 @@ async function setsFor(store, cache, tcgCode) {
 }
 
 async function cardsFor(store, cache, setId) {
-  if (!cache.has(setId)) cache.set(setId, await listVerifiedCardsFromStore(store,{setId,limit:500}));
+  if (!cache.has(setId)) cache.set(setId, await readCollectorVerifiedSetCardsFromStore(store,{setId}));
   return cache.get(setId);
 }
 
@@ -76,7 +77,14 @@ export async function matchCollectionImportRowsFromStore(store, { rows } = {}) {
     }
 
     const set = setCandidates[0];
-    const cards = await cardsFor(store,cardCache,set.id);
+    const cardRead = await cardsFor(store,cardCache,set.id);
+    if(cardRead.truncated){
+      matches.push(Object.freeze({
+        ...rowResult,setId:set.id,status:'unresolved',reason:'canonical_set_read_truncated',candidates:Object.freeze([]),
+      }));
+      continue;
+    }
+    const cards=cardRead.cards;
     let numbered = cards.filter((card) => collectorKey(card.collectorNumber) === collectorKey(row.collectorNumber));
     if (numbered.length === 0) {
       matches.push(Object.freeze({ ...rowResult, setId:set.id, status:'unresolved', reason:'card_number_not_found', candidates:Object.freeze([]) }));
