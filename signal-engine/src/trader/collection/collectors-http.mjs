@@ -1,5 +1,6 @@
 import { resolveFateTraderSessionUser } from '../auth.mjs';
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
+import { buildFateCollectorSetDetail, compactFateCollectorSummaryResponse } from './collector-contract.mjs';
 import { getFateCollectorSummaryFromStore } from './collector-summary-service.mjs';
 import { confirmCollectrImportFromStore } from './import/confirm.mjs';
 import { previewCollectrImportFromStore } from './import/preview.mjs';
@@ -15,10 +16,16 @@ function ok(res,data,status=200){json(res,status,{ok:true,data,meta:meta()});}
 function fail(res,status,code,message,{retryable=false,details={}}={}){json(res,status,{ok:false,error:{code,message,retryable,details},meta:meta()});}
 async function readBody(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>2_000_000)throw new Error('REQUEST_TOO_LARGE');}return raw?JSON.parse(raw):{};}
 function progressSetId(pathname){return pathname.match(/^\/v1\/collectors\/sets\/([^/]+)\/progress$/)?.[1]||null;}
+function detailSetId(pathname){return pathname.match(/^\/v1\/collectors\/sets\/([^/]+)$/)?.[1]||null;}
 function collectrCsv(body){return typeof body?.csvText==='string'&&body.csvText.trim()?body.csvText:null;}
+function valuationQuery(url){return{
+  currencyCode:String(url.searchParams.get('currency')||'EUR').trim().toUpperCase(),
+  preferredLanguageCode:String(url.searchParams.get('language')||'en').trim().toLowerCase(),
+  preferredVariantCode:String(url.searchParams.get('variant')||'standard').trim().toLowerCase(),
+};}
 
 export function isFateCollectorsPath(pathname){
-  return pathname===SUMMARY_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+\/progress$/.test(pathname);
+  return pathname===SUMMARY_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+(?:\/progress)?$/.test(pathname);
 }
 
 export async function handleFateCollectors(req,res,{
@@ -34,18 +41,21 @@ export async function handleFateCollectors(req,res,{
 
   try{
     if(req.method==='GET'&&url.pathname===SUMMARY_PATH){
-      const currencyCode=String(url.searchParams.get('currency')||'EUR').trim().toUpperCase();
-      const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
-      const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
-      const summary=await getFateCollectorSummaryFromStore(store,{userId:user.id,currencyCode,preferredLanguageCode,preferredVariantCode});
-      ok(res,summary);return true;
+      const raw=await getFateCollectorSummaryFromStore(store,{userId:user.id,...valuationQuery(url)});
+      ok(res,compactFateCollectorSummaryResponse(raw));return true;
     }
-    const setId=progressSetId(url.pathname);
-    if(req.method==='GET'&&setId){
-      const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
-      const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
-      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),preferredLanguageCode,preferredVariantCode});
+    const progressId=progressSetId(url.pathname);
+    if(req.method==='GET'&&progressId){
+      const query=valuationQuery(url);
+      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(progressId),preferredLanguageCode:query.preferredLanguageCode,preferredVariantCode:query.preferredVariantCode});
       ok(res,{contractVersion:1,progress});return true;
+    }
+    const detailId=detailSetId(url.pathname);
+    if(req.method==='GET'&&detailId){
+      const raw=await getFateCollectorSummaryFromStore(store,{userId:user.id,...valuationQuery(url)});
+      const detail=buildFateCollectorSetDetail(raw,{setId:decodeURIComponent(detailId),sort:url.searchParams.get('sort')||'number'});
+      if(!detail){fail(res,404,'COLLECTOR_SET_NOT_FOUND','The requested set is not present in this collection summary.');return true;}
+      ok(res,detail);return true;
     }
     if(req.method==='POST'&&url.pathname===PREVIEW_PATH){
       const body=await readBody(req);
