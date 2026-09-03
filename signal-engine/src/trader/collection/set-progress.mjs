@@ -20,7 +20,11 @@ function compareCards(a, b) {
     || text(a.fateCardId ?? a.id).localeCompare(text(b.fateCardId ?? b.id));
 }
 
-function preferredRepresentative(cards, { preferredLanguageCode = null, preferredVariantCode = 'standard' } = {}) {
+export function selectPreferredPrintingRepresentative(cards, {
+  preferredLanguageCode = null,
+  preferredVariantCode = 'standard',
+} = {}) {
+  if (!Array.isArray(cards)) throw new TypeError('cards must be an array');
   const language = text(preferredLanguageCode).toLowerCase();
   const variant = text(preferredVariantCode).toLowerCase();
   return [...cards].sort((a, b) => {
@@ -112,7 +116,7 @@ export function computeCollectionSetProgress({
 
   const missingCards = [...printings.entries()]
     .filter(([printingId]) => !ownedPrintingIds.has(printingId))
-    .map(([, identities]) => preferredRepresentative(identities, { preferredLanguageCode, preferredVariantCode }))
+    .map(([, identities]) => selectPreferredPrintingRepresentative(identities, { preferredLanguageCode, preferredVariantCode }))
     .filter(Boolean)
     .sort(compareCards)
     .map(publicMissingCard);
