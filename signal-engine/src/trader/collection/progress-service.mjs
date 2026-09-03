@@ -1,8 +1,11 @@
-import { listCollectionItemsFromStore } from './store.mjs';
-import { computeCollectionSetProgress } from './set-progress.mjs';
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
-import { listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
+import { listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
 import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
+import {
+  readCollectorCollectionItemsFromStore,
+  readCollectorVerifiedSetCardsFromStore,
+} from './collector-read-store.mjs';
+import { computeCollectionSetProgress } from './set-progress.mjs';
 
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
@@ -19,7 +22,7 @@ async function getVerifiedSet(store, setId) {
   return null;
 }
 
-function unavailable({ reason, setId, set = null, catalogue = null }) {
+function unavailable({ reason, setId, set = null, catalogue = null, read = null }) {
   return Object.freeze({
     status: 'unavailable',
     reason,
@@ -27,6 +30,7 @@ function unavailable({ reason, setId, set = null, catalogue = null }) {
     setId,
     setName: set?.name ?? null,
     catalogue,
+    read,
     ownedCount: null,
     totalCount: null,
     missingCount: null,
@@ -46,7 +50,14 @@ export async function getCollectionSetProgressFromStore(store, {
   const set = await getVerifiedSet(store, canonicalSetId);
   if (!set) return unavailable({ reason:'verified_set_not_found', setId:canonicalSetId });
 
-  const canonicalCards = await listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 });
+  const cardRead = await readCollectorVerifiedSetCardsFromStore(store, { setId:canonicalSetId });
+  if(cardRead.truncated){
+    return unavailable({
+      reason:'canonical_set_read_truncated',setId:canonicalSetId,set,
+      read:Object.freeze({totalCards:cardRead.totalCards,maxCards:cardRead.maxCards,truncated:true}),
+    });
+  }
+  const canonicalCards=cardRead.cards;
   const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
   if (catalogue.status !== 'complete') {
     return unavailable({
@@ -54,17 +65,39 @@ export async function getCollectionSetProgressFromStore(store, {
       setId: canonicalSetId,
       set,
       catalogue,
+      read:Object.freeze({totalCards:cardRead.totalCards,maxCards:cardRead.maxCards,truncated:false}),
     });
   }
 
-  const collectionItems = await listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 });
+  const collectionRead=await readCollectorCollectionItemsFromStore(store,{userId:ownerId});
+  if(collectionRead.truncated){
+    return unavailable({
+      reason:'collection_read_truncated',setId:canonicalSetId,set,catalogue,
+      read:Object.freeze({
+        totalCards:cardRead.totalCards,
+        collectionItemsTotal:collectionRead.totalItems,
+        collectionUnitsTotal:collectionRead.totalUnits,
+        collectionMaxItems:collectionRead.maxItems,
+        truncated:true,
+      }),
+    });
+  }
   const progress = computeCollectionSetProgress({
     set,
     canonicalCards,
-    collectionItems,
+    collectionItems:collectionRead.items,
     preferredLanguageCode,
     preferredVariantCode,
   });
 
-  return Object.freeze({ ...progress, catalogue });
+  return Object.freeze({
+    ...progress,
+    catalogue,
+    read:Object.freeze({
+      totalCards:cardRead.totalCards,
+      collectionItemsTotal:collectionRead.totalItems,
+      collectionUnitsTotal:collectionRead.totalUnits,
+      truncated:false,
+    }),
+  });
 }
