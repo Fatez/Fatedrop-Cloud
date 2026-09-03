@@ -12,16 +12,42 @@ Status: isolated development only. Do not merge or deploy.
 - Added exact missing-card calculation.
 - Completion is printing-scoped so language/finish variants do not inflate checklist totals.
 - Added canonical set-completeness diagnostics.
-- Collection progress now fails closed when the verified canonical checklist is incomplete, conflicting or has no declared total.
+- Collection progress fails closed when the verified canonical checklist is incomplete, conflicting or has no declared total.
 - Added a store-backed collection-progress service.
 - Added a read-only catalogue readiness audit and CLI (`npm run collectors:readiness`).
 - Added import-source provenance for Collectr/future adapters without making external IDs canonical truth.
-- Added a defensive Collectr CSV adapter for common game/set/name/card-number/variant/condition/grade/quantity/cost fields.
+- Added a defensive Collectr CSV adapter.
 - Added deterministic import matching with `exact`, `needs_confirmation`, `ambiguous` and `unresolved` states.
 - Added safe re-import reconciliation planning: create/update/unchanged/hold/stale; stale records are never auto-deleted.
 - Added an end-to-end Collectr dry-run preview: CSV → validate → canonical match → reconcile plan, with no collection writes.
-- Added optional collector purchase-cost storage separated from Fate Price / market truth.
+- Purchase-price / collector cost-basis work was removed from V1. Fate Collectors should not require users to enter what they paid.
 - Added focused test coverage for the new pure/store-backed foundations across Pokémon, One Piece and Lorcana concepts.
+
+## Product value rule
+
+Fate Collectors should automatically tell the user what a set and their owned cards are worth. The collector should not have to maintain purchase-cost records.
+
+Future valuation should come from one canonical Fate Price / Fate Set Value layer:
+
+- `Full Set Value` = sum of current market values for one canonical checklist printing per set slot.
+- `Owned Collection Value` = sum of current market values for the checklist printings the user owns.
+- `Missing Card Value` = sum of current market values for the checklist printings they are missing.
+- 7D / 30D movement comes from historical market-price snapshots, not user-entered purchase prices.
+- If some cards are unpriced, show priced-card coverage and a partial value instead of a fake complete total.
+- Currency, source, freshness and confidence must remain explicit.
+
+## Pokémon Wizard research — 2026-09-03
+
+Pokémon Wizard is a useful product/data benchmark for Fate Set Value because it exposes live card prices, total set values and market trend data across hundreds of Pokémon sets.
+
+No public API was identified during the initial review. Its published Terms describe the service as informational/personal-use. Do not scrape or redistribute its pricing data into FateDrop without an authorised API, licence or explicit permission.
+
+Safe uses now:
+
+- benchmark FateDrop set-value calculations against public Pokémon Wizard totals during development;
+- study its set/value UX;
+- explore authorised commercial/API access if available;
+- keep FateDrop's price-provider contract independent so Pokémon, One Piece, Lorcana and future games can use different licensed sources behind one Fate Price interface.
 
 ## Production catalogue audit — 2026-09-03
 
@@ -54,8 +80,7 @@ One Piece currently has a game-agnostic evidence contract but still requires pro
 
 - New focused test files have been added.
 - No GitHub CI/status run is currently attached to this branch checkpoint.
-- The current execution environment could not reach GitHub from the container, so the full Node test suite has NOT been independently executed here.
-- Sol/Codespace must run `npm test` before this work is treated as CI-verified.
+- The current execution environment could not run the full Node suite, so Sol/Codespace must run `npm test` before this work is treated as CI-verified.
 
 ## Safe next work
 
@@ -66,8 +91,8 @@ One Piece currently has a game-agnostic evidence contract but still requires pro
 5. Re-run `npm run collectors:readiness` until intended Pokémon sets are Collector-ready.
 6. Build/complete One Piece canonical catalogue ingestion using its existing evidence contract.
 7. Add a Lorcana canonical catalogue adapter/provider with the same fail-closed rules.
-8. Only after tests + catalogue readiness, implement transactional Confirm Import writes across collection item + provenance + optional cost basis.
-9. Fate Price remains a later dependency for collection £ value and 7D/30D movement, not for owned/missing/completion.
+8. Implement transactional Confirm Import writes across collection ownership + import provenance only.
+9. Build the canonical Fate Price / Fate Set Value provider layer for automatic collection, set and missing-card valuation.
 
 ## Locked rules
 
@@ -77,5 +102,6 @@ One Piece currently has a game-agnostic evidence contract but still requires pro
 - No guessed finish, language or variant identity.
 - One shared engine must support Pokémon, One Piece, Lorcana and future TCGs.
 - Import preview is non-destructive; stale source rows are review-only.
-- Purchase cost never becomes market value.
+- No user-entered purchase price in Fate Collectors V1.
+- Market valuation belongs to Fate Price / Fate Set Value and must use real external evidence.
 - No merge or deployment until explicitly approved.
