@@ -56,6 +56,73 @@ function closestSet(summaries) {
   )[0] ?? null;
 }
 
+function publicClosestSet(row) {
+  return row ? Object.freeze({
+    setId: row.setId,
+    setName: row.setName,
+    tcgCode: row.tcgCode,
+    completionPercent: row.completionPercent,
+    missingCount: row.missingCount,
+  }) : null;
+}
+
+function cardContextById(canonicalCards) {
+  return new Map(
+    canonicalCards
+      .filter((card) => card?.verificationStatus === 'verified')
+      .map((card) => [text(card.fateCardId ?? card.id), Object.freeze({ tcgCode:text(card.tcgCode), setId:text(card.setId) })])
+      .filter(([id, context]) => id && context.tcgCode && context.setId),
+  );
+}
+
+function ownedSetIdsByTcg(canonicalCards, collectionItems) {
+  const context = cardContextById(canonicalCards);
+  const byTcg = new Map();
+  for (const item of activeItems(collectionItems)) {
+    const card = context.get(text(item.fateCardId));
+    if (!card) continue;
+    if (!byTcg.has(card.tcgCode)) byTcg.set(card.tcgCode, new Set());
+    byTcg.get(card.tcgCode).add(card.setId);
+  }
+  return byTcg;
+}
+
+function buildGameSummaries({
+  canonicalCards,
+  collectionItems,
+  exactCardValues,
+  setSummaries,
+  currencyCode,
+}) {
+  const context = cardContextById(canonicalCards);
+  const ownedSetsByTcg = ownedSetIdsByTcg(canonicalCards, collectionItems);
+  const tcgCodes = [...ownedSetsByTcg.keys()].sort();
+
+  return Object.freeze(tcgCodes.map((tcgCode) => {
+    const gameItems = activeItems(collectionItems).filter((item) => context.get(text(item.fateCardId))?.tcgCode === tcgCode);
+    const gamePortfolio = computeFateCollectionValue({
+      collectionItems:gameItems,
+      cardValues:exactCardValues,
+      currencyCode,
+    });
+    const gameSets = setSummaries.filter((set) => set.tcgCode === tcgCode);
+    const unavailableSetCount = gameSets.filter((set) => set.status !== 'available').length;
+    const progressAvailableSetCount = gameSets.filter((set) => set.status === 'available' && Number(set.ownedCount) > 0).length;
+    const closest = closestSet(gameSets);
+
+    return Object.freeze({
+      tcgCode,
+      collection:gamePortfolio,
+      cardUnits:gamePortfolio.totalUnits,
+      setsOwned:ownedSetsByTcg.get(tcgCode)?.size ?? 0,
+      progressAvailableSetCount,
+      unavailableSetCount,
+      closestSet:publicClosestSet(closest),
+      sets:Object.freeze(gameSets),
+    });
+  }));
+}
+
 export function computeFateCollectorSummary({
   sets,
   canonicalCards,
@@ -112,23 +179,28 @@ export function computeFateCollectorSummary({
     });
   });
 
-  const ownedSets = setSummaries.filter((row) => row.status === 'available' && Number(row.ownedCount) > 0);
+  const ownedSetsByTcg = ownedSetIdsByTcg(canonicalCards, collectionItems);
+  const ownedSetIds = new Set([...ownedSetsByTcg.values()].flatMap((ids) => [...ids]));
   const unavailableSetCount = setSummaries.filter((row) => row.status !== 'available').length;
+  const progressAvailableSetCount = setSummaries.filter((row) => row.status === 'available' && Number(row.ownedCount) > 0).length;
   const closest = closestSet(setSummaries);
+  const games = buildGameSummaries({
+    canonicalCards,
+    collectionItems,
+    exactCardValues,
+    setSummaries,
+    currencyCode,
+  });
 
   return Object.freeze({
     currencyCode: portfolio.currencyCode,
     collection: portfolio,
     cardUnits: portfolio.totalUnits,
-    setsOwned: ownedSets.length,
+    setsOwned: ownedSetIds.size,
+    progressAvailableSetCount,
     unavailableSetCount,
-    closestSet: closest ? Object.freeze({
-      setId: closest.setId,
-      setName: closest.setName,
-      tcgCode: closest.tcgCode,
-      completionPercent: closest.completionPercent,
-      missingCount: closest.missingCount,
-    }) : null,
+    closestSet: publicClosestSet(closest),
+    games,
     sets: Object.freeze(setSummaries),
   });
 }
