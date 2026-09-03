@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { loadFatePricesFromStore } from '../src/trader/value/fate-price-service.mjs';
 
 const NOW = Date.parse('2026-09-03T12:00:00.000Z');
+const DAY = 24 * 60 * 60 * 1000;
 
 function run({
   id = 'run_1',
@@ -66,6 +67,37 @@ test('resolves approved current Cardmarket evidence from a file store', async ()
   assert.equal(result.prices[0].amount, 12.34);
   assert.equal(result.prices[0].metricUsed, 'trendPrice');
   assert.equal(result.prices[0].providerPolicyKey, 'cardmarket-public-download');
+});
+
+test('historical as-of reads ignore newer evidence and resolve the price available then', async () => {
+  const sevenDaysAgo = NOW - 7 * DAY;
+  const store = fileStore({
+    fateValueLab: {
+      ingestRuns: {
+        current: run({ id: 'current', sourceSnapshotId: 'current-snapshot' }),
+        baseline: run({ id: 'baseline', sourceSnapshotId: 'baseline-snapshot' }),
+      },
+      observations: {
+        current: observation({ id: 'current', ingestRunId: 'current', sourceSnapshotId: 'current-snapshot', sourceEffectiveAt: NOW - 60 * 60 * 1000, trendPrice: 20 }),
+        baseline: observation({ id: 'baseline', ingestRunId: 'baseline', sourceSnapshotId: 'baseline-snapshot', sourceEffectiveAt: sevenDaysAgo - 60 * 60 * 1000, trendPrice: 10 }),
+      },
+    },
+  });
+
+  const current = await loadFatePricesFromStore(store, {
+    cardIdentityIds: ['card_1'],
+    currencyCode: 'EUR',
+    asOf: NOW,
+  });
+  const baseline = await loadFatePricesFromStore(store, {
+    cardIdentityIds: ['card_1'],
+    currencyCode: 'EUR',
+    asOf: sevenDaysAgo,
+  });
+
+  assert.equal(current.prices[0].amount, 20);
+  assert.equal(baseline.prices[0].amount, 10);
+  assert.equal(baseline.asOf, sevenDaysAgo);
 });
 
 test('does not allow blocked or unprovenanced evidence to become Fate Price', async () => {
