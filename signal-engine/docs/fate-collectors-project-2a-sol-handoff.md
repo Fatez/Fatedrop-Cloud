@@ -23,8 +23,9 @@ Finish and verify the reusable Fate Collectors backend foundation for Pokémon, 
 - Import-source provenance.
 - Non-destructive re-import reconciliation planner.
 - End-to-end Collectr import preview/dry-run with no writes.
-- Optional purchase-cost persistence isolated from market value.
 - Focused tests for all of the above.
+
+Purchase-price / cost-basis persistence was deliberately removed from V1. The collector should not have to record what they paid.
 
 ## Production audit result at handoff
 
@@ -70,9 +71,9 @@ From `signal-engine` on this branch:
 
 ## Import write work still required
 
-Do not directly wire the preview plan to separate create/update/source/cost calls without considering atomicity.
+Do not directly wire the preview plan to separate writes without considering atomicity.
 
-Implement a transactional Confirm Import path so each confirmed row applies collection ownership + provenance + optional cost basis consistently.
+Implement a transactional Confirm Import path so each confirmed row applies collection ownership + import provenance consistently.
 
 Rules:
 
@@ -81,8 +82,7 @@ Rules:
 - Never auto-delete stale rows from a refreshed CSV.
 - Re-import of the same source record must update rather than duplicate.
 - Graded quantity >1 must be split into individual physical collection items or explicitly confirmed through a safe flow.
-- Do not guess missing currency, price scope, variant, finish or language.
-- Purchase price is collector cost basis only; Fate Price owns market valuation.
+- Do not guess variant, finish or language.
 
 ## Catalogue expansion
 
@@ -98,19 +98,21 @@ Reuse `one-piece-contract.mjs`. It intentionally refuses to invent variant evide
 
 Add a catalogue adapter/provider following the same canonical evidence and fail-closed rules. Do not add Lorcana-specific ownership tables.
 
-## Fate Price boundary
+## Fate Price / Fate Set Value boundary
 
-Do not block owned/missing/completion work on Fate Price.
+Owned/missing/completion must not depend on pricing, but the next user-facing value layer should be automatic rather than user-entered.
 
-Fate Price is required later for:
+Required outputs:
 
-- total collection market value;
-- set value;
-- missing-card value;
-- 7D/30D value movement;
-- cost-vs-market comparison.
+- Full Set Value.
+- User's Owned Collection Value.
+- Missing Card Value / estimated value required to complete.
+- 7D / 30D value movement.
+- price-data coverage, freshness and confidence.
 
-Collectors should consume one canonical Fate Price service when it exists rather than adding separate valuation logic.
+V1 valuation definition should be based on one current market value for each canonical checklist printing. If any required cards are unpriced, expose partial coverage rather than presenting a complete set total.
+
+Pokémon Wizard is a useful benchmark because its public product exposes card prices, total set values and market trends across hundreds of Pokémon sets. Initial review found no public API. Do not scrape/reuse its pricing data commercially without explicit permission/licensing or an authorised integration. Fate Price must use a provider interface so each TCG can use approved sources behind one canonical contract.
 
 ## Verification before any merge proposal
 
@@ -127,6 +129,6 @@ Collectors should consume one canonical Fate Price service when it exists rather
 
 Less work for the collector:
 
-`Import collection → FateDrop identifies owned cards → calculates set completion → shows only missing cards → later FateMatch finds them.`
+`Import collection → FateDrop identifies owned cards → calculates set completion → shows only missing cards → automatically values owned/set/missing cards → later FateMatch finds them.`
 
-The user should never have to scroll a 1–200 image checklist just to discover what is missing.
+The user should never have to scroll a 1–200 image checklist just to discover what is missing, and should not have to enter purchase prices to understand collection value.
