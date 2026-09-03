@@ -40,6 +40,14 @@ function requireNonNegativePrice(value, field) {
   return number;
 }
 
+function requirePositiveNumber(value, field) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) {
+    throw new TypeError(`${field} must be a positive finite number`);
+  }
+  return number;
+}
+
 function normaliseCurrency(value) {
   const code = requireText(value, 'currencyCode').toUpperCase();
   if (!/^[A-Z]{3}$/.test(code)) {
@@ -75,6 +83,24 @@ function requireVerifiedCardIdentity(input) {
   return Object.freeze({
     id,
     verificationStatus: 'verified',
+  });
+}
+
+function buildComparison(referencePrice, referenceCurrency, benchmarkPrice, benchmarkCurrency, extra = {}) {
+  const delta = referencePrice - benchmarkPrice;
+  const deltaPercent = benchmarkPrice === 0
+    ? null
+    : (delta / benchmarkPrice) * 100;
+
+  return Object.freeze({
+    comparable: true,
+    referenceCurrency,
+    benchmarkCurrency,
+    referencePrice,
+    benchmarkPrice,
+    delta,
+    deltaPercent,
+    ...extra,
   });
 }
 
@@ -122,18 +148,57 @@ export function comparePokemonWizardReference(reference, benchmark) {
     });
   }
 
-  const delta = reference.quotedPrice - benchmarkPrice;
-  const deltaPercent = benchmarkPrice === 0
-    ? null
-    : (delta / benchmarkPrice) * 100;
-
-  return Object.freeze({
-    comparable: true,
-    referenceCurrency: reference.currencyCode,
-    benchmarkCurrency,
-    referencePrice: reference.quotedPrice,
+  return buildComparison(
+    reference.quotedPrice,
+    reference.currencyCode,
     benchmarkPrice,
-    delta,
-    deltaPercent,
-  });
+    benchmarkCurrency,
+  );
+}
+
+export function comparePokemonWizardReferenceWithFx(reference, benchmark, fxEvidence) {
+  if (!reference || reference.sourceName !== POKEMON_WIZARD_SOURCE_NAME) {
+    throw new TypeError('Pokemon Wizard manual reference is required');
+  }
+  if (!benchmark || typeof benchmark !== 'object') {
+    throw new TypeError('benchmark is required');
+  }
+  if (!fxEvidence || typeof fxEvidence !== 'object') {
+    throw new TypeError('fxEvidence is required for cross-currency comparison');
+  }
+
+  const benchmarkPrice = requireNonNegativePrice(benchmark.price, 'benchmark.price');
+  const benchmarkCurrency = normaliseCurrency(benchmark.currencyCode);
+  const fxFromCurrency = normaliseCurrency(fxEvidence.fromCurrency);
+  const fxToCurrency = normaliseCurrency(fxEvidence.toCurrency);
+  const fxRate = requirePositiveNumber(fxEvidence.rate, 'fxEvidence.rate');
+  const fxSource = requireText(fxEvidence.source, 'fxEvidence.source');
+  const fxObservedAt = requireTimestamp(fxEvidence.observedAt, 'fxEvidence.observedAt');
+
+  if (benchmarkCurrency === reference.currencyCode) {
+    throw new TypeError('FX evidence is unnecessary for same-currency comparison');
+  }
+  if (fxFromCurrency !== reference.currencyCode || fxToCurrency !== benchmarkCurrency) {
+    throw new TypeError('FX evidence direction must match reference and benchmark currencies');
+  }
+
+  const convertedReferencePrice = reference.quotedPrice * fxRate;
+
+  return buildComparison(
+    convertedReferencePrice,
+    benchmarkCurrency,
+    benchmarkPrice,
+    benchmarkCurrency,
+    {
+      originalReferencePrice: reference.quotedPrice,
+      originalReferenceCurrency: reference.currencyCode,
+      fxRate,
+      fxSource,
+      fxObservedAt,
+      fxApplied: true,
+      purpose: 'internal-reference-validation',
+      persistenceAuthorized: false,
+      redistributionAuthorized: false,
+    },
+  );
 }
