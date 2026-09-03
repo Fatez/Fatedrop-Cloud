@@ -4,131 +4,202 @@
 
 `feat/fate-collectors-project-2a-foundation-2026-09-03`
 
-Do not merge or deploy unless Chris explicitly approves it.
+**Do not merge or deploy unless Chris explicitly approves it.**
 
 ## Goal
 
-Finish and verify the reusable Fate Collectors backend foundation for Pokémon, One Piece, Lorcana and future TCGs without duplicating canonical identity or pricing truth.
+Finish and verify a reusable Fate Collectors backend for Pokémon, One Piece, Lorcana and future TCGs without duplicating canonical identity, collection ownership or pricing truth.
 
-## What is already implemented on this branch
+## Foundation already implemented
+
+### Collection / completion
 
 - Printing-scoped set completion.
 - Exact missing-card output.
-- Fail-closed catalogue completeness checks.
+- Preferred representative selection for display/checklist valuation.
+- Fail-closed canonical catalogue completeness checks.
 - Store-backed set-progress service.
 - Per-TCG catalogue readiness audit.
-- `npm run collectors:readiness` read-only CLI.
-- Collectr CSV parser/normalizer.
-- Canonical import matcher with exact / confirmation / ambiguous / unresolved states.
+- Read-only `npm run collectors:readiness` CLI.
+- Read-only collector summary orchestration for collection value, card units, sets owned, closest incomplete set, missing cards and set values.
+
+### Collectr import groundwork
+
+- Defensive CSV parser/normalizer.
+- Canonical matcher with `exact`, `needs_confirmation`, `ambiguous`, `unresolved` states.
 - Import-source provenance.
-- Non-destructive re-import reconciliation planner.
-- End-to-end Collectr import preview/dry-run with no writes.
-- Focused tests for all of the above.
+- Non-destructive reconciliation planner (`create`, `update`, `unchanged`, `hold`, `stale`).
+- End-to-end preview/dry-run with no collection writes.
+- Repeat imports are designed to reconcile rather than duplicate.
+- Stale source rows are never auto-deleted.
 
-Purchase-price / cost-basis persistence was deliberately removed from V1. The collector should not have to record what they paid.
+Purchase-price / cost-basis persistence was deliberately removed from V1. Users should not have to record what they paid.
 
-## Production audit result at handoff
+### Fate Price / valuation groundwork
+
+Existing source-agnostic market observation/persistence infrastructure was reused rather than replaced.
+
+Added:
+
+- provider permission registry (`value/provider-policy.mjs`);
+- source-governance documentation (`docs/fate-price-source-policy.md`);
+- Cardmarket fetch-path policy enforcement;
+- multi-TCG Cardmarket snapshot/batch provenance;
+- deterministic Fate Price resolver (`value/fate-price.mjs`);
+- checklist representative → printing price mapper (`value/checklist-prices.mjs`);
+- coverage-safe Fate Set Value (`value/set-value.mjs`);
+- exact-identity × quantity collection valuation (`value/collection-value.mjs`);
+- 7D/30D amount/% movement calculator (`value/value-movement.mjs`);
+- focused tests for each of the above.
+
+## Locked valuation semantics
+
+These are intentionally different:
+
+- **Set Completion** = unique canonical printing/checklist slots owned.
+- **Full Set Value** = one resolved Fate Price per canonical checklist printing.
+- **Owned Checklist Value** = one resolved price per checklist printing owned; duplicate copies do not inflate this number.
+- **Missing Card Value** = one resolved price per missing checklist printing.
+- **Total Collection Value** = every exact canonical card identity × physical quantity; variants retain their own financial value.
+
+No required price = no fake complete total. Return known value + coverage instead.
+
+Graded cards are not valued with raw-card evidence.
+
+Language and finish are not inferred from market/location. Checklist valuation requires an explicit preferred language and variant. If that representative is unpriced, coverage drops rather than substituting another language/finish.
+
+Currency is never silently mixed or converted.
+
+## Fate Price V1 definition
+
+For one exact card identity, consider only:
+
+- matching card identity;
+- explicitly requested currency;
+- current/non-stale evidence;
+- evidence whose `providerPolicyKey` resolves to an approved acquisition route.
+
+Select the freshest eligible observation first. Within that observation use this metric order:
+
+1. `marketPrice`
+2. `trendPrice`
+3. `avg7d`
+4. `avg30d`
+
+**Do not use `lowPrice` as the default Fate Price.** A cheap live listing is not the same thing as market value.
+
+The resolver returns amount, metric used, currency, source, policy key, freshness and deterministic confidence. It performs no FX conversion.
+
+Persisted market observations must be enriched with `providerPolicyKey` from their ingest run before entering the Fate Price resolver. This is deliberate: `sourceName=cardmarket` alone cannot prove whether data came from the approved public-download route or another restricted route.
+
+## Pricing source review — 2026-09-03
+
+This is engineering source governance, not legal advice. Re-review if provider terms/use change.
+
+### Approved V1
+
+**Cardmarket public downloadable catalogue/price-guide files only.**
+
+Use only official public download artifacts from `downloads.s3.cardmarket.com`. Do not scrape Cardmarket HTML and do not treat authenticated API access as covered by this approval.
+
+Official Cardmarket material states the public catalogue/price parameters may be imported/incorporated into applications, and its download pages cover Pokémon, One Piece and Lorcana.
+
+Exact One Piece/Lorcana direct artifact URLs have not been hardcoded because the current environment could not independently resolve the official hrefs. Verify those official hrefs in Codespace; do not guess game IDs from third-party examples.
+
+### Blocked / approval required
+
+- **Pokémon Wizard:** benchmark/UX reference only. Do not scrape or ingest pricing without explicit permission/licensing.
+- **TCGplayer:** approval required for intended FateDrop commercial/aggregation use.
+- **Cardmarket authenticated API:** not the approved V1 acquisition route.
+
+## Production audit — canonical catalogue
 
 Read-only Neon inspection on 3 September 2026 showed:
 
-- Only Pokémon exists in the verified singles catalogue.
-- Only one verified Pokémon set exists: Darkness Ablaze.
-- Darkness Ablaze declares `total=201`, but only 1 verified canonical printing and 2 exact card identities are present.
-- Therefore 0 production sets are currently Collector-ready.
-- No verified One Piece or Lorcana canonical sets are currently present.
+- Pokémon: 1 verified set only — Darkness Ablaze.
+- Darkness Ablaze declares `total=201`, but has 1 verified canonical printing and 2 exact identities.
+- Collector-ready Pokémon sets: 0.
+- One Piece verified canonical sets: 0.
+- Lorcana verified canonical sets: 0.
 
-Do not expose collection completion from this production catalogue yet.
+Do not expose Fate Collectors completion from production catalogue data yet.
 
-## Important discovery
+## Existing catalogue machinery — reuse it
 
-Pokémon catalogue population infrastructure already exists. Do NOT create another provider.
+Pokémon already has:
 
-Existing path includes:
+- TCGdex client/adapter;
+- Pokémon TCG API client/adapter;
+- cross-source reconciliation;
+- verified bulk sync;
+- snapshot compilation/loading;
+- `npm run trader:catalogue`;
+- `npm run trader:catalogue:compile`;
+- `npm run trader:catalogue:load`.
 
-- TCGdex client/adapter.
-- Pokémon TCG API client/adapter.
-- Cross-source reconciliation.
-- Verified bulk sync.
-- Snapshot compilation/loading.
-- Commands:
-  - `npm run trader:catalogue`
-  - `npm run trader:catalogue:compile`
-  - `npm run trader:catalogue:load`
+The sync CLI is plan-only unless `--write` is explicitly supplied; writes are also guarded by `FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true`.
 
-The sync CLI is plan-only unless `--write` is explicitly supplied, and writes are additionally guarded by `FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true`.
+Do not create another Pokémon catalogue provider.
 
-## First actions
+One Piece has `one-piece-contract.mjs`; complete its proven catalogue/variant ingestion instead of guessing parallel/finish identity.
 
-From `signal-engine` on this branch:
+Lorcana needs a canonical catalogue adapter/provider using the same fail-closed identity rules. Do not add Lorcana-specific ownership tables.
+
+## Production audit — Fate Value persistence
+
+The repository already contains:
+
+- `database/fate-value-market-history.sql`;
+- source-agnostic market observations;
+- transactional Postgres market persistence;
+- Cardmarket catalogue/price-guide adapters and mapping infrastructure.
+
+But read-only production Neon inspection showed the corresponding `fatedrop_market_*` tables are **not currently deployed**.
+
+Do not deploy this schema as part of this branch without separate review. Test it on a temporary/test Neon branch first.
+
+## First actions for Sol / Codespace
+
+From `signal-engine` on this exact branch:
 
 1. Run `npm test`.
-2. Fix all failures before extending scope.
-3. Run `npm run trader:catalogue` with no `--write` and save/review the plan output.
-4. Review matched, ambiguous, rejected, source-error and unmatched set groups.
-5. Prove a complete verified Pokémon catalogue can be compiled/loaded or synced through the existing path.
-6. Re-run `npm run collectors:readiness -- --tcg=pokemon`.
-7. A set may be exposed to Fate Collectors only when readiness says its verified printing count exactly matches its declared canonical total.
+2. Fix all syntax/integration/regression failures before extending scope.
+3. Specifically run/review the new Fate Collectors, Cardmarket multi-TCG, provider-policy, Fate Price, checklist-price, set-value, collection-value and movement tests.
+4. Run `npm run trader:catalogue` **without `--write`** and save/review the Pokémon plan.
+5. Review matched, ambiguous, rejected, source-error and unmatched set groups.
+6. Prove a complete verified Pokémon catalogue can be compiled/loaded/synced through the existing guarded path.
+7. Re-run `npm run collectors:readiness -- --tcg=pokemon`.
+8. Verify the official Cardmarket public download hrefs for Pokémon, One Piece and Lorcana.
+9. Test `fate-value-market-history.sql` on a temporary/test Neon branch only.
+10. Build the read service that joins market observations to ingest-run `providerPolicyKey` and feeds `resolveFatePrice`.
+11. Add explicit FX handling only if/when FateDrop needs GBP display from EUR evidence; preserve both source currency/rate provenance and never silently convert.
+12. Implement transactional Confirm Import writes across collection ownership + import provenance.
+13. Populate One Piece canonical singles catalogue.
+14. Add Lorcana canonical catalogue ingestion.
 
-## Import write work still required
-
-Do not directly wire the preview plan to separate writes without considering atomicity.
-
-Implement a transactional Confirm Import path so each confirmed row applies collection ownership + import provenance consistently.
-
-Rules:
+## Confirm Import rules
 
 - Only `exact` matches may auto-apply.
-- `needs_confirmation`, `ambiguous` and `unresolved` remain user-review states.
-- Never auto-delete stale rows from a refreshed CSV.
-- Re-import of the same source record must update rather than duplicate.
-- Graded quantity >1 must be split into individual physical collection items or explicitly confirmed through a safe flow.
+- `needs_confirmation`, `ambiguous`, `unresolved` remain review states.
+- Never auto-delete stale rows.
+- Same source record updates rather than duplicates.
+- Graded quantity >1 must split into individual physical items or use an explicitly confirmed safe flow.
 - Do not guess variant, finish or language.
-
-## Catalogue expansion
-
-### Pokémon
-
-Use the existing verified cross-source catalogue pipeline. Finish population and readiness proof.
-
-### One Piece
-
-Reuse `one-piece-contract.mjs`. It intentionally refuses to invent variant evidence. Complete the canonical catalogue ingestion path and only verify exact identities where finish/parallel/language evidence is sufficient.
-
-### Lorcana
-
-Add a catalogue adapter/provider following the same canonical evidence and fail-closed rules. Do not add Lorcana-specific ownership tables.
-
-## Fate Price / Fate Set Value boundary
-
-Owned/missing/completion must not depend on pricing, but the next user-facing value layer should be automatic rather than user-entered.
-
-Required outputs:
-
-- Full Set Value.
-- User's Owned Collection Value.
-- Missing Card Value / estimated value required to complete.
-- 7D / 30D value movement.
-- price-data coverage, freshness and confidence.
-
-V1 valuation definition should be based on one current market value for each canonical checklist printing. If any required cards are unpriced, expose partial coverage rather than presenting a complete set total.
-
-Pokémon Wizard is a useful benchmark because its public product exposes card prices, total set values and market trends across hundreds of Pokémon sets. Initial review found no public API. Do not scrape/reuse its pricing data commercially without explicit permission/licensing or an authorised integration. Fate Price must use a provider interface so each TCG can use approved sources behind one canonical contract.
 
 ## Verification before any merge proposal
 
-- `npm test` green.
-- Existing catalogue tests green.
+- `npm test` green in Codespace/CI.
+- Existing catalogue/value tests green.
 - New Fate Collectors tests green.
-- Database migrations reviewed on a temporary/test branch first.
+- Test DB migrations reviewed on a temporary branch.
 - Pokémon catalogue readiness report reviewed.
-- Import preview tested with representative Collectr files including duplicates, ambiguous variants, graded cards, missing numbers and repeat imports.
-- No main merge.
+- Representative Collectr files tested: duplicates, ambiguous variants, graded cards, missing numbers and repeat imports.
+- Fate Price provenance join proven.
+- No `main` merge.
 - No production deployment.
 
-## Current product principle
-
-Less work for the collector:
+## Product principle
 
 `Import collection → FateDrop identifies owned cards → calculates set completion → shows only missing cards → automatically values owned/set/missing cards → later FateMatch finds them.`
 
-The user should never have to scroll a 1–200 image checklist just to discover what is missing, and should not have to enter purchase prices to understand collection value.
+Less work for the collector. No scrolling 1–200 cards to discover gaps. No purchase-price admin. No fake precision.
