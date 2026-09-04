@@ -13,13 +13,13 @@ function item(id, fateCardId, quantity = 1, extra = {}) {
   };
 }
 
-function value(fateCardId, amount, observedAt = 100) {
+function value(fateCardId, amount, observedAt = 100, valuationKind = 'raw-market') {
   return {
     fateCardId,
     amount,
     currencyCode: 'GBP',
     observedAt,
-    valuationKind: 'raw-market',
+    valuationKind,
     sourceName: 'test-market',
   };
 }
@@ -40,7 +40,38 @@ test('collection value counts exact identities and quantities', () => {
   assert.equal(result.status, 'available');
   assert.equal(result.totalUnits, 3);
   assert.equal(result.totalValue, 35);
+  assert.equal(result.knownValue,35);
+  assert.equal(result.fairValue,null);
+  assert.equal(result.valuationBasis,'known-price');
   assert.equal(result.priceCoveragePercent, 100);
+});
+
+test('Fair Price wins over raw Known Price for the same exact card',()=>{
+  const result=computeFateCollectionValue({
+    collectionItems:[item('i1','card-a',2)],
+    cardValues:[
+      value('card-a',12,300,'raw-market'),
+      value('card-a',10,200,'fair-price'),
+    ],
+    currencyCode:'GBP',
+  });
+  assert.equal(result.totalValue,20);
+  assert.equal(result.fairValue,20);
+  assert.equal(result.valuationBasis,'fair-price');
+  assert.equal(result.fairPricedUnits,2);
+  assert.equal(result.knownPricedUnits,0);
+});
+
+test('mixed Fair and Known Price coverage is never labelled a full Fair Value',()=>{
+  const result=computeFateCollectionValue({
+    collectionItems:[item('i1','card-a'),item('i2','card-b')],
+    cardValues:[value('card-a',10,100,'fair-price'),value('card-b',5,100,'raw-market')],
+    currencyCode:'GBP',
+  });
+  assert.equal(result.totalValue,15);
+  assert.equal(result.fairValue,null);
+  assert.equal(result.knownValue,15);
+  assert.equal(result.valuationBasis,'mixed');
 });
 
 test('unpriced holdings expose known value and coverage instead of a fake total', () => {
@@ -72,7 +103,7 @@ test('graded cards are not silently valued with raw-card market evidence', () =>
   assert.equal(result.unpricedItems[0].reason, 'graded_valuation_unavailable');
 });
 
-test('latest same-currency raw value wins', () => {
+test('latest same-currency value wins within the same valuation kind', () => {
   const result = computeFateCollectionValue({
     collectionItems: [item('i1', 'card-a')],
     cardValues: [
