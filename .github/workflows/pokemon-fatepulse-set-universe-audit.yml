@@ -1,0 +1,70 @@
+name: Audit Pokemon FatePulse Set Universe
+
+on:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/pokemon-set-policy.mjs'
+      - 'signal-engine/src/trader/catalogue/pokemon-set-crosswalk-reviewed.mjs'
+      - 'signal-engine/src/trader/catalogue/pokemon-set-universe-audit-cli.mjs'
+      - 'signal-engine/tests/pokemon-set-policy.test.mjs'
+      - 'signal-engine/package.json'
+      - '.github/workflows/pokemon-fatepulse-set-universe-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-pokemon-fatepulse-set-universe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test set universe policy
+        run: node --test tests/pokemon-set-policy.test.mjs
+
+      - name: Audit live English Pokemon set universe
+        run: npm --silent run trader:catalogue:pulse-universe -- --as-of=2026-09-04T00:00:00Z > "$RUNNER_TEMP/pokemon-fatepulse-set-universe.json"
+
+      - name: Summarise universe
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-fatepulse-set-universe.json', 'utf8'));
+          console.log('# Pokémon FatePulse set universe');
+          console.log('');
+          console.log(`- Base exact matches: **${report.reviewedCounts.baseMatched}**`);
+          console.log(`- Reviewed alias matches added: **${report.reviewedCounts.reviewedAliasMatched}**`);
+          console.log(`- Total verified set matches: **${report.reviewedCounts.totalMatched}**`);
+          console.log(`- Global-Pulse eligible sets: **${report.universe.eligible}**`);
+          console.log(`- Excluded auxiliary/unreleased sets: **${report.universe.excluded}**`);
+          console.log(`- Reviewed alias rejects: **${report.reviewedCounts.reviewedAliasRejected}**`);
+          console.log(`- Source errors: **${report.reviewedCounts.sourceErrors}**`);
+          console.log('');
+          console.log('Categories:');
+          for (const [key, value] of Object.entries(report.universe.categories)) console.log(`- ${key}: ${value}`);
+          NODE
+
+      - name: Upload universe audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-fatepulse-set-universe
+          path: ${{ runner.temp }}/pokemon-fatepulse-set-universe.json
+          if-no-files-found: error
+          retention-days: 7
