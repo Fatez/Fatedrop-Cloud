@@ -14,17 +14,18 @@ function card(printingId) {
 const set = { id: 'set-1', total: 3, printedTotal: 3 };
 const canonicalCards = [card('p1'), card('p2'), card('p3')];
 
-function value(printingId, amount, observedAt = 100) {
+function value(printingId, amount, observedAt = 100, valuationKind = 'raw-market') {
   return {
     printingId,
     amount,
     currencyCode: 'GBP',
     observedAt,
+    valuationKind,
     sourceName: 'test-market',
   };
 }
 
-test('Fate Set Value returns full, owned and missing totals when every checklist card is priced', () => {
+test('Fate Set Value returns full, owned and missing Known totals when every checklist card is raw-market priced', () => {
   const result = computeFateSetValue({
     set,
     canonicalCards,
@@ -36,10 +37,60 @@ test('Fate Set Value returns full, owned and missing totals when every checklist
   assert.equal(result.status, 'available');
   assert.equal(result.priceCoveragePercent, 100);
   assert.equal(result.fullSetValue, 7.5);
+  assert.equal(result.fairSetValue,null);
+  assert.equal(result.valuationBasis,'known-price');
   assert.equal(result.ownedValue, 5);
   assert.equal(result.missingValue, 2.5);
   assert.equal(result.ownedExpectedCount, 2);
   assert.equal(result.missingExpectedCount, 1);
+});
+
+test('complete calibrated Fair Price coverage exposes Fair Set, owned and missing values',()=>{
+  const result=computeFateSetValue({
+    set,
+    canonicalCards,
+    printingValues:[
+      value('p1',1,100,'fair-price'),
+      value('p2',2,100,'fair-price'),
+      value('p3',3,100,'fair-price'),
+    ],
+    ownedPrintingIds:['p1','p3'],
+    currencyCode:'GBP',
+  });
+  assert.equal(result.valuationBasis,'fair-price');
+  assert.equal(result.fairSetValue,6);
+  assert.equal(result.fairOwnedValue,4);
+  assert.equal(result.fairMissingValue,2);
+});
+
+test('Fair Price wins over newer raw Known Price for the same checklist printing',()=>{
+  const result=computeFateSetValue({
+    set,
+    canonicalCards,
+    printingValues:[
+      value('p1',10,100,'fair-price'),value('p1',99,300,'raw-market'),
+      value('p2',20,100,'fair-price'),
+      value('p3',30,100,'fair-price'),
+    ],
+    ownedPrintingIds:[],
+    currencyCode:'GBP',
+  });
+  assert.equal(result.fullSetValue,60);
+  assert.equal(result.fairSetValue,60);
+  assert.equal(result.valuationBasis,'fair-price');
+});
+
+test('mixed valuation basis is never labelled full Fair Set Value',()=>{
+  const result=computeFateSetValue({
+    set,
+    canonicalCards,
+    printingValues:[value('p1',10,100,'fair-price'),value('p2',20),value('p3',30)],
+    ownedPrintingIds:[],
+    currencyCode:'GBP',
+  });
+  assert.equal(result.fullSetValue,60);
+  assert.equal(result.fairSetValue,null);
+  assert.equal(result.valuationBasis,'mixed');
 });
 
 test('partial set pricing never masquerades known sums as complete owned or full-set value', () => {
@@ -65,7 +116,7 @@ test('partial set pricing never masquerades known sums as complete owned or full
   assert.deepEqual(result.unpricedPrintingIds, ['p3']);
 });
 
-test('latest same-currency value wins and other currencies are not silently mixed', () => {
+test('latest same-currency value wins within the same valuation kind and other currencies are not mixed', () => {
   const result = computeFateSetValue({
     set,
     canonicalCards,
