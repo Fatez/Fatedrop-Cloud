@@ -10,13 +10,24 @@ function currency(value) {
   return code;
 }
 
+const VALUATION_PRIORITY = Object.freeze({
+  'fair-price': 2,
+  'raw-market': 1,
+});
+
+function valuationKind(value) {
+  const kind = text(value) || 'raw-market';
+  return Object.prototype.hasOwnProperty.call(VALUATION_PRIORITY, kind) ? kind : null;
+}
+
 /**
- * Convert exact-identity Fate Prices into one value per canonical printing slot.
+ * Convert exact-identity valuation prices into one value per canonical printing slot.
  *
  * This deliberately prices only the chosen checklist representative. If the
- * requested language/variant representative has no Fate Price, the printing is
- * left unpriced; another finish/language is never substituted merely to fill a
- * coverage gap.
+ * requested language/variant representative has no eligible price, the printing
+ * is left unpriced; another finish/language is never substituted merely to fill
+ * a coverage gap. Calibrated Fair Price wins over raw Known Price when both are
+ * available for the same exact identity.
  */
 export function buildChecklistPrintingValues({
   setId,
@@ -48,10 +59,19 @@ export function buildChecklistPrintingValues({
 
   const pricesByCard = new Map();
   for (const price of fatePrices) {
-    if (!price || price.status !== 'available' || price.valuationKind !== 'raw-market') continue;
+    if (!price || price.status !== 'available') continue;
+    const kind = valuationKind(price.valuationKind);
+    if (!kind) continue;
     const fateCardId = text(price.fateCardId ?? price.cardIdentityId);
     if (!fateCardId || currency(price.currencyCode) !== code) continue;
-    pricesByCard.set(fateCardId, price);
+    const existing = pricesByCard.get(fateCardId);
+    const priceAt = Number(price.sourceEffectiveAt ?? price.observedAt ?? 0);
+    const existingAt = Number(existing?.sourceEffectiveAt ?? existing?.observedAt ?? 0);
+    if (!existing
+      || VALUATION_PRIORITY[kind] > VALUATION_PRIORITY[valuationKind(existing.valuationKind)]
+      || (kind === valuationKind(existing.valuationKind) && priceAt > existingAt)) {
+      pricesByCard.set(fateCardId, Object.freeze({ ...price, valuationKind:kind }));
+    }
   }
 
   const printingValues = [];
@@ -90,7 +110,7 @@ export function buildChecklistPrintingValues({
 
     const price = pricesByCard.get(fateCardId);
     if (!price) {
-      unpricedRepresentatives.push(Object.freeze({ ...descriptor, reason: 'fate_price_unavailable' }));
+      unpricedRepresentatives.push(Object.freeze({ ...descriptor, reason: 'valuation_price_unavailable' }));
       continue;
     }
 
@@ -100,10 +120,11 @@ export function buildChecklistPrintingValues({
       amount: price.amount,
       currencyCode: code,
       observedAt: price.sourceEffectiveAt ?? price.observedAt,
-      sourceName: price.sourceName,
-      providerPolicyKey: price.providerPolicyKey,
-      metricUsed: price.metricUsed,
-      confidence: price.confidence,
+      valuationKind: price.valuationKind,
+      sourceName: price.sourceName ?? null,
+      providerPolicyKey: price.providerPolicyKey ?? null,
+      metricUsed: price.metricUsed ?? null,
+      confidence: price.confidence ?? null,
     }));
   }
 
