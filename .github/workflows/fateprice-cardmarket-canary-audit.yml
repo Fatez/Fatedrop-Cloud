@@ -29,7 +29,7 @@ jobs:
           import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
           import { buildCardmarketPriceGuideBatch } from './src/trader/value/cardmarket-adapter.mjs';
 
-          const mappings = new Map([
+          const standardMappings = new Map([
             ['733750', { id:'fdcardmap_9561b8d88d9a2048ee2b2b3e', cardIdentityId:'fdcard_c060a3892f8667401ac92d58' }],
             ['733751', { id:'fdcardmap_dad86f331caa79a27d229dea', cardIdentityId:'fdcard_529acd08d47301c3c54e47c5' }],
             ['733752', { id:'fdcardmap_85946a33eb7a6172030dbd36', cardIdentityId:'fdcard_5e127e2425b4ebefb8826322' }],
@@ -42,32 +42,44 @@ jobs:
             ['733759', { id:'fdcardmap_4a7df945d04ade1042465bf4', cardIdentityId:'fdcard_72f1eae2932839a7636d605f' }],
             ['733760', { id:'fdcardmap_9a4a19385d1f1d007a69dedb', cardIdentityId:'fdcard_f55999e95b96a3f5488af6ff' }],
           ]);
+          const holoMappings = new Map([
+            ['733789', { id:'fdcardmap_fb2bc477f9cee794e9913348', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
+            ['733790', { id:'fdcardmap_41ad01df54d2b4f3801660c9', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
+          ]);
 
           const observedAt = Date.now();
           const source = await fetchCardmarketPokemonPriceGuide({ fetchedAt: observedAt });
           const allRows = source.snapshot.priceGuides;
-          const rows = allRows.filter((row) => mappings.has(String(row.idProduct)));
-          const seen = new Set(rows.map((row) => String(row.idProduct)));
-          const missing = [...mappings.keys()].filter((id) => !seen.has(id));
-          if (missing.length) throw new Error(`Canary products missing from current price-guide: ${missing.join(',')}`);
 
-          const scopedPayload = { ...source.artifact.payload, priceGuides: rows };
-          const batch = await buildCardmarketPriceGuideBatch(scopedPayload, {
-            observedAt,
-            lanes: ['standard'],
-            resolveMapping: async ({ sourceName, sourceRecordId, priceGuideLane }) => {
-              if (sourceName !== 'cardmarket' || priceGuideLane !== 'standard') return null;
-              const mapping = mappings.get(String(sourceRecordId));
-              return mapping ? {
-                ...mapping,
-                sourceName: 'cardmarket',
-                sourceRecordId: String(sourceRecordId),
-                sourceVariantKey: 'normal',
-              } : null;
-            },
-          });
-          if (batch.observations.length !== mappings.size || batch.rejections.length !== 0) {
-            throw new Error(`Expected 11 accepted / 0 rejected; got ${batch.observations.length} / ${batch.rejections.length}`);
+          async function buildScopedBatch(mappings, lane, variantKey) {
+            const rows = allRows.filter((row) => mappings.has(String(row.idProduct)));
+            const seen = new Set(rows.map((row) => String(row.idProduct)));
+            const missing = [...mappings.keys()].filter((id) => !seen.has(id));
+            if (missing.length) throw new Error(`${lane} canary products missing from current price-guide: ${missing.join(',')}`);
+            const scopedPayload = { ...source.artifact.payload, priceGuides: rows };
+            return buildCardmarketPriceGuideBatch(scopedPayload, {
+              observedAt,
+              lanes: [lane],
+              resolveMapping: async ({ sourceName, sourceRecordId, priceGuideLane }) => {
+                if (sourceName !== 'cardmarket' || priceGuideLane !== lane) return null;
+                const mapping = mappings.get(String(sourceRecordId));
+                return mapping ? {
+                  ...mapping,
+                  sourceName: 'cardmarket',
+                  sourceRecordId: String(sourceRecordId),
+                  sourceVariantKey: variantKey,
+                } : null;
+              },
+            });
+          }
+
+          const standardBatch = await buildScopedBatch(standardMappings, 'standard', 'normal');
+          const holoBatch = await buildScopedBatch(holoMappings, 'holo', 'holo');
+          if (standardBatch.observations.length !== standardMappings.size || standardBatch.rejections.length !== 0) {
+            throw new Error(`Expected 11 standard accepted / 0 rejected; got ${standardBatch.observations.length} / ${standardBatch.rejections.length}`);
+          }
+          if (holoBatch.observations.length !== holoMappings.size || holoBatch.rejections.length !== 0) {
+            throw new Error(`Expected 2 holo accepted / 0 rejected; got ${holoBatch.observations.length} / ${holoBatch.rejections.length}`);
           }
 
           const result = {
@@ -82,10 +94,11 @@ jobs:
             },
             mode: 'read_only_canary',
             writesPerformed: false,
-            batch,
+            standardBatch,
+            holoBatch,
           };
           fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-cardmarket-canary.json', JSON.stringify(result, null, 2));
-          console.log(`Production adapter accepted ${batch.observations.length}/11 exact mapped products with ${batch.rejections.length} rejects.`);
+          console.log(`Production adapter accepted ${standardBatch.observations.length}/11 standard and ${holoBatch.observations.length}/2 holo mapped products with zero rejects.`);
           NODE
 
       - name: Summarise canary
@@ -98,12 +111,13 @@ jobs:
           console.log('');
           console.log(`- Snapshot: **${report.source.createdAt}**`);
           console.log(`- Full price-guide rows: **${report.source.totalRows}**`);
-          console.log(`- Exact canary accepted: **${report.batch.observations.length}/11**`);
-          console.log(`- Rejected: **${report.batch.rejections.length}**`);
+          console.log(`- Exact standard accepted: **${report.standardBatch.observations.length}/11**`);
+          console.log(`- Exact holo accepted: **${report.holoBatch.observations.length}/2**`);
+          console.log(`- Total rejected: **${report.standardBatch.rejections.length + report.holoBatch.rejections.length}**`);
           console.log(`- Currency: **${report.source.currencyCode}**`);
           console.log(`- Writes performed: **${report.writesPerformed}**`);
           console.log('');
-          for (const row of report.batch.observations) console.log(`- ${row.sourceRecordId}: trend=${row.trendPrice ?? '—'} avg7=${row.avg7d ?? '—'} low=${row.lowPrice ?? '—'}`);
+          for (const row of report.holoBatch.observations) console.log(`- holo ${row.sourceRecordId}: trend=${row.trendPrice ?? '—'} avg7=${row.avg7d ?? '—'} low=${row.lowPrice ?? '—'}`);
           NODE
 
       - name: Upload exact normalized canary artifact
