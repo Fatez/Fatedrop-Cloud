@@ -1,0 +1,87 @@
+name: Audit FatePrice 151 Holo Scale
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fateprice-151-holo-scale-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-fateprice-151-holo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out FateDrop repository
+        uses: actions/checkout@v4
+
+      - name: Build exact holo scale batch through production adapter
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { buildCardmarketPriceGuideBatch } from './src/trader/value/cardmarket-adapter.mjs';
+
+          const mappings = new Map([
+            ['733789', { id:'fdcardmap_fb2bc477f9cee794e9913348', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
+            ['733790', { id:'fdcardmap_41ad01df54d2b4f3801660c9', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
+            ['733791', { id:'fdcardmap_01a55dbe5fa5c13933d575ce', cardIdentityId:'fdcard_0da2f7038691bcc5516a33f7' }],
+            ['733792', { id:'fdcardmap_cab50ad647a5073851ec8957', cardIdentityId:'fdcard_320ca2113a04f784c12ffc0e' }],
+            ['733798', { id:'fdcardmap_942093ed18c891119f1f88e9', cardIdentityId:'fdcard_a5c847ecbd20e9a03602df0e' }],
+            ['733799', { id:'fdcardmap_3473c68fe086e6afbe507676', cardIdentityId:'fdcard_2e1058e8c94f59b70b2a64de' }],
+            ['733801', { id:'fdcardmap_12765ce65094ec6de28729cc', cardIdentityId:'fdcard_14bc50e6c273a9115d679286' }],
+            ['733802', { id:'fdcardmap_cd6078e39b2c09045bc04410', cardIdentityId:'fdcard_f3acc908f16112324e2d4b2e' }],
+          ]);
+
+          const observedAt = Date.now();
+          const source = await fetchCardmarketPokemonPriceGuide({ fetchedAt: observedAt });
+          const allRows = source.snapshot.priceGuides;
+          const rows = allRows.filter((row) => mappings.has(String(row.idProduct)));
+          const missing = [...mappings.keys()].filter((id) => !rows.some((row) => String(row.idProduct) === id));
+          if (missing.length) throw new Error(`Mapped holo products missing from current price guide: ${missing.join(',')}`);
+
+          const batch = await buildCardmarketPriceGuideBatch({ ...source.artifact.payload, priceGuides: rows }, {
+            observedAt,
+            lanes: ['holo'],
+            resolveMapping: async ({ sourceName, sourceRecordId, priceGuideLane }) => {
+              if (sourceName !== 'cardmarket' || priceGuideLane !== 'holo') return null;
+              const mapping = mappings.get(String(sourceRecordId));
+              return mapping ? { ...mapping, sourceName:'cardmarket', sourceRecordId:String(sourceRecordId), sourceVariantKey:'holo' } : null;
+            },
+          });
+          if (batch.observations.length !== 8 || batch.rejections.length !== 0) {
+            throw new Error(`Expected 8 accepted / 0 rejected; got ${batch.observations.length} / ${batch.rejections.length}`);
+          }
+
+          const result = {
+            generatedAt: new Date(observedAt).toISOString(),
+            source: {
+              url: source.artifact.url,
+              version: Number(source.artifact.payload.version),
+              createdAt: new Date(source.snapshot.sourceEffectiveAt).toISOString(),
+              sha256: source.artifact.sha256,
+              totalRows: allRows.length,
+              currencyCode: source.snapshot.currencyCode,
+            },
+            mode: 'read_only_scale_audit',
+            writesPerformed: false,
+            batch,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-151-holo-scale.json', JSON.stringify(result, null, 2));
+          console.log(`Production adapter accepted ${batch.observations.length}/8 exact holo mappings with ${batch.rejections.length} rejects.`);
+          NODE
+
+      - name: Upload normalized holo scale artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-151-holo-scale
+          path: ${{ runner.temp }}/fateprice-151-holo-scale.json
+          if-no-files-found: error
+          retention-days: 7
