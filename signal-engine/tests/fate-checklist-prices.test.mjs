@@ -16,19 +16,19 @@ function card(id, printingId, languageCode, variantCode) {
   };
 }
 
-function price(id, amount) {
+function price(id, amount, valuationKind='raw-market', sourceEffectiveAt=100) {
   return {
     status: 'available',
-    valuationKind: 'raw-market',
+    valuationKind,
     fateCardId: id,
     cardIdentityId: id,
     amount,
     currencyCode: 'EUR',
-    sourceName: 'cardmarket',
-    providerPolicyKey: 'cardmarket-public-download',
-    metricUsed: 'trendPrice',
+    sourceName: valuationKind==='fair-price'?'fatedrop-fair-price':'cardmarket',
+    providerPolicyKey: valuationKind==='fair-price'?null:'cardmarket-public-download',
+    metricUsed: valuationKind==='fair-price'?'fair-price-v1':'trendPrice',
     confidence: 'high',
-    sourceEffectiveAt: 100,
+    sourceEffectiveAt,
   };
 }
 
@@ -59,6 +59,23 @@ test('checklist pricing uses the requested language and variant representative o
   assert.equal(result.printingValues.find((row) => row.printingId === 'p2').amount, 20);
 });
 
+test('calibrated Fair Price wins over newer raw Known Price for the exact checklist identity',()=>{
+  const canonicalCards=[card('p1-en-standard','p1','en','standard')];
+  const result=buildChecklistPrintingValues({
+    setId:'set-1',
+    canonicalCards,
+    fatePrices:[
+      price('p1-en-standard',99,'raw-market',300),
+      price('p1-en-standard',42,'fair-price',200),
+    ],
+    currencyCode:'EUR',
+    preferredLanguageCode:'en',
+    preferredVariantCode:'standard',
+  });
+  assert.equal(result.printingValues[0].amount,42);
+  assert.equal(result.printingValues[0].valuationKind,'fair-price');
+});
+
 test('missing price for preferred identity stays unpriced instead of borrowing another variant price', () => {
   const canonicalCards = [
     card('p1-en-standard', 'p1', 'en', 'standard'),
@@ -76,7 +93,7 @@ test('missing price for preferred identity stays unpriced instead of borrowing a
 
   assert.equal(result.printingValues.length, 0);
   assert.equal(result.unpricedRepresentatives[0].fateCardId, 'p1-en-standard');
-  assert.equal(result.unpricedRepresentatives[0].reason, 'fate_price_unavailable');
+  assert.equal(result.unpricedRepresentatives[0].reason, 'valuation_price_unavailable');
 });
 
 test('missing preferred language fails closed for that printing', () => {
