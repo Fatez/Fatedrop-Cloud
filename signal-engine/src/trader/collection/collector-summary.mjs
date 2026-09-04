@@ -1,5 +1,6 @@
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
 import { computeFateCollectionValue } from '../value/collection-value.mjs';
+import { toPublicKnownPrice } from '../value/market-reflection-policy.mjs';
 import { computeFateSetValue } from '../value/set-value.mjs';
 import { computeCollectionSetProgress } from './set-progress.mjs';
 
@@ -95,13 +96,11 @@ function printingPriceIndex(printingValues) {
     const amount=Number(raw?.amount);
     if(!printingId||!Number.isFinite(amount)||amount<0)continue;
     const candidate=Object.freeze({
+      status:'available',
       amount,
       currencyCode:text(raw.currencyCode).toUpperCase()||null,
       observedAt:raw.observedAt==null?null:Number(raw.observedAt),
-      sourceName:text(raw.sourceName)||null,
-      providerPolicyKey:text(raw.providerPolicyKey)||null,
-      metricUsed:text(raw.metricUsed)||null,
-      confidence:text(raw.confidence)||null,
+      sourceEffectiveAt:raw.observedAt==null?null:Number(raw.observedAt),
     });
     const existing=index.get(printingId);
     const candidateAt=Number(candidate.observedAt??0);
@@ -117,7 +116,7 @@ function enrichMissingCards(missingCards, priceIndex) {
     return Object.freeze({
       ...card,
       priceStatus:price?'available':'unavailable',
-      fatePrice:price,
+      knownPrice:toPublicKnownPrice(price),
     });
   }));
 }
