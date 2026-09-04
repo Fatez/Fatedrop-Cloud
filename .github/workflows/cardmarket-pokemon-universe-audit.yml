@@ -38,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Fetch and audit official Cardmarket Pokemon universe
-        run: npm run market:cardmarket:universe > "$RUNNER_TEMP/cardmarket-pokemon-universe.json"
+        run: node src/trader/value/cardmarket-native-universe-cli.mjs > "$RUNNER_TEMP/cardmarket-pokemon-universe.json"
 
       - name: Summarise audit
         shell: bash
