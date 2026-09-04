@@ -55,6 +55,23 @@ function coverageSummary(expectedCount, pricedCount) {
   });
 }
 
+const VALUATION_PRIORITY = Object.freeze({
+  'fair-price': 2,
+  'raw-market': 1,
+});
+
+function valuationKind(value) {
+  const kind = text(value) || 'raw-market';
+  return Object.prototype.hasOwnProperty.call(VALUATION_PRIORITY, kind) ? kind : null;
+}
+
+function basis(fairCount, knownCount, pricedCount) {
+  if (pricedCount === 0) return 'none';
+  if (fairCount === pricedCount) return 'fair-price';
+  if (knownCount === pricedCount) return 'known-price';
+  return 'mixed';
+}
+
 export function computeFateSetValue({
   set,
   canonicalCards,
@@ -73,24 +90,32 @@ export function computeFateSetValue({
       reason: completeness.reason,
       setId: completeness.setId,
       currencyCode: code,
+      valuationBasis: 'none',
       expectedCount: completeness.expectedTotal,
       pricedCount: 0,
+      fairPricedCount: 0,
+      knownPricedCount: 0,
       unpricedCount: completeness.expectedTotal,
       priceCoveragePercent: 0,
       priceCoverageBand: 'none',
       fullSetValue: null,
+      fairSetValue: null,
       knownSetValue: 0,
       ownedExpectedCount: null,
       ownedPricedCount: null,
       ownedUnpricedCount: null,
       ownedPriceCoveragePercent: null,
+      ownedValuationBasis: 'none',
       ownedValue: null,
+      fairOwnedValue: null,
       knownOwnedValue: null,
       missingExpectedCount: null,
       missingPricedCount: null,
       missingUnpricedCount: null,
       missingPriceCoveragePercent: null,
+      missingValuationBasis: 'none',
       missingValue: null,
+      fairMissingValue: null,
       knownMissingValue: null,
     });
   }
@@ -113,22 +138,35 @@ export function computeFateSetValue({
     const printingId = text(raw?.printingId);
     if (!printingId || !printingIds.has(printingId)) continue;
     if (currency(raw.currencyCode) !== code) continue;
+    const kind = valuationKind(raw.valuationKind);
+    if (!kind) continue;
     const candidate = Object.freeze({
       printingId,
       amount: amount(raw.amount),
       observedAt: timestamp(raw.observedAt),
+      valuationKind: kind,
       sourceName: text(raw.sourceName) || null,
       evidenceCount: Number.isInteger(raw.evidenceCount) && raw.evidenceCount >= 0 ? raw.evidenceCount : null,
     });
     const existing = values.get(printingId);
-    if (!existing || candidate.observedAt > existing.observedAt) values.set(printingId, candidate);
+    if (!existing
+      || VALUATION_PRIORITY[candidate.valuationKind] > VALUATION_PRIORITY[existing.valuationKind]
+      || (candidate.valuationKind === existing.valuationKind && candidate.observedAt > existing.observedAt)) {
+      values.set(printingId, candidate);
+    }
   }
 
   let knownSetValue = 0;
   let knownOwnedValue = 0;
   let knownMissingValue = 0;
+  let fairPricedCount = 0;
+  let knownPricedCount = 0;
   let ownedPricedCount = 0;
+  let ownedFairPricedCount = 0;
+  let ownedKnownPricedCount = 0;
   let missingPricedCount = 0;
+  let missingFairPricedCount = 0;
+  let missingKnownPricedCount = 0;
   const unpricedPrintingIds = [];
 
   for (const printingId of printingIds) {
@@ -140,12 +178,19 @@ export function computeFateSetValue({
     }
 
     knownSetValue += value.amount;
+    if (value.valuationKind === 'fair-price') fairPricedCount += 1;
+    else knownPricedCount += 1;
+
     if (isOwned) {
       knownOwnedValue += value.amount;
       ownedPricedCount += 1;
+      if (value.valuationKind === 'fair-price') ownedFairPricedCount += 1;
+      else ownedKnownPricedCount += 1;
     } else {
       knownMissingValue += value.amount;
       missingPricedCount += 1;
+      if (value.valuationKind === 'fair-price') missingFairPricedCount += 1;
+      else missingKnownPricedCount += 1;
     }
   }
 
@@ -153,6 +198,9 @@ export function computeFateSetValue({
   const ownedCoverage = coverageSummary(owned.size, ownedPricedCount);
   const missingExpectedCount = printingIds.size - owned.size;
   const missingCoverage = coverageSummary(missingExpectedCount, missingPricedCount);
+  const valuationBasis = basis(fairPricedCount, knownPricedCount, values.size);
+  const ownedValuationBasis = basis(ownedFairPricedCount, ownedKnownPricedCount, ownedPricedCount);
+  const missingValuationBasis = basis(missingFairPricedCount, missingKnownPricedCount, missingPricedCount);
 
   return Object.freeze({
     status: setCoverage.complete ? 'available' : values.size > 0 ? 'partial' : 'unavailable',
@@ -160,12 +208,16 @@ export function computeFateSetValue({
     setId,
     currencyCode: code,
 
+    valuationBasis,
     expectedCount: setCoverage.expectedCount,
     pricedCount: setCoverage.pricedCount,
+    fairPricedCount,
+    knownPricedCount,
     unpricedCount: setCoverage.unpricedCount,
     priceCoveragePercent: setCoverage.coveragePercent,
     priceCoverageBand: setCoverage.coverageBand,
     fullSetValue: setCoverage.complete ? roundMoney(knownSetValue) : null,
+    fairSetValue: setCoverage.complete && valuationBasis === 'fair-price' ? roundMoney(knownSetValue) : null,
     knownSetValue: roundMoney(knownSetValue),
 
     ownedExpectedCount: ownedCoverage.expectedCount,
@@ -173,7 +225,9 @@ export function computeFateSetValue({
     ownedUnpricedCount: ownedCoverage.unpricedCount,
     ownedPriceCoveragePercent: ownedCoverage.coveragePercent,
     ownedPriceCoverageBand: ownedCoverage.coverageBand,
+    ownedValuationBasis,
     ownedValue: ownedCoverage.complete ? roundMoney(knownOwnedValue) : null,
+    fairOwnedValue: ownedCoverage.complete && ownedValuationBasis === 'fair-price' ? roundMoney(knownOwnedValue) : null,
     knownOwnedValue: roundMoney(knownOwnedValue),
 
     missingExpectedCount: missingCoverage.expectedCount,
@@ -181,7 +235,9 @@ export function computeFateSetValue({
     missingUnpricedCount: missingCoverage.unpricedCount,
     missingPriceCoveragePercent: missingCoverage.coveragePercent,
     missingPriceCoverageBand: missingCoverage.coverageBand,
+    missingValuationBasis,
     missingValue: missingCoverage.complete ? roundMoney(knownMissingValue) : null,
+    fairMissingValue: missingCoverage.complete && missingValuationBasis === 'fair-price' ? roundMoney(knownMissingValue) : null,
     knownMissingValue: roundMoney(knownMissingValue),
 
     unpricedPrintingIds: Object.freeze(unpricedPrintingIds.sort()),
