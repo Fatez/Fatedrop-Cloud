@@ -1,0 +1,66 @@
+name: Audit Pokemon Canonical Card Acquisition
+
+on:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/pokemon-card-acquisition-audit-cli.mjs'
+      - 'signal-engine/src/trader/catalogue/source-clients.mjs'
+      - 'signal-engine/src/trader/catalogue/pipeline.mjs'
+      - 'signal-engine/src/trader/catalogue/reconcile.mjs'
+      - 'signal-engine/src/trader/catalogue/verification.mjs'
+      - 'signal-engine/package.json'
+      - '.github/workflows/pokemon-card-acquisition-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-pokemon-151:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit exact canonical acquisition for Pokemon 151
+        run: npm --silent run trader:catalogue:card-audit -- --tcgdex-set=sv03.5 --pokemon-set=sv3pt5 --verified-at=2026-09-04T00:00:00Z > "$RUNNER_TEMP/pokemon-151-card-audit.json"
+
+      - name: Summarise card audit
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-151-card-audit.json', 'utf8'));
+          console.log('# Pokémon 151 canonical card acquisition');
+          console.log('');
+          console.log(`- TCGdex card refs fetched: **${report.sourceCounts.tcgdexCardsFetched}**`);
+          console.log(`- Pokémon TCG API cards fetched: **${report.sourceCounts.pokemonTcgCardsFetched}**`);
+          console.log(`- Reconciled card records: **${report.reconciliation.matchedCardRecords}**`);
+          console.log(`- Verified identity rows: **${report.verification.verifiedIdentityRows}**`);
+          console.log(`- Distinct Fate card IDs: **${report.verification.distinctFateCardIds}**`);
+          console.log(`- Conflicts: **${report.reconciliation.conflicts}**`);
+          console.log(`- Quarantined: **${report.reconciliation.quarantined}**`);
+          console.log(`- Unmatched: **${report.reconciliation.unmatched}**`);
+          NODE
+
+      - name: Upload canonical card audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-151-canonical-card-audit
+          path: ${{ runner.temp }}/pokemon-151-card-audit.json
+          if-no-files-found: error
+          retention-days: 7
