@@ -1,12 +1,12 @@
-import { createPokemonTcgClient, createTcgdexClient } from '../catalogue/source-clients.mjs';
-import { buildReviewedPokemonSetCrosswalk } from '../catalogue/pokemon-set-crosswalk-reviewed.mjs';
+import fs from 'node:fs';
+
+import { classifyPokemonSetForPulse } from '../catalogue/pokemon-set-policy.mjs';
 import { fetchCardmarketPokemonSinglesCatalogue } from './cardmarket-source-client.mjs';
 import {
-  auditCardmarketCanonicalCardCoverage,
-  buildCardmarketExpansionIndex,
-  classifyCardmarketExpansionEvidence,
-  rankCardmarketExpansionNameEvidence,
-} from './cardmarket-expansion-signature-audit.mjs';
+  auditExplicitCardmarketMappings,
+  indexCardmarketProducts,
+  loadTcgdexRepositoryEvidence,
+} from './tcgdex-repository-cardmarket-evidence.mjs';
 
 function argValue(name) {
   const prefix = `--${name}=`;
@@ -14,38 +14,18 @@ function argValue(name) {
   return value ? value.slice(prefix.length).trim() : null;
 }
 
-function sourceFailure(sourceName, sourceRecordId, error) {
-  return Object.freeze({
-    sourceName,
-    sourceRecordId,
-    status: error?.status ?? null,
-    sourceUrl: error?.sourceUrl ?? null,
-    message: error?.message || String(error),
-  });
+function readJsonFile(filePath, field) {
+  if (!filePath) throw new TypeError(`${field} is required`);
+  return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
-function unresolvedUniverseRows(base) {
-  return Object.freeze({
-    unmatchedTcgdex: Object.freeze((base?.unmatchedTcgdex || []).map((row) => ({ ...row }))),
-    unmatchedPokemon: Object.freeze((base?.unmatchedPokemon || []).map((row) => ({ ...row }))),
-    rejected: Object.freeze((base?.rejected || []).map((row) => ({ ...row }))),
-    ambiguous: Object.freeze((base?.ambiguous || []).map((row) => ({ ...row }))),
-  });
+function releasedAt(date) {
+  const value = Date.parse(String(date || ''));
+  return Number.isFinite(value) ? value : null;
 }
 
-function compactCardCoverage(audit) {
-  if (!audit) return null;
-  return Object.freeze({
-    sourceExpansionId: audit.sourceExpansionId,
-    proofScope: audit.proofScope,
-    variantIdentityAvailableFromPublicCatalogue: audit.variantIdentityAvailableFromPublicCatalogue,
-    counts: audit.counts,
-    problemSamples: Object.freeze(
-      audit.diagnostics
-        .filter((row) => row.status !== 'mapped_card_record')
-        .slice(0, 50),
-    ),
-  });
+function percent(numerator, denominator) {
+  return denominator > 0 ? Number((numerator / denominator).toFixed(6)) : 0;
 }
 
 async function main() {
@@ -53,126 +33,129 @@ async function main() {
   const asOf = asOfArg ? Date.parse(asOfArg) : Date.now();
   if (!Number.isFinite(asOf)) throw new TypeError('--as-of must be a valid date/time');
 
-  const tcgdex = createTcgdexClient({ languageCode: 'en' });
-  const pokemon = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null });
+  const tcgdexRepositoryPath = argValue('tcgdex-repo');
+  const tcgdexRevision = argValue('tcgdex-revision') || null;
+  const canonicalUniversePath = argValue('canonical-universe');
+  const canonicalUniverse = readJsonFile(canonicalUniversePath, '--canonical-universe');
+  if (!Array.isArray(canonicalUniverse?.eligibleSets)) {
+    throw new TypeError('canonical universe snapshot must contain eligibleSets[]');
+  }
 
-  const plan = await buildReviewedPokemonSetCrosswalk({
-    tcgdexClient: tcgdex,
-    pokemonTcgClient: pokemon,
-    asOf,
-  });
-
+  const repository = loadTcgdexRepositoryEvidence(tcgdexRepositoryPath, { includeCards: true });
   const { artifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
-  const expansionIndex = buildCardmarketExpansionIndex(products);
+  const productIndex = indexCardmarketProducts(products);
+
+  const repositoryPolicy = repository.sets.map((set) => Object.freeze({
+    tcgdexSetId: set.tcgdexSetId,
+    setName: set.setName,
+    seriesName: set.seriesName,
+    releaseDate: set.releaseDate,
+    cardmarketExpansionId: set.cardmarketExpansionId,
+    eligibility: classifyPokemonSetForPulse({
+      tcgdexSetId: set.tcgdexSetId,
+      setName: set.setName,
+      seriesName: set.seriesName,
+      releasedAt: releasedAt(set.releaseDate),
+    }, { asOf }),
+  }));
+  const repositoryEligible = repositoryPolicy.filter((row) => row.eligibility.eligibleForGlobalPulse);
+
   const results = [];
-  const sourceErrors = [];
-
-  for (const set of plan.eligible) {
-    let rawSet;
-    try {
-      rawSet = await tcgdex.getSet(set.tcgdexSetId);
-    } catch (error) {
-      sourceErrors.push(sourceFailure('tcgdex', set.tcgdexSetId, error));
+  for (const canonical of canonicalUniverse.eligibleSets) {
+    const sourceSet = repository.bySetId.get(canonical.tcgdexSetId) || null;
+    if (!sourceSet) {
       results.push(Object.freeze({
-        ...set,
+        ...canonical,
         status: 'unresolved',
-        reason: 'tcgdex_set_card_briefs_unavailable',
-        candidates: Object.freeze([]),
-        cardCoverage: null,
+        reason: 'canonical_eligible_set_missing_from_pinned_tcgdex_repository',
+        cardmarketExpansionId: null,
+        tcgdexRepositorySet: null,
+        cardAudit: null,
       }));
       continue;
     }
 
-    const cards = Array.isArray(rawSet?.cards) ? rawSet.cards : [];
-    if (!cards.length) {
-      results.push(Object.freeze({
-        ...set,
-        status: 'unresolved',
-        reason: 'tcgdex_set_contains_no_card_briefs',
-        candidates: Object.freeze([]),
-        cardCoverage: null,
-      }));
-      continue;
-    }
-
-    let candidates;
-    let classification;
-    try {
-      candidates = rankCardmarketExpansionNameEvidence(expansionIndex, cards, { limit: 12 });
-      classification = classifyCardmarketExpansionEvidence(candidates);
-    } catch (error) {
-      results.push(Object.freeze({
-        ...set,
-        status: 'unresolved',
-        reason: 'cardmarket_expansion_evidence_error',
-        error: error?.message || String(error),
-        candidates: Object.freeze([]),
-        cardCoverage: null,
-      }));
-      continue;
-    }
-
-    let cardCoverage = null;
-    if (classification.status === 'proven') {
-      try {
-        cardCoverage = compactCardCoverage(
-          auditCardmarketCanonicalCardCoverage(expansionIndex, cards, classification.sourceExpansionId),
-        );
-      } catch (error) {
-        classification = Object.freeze({
-          status: 'unresolved',
-          reason: 'proven_expansion_card_coverage_audit_failed',
-          sourceExpansionIds: classification.sourceExpansionIds,
-          sourceExpansionId: classification.sourceExpansionId,
-          error: error?.message || String(error),
-        });
-      }
-    }
+    const audit = auditExplicitCardmarketMappings(
+      sourceSet,
+      productIndex.byId,
+      productIndex.byExpansion,
+    );
 
     results.push(Object.freeze({
-      tcgdexSetId: set.tcgdexSetId,
-      pokemonTcgSetId: set.pokemonTcgSetId,
-      canonicalSetId: set.canonicalSetId,
-      seriesName: set.seriesName,
-      setName: set.setName,
-      releasedAt: set.releasedAt,
-      printedTotal: set.printedTotal,
-      total: set.total,
-      matchBasis: set.matchBasis,
-      pulseEligibility: set.pulseEligibility,
-      tcgdexCardBriefs: cards.length,
-      status: classification.status,
-      reason: classification.reason,
-      sourceExpansionIds: classification.sourceExpansionIds,
-      sourceExpansionId: classification.sourceExpansionId ?? null,
-      proofScope: classification.proofScope ?? null,
-      productVariantIdentityProven: classification.productVariantIdentityProven ?? false,
-      candidates,
-      cardCoverage,
+      tcgdexSetId: canonical.tcgdexSetId,
+      pokemonTcgSetId: canonical.pokemonTcgSetId,
+      canonicalSetId: canonical.canonicalSetId,
+      seriesName: canonical.seriesName,
+      setName: canonical.setName,
+      releasedAt: canonical.releasedAt,
+      printedTotal: canonical.printedTotal,
+      total: canonical.total,
+      matchBasis: canonical.matchBasis,
+      status: audit.status,
+      reason: audit.reason,
+      cardmarketExpansionId: audit.cardmarketExpansionId,
+      tcgdexRepositorySet: Object.freeze({
+        setName: sourceSet.setName,
+        seriesName: sourceSet.seriesName,
+        releaseDate: sourceSet.releaseDate,
+        officialCardCount: sourceSet.officialCardCount,
+        officialAbbreviation: sourceSet.officialAbbreviation,
+        sourcePath: sourceSet.sourcePath,
+        cardFiles: sourceSet.cards.length,
+      }),
+      cardAudit: audit,
     }));
   }
 
   const summary = {
-    eligibleResolvedSets: results.length,
-    proven: 0,
-    ambiguous: 0,
-    unresolved: 0,
-    provenCanonicalCardRefs: 0,
-    mappedDistinctCanonicalCards: 0,
+    canonicalEligibleSets: results.length,
+    provenExpansionMappings: 0,
+    unresolvedExpansionMappings: 0,
+    cardsInProvenSets: 0,
+    cardsWithVerifiedCardmarketProduct: 0,
+    variantsInProvenSets: 0,
+    variantsWithExplicitCardmarketProductId: 0,
+    verifiedDistinctCardmarketProducts: 0,
+    missingExplicitProductsFromOfficialCatalogue: 0,
+    explicitProductNameConflicts: 0,
   };
+  const distinctVerifiedProducts = new Set();
 
   for (const row of results) {
-    if (row.status === 'proven') summary.proven += 1;
-    else if (row.status === 'ambiguous') summary.ambiguous += 1;
-    else summary.unresolved += 1;
-    if (row.status === 'proven' && row.cardCoverage?.counts) {
-      summary.provenCanonicalCardRefs += Number(row.cardCoverage.counts.canonicalCardRefs || 0);
-      summary.mappedDistinctCanonicalCards += Number(row.cardCoverage.counts.mappedDistinctCanonicalCards || 0);
+    if (row.status === 'proven') summary.provenExpansionMappings += 1;
+    else summary.unresolvedExpansionMappings += 1;
+    const counts = row.cardAudit?.counts;
+    if (!counts || row.status !== 'proven') continue;
+    summary.cardsInProvenSets += Number(counts.cards || 0);
+    summary.cardsWithVerifiedCardmarketProduct += Number(counts.cardsWithVerifiedProduct || 0);
+    summary.variantsInProvenSets += Number(counts.variants || 0);
+    summary.variantsWithExplicitCardmarketProductId += Number(counts.variantsWithCardmarketId || 0);
+    summary.missingExplicitProductsFromOfficialCatalogue += Number(counts.missingProducts || 0);
+    summary.explicitProductNameConflicts += Number(counts.nameConflicts || 0);
+    for (const mapping of row.cardAudit.mappings || []) {
+      if (mapping.status === 'proven' && Number.isSafeInteger(Number(mapping.cardmarketProductId))) {
+        distinctVerifiedProducts.add(Number(mapping.cardmarketProductId));
+      }
     }
   }
-  summary.canonicalCardRecordCoverageAcrossProvenSets = summary.provenCanonicalCardRefs > 0
-    ? Number((summary.mappedDistinctCanonicalCards / summary.provenCanonicalCardRefs).toFixed(6))
-    : 0;
+  summary.verifiedDistinctCardmarketProducts = distinctVerifiedProducts.size;
+  summary.cardProductCoverageAcrossProvenSets = percent(
+    summary.cardsWithVerifiedCardmarketProduct,
+    summary.cardsInProvenSets,
+  );
+  summary.variantExplicitIdCoverageAcrossProvenSets = percent(
+    summary.variantsWithExplicitCardmarketProductId,
+    summary.variantsInProvenSets,
+  );
+
+  const repoSummary = {
+    englishSetFiles: repository.setCount,
+    policyEligible: repositoryEligible.length,
+    policyExcluded: repositoryPolicy.length - repositoryEligible.length,
+    eligibleWithExplicitCardmarketExpansionId: repositoryEligible.filter((row) => Number.isSafeInteger(Number(row.cardmarketExpansionId))).length,
+    canonicalResolvedEligibleSnapshotCount: canonicalUniverse.eligibleSets.length,
+    canonicalEligibleMissingFromRepository: results.filter((row) => row.reason === 'canonical_eligible_set_missing_from_pinned_tcgdex_repository').length,
+  };
 
   console.log(JSON.stringify({
     generatedAt: new Date().toISOString(),
@@ -183,18 +166,23 @@ async function main() {
     policy: {
       fuzzyMatching: false,
       cardmarketWebScraping: false,
-      sourceAcquisition: 'official_cardmarket_public_downloads_only',
-      expansionProof: 'dominant_exact_card_name_set_signature',
-      cardRecordProof: 'proven_expansion_plus_exact_name_unique_within_canonical_set',
-      variantIdentity: 'not_proven_by_public_product_catalogue',
+      tcgdexApiRequired: false,
+      expansionProof: 'tcgdex_reviewed_thirdParty.cardmarket_expansion_id_verified_in_official_cardmarket_catalogue',
+      productProof: 'tcgdex_variant_thirdParty.cardmarket_product_id_verified_by_id_and_exact_name_in_official_cardmarket_catalogue',
+      supplementalProductExpansionsPreserved: true,
     },
-    pokemonUniverse: {
-      sourceCounts: plan.base.sourceCounts,
-      baseCounts: plan.base.counts,
-      reviewedCounts: plan.counts,
-      unresolvedInventory: unresolvedUniverseRows(plan.base),
-      reviewedAliasRejected: plan.reviewedAliasRejected,
-      sourceErrors: plan.sourceErrors,
+    canonicalUniverseSource: {
+      provenance: canonicalUniverse.provenance || null,
+      sourceCounts: canonicalUniverse.sourceCounts || null,
+      reviewedCounts: canonicalUniverse.reviewedCounts || null,
+      universe: canonicalUniverse.universe || null,
+      reviewedAliasRejected: canonicalUniverse.reviewedAliasRejected || [],
+      sourceErrors: canonicalUniverse.sourceErrors || [],
+    },
+    tcgdexRepositorySource: {
+      repository: 'tcgdex/cards-database',
+      revision: tcgdexRevision,
+      ...repoSummary,
     },
     cardmarketSource: {
       url: artifact.url,
@@ -204,10 +192,10 @@ async function main() {
       etag: artifact.etag,
       lastModified: artifact.lastModified,
       catalogueProducts: products.length,
-      distinctExpansionIds: expansionIndex.expansionCount,
+      distinctExpansionIds: productIndex.byExpansion.size,
     },
     summary,
-    sourceErrors,
+    repositoryPolicy,
     sets: results,
   }, null, 2));
 }
