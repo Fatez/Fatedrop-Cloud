@@ -9,7 +9,9 @@ import {
 } from './pokemon-set-policy.mjs';
 
 function requireClient(client, name) {
-  if (!client || typeof client.getSet !== 'function') throw new TypeError(`${name}.getSet is required`);
+  if (!client || typeof client.getSet !== 'function' || typeof client.listSets !== 'function') {
+    throw new TypeError(`${name}.getSet/listSets are required`);
+  }
   return client;
 }
 
@@ -21,6 +23,14 @@ function sourceFailure(sourceName, sourceRecordId, error) {
     sourceUrl: error?.sourceUrl ?? null,
     message: error?.message || String(error),
   });
+}
+
+function pokemonBriefHasFullSetEvidence(set) {
+  return typeof set?.series === 'string'
+    && set.series.trim() !== ''
+    && typeof set?.releaseDate === 'string'
+    && Number.isInteger(set?.printedTotal)
+    && Number.isInteger(set?.total);
 }
 
 function aliasEvidence(alias, tcgdexEvidence, pokemonEvidence) {
@@ -84,6 +94,17 @@ export async function buildReviewedPokemonSetCrosswalk({
   const reviewedAliasMatched = [];
   const reviewedAliasRejected = [];
   const sourceErrors = [];
+  let pokemonBriefIndexPromise = null;
+
+  const getPokemonBriefIndex = async () => {
+    if (!pokemonBriefIndexPromise) {
+      pokemonBriefIndexPromise = Promise.resolve(pokemon.listSets()).then((rows) => {
+        if (!Array.isArray(rows)) throw new TypeError('pokemonTcgClient.listSets() must return an array');
+        return new Map(rows.map((row) => [String(row?.id ?? '').trim(), row]).filter(([id]) => id));
+      });
+    }
+    return pokemonBriefIndexPromise;
+  };
 
   for (const alias of REVIEWED_SET_ALIASES) {
     if (matchedTcgdex.has(alias.tcgdexSetId) || matchedPokemon.has(alias.pokemonTcgSetId)) continue;
@@ -98,8 +119,12 @@ export async function buildReviewedPokemonSetCrosswalk({
     try {
       pokemonEvidence = adaptPokemonTcgSet(await pokemon.getSet(alias.pokemonTcgSetId));
     } catch (error) {
-      sourceErrors.push(sourceFailure('pokemontcg-api', alias.pokemonTcgSetId, error));
-      continue;
+      const fallback = (await getPokemonBriefIndex()).get(alias.pokemonTcgSetId) || null;
+      if (!pokemonBriefHasFullSetEvidence(fallback)) {
+        sourceErrors.push(sourceFailure('pokemontcg-api', alias.pokemonTcgSetId, error));
+        continue;
+      }
+      pokemonEvidence = adaptPokemonTcgSet(fallback);
     }
 
     const result = aliasEvidence(alias, tcgdexEvidence, pokemonEvidence);
