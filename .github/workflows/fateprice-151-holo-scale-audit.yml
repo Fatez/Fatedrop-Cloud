@@ -21,7 +21,7 @@ jobs:
       - name: Check out FateDrop repository
         uses: actions/checkout@v4
 
-      - name: Build exact holo scale batch through production adapter
+      - name: Build exact holo-card scale batch through production adapter
         shell: bash
         run: |
           node --input-type=module <<'NODE'
@@ -29,15 +29,18 @@ jobs:
           import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
           import { buildCardmarketPriceGuideBatch } from './src/trader/value/cardmarket-adapter.mjs';
 
+          // These FateDrop identities are holo cards, but Cardmarket exposes their
+          // product-level guide in the provider's standard/normal lane. Source
+          // variant keys describe the provider lane, not the FateDrop variant.
           const mappings = new Map([
-            ['733789', { id:'fdcardmap_fb2bc477f9cee794e9913348', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
-            ['733790', { id:'fdcardmap_41ad01df54d2b4f3801660c9', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
-            ['733791', { id:'fdcardmap_01a55dbe5fa5c13933d575ce', cardIdentityId:'fdcard_0da2f7038691bcc5516a33f7' }],
-            ['733792', { id:'fdcardmap_cab50ad647a5073851ec8957', cardIdentityId:'fdcard_320ca2113a04f784c12ffc0e' }],
-            ['733798', { id:'fdcardmap_942093ed18c891119f1f88e9', cardIdentityId:'fdcard_a5c847ecbd20e9a03602df0e' }],
-            ['733799', { id:'fdcardmap_3473c68fe086e6afbe507676', cardIdentityId:'fdcard_2e1058e8c94f59b70b2a64de' }],
-            ['733801', { id:'fdcardmap_12765ce65094ec6de28729cc', cardIdentityId:'fdcard_14bc50e6c273a9115d679286' }],
-            ['733802', { id:'fdcardmap_cd6078e39b2c09045bc04410', cardIdentityId:'fdcard_f3acc908f16112324e2d4b2e' }],
+            ['733789', { id:'fdcardmap_3eec2ca535d46a26622afafc', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
+            ['733790', { id:'fdcardmap_1a99710bfa7cfcc0a358f486', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
+            ['733791', { id:'fdcardmap_e15d9b68523d0785cf808c3a', cardIdentityId:'fdcard_0da2f7038691bcc5516a33f7' }],
+            ['733792', { id:'fdcardmap_ba04e209e2b38eac351ce04a', cardIdentityId:'fdcard_320ca2113a04f784c12ffc0e' }],
+            ['733798', { id:'fdcardmap_4dcc27e150158f9f2d5a410c', cardIdentityId:'fdcard_a5c847ecbd20e9a03602df0e' }],
+            ['733799', { id:'fdcardmap_94f7adb9a4be8c2cef50dfa4', cardIdentityId:'fdcard_2e1058e8c94f59b70b2a64de' }],
+            ['733801', { id:'fdcardmap_7dbe10b6f311315e908dbecb', cardIdentityId:'fdcard_14bc50e6c273a9115d679286' }],
+            ['733802', { id:'fdcardmap_af77d7fe6ca95ea2f3b42278', cardIdentityId:'fdcard_f3acc908f16112324e2d4b2e' }],
           ]);
 
           const observedAt = Date.now();
@@ -45,15 +48,15 @@ jobs:
           const allRows = source.snapshot.priceGuides;
           const rows = allRows.filter((row) => mappings.has(String(row.idProduct)));
           const missing = [...mappings.keys()].filter((id) => !rows.some((row) => String(row.idProduct) === id));
-          if (missing.length) throw new Error(`Mapped holo products missing from current price guide: ${missing.join(',')}`);
+          if (missing.length) throw new Error(`Mapped 151 products missing from current price guide: ${missing.join(',')}`);
 
           const batch = await buildCardmarketPriceGuideBatch({ ...source.artifact.payload, priceGuides: rows }, {
             observedAt,
-            lanes: ['holo'],
+            lanes: ['standard'],
             resolveMapping: async ({ sourceName, sourceRecordId, priceGuideLane }) => {
-              if (sourceName !== 'cardmarket' || priceGuideLane !== 'holo') return null;
+              if (sourceName !== 'cardmarket' || priceGuideLane !== 'standard') return null;
               const mapping = mappings.get(String(sourceRecordId));
-              return mapping ? { ...mapping, sourceName:'cardmarket', sourceRecordId:String(sourceRecordId), sourceVariantKey:'holo' } : null;
+              return mapping ? { ...mapping, sourceName:'cardmarket', sourceRecordId:String(sourceRecordId), sourceVariantKey:'normal' } : null;
             },
           });
           if (batch.observations.length !== 8 || batch.rejections.length !== 0) {
@@ -75,10 +78,10 @@ jobs:
             batch,
           };
           fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-151-holo-scale.json', JSON.stringify(result, null, 2));
-          console.log(`Production adapter accepted ${batch.observations.length}/8 exact holo mappings with ${batch.rejections.length} rejects.`);
+          console.log(`Production adapter accepted ${batch.observations.length}/8 exact 151 holo-card mappings with ${batch.rejections.length} rejects.`);
           NODE
 
-      - name: Upload normalized holo scale artifact
+      - name: Upload normalized holo-card scale artifact
         uses: actions/upload-artifact@v4
         with:
           name: fateprice-151-holo-scale
