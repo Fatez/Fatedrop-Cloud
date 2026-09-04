@@ -1,0 +1,80 @@
+name: Audit FatePrice Cardmarket Canary
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fateprice-cardmarket-canary-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-cardmarket-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Fetch and validate live Cardmarket price-guide canary
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+
+          const url = 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_6.json';
+          const ids = new Set(['733750','733751','733752','733753','733754','733755','733756','733757','733758','733759','733760']);
+          const response = await fetch(url, { headers: { 'user-agent': 'FateDrop-FatePrice-Canary/1.0', accept: 'application/json' } });
+          if (!response.ok) throw new Error(`Cardmarket price-guide HTTP ${response.status}`);
+          const bytes = Buffer.from(await response.arrayBuffer());
+          const payload = JSON.parse(bytes.toString('utf8'));
+          if (!Number.isSafeInteger(Number(payload.version))) throw new Error('Cardmarket price-guide version missing');
+          const createdAt = Date.parse(String(payload.createdAt || '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'));
+          if (!Number.isFinite(createdAt)) throw new Error('Cardmarket price-guide createdAt invalid');
+          const rows = (payload.priceGuides || []).filter((row) => ids.has(String(row.idProduct)));
+          const seen = new Set(rows.map((row) => String(row.idProduct)));
+          const missing = [...ids].filter((id) => !seen.has(id));
+          if (missing.length) throw new Error(`Canary products missing from current price-guide: ${missing.join(',')}`);
+          const result = {
+            generatedAt: new Date().toISOString(),
+            source: {
+              url,
+              version: Number(payload.version),
+              createdAt: new Date(createdAt).toISOString(),
+              sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+              totalRows: Array.isArray(payload.priceGuides) ? payload.priceGuides.length : 0,
+              currencyCode: 'EUR'
+            },
+            mode: 'read_only_canary',
+            writesPerformed: false,
+            productIds: [...ids],
+            rows
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-cardmarket-canary.json', JSON.stringify(result, null, 2));
+          console.log(`Validated ${rows.length}/${ids.size} exact mapped canary products from Cardmarket snapshot ${result.source.createdAt}`);
+          NODE
+
+      - name: Summarise canary
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fateprice-cardmarket-canary.json','utf8'));
+          console.log('# FatePrice Cardmarket live canary');
+          console.log('');
+          console.log(`- Snapshot: **${report.source.createdAt}**`);
+          console.log(`- Price-guide rows: **${report.source.totalRows}**`);
+          console.log(`- Exact canary products: **${report.rows.length}/11**`);
+          console.log(`- Currency: **${report.source.currencyCode}**`);
+          console.log(`- Writes performed: **${report.writesPerformed}**`);
+          console.log('');
+          for (const row of report.rows) console.log(`- ${row.idProduct}: trend=${row.trend ?? '—'} avg7=${row.avg7 ?? '—'} low=${row.low ?? '—'}`);
+          NODE
+
+      - name: Upload exact live canary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-cardmarket-canary
+          path: ${{ runner.temp }}/fateprice-cardmarket-canary.json
+          if-no-files-found: error
+          retention-days: 7
