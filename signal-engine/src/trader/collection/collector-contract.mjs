@@ -1,5 +1,65 @@
 function text(value){return value==null?'':String(value).trim();}
 
+function publicCollectionValue(collection){
+  if(!collection)return null;
+  const fair=collection.fairValue;
+  const complete=collection.totalValue;
+  const known=collection.knownValue;
+  const hasKnown=Number(collection.pricedUnits??0)>0||Number(collection.totalUnits??0)===0;
+  return Object.freeze({
+    status:collection.status,
+    reason:collection.reason??null,
+    kind:fair!=null?'fair_value':'known_value',
+    amount:fair??complete??(hasKnown?known:null),
+    currencyCode:collection.currencyCode,
+    coveragePercent:collection.priceCoveragePercent,
+  });
+}
+
+function publicValueSlice({fairAmount,completeAmount,knownAmount,expectedCount,pricedCount,coveragePercent}){
+  const hasKnown=Number(pricedCount??0)>0||Number(expectedCount??0)===0;
+  const complete=Number(expectedCount??0)===Number(pricedCount??-1);
+  return Object.freeze({
+    status:fairAmount!=null||completeAmount!=null?'available':hasKnown?'partial':'unavailable',
+    kind:fairAmount!=null?'fair_value':'known_value',
+    amount:fairAmount??completeAmount??(hasKnown?knownAmount:null),
+    coveragePercent:coveragePercent??null,
+  });
+}
+
+function publicSetValue(value){
+  if(!value)return null;
+  return Object.freeze({
+    status:value.status,
+    reason:value.reason??null,
+    currencyCode:value.currencyCode,
+    fullSet:publicValueSlice({
+      fairAmount:value.fairSetValue,
+      completeAmount:value.fullSetValue,
+      knownAmount:value.knownSetValue,
+      expectedCount:value.expectedCount,
+      pricedCount:value.pricedCount,
+      coveragePercent:value.priceCoveragePercent,
+    }),
+    owned:publicValueSlice({
+      fairAmount:value.fairOwnedValue,
+      completeAmount:value.ownedValue,
+      knownAmount:value.knownOwnedValue,
+      expectedCount:value.ownedExpectedCount,
+      pricedCount:value.ownedPricedCount,
+      coveragePercent:value.ownedPriceCoveragePercent,
+    }),
+    missing:publicValueSlice({
+      fairAmount:value.fairMissingValue,
+      completeAmount:value.missingValue,
+      knownAmount:value.knownMissingValue,
+      expectedCount:value.missingExpectedCount,
+      pricedCount:value.missingPricedCount,
+      coveragePercent:value.missingPriceCoveragePercent,
+    }),
+  });
+}
+
 function compactSet(set){
   if(!set)return null;
   return Object.freeze({
@@ -12,14 +72,14 @@ function compactSet(set){
     totalCount:set.totalCount??null,
     missingCount:set.missingCount??null,
     completionPercent:set.completionPercent??null,
-    value:set.value??null,
+    value:publicSetValue(set.value),
   });
 }
 
 function compactGame(game){
   return Object.freeze({
     tcgCode:game.tcgCode,
-    collection:game.collection,
+    collection:publicCollectionValue(game.collection),
     cardUnits:game.cardUnits,
     setsOwned:game.setsOwned,
     progressAvailableSetCount:game.progressAvailableSetCount,
@@ -50,7 +110,7 @@ export function compactFateCollectorSummaryResponse(result){
     ...result,
     summary:Object.freeze({
       currencyCode:summary.currencyCode,
-      collection:summary.collection,
+      collection:publicCollectionValue(summary.collection),
       cardUnits:summary.cardUnits,
       setsOwned:summary.setsOwned,
       progressAvailableSetCount:summary.progressAvailableSetCount,
