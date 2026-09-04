@@ -1,0 +1,88 @@
+name: Audit Pokemon Cardmarket Universe Crosswalk
+
+on:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/pokemon-set-policy.mjs'
+      - 'signal-engine/src/trader/catalogue/pokemon-set-crosswalk-reviewed.mjs'
+      - 'signal-engine/src/trader/catalogue/pokemon-set-universe-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-expansion-signature-audit.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-source-client.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-catalogue-adapter.mjs'
+      - 'signal-engine/tests/pokemon-set-policy.test.mjs'
+      - 'signal-engine/tests/cardmarket-expansion-signature-audit.test.mjs'
+      - 'signal-engine/package.json'
+      - '.github/workflows/pokemon-cardmarket-universe-crosswalk-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-pokemon-cardmarket-universe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test reviewed set universe policy
+        run: node --test tests/pokemon-set-policy.test.mjs
+
+      - name: Test Cardmarket expansion signature audit
+        run: node --test tests/cardmarket-expansion-signature-audit.test.mjs
+
+      - name: Audit whole eligible Pokemon universe against Cardmarket
+        run: npm --silent run market:cardmarket:universe-crosswalk -- --as-of=2026-09-04T00:00:00Z > "$RUNNER_TEMP/pokemon-cardmarket-universe-crosswalk.json"
+
+      - name: Summarise crosswalk
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-cardmarket-universe-crosswalk.json', 'utf8'));
+          console.log('# Pokémon → Cardmarket universe crosswalk');
+          console.log('');
+          console.log(`- Cardmarket products: **${report.cardmarketSource.catalogueProducts}**`);
+          console.log(`- Cardmarket expansion IDs: **${report.cardmarketSource.distinctExpansionIds}**`);
+          console.log(`- Resolved eligible Pokémon sets audited: **${report.summary.eligibleResolvedSets}**`);
+          console.log(`- Proven single-expansion mappings: **${report.summary.proven}**`);
+          console.log(`- Ambiguous mappings: **${report.summary.ambiguous}**`);
+          console.log(`- Unresolved mappings: **${report.summary.unresolved}**`);
+          console.log(`- Canonical card records mapped inside proven sets: **${report.summary.mappedDistinctCanonicalCards}/${report.summary.provenCanonicalCardRefs}**`);
+          console.log(`- Canonical card-record coverage inside proven sets: **${(report.summary.canonicalCardRecordCoverageAcrossProvenSets * 100).toFixed(2)}%**`);
+          console.log('');
+          console.log('## Safety');
+          console.log('- Evidence only; no database writes');
+          console.log('- No fuzzy matching');
+          console.log('- No Cardmarket website scraping');
+          console.log('- Product variant/finish identity is not claimed from the public catalogue');
+          console.log('');
+          console.log('## Non-proven sets');
+          for (const row of report.sets.filter((set) => set.status !== 'proven').slice(0, 40)) {
+            const ids = Array.isArray(row.sourceExpansionIds) && row.sourceExpansionIds.length ? ` [${row.sourceExpansionIds.join(', ')}]` : '';
+            console.log(`- ${row.setName} (${row.tcgdexSetId}): **${row.status}** — ${row.reason}${ids}`);
+          }
+          NODE
+
+      - name: Upload whole-universe crosswalk audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-cardmarket-universe-crosswalk
+          path: ${{ runner.temp }}/pokemon-cardmarket-universe-crosswalk.json
+          if-no-files-found: error
+          retention-days: 7
