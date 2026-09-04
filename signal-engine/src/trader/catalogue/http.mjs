@@ -5,6 +5,8 @@ import {
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
 } from './store.mjs';
+import { getFatePriceFromStore, getFatePricesFromStore } from '../value/fate-price-service.mjs';
+import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 
 function json(res, status, payload) {
   res.writeHead(status, {
@@ -23,16 +25,40 @@ function ok(res, data) {
   json(res, 200, { ok: true, data, meta: meta() });
 }
 
-function notFound(res, code = 'NOT_FOUND', message = 'Catalogue resource not found.') {
-  json(res, 404, {
+function errorResponse(res, status, code, message, retryable = false, details = {}) {
+  json(res, status, {
     ok: false,
-    error: { code, message, retryable: false, details: {} },
+    error: { code, message, retryable, details },
     meta: meta(),
   });
 }
 
+function notFound(res, code = 'NOT_FOUND', message = 'Catalogue resource not found.') {
+  errorResponse(res, 404, code, message, false);
+}
+
 function safeLimit(url, fallback, max) {
   return Math.min(max, Math.max(1, Number.parseInt(url.searchParams.get('limit') || String(fallback), 10) || fallback));
+}
+
+function isFatePricePath(pathname) {
+  return pathname === '/v1/fate-price' || /^\/v1\/fate-price\/[^/]+$/.test(pathname);
+}
+
+function fatePriceScope(url) {
+  return {
+    currencyCode: url.searchParams.get('currency') || null,
+    marketSegmentKey: url.searchParams.get('marketSegment') || null,
+    conditionCode: url.searchParams.get('condition') || null,
+  };
+}
+
+function fatePriceIds(url) {
+  const ids = [
+    ...url.searchParams.getAll('id'),
+    ...(url.searchParams.get('ids') || '').split(','),
+  ].map((value) => value.trim()).filter(Boolean);
+  return [...new Set(ids)];
 }
 
 export function isFateTraderCataloguePath(pathname) {
@@ -40,7 +66,8 @@ export function isFateTraderCataloguePath(pathname) {
     || pathname.startsWith('/v1/cards/')
     || pathname === '/v1/card-series'
     || pathname === '/v1/card-sets'
-    || /^\/v1\/card-sets\/[^/]+\/cards$/.test(pathname);
+    || /^\/v1\/card-sets\/[^/]+\/cards$/.test(pathname)
+    || isFatePricePath(pathname);
 }
 
 export async function handleFateTraderCatalogue(req, res, {
@@ -49,6 +76,49 @@ export async function handleFateTraderCatalogue(req, res, {
 } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
   if (req.method !== 'GET' || !isFateTraderCataloguePath(url.pathname)) return false;
+
+  // Fate Price is a shared canonical valuation service for Collectors, Pulse and
+  // Trader. It is intentionally not coupled to Fate Trader UI feature flags.
+  if (isFatePricePath(url.pathname)) {
+    try {
+      const scope = fatePriceScope(url);
+      if (url.pathname === '/v1/fate-price') {
+        const ids = fatePriceIds(url);
+        if (!ids.length) {
+          errorResponse(res, 400, 'FATE_PRICE_CARD_IDS_REQUIRED', 'At least one exact FateDrop card identity is required.');
+          return true;
+        }
+        if (ids.length > 100) {
+          errorResponse(res, 400, 'FATE_PRICE_BATCH_TOO_LARGE', 'Fate Price supports at most 100 card identities per request.');
+          return true;
+        }
+        const prices = await getFatePricesFromStore(store, { cardIdentityIds: ids, ...scope });
+        ok(res, { prices, count: prices.length });
+        return true;
+      }
+
+      const match = url.pathname.match(/^\/v1\/fate-price\/([^/]+)$/);
+      const cardIdentityId = decodeURIComponent(match?.[1] || '');
+      const card = await getVerifiedCardFromStore(store, cardIdentityId);
+      if (!card) {
+        notFound(res, 'CARD_IDENTITY_NOT_VERIFIED', 'The requested card identity is not available.');
+        return true;
+      }
+      const fatePrice = await getFatePriceFromStore(store, { cardIdentityId, ...scope });
+      ok(res, { fatePrice });
+      return true;
+    } catch (error) {
+      if (error instanceof FatePriceStoreUnavailableError) {
+        errorResponse(res, 503, 'FATE_PRICE_UNAVAILABLE', error.message, true);
+        return true;
+      }
+      if (error instanceof TypeError) {
+        errorResponse(res, 400, 'INVALID_FATE_PRICE_REQUEST', error.message, false);
+        return true;
+      }
+      throw error;
+    }
+  }
 
   // Disabled catalogue routes behave as unavailable rather than leaking a dark
   // feature surface or relying on client-side navigation flags.
