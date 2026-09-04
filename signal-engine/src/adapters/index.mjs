@@ -14,6 +14,11 @@ export function retailerScannerKind(retailer) {
   }
 
   if (!retailer?.adapterType || retailer.adapterType === ADAPTER_TYPES.GENERIC_HTML) {
+    // Magic Madhouse's bounded category surface can omit older/restocked products
+    // from server-rendered catalogue HTML. Its official product sitemap plus
+    // direct product pages are the stronger stock-truth path.
+    if (retailer?.id === "magic-madhouse" && retailer.catalogue?.sitemapUrl) return "sitemap";
+
     // A bounded retailer/category catalogue is authoritative for runtime routing
     // whenever one is explicitly configured. Sitemap crawling is fallback-only.
     if (Array.isArray(retailer.catalogueUrls) && retailer.catalogueUrls.length > 0) return "generic";
