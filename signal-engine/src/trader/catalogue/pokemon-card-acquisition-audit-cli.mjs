@@ -69,12 +69,16 @@ async function main() {
   const identities = promotions.flatMap((promotion) => promotion.status === 'verified' ? promotion.identities : []);
   const distinctPrintingIds = new Set(identities.map((identity) => identity.printingId).filter(Boolean));
   const distinctFateCardIds = new Set(identities.map((identity) => identity.fateCardId).filter(Boolean));
+  const pokemonTcgSetCode = typeof rawPokemonSet?.ptcgoCode === 'string' && rawPokemonSet.ptcgoCode.trim()
+    ? rawPokemonSet.ptcgoCode.trim()
+    : null;
 
   console.log(JSON.stringify({
     generatedAt: new Date().toISOString(),
     set: {
       tcgdexSetId,
       pokemonTcgSetId,
+      pokemonTcgSetCode,
       canonicalSetId: setMatch.canonicalSetId,
       seriesName: setMatch.seriesName,
       setName: setMatch.setName,
