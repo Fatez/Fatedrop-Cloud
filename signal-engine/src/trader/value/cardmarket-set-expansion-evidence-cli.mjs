@@ -34,8 +34,12 @@ async function main() {
   const cardsFile = argValue('cards-file');
   const limit = positiveInt(argValue('limit'), 10, 50);
   const cardAudit = readCardAudit(cardsFile);
+  const expectedSourceSetCode = cardAudit.set.pokemonTcgSetCode ?? argValue('source-set-code') ?? null;
   const { artifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
-  const candidates = rankCardmarketExpansionEvidence(products, cardAudit.identities, { limit });
+  const candidates = rankCardmarketExpansionEvidence(products, cardAudit.identities, {
+    limit,
+    expectedSourceSetCode,
+  });
 
   console.log(JSON.stringify({
     generatedAt: new Date().toISOString(),
@@ -48,6 +52,8 @@ async function main() {
       seriesName: cardAudit.set.seriesName ?? null,
       tcgdexSetId: cardAudit.set.tcgdexSetId ?? null,
       pokemonTcgSetId: cardAudit.set.pokemonTcgSetId ?? null,
+      pokemonTcgSetCode: cardAudit.set.pokemonTcgSetCode ?? null,
+      expectedCardmarketSetCode: expectedSourceSetCode,
       verifiedIdentityRows: cardAudit.verification?.verifiedIdentityRows ?? cardAudit.identities.length,
     },
     cardmarketSource: {
