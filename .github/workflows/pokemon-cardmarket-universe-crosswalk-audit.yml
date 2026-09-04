@@ -4,20 +4,18 @@ on:
   pull_request:
     paths:
       - 'signal-engine/src/trader/catalogue/pokemon-set-policy.mjs'
-      - 'signal-engine/src/trader/catalogue/pokemon-set-crosswalk-reviewed.mjs'
-      - 'signal-engine/src/trader/catalogue/pokemon-set-universe-audit-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-expansion-signature-audit.mjs'
       - 'signal-engine/src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs'
+      - 'signal-engine/src/trader/value/tcgdex-repository-cardmarket-evidence.mjs'
       - 'signal-engine/src/trader/value/cardmarket-source-client.mjs'
       - 'signal-engine/src/trader/value/cardmarket-catalogue-adapter.mjs'
       - 'signal-engine/tests/pokemon-set-policy.test.mjs'
-      - 'signal-engine/tests/cardmarket-expansion-signature-audit.test.mjs'
-      - 'signal-engine/package.json'
+      - 'signal-engine/tests/tcgdex-repository-cardmarket-evidence.test.mjs'
       - '.github/workflows/pokemon-cardmarket-universe-crosswalk-audit.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   audit-pokemon-cardmarket-universe:
@@ -27,8 +25,24 @@ jobs:
       run:
         working-directory: signal-engine
     steps:
-      - name: Check out repository
+      - name: Check out FateDrop repository
         uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex card database evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: dd4fc9460b54b91c25df750c68ca36b9946448e2
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download green canonical Pokemon universe snapshot from PR 389
+        uses: actions/download-artifact@v4
+        with:
+          name: pokemon-fatepulse-set-universe
+          path: ${{ runner.temp }}/canonical-universe
+          github-token: ${{ github.token }}
+          run-id: 33880247009
 
       - name: Set up Node 22
         uses: actions/setup-node@v4
@@ -43,11 +57,35 @@ jobs:
       - name: Test reviewed set universe policy
         run: node --test tests/pokemon-set-policy.test.mjs
 
-      - name: Test Cardmarket expansion signature audit
-        run: node --test tests/cardmarket-expansion-signature-audit.test.mjs
+      - name: Test explicit TCGdex Cardmarket evidence reader
+        run: node --test tests/tcgdex-repository-cardmarket-evidence.test.mjs
 
-      - name: Audit whole eligible Pokemon universe against Cardmarket
-        run: npm --silent run market:cardmarket:universe-crosswalk -- --as-of=2026-09-04T00:00:00Z > "$RUNNER_TEMP/pokemon-cardmarket-universe-crosswalk.json"
+      - name: Audit whole canonical eligible Pokemon universe against Cardmarket
+        run: |
+          node src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs \
+            --as-of=2026-09-04T00:00:00Z \
+            --tcgdex-repo="$GITHUB_WORKSPACE/_evidence/tcgdex-cards-database" \
+            --tcgdex-revision=dd4fc9460b54b91c25df750c68ca36b9946448e2 \
+            --canonical-universe="$RUNNER_TEMP/canonical-universe/pokemon-fatepulse-set-universe.json" \
+            > "$RUNNER_TEMP/pokemon-cardmarket-universe-crosswalk.json"
+
+      - name: Validate 151 canary and audit invariants
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-cardmarket-universe-crosswalk.json', 'utf8'));
+          const mew = report.sets.find((row) => row.tcgdexSetId === 'sv03.5');
+          if (!mew) throw new Error('151 is missing from canonical eligible audit');
+          if (mew.status !== 'proven') throw new Error(`151 expansion is not proven: ${mew.status} ${mew.reason}`);
+          if (mew.cardmarketExpansionId !== 5402) throw new Error(`151 expected Cardmarket expansion 5402, got ${mew.cardmarketExpansionId}`);
+          if (report.summary.canonicalEligibleSets !== report.canonicalUniverseSource.reviewedCounts.pulseEligible) {
+            throw new Error('canonical eligible set count drifted from reviewed PR 389 snapshot');
+          }
+          if (report.tcgdexRepositorySource.canonicalEligibleMissingFromRepository !== 0) {
+            throw new Error('one or more canonical eligible sets are missing from pinned TCGdex repository evidence');
+          }
+          NODE
 
       - name: Summarise crosswalk
         shell: bash
@@ -55,27 +93,37 @@ jobs:
           node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
           import fs from 'node:fs';
           const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-cardmarket-universe-crosswalk.json', 'utf8'));
+          const mew = report.sets.find((row) => row.tcgdexSetId === 'sv03.5');
           console.log('# Pokémon → Cardmarket universe crosswalk');
           console.log('');
+          console.log(`- Canonical eligible sets audited: **${report.summary.canonicalEligibleSets}**`);
+          console.log(`- Proven explicit expansion mappings: **${report.summary.provenExpansionMappings}**`);
+          console.log(`- Unresolved expansion mappings: **${report.summary.unresolvedExpansionMappings}**`);
+          console.log(`- TCGdex English set files in pinned repository: **${report.tcgdexRepositorySource.englishSetFiles}**`);
+          console.log(`- TCGdex policy-eligible sets: **${report.tcgdexRepositorySource.policyEligible}**`);
+          console.log(`- Policy-eligible sets with explicit Cardmarket expansion ID: **${report.tcgdexRepositorySource.eligibleWithExplicitCardmarketExpansionId}**`);
           console.log(`- Cardmarket products: **${report.cardmarketSource.catalogueProducts}**`);
           console.log(`- Cardmarket expansion IDs: **${report.cardmarketSource.distinctExpansionIds}**`);
-          console.log(`- Resolved eligible Pokémon sets audited: **${report.summary.eligibleResolvedSets}**`);
-          console.log(`- Proven single-expansion mappings: **${report.summary.proven}**`);
-          console.log(`- Ambiguous mappings: **${report.summary.ambiguous}**`);
-          console.log(`- Unresolved mappings: **${report.summary.unresolved}**`);
-          console.log(`- Canonical card records mapped inside proven sets: **${report.summary.mappedDistinctCanonicalCards}/${report.summary.provenCanonicalCardRefs}**`);
-          console.log(`- Canonical card-record coverage inside proven sets: **${(report.summary.canonicalCardRecordCoverageAcrossProvenSets * 100).toFixed(2)}%**`);
+          console.log(`- Cards with verified explicit Cardmarket product: **${report.summary.cardsWithVerifiedCardmarketProduct}/${report.summary.cardsInProvenSets}** (${(report.summary.cardProductCoverageAcrossProvenSets * 100).toFixed(2)}%)`);
+          console.log(`- Verified distinct Cardmarket products: **${report.summary.verifiedDistinctCardmarketProducts}**`);
+          console.log(`- Missing explicit product IDs from official catalogue: **${report.summary.missingExplicitProductsFromOfficialCatalogue}**`);
+          console.log(`- Explicit product-name conflicts: **${report.summary.explicitProductNameConflicts}**`);
+          console.log('');
+          console.log('## 151 canary');
+          console.log(`- Cardmarket expansion: **${mew.cardmarketExpansionId}**`);
+          console.log(`- Card files: **${mew.cardAudit.counts.cards}**`);
+          console.log(`- Cards with verified Cardmarket product: **${mew.cardAudit.counts.cardsWithVerifiedProduct}** (${(mew.cardAudit.counts.cardProductCoverage * 100).toFixed(2)}%)`);
           console.log('');
           console.log('## Safety');
           console.log('- Evidence only; no database writes');
           console.log('- No fuzzy matching');
+          console.log('- No TCGdex API dependency for this audit');
           console.log('- No Cardmarket website scraping');
-          console.log('- Product variant/finish identity is not claimed from the public catalogue');
+          console.log('- TCGdex repository revision is pinned');
           console.log('');
-          console.log('## Non-proven sets');
-          for (const row of report.sets.filter((set) => set.status !== 'proven').slice(0, 40)) {
-            const ids = Array.isArray(row.sourceExpansionIds) && row.sourceExpansionIds.length ? ` [${row.sourceExpansionIds.join(', ')}]` : '';
-            console.log(`- ${row.setName} (${row.tcgdexSetId}): **${row.status}** — ${row.reason}${ids}`);
+          console.log('## Non-proven canonical sets');
+          for (const row of report.sets.filter((set) => set.status !== 'proven')) {
+            console.log(`- ${row.setName} (${row.tcgdexSetId}): **${row.status}** — ${row.reason}`);
           }
           NODE
 
