@@ -111,15 +111,16 @@ test('Fate Collectors stays dark and authenticated at the route boundary',async(
   assert.equal(anonymous.status,401);
 });
 
-test('Fate Collectors exposes owner-scoped completion, value and movement from approved evidence',async()=>{
+test('Fate Collectors exposes simple owner-scoped Known Value, completion and movement from approved evidence',async()=>{
   const res=response();
   await handleFateCollectors(request('GET',`/v1/collectors/summary?currency=EUR&language=en&variant=standard`),res,{store:await seedStore(),flags:FLAGS,resolveUser:USER});
   assert.equal(res.status,200);
   assert.equal(res.body.data.summary.cardUnits,1);
   assert.equal(res.body.data.summary.closestSet.completionPercent,50);
-  assert.equal(res.body.data.summary.collection.totalValue,10);
-  assert.equal(res.body.data.summary.sets[0].value.fullSetValue,30);
-  assert.equal(res.body.data.summary.sets[0].value.missingValue,20);
+  assert.deepEqual(res.body.data.summary.collection,{status:'available',reason:null,kind:'known_value',amount:10,currencyCode:'EUR',coveragePercent:100});
+  assert.equal(res.body.data.summary.sets[0].value.fullSet.kind,'known_value');
+  assert.equal(res.body.data.summary.sets[0].value.fullSet.amount,30);
+  assert.equal(res.body.data.summary.sets[0].value.missing.amount,20);
   assert.equal(res.body.data.evidence.completeSetValuesConnected,true);
   assert.equal(res.body.data.evidence.rejectedPricingProvenanceCount,0);
 });
