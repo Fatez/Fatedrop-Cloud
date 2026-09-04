@@ -33,7 +33,7 @@ const printingValues = [
   { printingId: 'b2', amount: 7, currencyCode: 'GBP', observedAt: 100, sourceName:'cardmarket',providerPolicyKey:'cardmarket-public-download',metricUsed:'trendPrice',confidence:'high' },
 ];
 
-test('collector summary returns portfolio, game breakdowns, set completion and priced missing cards', () => {
+test('collector summary returns portfolio, game breakdowns, set completion and simple Known Prices', () => {
   const result = computeFateCollectorSummary({
     sets,
     canonicalCards,
@@ -74,9 +74,10 @@ test('collector summary returns portfolio, game breakdowns, set completion and p
   assert.equal(setA.value.missingValue, 20);
   assert.equal(setA.missingCards[0].collectorNumber, '2');
   assert.equal(setA.missingCards[0].priceStatus,'available');
-  assert.equal(setA.missingCards[0].fatePrice.amount,20);
-  assert.equal(setA.missingCards[0].fatePrice.sourceName,'cardmarket');
-  assert.equal(setA.missingCards[0].fatePrice.providerPolicyKey,'cardmarket-public-download');
+  assert.deepEqual(setA.missingCards[0].knownPrice,{kind:'known_price',amount:20,currencyCode:'GBP',asOf:100});
+  assert.equal('fatePrice' in setA.missingCards[0],false);
+  assert.equal('confidence' in setA.missingCards[0].knownPrice,false);
+  assert.equal('providerPolicyKey' in setA.missingCards[0].knownPrice,false);
 
   const setB = result.sets.find((row) => row.setId === 'set-b');
   assert.equal(setB.completionPercent, 100);
