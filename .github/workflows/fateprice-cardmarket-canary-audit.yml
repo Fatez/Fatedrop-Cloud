@@ -29,6 +29,9 @@ jobs:
           import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
           import { buildCardmarketPriceGuideBatch } from './src/trader/value/cardmarket-adapter.mjs';
 
+          // These are Cardmarket source lanes, not FateDrop canonical finish labels.
+          // Bill's Transfer #194 and Daisy's Help #195 are holo canonical cards,
+          // but their public Cardmarket guide evidence lives in the standard fields.
           const mappings = new Map([
             ['733750', { id:'fdcardmap_9561b8d88d9a2048ee2b2b3e', cardIdentityId:'fdcard_c060a3892f8667401ac92d58' }],
             ['733751', { id:'fdcardmap_dad86f331caa79a27d229dea', cardIdentityId:'fdcard_529acd08d47301c3c54e47c5' }],
@@ -41,6 +44,8 @@ jobs:
             ['733758', { id:'fdcardmap_c5c10c4efb11268306ea28f9', cardIdentityId:'fdcard_1aa5056042c2e5cdc826c2fa' }],
             ['733759', { id:'fdcardmap_4a7df945d04ade1042465bf4', cardIdentityId:'fdcard_72f1eae2932839a7636d605f' }],
             ['733760', { id:'fdcardmap_9a4a19385d1f1d007a69dedb', cardIdentityId:'fdcard_f55999e95b96a3f5488af6ff' }],
+            ['733789', { id:'fdcardmap_3eec2ca535d46a26622afafc', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
+            ['733790', { id:'fdcardmap_1a99710bfa7cfcc0a358f486', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
           ]);
 
           const observedAt = Date.now();
@@ -67,7 +72,7 @@ jobs:
             },
           });
           if (batch.observations.length !== mappings.size || batch.rejections.length !== 0) {
-            throw new Error(`Expected 11 accepted / 0 rejected; got ${batch.observations.length} / ${batch.rejections.length}`);
+            throw new Error(`Expected 13 accepted / 0 rejected; got ${batch.observations.length} / ${batch.rejections.length}`);
           }
 
           const result = {
@@ -85,7 +90,7 @@ jobs:
             batch,
           };
           fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-cardmarket-canary.json', JSON.stringify(result, null, 2));
-          console.log(`Production adapter accepted ${batch.observations.length}/11 exact mapped products with ${batch.rejections.length} rejects.`);
+          console.log(`Production adapter accepted ${batch.observations.length}/13 exact mapped products with ${batch.rejections.length} rejects.`);
           NODE
 
       - name: Summarise canary
@@ -98,12 +103,14 @@ jobs:
           console.log('');
           console.log(`- Snapshot: **${report.source.createdAt}**`);
           console.log(`- Full price-guide rows: **${report.source.totalRows}**`);
-          console.log(`- Exact canary accepted: **${report.batch.observations.length}/11**`);
+          console.log(`- Exact canary accepted: **${report.batch.observations.length}/13**`);
           console.log(`- Rejected: **${report.batch.rejections.length}**`);
           console.log(`- Currency: **${report.source.currencyCode}**`);
           console.log(`- Writes performed: **${report.writesPerformed}**`);
           console.log('');
-          for (const row of report.batch.observations) console.log(`- ${row.sourceRecordId}: trend=${row.trendPrice ?? '—'} avg7=${row.avg7d ?? '—'} low=${row.lowPrice ?? '—'}`);
+          for (const row of report.batch.observations.filter((row) => ['733789','733790'].includes(row.sourceRecordId))) {
+            console.log(`- ${row.sourceRecordId}: trend=${row.trendPrice ?? '—'} avg7=${row.avg7d ?? '—'} low=${row.lowPrice ?? '—'}`);
+          }
           NODE
 
       - name: Upload exact normalized canary artifact
