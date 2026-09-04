@@ -92,7 +92,7 @@ function compareNumber(a,b){
   return ak.raw.localeCompare(bk.raw,undefined,{numeric:true});
 }
 
-function price(card){const value=Number(card?.fatePrice?.amount);return Number.isFinite(value)?value:null;}
+function price(card){const value=Number(card?.knownPrice?.amount);return Number.isFinite(value)?value:null;}
 function falling(card){const value=Number(card?.movement?.thirtyDay?.percentChange);return Number.isFinite(value)?value:null;}
 
 function sortMissing(cards,sort){
