@@ -7,9 +7,9 @@ function move(percentChange){return{status:'available',reason:null,currencyCode:
 
 function result(){
   const cards=[
-    {fateCardId:'expensive',printingId:'p2',collectorNumber:'2',name:'Expensive',priceStatus:'available',fatePrice:{amount:20,currencyCode:'GBP'}},
-    {fateCardId:'cheap',printingId:'p1',collectorNumber:'1',name:'Cheap',priceStatus:'available',fatePrice:{amount:5,currencyCode:'GBP'}},
-    {fateCardId:'unknown',printingId:'p3',collectorNumber:'3',name:'Unknown',priceStatus:'unavailable',fatePrice:null},
+    {fateCardId:'expensive',printingId:'p2',collectorNumber:'2',name:'Expensive',priceStatus:'available',knownPrice:{kind:'known_price',amount:20,currencyCode:'GBP',asOf:2}},
+    {fateCardId:'cheap',printingId:'p1',collectorNumber:'1',name:'Cheap',priceStatus:'available',knownPrice:{kind:'known_price',amount:5,currencyCode:'GBP',asOf:2}},
+    {fateCardId:'unknown',printingId:'p3',collectorNumber:'3',name:'Unknown',priceStatus:'unavailable',knownPrice:null},
   ];
   const set={setId:'set',setName:'Set',tcgCode:'pokemon',status:'available',ownedCount:7,totalCount:10,missingCount:3,completionPercent:70,catalogue:{status:'complete'},value:{status:'available',missingValue:25},missingCards:cards};
   return{
@@ -42,7 +42,7 @@ test('compact summary strips heavy per-set missing-card payloads and duplicate g
   assert.equal('missingCards' in compact.summary.movement.thirtyDay.sets[0],false);
 });
 
-test('set detail can sort missing cards by number and current price',()=>{
+test('set detail can sort missing cards by number and Known Price',()=>{
   const byNumber=buildFateCollectorSetDetail(result(),{setId:'set',sort:'number'});
   assert.deepEqual(byNumber.set.missingCards.map((card)=>card.fateCardId),['cheap','expensive','unknown']);
   const cheapest=buildFateCollectorSetDetail(result(),{setId:'set',sort:'cheapest'});
@@ -57,4 +57,13 @@ test('Price Falling sorts by each missing card 30D movement and leaves unknown m
   assert.equal(falling.set.missingCards[0].movement.thirtyDay.percentChange,-10);
   assert.equal(falling.set.missingCards[1].movement.thirtyDay.percentChange,5);
   assert.equal(falling.set.missingCards[2].movement.thirtyDay.percentChange,null);
+});
+
+test('consumer price contract contains no confidence or provider-policy internals',()=>{
+  const detail=buildFateCollectorSetDetail(result(),{setId:'set'});
+  const price=detail.set.missingCards[0].knownPrice;
+  assert.deepEqual(Object.keys(price).sort(),['amount','asOf','currencyCode','kind']);
+  assert.equal('confidence' in price,false);
+  assert.equal('providerPolicyKey' in price,false);
+  assert.equal('metricUsed' in price,false);
 });
