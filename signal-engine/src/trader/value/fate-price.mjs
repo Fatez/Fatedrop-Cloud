@@ -1,234 +1,304 @@
-import { assertFatePriceProviderApproved } from './provider-policy.mjs';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const CURRENT_MAX_AGE_MS = 7 * DAY_MS;
+const MOVEMENT_SAMPLE_MAX_AGE_MS = 3 * DAY_MS;
+const CENTRAL_SIGNAL_FIELDS = Object.freeze(['marketPrice', 'trendPrice', 'avg7d', 'avg30d']);
 
-const METRIC_PRIORITY = Object.freeze([
-  'marketPrice',
-  'trendPrice',
-  'avg7d',
-  'avg30d',
-]);
-
-const DEFAULT_MAX_AGE_MS = 72 * 60 * 60 * 1000;
-const HIGH_FRESHNESS_MS = 24 * 60 * 60 * 1000;
+export const FATE_PRICE_POLICY_VERSION = 'fate-price-v1';
 
 function text(value) {
-  return typeof value === 'string' ? value.trim() : '';
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function currency(value) {
-  const code = text(value).toUpperCase();
-  if (!/^[A-Z]{3}$/.test(code)) throw new TypeError('currencyCode must be a 3-letter currency code');
-  return code;
-}
-
-function timestamp(value, field) {
-  if (value == null) return null;
+function positivePrice(value) {
   const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) throw new TypeError(`${field} must be a positive timestamp`);
-  return number;
+  return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function positiveDuration(value, field) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number <= 0) throw new TypeError(`${field} must be positive`);
-  return number;
+function timestamp(observation) {
+  const effective = Number(observation?.sourceEffectiveAt);
+  if (Number.isFinite(effective) && effective > 0) return effective;
+  const observed = Number(observation?.observedAt);
+  return Number.isFinite(observed) && observed > 0 ? observed : null;
 }
 
-function nonNegativePrice(value) {
-  if (value == null || value === '') return null;
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < 0) return null;
-  return number;
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-function bestMetric(observation) {
-  for (const metric of METRIC_PRIORITY) {
-    const value = nonNegativePrice(observation?.[metric]);
-    if (value != null && value > 0) return Object.freeze({ metric, amount: value });
-  }
-  return null;
+function roundMoney(value) {
+  return value == null ? null : Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function effectiveAt(observation) {
-  return timestamp(observation?.sourceEffectiveAt, 'sourceEffectiveAt')
-    ?? timestamp(observation?.observedAt, 'observedAt');
+function roundPercent(value) {
+  return value == null ? null : Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
-function confidence(metric, ageMs) {
-  if (ageMs <= HIGH_FRESHNESS_MS && (metric === 'marketPrice' || metric === 'trendPrice')) return 'high';
-  if (metric === 'marketPrice' || metric === 'trendPrice' || metric === 'avg7d') return 'medium';
-  return 'low';
-}
-
-function freshness(ageMs) {
-  return ageMs <= HIGH_FRESHNESS_MS ? 'fresh' : 'recent';
-}
-
-function unavailable({ cardIdentityId, currencyCode, reason, rejectedEvidence = [] }) {
+function scopeOf(observation) {
   return Object.freeze({
-    status: 'unavailable',
-    reason,
-    valuationKind: 'raw-market',
-    cardIdentityId,
-    amount: null,
-    currencyCode,
-    metricUsed: null,
-    sourceName: null,
-    providerPolicyKey: null,
-    sourceSnapshotId: null,
-    sourceEffectiveAt: null,
-    observedAt: null,
-    ageMs: null,
-    freshness: null,
-    confidence: null,
-    rejectedEvidence: Object.freeze(rejectedEvidence),
+    currencyCode: text(observation?.currencyCode)?.toUpperCase() ?? null,
+    marketSegmentKey: text(observation?.marketSegmentKey) ?? 'default',
+    conditionCode: text(observation?.conditionCode) ?? 'unspecified',
   });
 }
 
-/**
- * Resolve one exact canonical card identity to one conservative current Fate Price.
- *
- * Acquisition provenance is mandatory. A source name such as "cardmarket" is not
- * sufficient because the same provider can expose both approved and restricted
- * acquisition routes. Callers should enrich persisted market observations with
- * providerPolicyKey from the corresponding ingest run before invoking this function.
- */
-export function resolveFatePrice({
-  cardIdentityId,
-  observations,
-  currencyCode,
-  asOf = Date.now(),
-  maxAgeMs = DEFAULT_MAX_AGE_MS,
-} = {}) {
-  const cardId = text(cardIdentityId);
-  if (!cardId) throw new TypeError('cardIdentityId is required');
-  if (!Array.isArray(observations)) throw new TypeError('observations must be an array');
-  const code = currency(currencyCode);
-  const now = timestamp(asOf, 'asOf');
-  const maxAge = positiveDuration(maxAgeMs, 'maxAgeMs');
+function scopeKey(scope) {
+  return `${scope.currencyCode ?? ''}|${scope.marketSegmentKey}|${scope.conditionCode}`;
+}
 
-  const eligible = [];
-  const rejectedEvidence = [];
+function matchesScope(scope, filter) {
+  if (filter.currencyCode && scope.currencyCode !== filter.currencyCode) return false;
+  if (filter.marketSegmentKey && scope.marketSegmentKey !== filter.marketSegmentKey) return false;
+  if (filter.conditionCode && scope.conditionCode !== filter.conditionCode) return false;
+  return true;
+}
 
+function normalizeFilter({ currencyCode = null, marketSegmentKey = null, conditionCode = null } = {}) {
+  return Object.freeze({
+    currencyCode: text(currencyCode)?.toUpperCase() ?? null,
+    marketSegmentKey: text(marketSegmentKey),
+    conditionCode: text(conditionCode),
+  });
+}
+
+function sourceEstimate(observation) {
+  const signals = CENTRAL_SIGNAL_FIELDS
+    .map((field) => ({ field, value: positivePrice(observation?.[field]) }))
+    .filter((entry) => entry.value != null);
+  if (signals.length < 2) return null;
+  const values = signals.map((entry) => entry.value);
+  return Object.freeze({
+    sourceName: text(observation?.sourceName) ?? 'unknown',
+    observationId: text(observation?.id),
+    sourceSnapshotId: text(observation?.sourceSnapshotId),
+    asOf: timestamp(observation),
+    estimate: median(values),
+    low: Math.min(...values),
+    high: Math.max(...values),
+    guideLow: positivePrice(observation?.lowPrice),
+    signals: Object.freeze(signals),
+  });
+}
+
+function latestBySource(observations, asOf, maxAgeMs) {
+  const latest = new Map();
   for (const observation of observations) {
-    if (!observation || text(observation.cardIdentityId) !== cardId) continue;
-    if (currency(observation.currencyCode) !== code) continue;
+    const at = timestamp(observation);
+    if (at == null || at > asOf) continue;
+    const sourceName = text(observation?.sourceName) ?? 'unknown';
+    const current = latest.get(sourceName);
+    if (!current || at > current.at) latest.set(sourceName, { observation, at });
+  }
+  const availableBeforeAgeGate = [...latest.values()];
+  const fresh = availableBeforeAgeGate.filter(({ at }) => asOf - at <= maxAgeMs);
+  return { availableBeforeAgeGate, fresh };
+}
 
-    const providerPolicyKey = text(observation.providerPolicyKey);
-    if (!providerPolicyKey) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: text(observation.sourceName) || null,
-        reason: 'provider_policy_missing',
-      }));
-      continue;
-    }
+function confidenceFor({ sourceEstimates, valuationAsOf, anchorAsOf, fairLow, fairHigh, amount }) {
+  const sourceCount = sourceEstimates.length;
+  const ageMs = Math.max(0, anchorAsOf - valuationAsOf);
+  const spreadPercent = amount > 0 ? ((fairHigh - fairLow) / amount) * 100 : null;
+  const reasons = [];
 
-    let policy;
-    try {
-      policy = assertFatePriceProviderApproved(providerPolicyKey);
-    } catch (error) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: text(observation.sourceName) || null,
-        providerPolicyKey,
-        reason: error?.code || 'provider_policy_not_approved',
-      }));
-      continue;
-    }
+  if (sourceCount === 1) reasons.push('single_independent_market_source');
+  else reasons.push('multiple_market_sources');
 
-    if (policy.sourceName !== text(observation.sourceName)) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: text(observation.sourceName) || null,
-        providerPolicyKey,
-        reason: 'provider_policy_source_mismatch',
-      }));
-      continue;
-    }
+  if (ageMs <= 48 * 60 * 60 * 1000) reasons.push('fresh_within_48h');
+  else if (ageMs <= 72 * 60 * 60 * 1000) reasons.push('fresh_within_72h');
+  else reasons.push('aging_market_evidence');
 
-    const metric = bestMetric(observation);
-    if (!metric) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: policy.sourceName,
-        providerPolicyKey,
-        reason: 'supported_market_metric_unavailable',
-      }));
-      continue;
-    }
+  if (spreadPercent != null && spreadPercent <= 20) reasons.push('stable_guide_signals');
+  else if (spreadPercent != null && spreadPercent <= 30) reasons.push('moderate_guide_spread');
+  else reasons.push('wide_guide_spread');
 
-    let priceEffectiveAt;
-    try {
-      priceEffectiveAt = effectiveAt(observation);
-    } catch {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: policy.sourceName,
-        providerPolicyKey,
-        reason: 'price_timestamp_invalid',
-      }));
-      continue;
-    }
-    if (priceEffectiveAt == null) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: policy.sourceName,
-        providerPolicyKey,
-        reason: 'price_timestamp_missing',
-      }));
-      continue;
-    }
-
-    const ageMs = now - priceEffectiveAt;
-    if (ageMs < 0 || ageMs > maxAge) {
-      rejectedEvidence.push(Object.freeze({
-        sourceName: policy.sourceName,
-        providerPolicyKey,
-        reason: ageMs < 0 ? 'price_timestamp_in_future' : 'price_stale',
-      }));
-      continue;
-    }
-
-    eligible.push(Object.freeze({
-      observation,
-      policy,
-      metric,
-      priceEffectiveAt,
-      ageMs,
-    }));
+  let level = 'low';
+  if (sourceCount >= 2 && ageMs <= 48 * 60 * 60 * 1000 && spreadPercent != null && spreadPercent <= 20) {
+    level = 'high';
+  } else if (ageMs <= 72 * 60 * 60 * 1000 && spreadPercent != null && spreadPercent <= 30) {
+    level = 'medium';
   }
 
-  if (!eligible.length) {
-    return unavailable({
-      cardIdentityId: cardId,
-      currencyCode: code,
-      reason: rejectedEvidence.length ? 'no_approved_current_price_evidence' : 'no_matching_price_evidence',
-      rejectedEvidence,
+  return Object.freeze({
+    level,
+    reasons: Object.freeze(reasons),
+    sourceCount,
+    spreadPercent: roundPercent(spreadPercent),
+    ageHours: Math.round((ageMs / (60 * 60 * 1000)) * 10) / 10,
+  });
+}
+
+function snapshotPrice(observations, asOf, { maxAgeMs = CURRENT_MAX_AGE_MS } = {}) {
+  const { availableBeforeAgeGate, fresh } = latestBySource(observations, asOf, maxAgeMs);
+  if (!availableBeforeAgeGate.length) {
+    return Object.freeze({ available: false, reason: 'NO_MARKET_EVIDENCE_AS_OF', asOf });
+  }
+  if (!fresh.length) {
+    return Object.freeze({ available: false, reason: 'STALE_MARKET_EVIDENCE', asOf });
+  }
+
+  const sourceEstimates = fresh
+    .map(({ observation }) => sourceEstimate(observation))
+    .filter(Boolean);
+  if (!sourceEstimates.length) {
+    return Object.freeze({ available: false, reason: 'INSUFFICIENT_MARKET_SIGNALS', asOf });
+  }
+
+  const amount = median(sourceEstimates.map((source) => source.estimate));
+  const fairLow = median(sourceEstimates.map((source) => source.low));
+  const fairHigh = median(sourceEstimates.map((source) => source.high));
+  const guideLows = sourceEstimates.map((source) => source.guideLow).filter((value) => value != null);
+  const valuationAsOf = Math.max(...sourceEstimates.map((source) => source.asOf));
+
+  return Object.freeze({
+    available: true,
+    asOf: valuationAsOf,
+    amount,
+    fairLow,
+    fairHigh,
+    guideLow: guideLows.length ? median(guideLows) : null,
+    sourceEstimates: Object.freeze(sourceEstimates),
+  });
+}
+
+function movement(current, observations, days) {
+  if (!current?.available) return Object.freeze({ available: false, reason: 'CURRENT_PRICE_UNAVAILABLE' });
+  const targetAsOf = current.asOf - (days * DAY_MS);
+  const previous = snapshotPrice(observations, targetAsOf, { maxAgeMs: MOVEMENT_SAMPLE_MAX_AGE_MS });
+  if (!previous.available || previous.amount <= 0) {
+    return Object.freeze({
+      available: false,
+      reason: previous.reason,
+      targetAsOf,
     });
   }
+  const delta = current.amount - previous.amount;
+  return Object.freeze({
+    available: true,
+    days,
+    fromAmount: roundMoney(previous.amount),
+    toAmount: roundMoney(current.amount),
+    absolute: roundMoney(delta),
+    percent: roundPercent((delta / previous.amount) * 100),
+    fromAsOf: previous.asOf,
+    toAsOf: current.asOf,
+  });
+}
 
-  eligible.sort((left, right) => {
-    if (left.priceEffectiveAt !== right.priceEffectiveAt) return right.priceEffectiveAt - left.priceEffectiveAt;
-    const metricOrder = METRIC_PRIORITY.indexOf(left.metric.metric) - METRIC_PRIORITY.indexOf(right.metric.metric);
-    if (metricOrder !== 0) return metricOrder;
-    const leftObserved = Number(left.observation.observedAt || 0);
-    const rightObserved = Number(right.observation.observedAt || 0);
-    if (leftObserved !== rightObserved) return rightObserved - leftObserved;
-    return String(left.policy.key).localeCompare(String(right.policy.key));
+function unavailable(cardIdentityId, reason, { scopes = [], filter = null } = {}) {
+  return Object.freeze({
+    contractVersion: 1,
+    policyVersion: FATE_PRICE_POLICY_VERSION,
+    cardIdentityId,
+    available: false,
+    reason,
+    marketScope: null,
+    price: null,
+    movement: Object.freeze({ d7: Object.freeze({ available: false, reason }), d30: Object.freeze({ available: false, reason }) }),
+    confidence: null,
+    evidence: Object.freeze({
+      availableScopes: Object.freeze(scopes),
+      requestedScope: filter,
+      sourceCount: 0,
+      sources: Object.freeze([]),
+    }),
+  });
+}
+
+export function calculateFatePrice(observations, {
+  cardIdentityId,
+  currencyCode = null,
+  marketSegmentKey = null,
+  conditionCode = null,
+  now = Date.now(),
+} = {}) {
+  if (typeof cardIdentityId !== 'string' || !cardIdentityId.trim()) {
+    throw new TypeError('cardIdentityId is required');
+  }
+  if (!Array.isArray(observations)) throw new TypeError('observations must be an array');
+  if (!Number.isFinite(now) || now <= 0) throw new TypeError('now must be a positive timestamp');
+
+  const id = cardIdentityId.trim();
+  const filter = normalizeFilter({ currencyCode, marketSegmentKey, conditionCode });
+  const exact = observations.filter((observation) => observation?.cardIdentityId === id);
+  if (!exact.length) return unavailable(id, 'NO_VERIFIED_MARKET_EVIDENCE', { filter });
+
+  const allGroups = new Map();
+  for (const observation of exact) {
+    const scope = scopeOf(observation);
+    if (!scope.currencyCode) continue;
+    const key = scopeKey(scope);
+    const entry = allGroups.get(key) ?? { scope, observations: [] };
+    entry.observations.push(observation);
+    allGroups.set(key, entry);
+  }
+
+  const availableScopes = [...allGroups.values()]
+    .map((entry) => entry.scope)
+    .sort((left, right) => scopeKey(left).localeCompare(scopeKey(right)));
+  const groups = new Map(
+    [...allGroups.entries()].filter(([, entry]) => matchesScope(entry.scope, filter)),
+  );
+  if (!groups.size) return unavailable(id, 'NO_MARKET_EVIDENCE_FOR_SCOPE', { scopes: availableScopes, filter });
+  if (groups.size > 1) return unavailable(id, 'AMBIGUOUS_MARKET_SCOPE', { scopes: availableScopes, filter });
+
+  const [{ scope, observations: scoped }] = groups.values();
+  const current = snapshotPrice(scoped, now);
+  if (!current.available) return unavailable(id, current.reason, { scopes: availableScopes, filter });
+
+  const roundedAmount = roundMoney(current.amount);
+  const roundedLow = roundMoney(current.fairLow);
+  const roundedHigh = roundMoney(current.fairHigh);
+  const sources = current.sourceEstimates.map((source) => source.sourceName).sort();
+  const confidence = confidenceFor({
+    sourceEstimates: current.sourceEstimates,
+    valuationAsOf: current.asOf,
+    anchorAsOf: now,
+    fairLow: current.fairLow,
+    fairHigh: current.fairHigh,
+    amount: current.amount,
   });
 
-  const chosen = eligible[0];
   return Object.freeze({
-    status: 'available',
+    contractVersion: 1,
+    policyVersion: FATE_PRICE_POLICY_VERSION,
+    cardIdentityId: id,
+    available: true,
     reason: null,
-    valuationKind: 'raw-market',
-    cardIdentityId: cardId,
-    fateCardId: cardId,
-    amount: Number(chosen.metric.amount.toFixed(2)),
-    currencyCode: code,
-    metricUsed: chosen.metric.metric,
-    sourceName: chosen.policy.sourceName,
-    providerPolicyKey: chosen.policy.key,
-    sourceSnapshotId: text(chosen.observation.sourceSnapshotId) || null,
-    sourceEffectiveAt: chosen.observation.sourceEffectiveAt ?? null,
-    observedAt: chosen.observation.observedAt ?? null,
-    ageMs: chosen.ageMs,
-    freshness: freshness(chosen.ageMs),
-    confidence: confidence(chosen.metric.metric, chosen.ageMs),
-    rejectedEvidence: Object.freeze(rejectedEvidence),
+    marketScope: scope,
+    price: Object.freeze({
+      amount: roundedAmount,
+      currencyCode: scope.currencyCode,
+      fairLow: roundedLow,
+      fairHigh: roundedHigh,
+      guideLow: roundMoney(current.guideLow),
+      asOf: current.asOf,
+    }),
+    movement: Object.freeze({
+      d7: movement(current, scoped, 7),
+      d30: movement(current, scoped, 30),
+    }),
+    confidence,
+    evidence: Object.freeze({
+      availableScopes: Object.freeze(availableScopes),
+      requestedScope: filter,
+      sourceCount: current.sourceEstimates.length,
+      sources: Object.freeze(sources),
+      centralSignals: Object.freeze([...CENTRAL_SIGNAL_FIELDS]),
+      centralPolicy: 'median_of_each_source_market_trend_7d_30d_then_median_across_sources',
+      lowestListingUsedInCentralPrice: false,
+      sourceEstimates: Object.freeze(current.sourceEstimates.map((source) => Object.freeze({
+        sourceName: source.sourceName,
+        asOf: source.asOf,
+        estimate: roundMoney(source.estimate),
+        rangeLow: roundMoney(source.low),
+        rangeHigh: roundMoney(source.high),
+        guideLow: roundMoney(source.guideLow),
+        signals: Object.freeze(source.signals.map((signal) => Object.freeze({ field: signal.field, value: roundMoney(signal.value) }))),
+      }))),
+    }),
   });
 }
