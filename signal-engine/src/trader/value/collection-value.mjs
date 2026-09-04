@@ -39,6 +39,23 @@ function coverageBand(percent) {
   return 'none';
 }
 
+const VALUATION_PRIORITY = Object.freeze({
+  'fair-price': 2,
+  'raw-market': 1,
+});
+
+function valuationKind(value) {
+  const kind = text(value) || 'raw-market';
+  return Object.prototype.hasOwnProperty.call(VALUATION_PRIORITY, kind) ? kind : null;
+}
+
+function basis(fairPricedUnits, knownPricedUnits, pricedUnits) {
+  if (pricedUnits === 0) return 'none';
+  if (fairPricedUnits === pricedUnits) return 'fair-price';
+  if (knownPricedUnits === pricedUnits) return 'known-price';
+  return 'mixed';
+}
+
 export function computeFateCollectionValue({
   collectionItems,
   cardValues,
@@ -48,26 +65,34 @@ export function computeFateCollectionValue({
   if (!Array.isArray(cardValues)) throw new TypeError('cardValues must be an array');
   const code = currency(currencyCode);
 
-  const latestByCard = new Map();
+  const bestByCard = new Map();
   for (const raw of cardValues) {
     const fateCardId = text(raw?.fateCardId);
     if (!fateCardId) continue;
     if (currency(raw.currencyCode) !== code) continue;
-    if (raw.valuationKind != null && raw.valuationKind !== 'raw-market') continue;
+    const kind = valuationKind(raw.valuationKind);
+    if (!kind) continue;
 
     const candidate = Object.freeze({
       fateCardId,
       amount: amount(raw.amount),
       observedAt: timestamp(raw.observedAt),
+      valuationKind: kind,
       sourceName: text(raw.sourceName) || null,
       evidenceCount: Number.isInteger(raw.evidenceCount) && raw.evidenceCount >= 0 ? raw.evidenceCount : null,
     });
-    const existing = latestByCard.get(fateCardId);
-    if (!existing || candidate.observedAt > existing.observedAt) latestByCard.set(fateCardId, candidate);
+    const existing = bestByCard.get(fateCardId);
+    if (!existing
+      || VALUATION_PRIORITY[candidate.valuationKind] > VALUATION_PRIORITY[existing.valuationKind]
+      || (candidate.valuationKind === existing.valuationKind && candidate.observedAt > existing.observedAt)) {
+      bestByCard.set(fateCardId, candidate);
+    }
   }
 
   let totalUnits = 0;
   let pricedUnits = 0;
+  let fairPricedUnits = 0;
+  let knownPricedUnits = 0;
   let knownValue = 0;
   const activeItems = [];
   const unpricedItems = [];
@@ -91,7 +116,7 @@ export function computeFateCollectionValue({
       continue;
     }
 
-    const value = latestByCard.get(fateCardId);
+    const value = bestByCard.get(fateCardId);
     if (!value) {
       unpricedItems.push(Object.freeze({
         itemId,
@@ -103,6 +128,8 @@ export function computeFateCollectionValue({
     }
 
     pricedUnits += quantity;
+    if (value.valuationKind === 'fair-price') fairPricedUnits += quantity;
+    else knownPricedUnits += quantity;
     knownValue += value.amount * quantity;
   }
 
@@ -111,18 +138,23 @@ export function computeFateCollectionValue({
     ? 100
     : Number(((pricedUnits / totalUnits) * 100).toFixed(1));
   const completePricing = unpricedUnits === 0;
+  const valuationBasis = basis(fairPricedUnits, knownPricedUnits, pricedUnits);
 
   return Object.freeze({
     status: completePricing ? 'available' : pricedUnits > 0 ? 'partial' : totalUnits === 0 ? 'available' : 'unavailable',
     reason: completePricing ? null : pricedUnits > 0 ? 'price_coverage_incomplete' : 'no_price_evidence',
     currencyCode: code,
+    valuationBasis,
     itemCount: activeItems.length,
     totalUnits,
     pricedUnits,
+    fairPricedUnits,
+    knownPricedUnits,
     unpricedUnits,
     priceCoveragePercent,
     priceCoverageBand: coverageBand(priceCoveragePercent),
     totalValue: completePricing ? roundMoney(knownValue) : null,
+    fairValue: completePricing && valuationBasis === 'fair-price' ? roundMoney(knownValue) : null,
     knownValue: roundMoney(knownValue),
     unpricedItems: Object.freeze(unpricedItems),
   });
