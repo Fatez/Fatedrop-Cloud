@@ -37,7 +37,10 @@ async function seedStore(){
         c1:{id:'c1',tcgId:'tcg',seriesId:'series',setId:'set',printingId:'p1',collectorNumber:'1',variantCode:'standard',languageCode:'en',verificationStatus:'verified'},
         c2:{id:'c2',tcgId:'tcg',seriesId:'series',setId:'set',printingId:'p2',collectorNumber:'2',variantCode:'standard',languageCode:'en',verificationStatus:'verified'},
       },
-      cardSourceMappings:{m1:{id:'m1',cardIdentityId:'c1',sourceName:'cardmarket',sourceRecordId:'1',sourceVariantKey:'standard'}},
+      cardSourceMappings:{
+        m1:{id:'m1',cardIdentityId:'c1',sourceName:'cardmarket',sourceRecordId:'1',sourceVariantKey:'standard'},
+        m2:{id:'m2',cardIdentityId:'c2',sourceName:'cardmarket',sourceRecordId:'2',sourceVariantKey:'standard'},
+      },
       cardProvenance:{},
     };
     state.fateValueLab={
@@ -46,6 +49,8 @@ async function seedStore(){
       observations:{
         before:{id:'before',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:10,observedAt:1},
         current:{id:'current',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:11,observedAt:2},
+        before2:{id:'before2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:20,observedAt:1},
+        current2:{id:'current2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:22,observedAt:2},
       },
     };
     state.traderCollection={
@@ -80,6 +85,10 @@ test('FatePulse exposes factual exact-day movement while uncalibrated scores sta
   assert.equal(res.body.data.status,'available');
   assert.equal(res.body.data.pulse.movement.d1.medianPercent,10);
   assert.equal(res.body.data.pulse.movement.d7.contributors,0);
+  assert.equal(res.body.data.pulse.direction.schemaVersion,'market-pulse-direction:1');
+  assert.equal(res.body.data.pulse.direction.periods.d1.status,'available');
+  assert.equal(res.body.data.pulse.direction.periods.d1.headlinePercent,10);
+  assert.equal(res.body.data.pulse.direction.periods.d1.coverage.qualifyingSets,1);
   assert.equal(res.body.data.intelligence.volatility,null);
   assert.equal('cards' in res.body.data.pulse,false,'public summary does not expose a giant card payload');
 });

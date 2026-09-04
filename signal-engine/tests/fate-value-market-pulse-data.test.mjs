@@ -68,8 +68,8 @@ function fileState() {
         series_op: { id: 'series_op', code: 'one-piece-card-game' },
       },
       sets: {
-        set_sv08: { id: 'set_sv08', code: 'sv08' },
-        set_op09: { id: 'set_op09', code: 'op09' },
+        set_sv08: { id: 'set_sv08', code: 'sv08', name: 'Surging Sparks', printedTotal: 1, total: 1 },
+        set_op09: { id: 'set_op09', code: 'op09', name: 'Emperors in the New World', printedTotal: 1, total: 1 },
       },
       printings: {
         printing_p1: { id: 'printing_p1', name: 'Pikachu' },
@@ -121,8 +121,22 @@ test('file bridge resolves canonical TCG, series and set codes without mutating 
   const pokemon = result.cardIdentities.find((item) => item.id === 'card_p1');
   const onePiece = result.cardIdentities.find((item) => item.id === 'card_op1');
   assert.deepEqual(
-    { tcg: pokemon.tcgCode, series: pokemon.seriesCode, set: pokemon.setCode, name: pokemon.name },
-    { tcg: 'pokemon', series: 'scarlet-violet', set: 'sv08', name: 'Pikachu' },
+    {
+      tcg: pokemon.tcgCode,
+      series: pokemon.seriesCode,
+      set: pokemon.setCode,
+      setName: pokemon.setName,
+      expected: pokemon.expectedCardCount,
+      name: pokemon.name,
+    },
+    {
+      tcg: 'pokemon',
+      series: 'scarlet-violet',
+      set: 'sv08',
+      setName: 'Surging Sparks',
+      expected: 1,
+      name: 'Pikachu',
+    },
   );
   assert.equal(onePiece.tcgCode, 'one-piece');
   assert.equal(result.cardIdentities.some((item) => item.id === 'card_unverified'), false);
@@ -208,6 +222,9 @@ test('postgres bridge performs SELECT-only reads and returns canonical joined ev
             tcg_code: 'pokemon',
             series_code: 'scarlet-violet',
             set_code: 'sv08',
+            set_name: 'Surging Sparks',
+            set_printed_total: '252',
+            set_total: '252',
             card_name: 'Pikachu',
           },
         ],
@@ -223,6 +240,8 @@ test('postgres bridge performs SELECT-only reads and returns canonical joined ev
   assert.equal(result.observations[0].trendPrice, '110.00');
   assert.equal(result.cardIdentities[0].tcgCode, 'pokemon');
   assert.equal(result.cardIdentities[0].setCode, 'sv08');
+  assert.equal(result.cardIdentities[0].setName, 'Surging Sparks');
+  assert.equal(result.cardIdentities[0].expectedCardCount, 252);
   assert.equal(queries.length, 2);
   for (const { sql } of queries) {
     assert.match(sql.trim(), /^SELECT/i);

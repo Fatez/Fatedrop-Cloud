@@ -1,3 +1,5 @@
+import { buildMarketPulseDirection } from './market-pulse-direction.mjs';
+
 const SUPPORTED_PRICE_FIELDS = Object.freeze([
   'marketPrice',
   'lowPrice',
@@ -275,6 +277,7 @@ export function buildMarketPulseSnapshot({
       games: Object.freeze([]),
       sets: Object.freeze([]),
       cards: Object.freeze([]),
+      direction: buildMarketPulseDirection({ cards: [] }),
     });
   }
 
@@ -324,6 +327,10 @@ export function buildMarketPulseSnapshot({
       tcgCode: optionalText(lane.identity.tcgCode),
       seriesCode: optionalText(lane.identity.seriesCode),
       setCode: optionalText(lane.identity.setCode),
+      setName: optionalText(lane.identity.setName),
+      expectedCardCount: Number.isInteger(Number(lane.identity.expectedCardCount)) && Number(lane.identity.expectedCardCount) > 0
+        ? Number(lane.identity.expectedCardCount)
+        : null,
       collectorNumber: optionalText(lane.identity.collectorNumber),
       anchorMarketDay,
       currentPrice: roundMetric(currentPrice),
@@ -346,7 +353,7 @@ export function buildMarketPulseSnapshot({
   const sets = aggregateBy(
     cards,
     (item) => `${item.tcgCode ?? 'unknown'}|${item.setCode ?? 'unknown'}`,
-    (item) => ({ tcgCode: item.tcgCode, setCode: item.setCode }),
+    (item) => ({ tcgCode: item.tcgCode, setCode: item.setCode, setName: item.setName, expectedCardCount: item.expectedCardCount }),
   ).sort((left, right) => stableSort(left, right, ['tcgCode', 'setCode']));
 
   return Object.freeze({
@@ -367,5 +374,6 @@ export function buildMarketPulseSnapshot({
     games: Object.freeze(games),
     sets: Object.freeze(sets),
     cards: Object.freeze(cards),
+    direction: buildMarketPulseDirection({ cards }),
   });
 }

@@ -24,6 +24,13 @@ function normaliseCurrency(value) {
   return currencyCode;
 }
 
+function expectedCardCount(set) {
+  const printedTotal = Number(set?.printedTotal ?? set?.printed_total);
+  if (Number.isInteger(printedTotal) && printedTotal > 0) return printedTotal;
+  const total = Number(set?.total);
+  return Number.isInteger(total) && total > 0 ? total : null;
+}
+
 function normalisePriceField(value) {
   const priceField = requireText(value, 'priceField');
   if (!MARKET_PULSE_PRICE_FIELDS.includes(priceField)) {
@@ -87,6 +94,8 @@ function fileIdentityIndex(state) {
       tcgCode: optionalText(tcg?.code),
       seriesCode: optionalText(cardSeries?.code),
       setCode: optionalText(set?.code),
+      setName: optionalText(set?.name),
+      expectedCardCount: expectedCardCount(set),
       collectorNumber: optionalText(card.collectorNumber),
       variantCode: optionalText(card.variantCode),
       languageCode: optionalText(card.languageCode),
@@ -176,6 +185,8 @@ function postgresIdentity(row) {
     tcgCode: optionalText(row.tcg_code),
     seriesCode: optionalText(row.series_code),
     setCode: optionalText(row.set_code),
+    setName: optionalText(row.set_name),
+    expectedCardCount: expectedCardCount({ printedTotal: row.set_printed_total, total: row.set_total }),
     collectorNumber: optionalText(row.collector_number),
     variantCode: optionalText(row.variant_code),
     languageCode: optionalText(row.language_code),
@@ -217,7 +228,8 @@ async function postgresEvidence(store, basis) {
             o.source_effective_at,o.market_day,o.market_price,o.low_price,o.trend_price,
             o.avg_1d,o.avg_7d,o.avg_30d,o.avg_lifetime,o.excellent_plus_low,
             c.collector_number,c.variant_code,c.language_code,c.verification_status,
-            t.code AS tcg_code,cs.code AS series_code,s.code AS set_code,p.name AS card_name
+            t.code AS tcg_code,cs.code AS series_code,s.code AS set_code,s.name AS set_name,
+            s.printed_total AS set_printed_total,s.total AS set_total,p.name AS card_name
        FROM fatedrop_market_observations o
        JOIN fatedrop_card_identities c ON c.id=o.card_identity_id
        JOIN fatedrop_tcgs t ON t.id=c.tcg_id
