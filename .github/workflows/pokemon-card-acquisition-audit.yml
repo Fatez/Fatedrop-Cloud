@@ -58,6 +58,7 @@ jobs:
           const market = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-151-cardmarket-expansion-evidence.json', 'utf8'));
           console.log('# Pokémon 151 canonical card acquisition');
           console.log('');
+          console.log(`- Pokémon source set code: **${cards.set.pokemonTcgSetCode || 'unknown'}**`);
           console.log(`- TCGdex cards fetched: **${cards.sourceCounts.tcgdexCardsFetched}**`);
           console.log(`- Pokémon TCG API cards fetched: **${cards.sourceCounts.pokemonTcgCardsFetched}**`);
           console.log(`- Reconciled card records: **${cards.reconciliation.matchedCardRecords}**`);
@@ -72,11 +73,13 @@ jobs:
             console.log('- **No Cardmarket expansion candidate found**');
           } else {
             const top = market.candidates[0];
+            console.log(`- Expected Cardmarket set code: **${top.expectedSourceSetCode || 'none'}**`);
             console.log(`- Top expansion ID: **${top.sourceExpansionId}**`);
-            console.log(`- Exact canonical-name coverage: **${(top.canonicalExactNameCoverage * 100).toFixed(2)}%**`);
-            console.log(`- Source-name precision: **${(top.sourceExactNamePrecision * 100).toFixed(2)}%**`);
-            console.log(`- Exact name overlap: **${top.exactNameOverlap}/${top.canonicalDistinctNameCount}**`);
+            console.log(`- Exact printing coverage: **${(top.canonicalExactPrintingCoverage * 100).toFixed(2)}%**`);
+            console.log(`- Source printing precision: **${(top.sourceExactPrintingPrecision * 100).toFixed(2)}%**`);
+            console.log(`- Exact printing overlap: **${top.exactPrintingKeyOverlap}/${top.canonicalDistinctPrintingKeyCount}**`);
             console.log(`- Cardmarket products in candidate: **${top.sourceProductCount}**`);
+            console.log(`- Structured products with expected code: **${top.expectedSourceSetCodeProducts}**`);
           }
           console.log('- Status: **evidence only — not approved or auto-mapped**');
           NODE
