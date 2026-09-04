@@ -124,6 +124,7 @@ export async function handleFatePulse(req,res,{store}={}) {
         movement:pulse.movement,
         games:pulse.games,
         sets:pulse.sets,
+        direction:pulse.direction,
       }),
       intelligence:Object.freeze({
         marketHeat:null,
