@@ -5,7 +5,14 @@ import {
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
 } from './store.mjs';
-import { getFatePriceFromStore, getFatePriceHistoryFromStore, getFatePricesFromStore } from '../value/fate-price-service.mjs';
+import {
+  getFatePriceFromStore,
+  getFatePriceHistoryFromStore,
+  getFatePricesFromStore,
+  getPresentedFatePriceFromStore,
+  getPresentedFatePriceHistoryFromStore,
+  getPresentedFatePricesFromStore,
+} from '../value/fate-price-service.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 
 function json(res, status, payload) {
@@ -57,6 +64,11 @@ function fatePriceScope(url) {
   };
 }
 
+function displayCurrency(url) {
+  const value = String(url.searchParams.get('displayCurrency') || '').trim().toUpperCase();
+  return value || null;
+}
+
 function fatePriceIds(url) {
   const ids = [
     ...url.searchParams.getAll('id'),
@@ -86,6 +98,7 @@ export async function handleFateTraderCatalogue(req, res, {
   if (isFatePricePath(url.pathname)) {
     try {
       const scope = fatePriceScope(url);
+      const displayCurrencyCode = displayCurrency(url);
       if (url.pathname === '/v1/fate-price/cards') {
         const query = (url.searchParams.get('q') || '').trim();
         const setId = (url.searchParams.get('setId') || '').trim() || null;
@@ -122,7 +135,9 @@ export async function handleFateTraderCatalogue(req, res, {
           errorResponse(res, 400, 'FATE_PRICE_BATCH_TOO_LARGE', 'Fate Price supports at most 100 card identities per request.');
           return true;
         }
-        const prices = await getFatePricesFromStore(store, { cardIdentityIds: ids, ...scope });
+        const prices = displayCurrencyCode
+          ? await getPresentedFatePricesFromStore(store, { cardIdentityIds: ids, displayCurrencyCode, ...scope })
+          : await getFatePricesFromStore(store, { cardIdentityIds: ids, ...scope });
         ok(res, { prices, count: prices.length });
         return true;
       }
@@ -136,7 +151,9 @@ export async function handleFateTraderCatalogue(req, res, {
           return true;
         }
         const days = Number.parseInt(url.searchParams.get('days') || '30', 10);
-        const history = await getFatePriceHistoryFromStore(store, { cardIdentityId, days, ...scope });
+        const history = displayCurrencyCode
+          ? await getPresentedFatePriceHistoryFromStore(store, { cardIdentityId, days, displayCurrencyCode, ...scope })
+          : await getFatePriceHistoryFromStore(store, { cardIdentityId, days, ...scope });
         ok(res, { history });
         return true;
       }
@@ -148,7 +165,9 @@ export async function handleFateTraderCatalogue(req, res, {
         notFound(res, 'CARD_IDENTITY_NOT_VERIFIED', 'The requested card identity is not available.');
         return true;
       }
-      const fatePrice = await getFatePriceFromStore(store, { cardIdentityId, ...scope });
+      const fatePrice = displayCurrencyCode
+        ? await getPresentedFatePriceFromStore(store, { cardIdentityId, displayCurrencyCode, ...scope })
+        : await getFatePriceFromStore(store, { cardIdentityId, ...scope });
       ok(res, { fatePrice });
       return true;
     } catch (error) {

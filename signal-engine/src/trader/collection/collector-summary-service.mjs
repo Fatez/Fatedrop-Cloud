@@ -1,7 +1,7 @@
 import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
 import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
-import { getFatePricesFromStore } from '../value/fate-price-service.mjs';
+import { getFatePricesFromStore, getPresentedFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { buildFateCollectorPersonalPulse } from './personal-pulse.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
@@ -11,17 +11,27 @@ function requireText(value, field) {
   return value.trim();
 }
 
-async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now }) {
+async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now, fxClient }) {
   const prices = [];
   try {
     for (let index = 0; index < cardIdentityIds.length; index += 100) {
       const batch = cardIdentityIds.slice(index, index + 100);
       if (!batch.length) continue;
-      prices.push(...await getFatePricesFromStore(store, {
-        cardIdentityIds: batch,
-        currencyCode,
-        now,
-      }));
+      if (currencyCode === 'GBP') {
+        prices.push(...await getPresentedFatePricesFromStore(store, {
+          cardIdentityIds: batch,
+          currencyCode: 'EUR',
+          displayCurrencyCode: 'GBP',
+          fxClient,
+          now,
+        }));
+      } else {
+        prices.push(...await getFatePricesFromStore(store, {
+          cardIdentityIds: batch,
+          currencyCode,
+          now,
+        }));
+      }
     }
   } catch (error) {
     if (error instanceof FatePriceStoreUnavailableError) return Object.freeze({ connected: false, prices: Object.freeze([]) });
@@ -50,6 +60,7 @@ export async function getFateCollectorSummaryFromStore(store, {
   preferredLanguageCode,
   preferredVariantCode = 'standard',
   now = Date.now(),
+  fxClient,
 } = {}) {
   const ownerId=requireText(userId,'userId');
   const currency=requireText(currencyCode,'currencyCode').toUpperCase();
@@ -73,6 +84,7 @@ export async function getFateCollectorSummaryFromStore(store, {
   const fatePriceRead = await getOwnedFatePrices(store, ownedCards.map((card) => card.fateCardId), {
     currencyCode: currency,
     now,
+    fxClient,
   });
   const fatePrices = fatePriceRead.prices;
   const exactCardValues = exactCardValuesFromFatePrices(fatePrices);
@@ -107,6 +119,8 @@ export async function getFateCollectorSummaryFromStore(store, {
       completeSetValuesConnected:false,
       valuationReason:fatePriceRead.connected?summary.collection.reason:'market_price_runtime_unavailable',
       personalPulseConnected:fatePriceRead.connected,
+      valuationCurrencyCode:currency,
+      sourceMarketCurrencyCode:currency==='GBP'?'EUR':currency,
     }),
   });
 }

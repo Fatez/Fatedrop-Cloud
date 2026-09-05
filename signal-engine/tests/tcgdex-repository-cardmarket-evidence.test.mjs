@@ -42,7 +42,7 @@ test('repository loader joins set metadata to its card directory without network
   assert.equal(evidence.sets[0].cards[0].localId, '001');
 });
 
-test('explicit product ids are proven only when official Cardmarket catalogue agrees on id and name', () => {
+test('explicit product ids accept Cardmarket provider-only disambiguation suffixes without weakening the base-name check', () => {
   const set = {
     tcgdexSetId: 'sv03.5',
     setName: '151',
@@ -51,9 +51,9 @@ test('explicit product ids are proven only when official Cardmarket catalogue ag
     cards: [parseTcgdexCardSource('/tmp/001.ts', cardSource, 'sv03.5')],
   };
   const products = [
-    { sourceRecordId: '733596', sourceExpansionId: 5402, name: 'Bulbasaur' },
+    { sourceRecordId: '733596', sourceExpansionId: 5402, name: 'Bulbasaur [Leech Seed | 151]' },
     { sourceRecordId: '720365', sourceExpansionId: 5328, name: 'Bulbasaur' },
-    { sourceRecordId: '794908', sourceExpansionId: 5700, name: 'Bulbasaur' },
+    { sourceRecordId: '794908', sourceExpansionId: 5700, name: 'Bulbasaur [Leech Seed]' },
   ];
   const index = indexCardmarketProducts(products);
   const audit = auditExplicitCardmarketMappings(set, index.byId, index.byExpansion);
@@ -63,4 +63,44 @@ test('explicit product ids are proven only when official Cardmarket catalogue ag
   assert.equal(audit.counts.missingProducts, 0);
   assert.equal(audit.counts.nameConflicts, 0);
   assert.ok(audit.mappings.some((row) => row.expansionRelation === 'supplemental_cardmarket_expansion'));
+  assert.equal(audit.mappings.find((row) => row.cardmarketProductId === 733596)?.nameMatchBasis, 'provider_disambiguation_suffix');
+  assert.equal(audit.mappings.find((row) => row.cardmarketProductId === 720365)?.nameMatchBasis, 'exact_name');
+});
+
+test('Cardmarket Nidoran gender aliases stay distinct while provider descriptors are removed', () => {
+  const nidoranSource = `import { Card } from '../../../interfaces'\nconst card: Card = {\n name: { en: "Nidoran♀" },\n variants: [\n  { type: 'normal', thirdParty: { cardmarket: 733624 } }\n ]\n}`;
+  const set = {
+    tcgdexSetId: 'sv03.5',
+    setName: '151',
+    cardmarketExpansionId: 5402,
+    officialCardCount: 165,
+    cards: [parseTcgdexCardSource('/tmp/029.ts', nidoranSource, 'sv03.5')],
+  };
+  const products = [
+    { sourceRecordId: '733624', sourceExpansionId: 5402, name: 'Nidoran [F] [Poison Horn]' },
+  ];
+  const index = indexCardmarketProducts(products);
+  const audit = auditExplicitCardmarketMappings(set, index.byId, index.byExpansion);
+  assert.equal(audit.counts.cardsWithVerifiedProduct, 1);
+  assert.equal(audit.counts.nameConflicts, 0);
+  assert.equal(audit.mappings[0].nameMatchBasis, 'provider_disambiguation_suffix');
+});
+
+test('provider suffix handling still rejects a different base card name', () => {
+  const set = {
+    tcgdexSetId: 'sv03.5',
+    setName: '151',
+    cardmarketExpansionId: 5402,
+    officialCardCount: 165,
+    cards: [parseTcgdexCardSource('/tmp/001.ts', cardSource, 'sv03.5')],
+  };
+  const products = [
+    { sourceRecordId: '733596', sourceExpansionId: 5402, name: 'Ivysaur [Leech Seed]' },
+    { sourceRecordId: '720365', sourceExpansionId: 5328, name: 'Bulbasaur' },
+    { sourceRecordId: '794908', sourceExpansionId: 5700, name: 'Bulbasaur' },
+  ];
+  const index = indexCardmarketProducts(products);
+  const audit = auditExplicitCardmarketMappings(set, index.byId, index.byExpansion);
+  assert.equal(audit.counts.nameConflicts, 2);
+  assert.ok(audit.mappings.filter((row) => row.cardmarketProductId === 733596).every((row) => row.status === 'conflict'));
 });

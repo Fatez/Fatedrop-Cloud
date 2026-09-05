@@ -1,5 +1,6 @@
 import { calculateFatePrice, calculateFatePriceHistory } from './fate-price.mjs';
 import { listFatePriceObservationsFromStore } from './fate-price-store.mjs';
+import { presentFatePrice, presentFatePriceHistory, presentFatePrices } from './fate-price-presentation.mjs';
 
 function groupByCard(observations) {
   const grouped = new Map();
@@ -76,4 +77,31 @@ export async function getFatePriceHistoryFromStore(store, {
     days,
     now,
   });
+}
+
+export async function getPresentedFatePriceFromStore(store, {
+  displayCurrencyCode = 'GBP',
+  fxClient,
+  ...options
+} = {}) {
+  const fatePrice = await getFatePriceFromStore(store, options);
+  return presentFatePrice(fatePrice, { displayCurrencyCode, fxClient });
+}
+
+export async function getPresentedFatePricesFromStore(store, {
+  displayCurrencyCode = 'GBP',
+  fxClient,
+  ...options
+} = {}) {
+  const fatePrices = await getFatePricesFromStore(store, options);
+  return presentFatePrices(fatePrices, { displayCurrencyCode, fxClient });
+}
+
+export async function getPresentedFatePriceHistoryFromStore(store, {
+  displayCurrencyCode = 'GBP',
+  fxClient,
+  ...options
+} = {}) {
+  const history = await getFatePriceHistoryFromStore(store, options);
+  return presentFatePriceHistory(history, { displayCurrencyCode, fxClient });
 }
