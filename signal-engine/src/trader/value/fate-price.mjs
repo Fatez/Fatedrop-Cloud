@@ -4,6 +4,11 @@ const MOVEMENT_SAMPLE_MAX_AGE_MS = 3 * DAY_MS;
 const CENTRAL_SIGNAL_FIELDS = Object.freeze(['marketPrice', 'trendPrice', 'avg7d', 'avg30d']);
 
 export const FATE_PRICE_POLICY_VERSION = 'fate-price-v1';
+export const FATE_PRICE_MOVEMENT_POLICY = Object.freeze({
+  policyVersion: FATE_PRICE_POLICY_VERSION,
+  valueBasis: 'median_of_each_source_market_trend_7d_30d_then_median_across_sources',
+  baselinePolicy: 'latest_on_or_before_target_within_3_days',
+});
 
 function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -82,6 +87,10 @@ function sourceEstimate(observation) {
     guideLow: positivePrice(observation?.lowPrice),
     signals: Object.freeze(signals),
   });
+}
+
+export function fatePriceCentralAmountForObservation(observation) {
+  return sourceEstimate(observation)?.estimate ?? null;
 }
 
 function latestBySource(observations, asOf, maxAgeMs) {
@@ -192,6 +201,7 @@ function unavailable(cardIdentityId, reason, { scopes = [], filter = null } = {}
   return Object.freeze({
     contractVersion: 1,
     policyVersion: FATE_PRICE_POLICY_VERSION,
+    movementPolicy: FATE_PRICE_MOVEMENT_POLICY,
     cardIdentityId,
     available: false,
     reason,
@@ -216,6 +226,7 @@ function historyUnavailable(cardIdentityId, reason, {
   return Object.freeze({
     contractVersion: 1,
     policyVersion: FATE_PRICE_POLICY_VERSION,
+    movementPolicy: FATE_PRICE_MOVEMENT_POLICY,
     cardIdentityId,
     available: false,
     reason,
@@ -325,6 +336,7 @@ export function calculateFatePriceHistory(observations, {
   return Object.freeze({
     contractVersion: 1,
     policyVersion: FATE_PRICE_POLICY_VERSION,
+    movementPolicy: FATE_PRICE_MOVEMENT_POLICY,
     cardIdentityId: id,
     available: true,
     reason: null,
@@ -396,6 +408,7 @@ export function calculateFatePrice(observations, {
   return Object.freeze({
     contractVersion: 1,
     policyVersion: FATE_PRICE_POLICY_VERSION,
+    movementPolicy: FATE_PRICE_MOVEMENT_POLICY,
     cardIdentityId: id,
     available: true,
     reason: null,

@@ -1,12 +1,17 @@
 import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
 import { buildMarketDataReadinessReport } from './market-data-readiness.mjs';
+import { FATE_PRICE_MOVEMENT_POLICY } from './fate-price.mjs';
 import { buildMarketPulseSnapshotFromStore } from './market-pulse-data.mjs';
 
 const PATH = '/v1/market/pulse';
 const SOURCE_NAME = 'cardmarket';
 const CURRENCY_CODE = 'EUR';
-const PRICE_FIELD = 'trendPrice';
+const PRICE_FIELD = 'fatePrice';
 const CONDITION_CODE = 'unspecified';
+const MOVEMENT_POLICY = Object.freeze({
+  ...FATE_PRICE_MOVEMENT_POLICY,
+  baselinePolicy: 'exact_market_day_no_substitution',
+});
 const ALLOWED_LANES = new Set(['standard', 'holo']);
 
 function json(res, status, payload) {
@@ -59,7 +64,7 @@ function unavailablePayload(readiness, reason) {
     contractVersion:1,
     status:'building',
     reason,
-    source:Object.freeze({name:SOURCE_NAME,currencyCode:CURRENCY_CODE,priceField:PRICE_FIELD}),
+    source:Object.freeze({name:SOURCE_NAME,currencyCode:CURRENCY_CODE,priceField:PRICE_FIELD,movementPolicy:MOVEMENT_POLICY}),
     readiness:publicReadiness(readiness),
     pulse:null,
     intelligence:Object.freeze({
@@ -113,7 +118,7 @@ export async function handleFatePulse(req,res,{store}={}) {
       contractVersion:1,
       status:'available',
       reason:null,
-      source:Object.freeze({name:SOURCE_NAME,currencyCode:CURRENCY_CODE,priceField:PRICE_FIELD,lane}),
+      source:Object.freeze({name:SOURCE_NAME,currencyCode:CURRENCY_CODE,priceField:PRICE_FIELD,lane,movementPolicy:MOVEMENT_POLICY}),
       readiness:publicReadiness(readiness),
       pulse:Object.freeze({
         schemaVersion:pulse.schemaVersion,

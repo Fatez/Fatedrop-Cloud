@@ -37,6 +37,8 @@ Phase 1 Cardmarket evidence is source-native EUR. Fate Price v1 performs no sile
 
 A historical comparison must have a real observation at or before the target date and no more than 3 days older than that target. Otherwise that movement window is unavailable.
 
+Fate Pulse uses the same `fate-price-v1` central-value calculation for every current and historical observation. Its global leaderboard requires an observation on the exact comparison market day; it does not substitute a nearby day. Collector's personal Pulse uses Fate Price's at-or-before comparison within the three-day limit. Both contracts expose `movementPolicy`, including the baseline rule, so consumers can describe the remaining availability difference without presenting provider `trendPrice` as Fate Price movement.
+
 ## Confidence
 
 Confidence is evidence quality, not prediction confidence.
@@ -80,6 +82,8 @@ The read may also be constrained with an exact `setId`, `language`, or `variant`
 `GET /v1/fate-price?ids=<id1>,<id2>,...`
 
 Maximum 100 exact card identities. This is the collection-valuation path and avoids per-card HTTP fan-out.
+
+Collector summary uses this batch path for the owner's verified exact card identities. Known Collection Value is the quantity-weighted total of available Fate Prices and retains explicit price coverage when some cards have no eligible evidence. Graded copies remain unvalued until grade-specific market evidence exists; their raw-card identity can still participate in binder completion and personal Pulse.
 
 ## Required data path
 
