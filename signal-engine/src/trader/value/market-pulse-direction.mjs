@@ -1,6 +1,6 @@
 const PERIOD_KEYS = Object.freeze(['d1', 'd7', 'd30']);
 const DEFAULT_MINIMUM_SET_COVERAGE_PCT = 95;
-const DEFAULT_RANKING_LIMIT = 5;
+const DEFAULT_RANKING_LIMIT = 3;
 
 function optionalText(value) {
   if (value == null || value === '') return null;
@@ -62,7 +62,7 @@ function canonicalCurrentCards(cards) {
 
 function groupCards(cards) {
   const groups = new Map();
-  for (const card of canonicalCurrentCards(cards)) {
+  for (const card of cards) {
     const tcgCode = optionalText(card.tcgCode);
     const setCode = optionalText(card.setCode);
     if (!tcgCode || !setCode) continue;
@@ -173,7 +173,7 @@ function marketCondition({ risingSets, unchangedSets, fallingSets }, qualifyingS
   return 'mixed';
 }
 
-function buildPeriod(groups, periodKey, minimumSetCoveragePct, rankingLimit) {
+function buildPeriod(groups, cards, periodKey, minimumSetCoveragePct, rankingLimit) {
   const sets = groups.map((group) => setPeriodEvidence(group, periodKey, minimumSetCoveragePct));
   const qualifying = sets.filter((set) => set.qualifies);
   const declared = sets.filter((set) => set.expectedCardCount != null);
@@ -190,14 +190,14 @@ function buildPeriod(groups, periodKey, minimumSetCoveragePct, rankingLimit) {
     .sort(stableMovementSort('descending')).slice(0, rankingLimit).map(publicSet);
   const setDecliners = qualifying.filter((set) => set.movementPercent < 0)
     .sort(stableMovementSort('ascending')).slice(0, rankingLimit).map(publicSet);
-  const qualifyingSetKeys = new Set(qualifying.map((set) => set.key));
-  const cardMovers = sets.flatMap((set) => set.contributors
-    .filter(() => qualifyingSetKeys.has(set.key))
+  const cardMovers = cards
+    .map((card) => ({ card, movement: cardMovement(card, periodKey) }))
+    .filter((item) => item.movement)
     .map(({ card, movement }) => ({
       ...card,
       movementAmount: movement.amount,
       movementPercent: movement.percent,
-    })));
+    }));
 
   const status = qualifying.length > 0 ? 'available' : 'building';
   const reason = status === 'available'
@@ -247,7 +247,8 @@ export function buildMarketPulseDirection({
     throw new TypeError('rankingLimit must be an integer between 1 and 20');
   }
 
-  const groups = groupCards(cards);
+  const currentCards = canonicalCurrentCards(cards);
+  const groups = groupCards(currentCards);
   return Object.freeze({
     schemaVersion: 'market-pulse-direction:1',
     method: 'median_qualifying_set_basket_return',
@@ -255,7 +256,7 @@ export function buildMarketPulseDirection({
     rankingLimit,
     periods: Object.freeze(Object.fromEntries(PERIOD_KEYS.map((periodKey) => [
       periodKey,
-      buildPeriod(groups, periodKey, minimumSetCoveragePct, rankingLimit),
+      buildPeriod(groups, currentCards, periodKey, minimumSetCoveragePct, rankingLimit),
     ]))),
   });
 }

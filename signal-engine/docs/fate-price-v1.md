@@ -37,7 +37,9 @@ Phase 1 Cardmarket evidence is source-native EUR. Fate Price v1 performs no sile
 
 A historical comparison must have a real observation at or before the target date and no more than 3 days older than that target. Otherwise that movement window is unavailable.
 
-Fate Pulse uses the same `fate-price-v1` central-value calculation for every current and historical observation. Its global leaderboard requires an observation on the exact comparison market day; it does not substitute a nearby day. Collector's personal Pulse uses Fate Price's at-or-before comparison within the three-day limit. Both contracts expose `movementPolicy`, including the baseline rule, so consumers can describe the remaining availability difference without presenting provider `trendPrice` as Fate Price movement.
+Fate Pulse uses the same `fate-price-v1` central-value calculation for every current and historical observation. Its global leaderboard requires an observation on the exact comparison market day; it does not substitute a nearby day. The global card riser/faller lists rank every verified exact card with eligible current and baseline evidence, independently of complete-set coverage. Set rankings and the market-direction headline retain their strict complete-set coverage gate.
+
+Collector's personal Pulse uses Fate Price's at-or-before comparison within the three-day limit and ranks only exact identities owned by the signed-in collector. Both contracts expose `movementPolicy`, including the baseline rule, so consumers can describe the remaining availability difference without presenting provider `trendPrice` as Fate Price movement.
 
 ## Confidence
 
