@@ -7,6 +7,42 @@ function text(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function cardmarketComparableName(value) {
+  return normaliseComparableName(
+    text(value)
+      .replace(/♀/g, ' female ')
+      .replace(/♂/g, ' male '),
+  );
+}
+
+function cardmarketProductNameMatch(productName, cardName) {
+  const canonical = cardmarketComparableName(cardName);
+  const raw = text(productName);
+  let candidate = raw
+    .replace(/^Nidoran\s+\[F\](?=\s|$)/i, 'Nidoran female')
+    .replace(/^Nidoran\s+\[M\](?=\s|$)/i, 'Nidoran male');
+  const providerAliasApplied = candidate !== raw;
+
+  if (cardmarketComparableName(candidate) === canonical) {
+    return providerAliasApplied ? 'provider_disambiguation_suffix' : 'exact_name';
+  }
+
+  // Cardmarket appends provider-only square-bracket descriptors to many
+  // Pokémon product names (attacks, abilities and similar disambiguators),
+  // e.g. `Bulbasaur [Leech Seed | 151]`. They are not part of the printed
+  // card name. Strip only trailing bracket groups and still require the
+  // remaining provider name to equal the canonical card name exactly.
+  const trailingDescriptor = /\s+\[[^[\]]+\]\s*$/;
+  while (trailingDescriptor.test(candidate)) {
+    candidate = candidate.replace(trailingDescriptor, '').trim();
+    if (candidate && cardmarketComparableName(candidate) === canonical) {
+      return 'provider_disambiguation_suffix';
+    }
+  }
+
+  return null;
+}
+
 function listFilesRecursive(root) {
   const files = [];
   const stack = [root];
@@ -288,8 +324,8 @@ export function auditExplicitCardmarketMappings(set, productsById, productsByExp
         continue;
       }
       const productName = text(product.name);
-      const exactName = normaliseComparableName(productName) === card.normalizedName;
-      if (!exactName) {
+      const nameMatchBasis = cardmarketProductNameMatch(productName, card.name);
+      if (!nameMatchBasis) {
         nameConflicts += 1;
         mappings.push(Object.freeze({
           tcgdexCardId: card.tcgdexCardId,
@@ -315,6 +351,7 @@ export function auditExplicitCardmarketMappings(set, productsById, productsByExp
         cardmarketProductName: productName,
         cardmarketExpansionId: product.sourceExpansionId ?? null,
         expansionRelation: Number(product.sourceExpansionId) === expansionId ? 'main_set_expansion' : 'supplemental_cardmarket_expansion',
+        nameMatchBasis,
         status: 'proven',
         reason: 'tcgdex_explicit_cardmarket_product_id_verified_in_official_catalogue',
       }));
