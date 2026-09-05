@@ -1,7 +1,9 @@
 import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
 import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
+import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
+import { getFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
-import { getFateCollectorPersonalPulseFromStore } from './personal-pulse-service.mjs';
+import { buildFateCollectorPersonalPulse } from './personal-pulse.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
 function requireText(value, field) {
@@ -9,11 +11,45 @@ function requireText(value, field) {
   return value.trim();
 }
 
+async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now }) {
+  const prices = [];
+  try {
+    for (let index = 0; index < cardIdentityIds.length; index += 100) {
+      const batch = cardIdentityIds.slice(index, index + 100);
+      if (!batch.length) continue;
+      prices.push(...await getFatePricesFromStore(store, {
+        cardIdentityIds: batch,
+        currencyCode,
+        now,
+      }));
+    }
+  } catch (error) {
+    if (error instanceof FatePriceStoreUnavailableError) return Object.freeze({ connected: false, prices: Object.freeze([]) });
+    throw error;
+  }
+  return Object.freeze({ connected: true, prices: Object.freeze(prices) });
+}
+
+function exactCardValuesFromFatePrices(fatePrices) {
+  return fatePrices
+    .filter((fatePrice) => fatePrice?.available === true && fatePrice.price)
+    .map((fatePrice) => Object.freeze({
+      fateCardId: fatePrice.cardIdentityId,
+      amount: fatePrice.price.amount,
+      currencyCode: fatePrice.price.currencyCode,
+      observedAt: fatePrice.price.asOf,
+      valuationKind: 'raw-market',
+      sourceName: fatePrice.evidence?.sources?.length === 1 ? fatePrice.evidence.sources[0] : 'fateprice',
+      evidenceCount: fatePrice.evidence?.sourceCount ?? null,
+    }));
+}
+
 export async function getFateCollectorSummaryFromStore(store, {
   userId,
   currencyCode,
   preferredLanguageCode,
   preferredVariantCode = 'standard',
+  now = Date.now(),
 } = {}) {
   const ownerId=requireText(userId,'userId');
   const currency=requireText(currencyCode,'currencyCode').toUpperCase();
@@ -34,19 +70,28 @@ export async function getFateCollectorSummaryFromStore(store, {
     canonicalCards.push(...await listVerifiedCardsFromStore(store,{setId:set.id,limit:500}));
   }
 
-  const [summary,personalPulse]=await Promise.all([
-    Promise.resolve(computeFateCollectorSummary({
-      sets,
-      canonicalCards,
-      collectionItems,
-      exactCardValues:[],
-      printingValues:[],
-      currencyCode:currency,
-      preferredLanguageCode:language,
-      preferredVariantCode,
-    })),
-    getFateCollectorPersonalPulseFromStore(store,{userId:ownerId,currencyCode:currency,limit:3}),
-  ]);
+  const fatePriceRead = await getOwnedFatePrices(store, ownedCards.map((card) => card.fateCardId), {
+    currencyCode: currency,
+    now,
+  });
+  const fatePrices = fatePriceRead.prices;
+  const exactCardValues = exactCardValuesFromFatePrices(fatePrices);
+  const summary=computeFateCollectorSummary({
+    sets,
+    canonicalCards,
+    collectionItems,
+    exactCardValues,
+    printingValues:[],
+    currencyCode:currency,
+    preferredLanguageCode:language,
+    preferredVariantCode,
+  });
+  const personalPulse=buildFateCollectorPersonalPulse({
+    collectionItems,
+    cards:ownedCards,
+    prices:fatePrices,
+    limit:3,
+  });
   const unresolvedCollectionItemCount=collectionItems.filter((item)=>!resolvedIds.has(item.fateCardId)).length;
   return Object.freeze({
     contractVersion:2,
@@ -58,9 +103,10 @@ export async function getFateCollectorSummaryFromStore(store, {
       collectionItemsRead:collectionItems.length,
       verifiedOwnedIdentities:ownedCards.length,
       unresolvedCollectionItemCount,
+      exactCollectionValuesConnected:fatePriceRead.connected,
       completeSetValuesConnected:false,
-      valuationReason:'market_price_runtime_not_connected',
-      personalPulseConnected:true,
+      valuationReason:fatePriceRead.connected?summary.collection.reason:'market_price_runtime_unavailable',
+      personalPulseConnected:fatePriceRead.connected,
     }),
   });
 }

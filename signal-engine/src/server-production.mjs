@@ -12,6 +12,7 @@ import { reconcileTotalCardsPhysicalAvailability } from "./encounters/total-card
 import "./notifications/lifecycle-push-heartbeat.mjs";
 import { runCandidateQualificationCycle } from "./retailers/candidate-qualification.mjs";
 import { createStore } from "./stores/index.mjs";
+import { runCardmarketPokemonMarketCycle } from "./trader/value/cardmarket-market-cycle.mjs";
 import "./server.mjs";
 
 const RETAILER_QUALIFICATION_INTERVAL_MS = 6 * 60 * 60 * 1000;
@@ -28,6 +29,8 @@ const TOTAL_CARDS_LOCAL_INTERVAL_MS = 5 * 60 * 1000;
 const TOTAL_CARDS_LOCAL_START_DELAY_MS = 120 * 1000;
 const ASDA_DENSITY_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const ASDA_DENSITY_START_DELAY_MS = 180 * 1000;
+const CARDMARKET_DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const CARDMARKET_DAILY_START_DELAY_MS = 5 * 60 * 1000;
 const RETAILER_INTELLIGENCE_START_DELAY_MS = 2 * 60 * 1000;
 const localBranchStore = createStore();
 startOperatorLocalRadarIntake({ store: localBranchStore });
@@ -38,6 +41,7 @@ let syncingOsmBranches = false;
 let reconcilingCuratedLocalIntel = false;
 let reconcilingTotalCardsLocal = false;
 let syncingAsdaDensity = false;
+let syncingCardmarketDaily = false;
 let monitoringRetailerIntelligence = false;
 
 async function qualifyRetailerCandidates() {
@@ -222,6 +226,29 @@ async function syncAsdaDensity() {
   }
 }
 
+async function syncCardmarketDailyPrices() {
+  if (syncingCardmarketDaily || !env.databaseUrl) return;
+  syncingCardmarketDaily = true;
+  try {
+    const outcome = await runCardmarketPokemonMarketCycle({ store: localBranchStore, mode: 'persist' });
+    console.log("[signal-engine] FatePrice Cardmarket daily market cycle", {
+      status: outcome.status,
+      sourceEffectiveAt: outcome.sourceEffectiveAt,
+      mappedProducts: outcome.mappedProducts,
+      scopedPriceGuideRows: outcome.scopedPriceGuideRows,
+      recordsSeen: outcome.recordsSeen,
+      recordsAccepted: outcome.recordsAccepted,
+      recordsRejected: outcome.recordsRejected,
+      insertedObservations: outcome.persistence?.insertedObservations ?? 0,
+      duplicateObservations: outcome.persistence?.duplicateObservations ?? 0,
+    });
+  } catch (error) {
+    console.error("[signal-engine] FatePrice Cardmarket daily market cycle failed", { error: String(error?.message || error) });
+  } finally {
+    syncingCardmarketDaily = false;
+  }
+}
+
 async function monitorRetailerIntelligence() {
   if (monitoringRetailerIntelligence || !env.databaseUrl || !env.encounters.retailerIntelligenceEnabled) return;
   monitoringRetailerIntelligence = true;
@@ -271,6 +298,10 @@ if (env.databaseUrl) {
   const asdaDensityTimer = setTimeout(() => { void syncAsdaDensity(); }, ASDA_DENSITY_START_DELAY_MS);
   asdaDensityTimer.unref();
   setInterval(syncAsdaDensity, ASDA_DENSITY_INTERVAL_MS).unref();
+
+  const cardmarketDailyTimer = setTimeout(() => { void syncCardmarketDailyPrices(); }, CARDMARKET_DAILY_START_DELAY_MS);
+  cardmarketDailyTimer.unref();
+  setInterval(syncCardmarketDailyPrices, CARDMARKET_DAILY_INTERVAL_MS).unref();
 
   if (env.encounters.retailerIntelligenceEnabled) {
     const retailerIntelligenceTimer = setTimeout(() => { void monitorRetailerIntelligence(); }, RETAILER_INTELLIGENCE_START_DELAY_MS);

@@ -47,10 +47,10 @@ async function seedStore(){
       ingestRuns:{},
       rejections:{},
       observations:{
-        before:{id:'before',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:10,observedAt:1},
-        current:{id:'current',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:11,observedAt:2},
-        before2:{id:'before2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:20,observedAt:1},
-        current2:{id:'current2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:22,observedAt:2},
+        before:{id:'before',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:10,avg7d:10,observedAt:1},
+        current:{id:'current',cardIdentityId:'c1',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:11,avg7d:11,observedAt:2},
+        before2:{id:'before2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-02',trendPrice:20,avg7d:20,observedAt:1},
+        current2:{id:'current2',cardIdentityId:'c2',sourceName:'cardmarket',sourceVariantKey:'standard',marketSegmentKey:'standard',conditionCode:'unspecified',currencyCode:'EUR',marketDay:'2026-09-03',trendPrice:22,avg7d:22,observedAt:2},
       },
     };
     state.traderCollection={

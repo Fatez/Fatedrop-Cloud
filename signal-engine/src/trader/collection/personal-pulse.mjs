@@ -1,3 +1,5 @@
+import { FATE_PRICE_MOVEMENT_POLICY } from '../value/fate-price.mjs';
+
 function text(value){return typeof value==='string'?value.trim():'';}
 function finite(value){return Number.isFinite(value)?Number(value):null;}
 
@@ -65,6 +67,7 @@ export function buildFateCollectorPersonalPulse({collectionItems=[],cards=[],pri
   const verifiedOwned=[...quantities.keys()].filter((id)=>cardsById.has(id));
   return Object.freeze({
     schemaVersion:'collector-personal-pulse:1',
+    movementPolicy:FATE_PRICE_MOVEMENT_POLICY,
     ownedIdentityCount:quantities.size,
     verifiedOwnedIdentityCount:verifiedOwned.length,
     periods:Object.freeze({

@@ -116,22 +116,19 @@ test('explicit persist mode stores the exact fetched provider snapshot once', as
   assert.equal(Object.keys(valueStore.snapshot().fateValueLab.observations).length, 1);
 });
 
-test('unmapped source evidence stays a rejection even in explicit persist mode', async () => {
+test('daily cycle refuses to persist without verified exact Cardmarket mappings', async () => {
   const valueStore = store(stateWithMapping({ mapped: false }));
-  const report = await runCardmarketPokemonMarketCycle({
-    store: valueStore,
-    mode: 'persist',
-    fetchImpl: fetchImpl(),
-    fetchedAt: FETCHED_AT,
-  });
+  await assert.rejects(
+    runCardmarketPokemonMarketCycle({
+      store: valueStore,
+      mode: 'persist',
+      fetchImpl: fetchImpl(),
+      fetchedAt: FETCHED_AT,
+    }),
+    /No verified Cardmarket normal mappings are available for the daily cycle/,
+  );
 
-  assert.equal(report.recordsAccepted, 0);
-  assert.equal(report.recordsRejected, 1);
-  assert.equal(report.persistence.insertedObservations, 0);
-  assert.equal(report.persistence.insertedRejections, 1);
-  assert.equal(report.readiness.history.rejections, 1);
-  assert.deepEqual(report.readiness.history.rejectionCodes, { identity_unresolved: 1 });
-  assert.ok(report.readiness.issues.includes('ingest_rejections_present'));
+  assert.equal(valueStore.snapshot().fateValueLab, undefined);
 });
 
 test('invalid modes are rejected before any source request is made', async () => {

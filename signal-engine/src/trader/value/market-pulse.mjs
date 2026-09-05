@@ -1,4 +1,5 @@
 import { buildMarketPulseDirection } from './market-pulse-direction.mjs';
+import { fatePriceCentralAmountForObservation } from './fate-price.mjs';
 
 const SUPPORTED_PRICE_FIELDS = Object.freeze([
   'marketPrice',
@@ -9,6 +10,7 @@ const SUPPORTED_PRICE_FIELDS = Object.freeze([
   'avg30d',
   'avgLifetime',
   'excellentPlusLow',
+  'fatePrice',
 ]);
 
 const WINDOWS = Object.freeze({
@@ -74,6 +76,12 @@ function finitePrice(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return null;
   return number;
+}
+
+function observationPrice(observation, priceField) {
+  return priceField === 'fatePrice'
+    ? fatePriceCentralAmountForObservation(observation)
+    : finitePrice(observation?.[priceField]);
 }
 
 function roundMetric(value, places = 6) {
@@ -306,7 +314,7 @@ export function buildMarketPulseSnapshot({
 
   for (const lane of lanes.values()) {
     const currentObservation = lane.byDay.get(anchorMarketDay);
-    const currentPrice = finitePrice(currentObservation?.[basis.priceField]);
+    const currentPrice = observationPrice(currentObservation, basis.priceField);
     if (!currentObservation || currentPrice == null) {
       staleLaneCount += 1;
       continue;
@@ -316,7 +324,7 @@ export function buildMarketPulseSnapshot({
     for (const [windowKey, daysBack] of Object.entries(WINDOWS)) {
       const baselineDay = subtractUtcDays(anchorMarketDay, daysBack);
       const baselineObservation = lane.byDay.get(baselineDay);
-      const baselinePrice = finitePrice(baselineObservation?.[basis.priceField]);
+      const baselinePrice = observationPrice(baselineObservation, basis.priceField);
       itemMovement[windowKey] = movement(currentPrice, baselinePrice);
     }
 
