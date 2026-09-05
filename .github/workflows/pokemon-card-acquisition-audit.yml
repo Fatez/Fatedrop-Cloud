@@ -99,3 +99,178 @@ jobs:
           path: ${{ runner.temp }}/pokemon-151-cardmarket-expansion-evidence.json
           if-no-files-found: error
           retention-days: 7
+
+  compile-ten-set-expansion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile ten verified Scarlet and Violet sets without database writes
+        shell: bash
+        env:
+          SET_IDS: sv03,sv04,sv04.5,sv05,sv06,sv06.5,sv07,sv08,sv09,sv10
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { adaptTcgdexSet } from './src/trader/catalogue/tcgdex-adapter.mjs';
+          import { adaptPokemonTcgSet } from './src/trader/catalogue/pokemontcg-adapter.mjs';
+          import { buildVerifiedPokemonSetCrosswalk } from './src/trader/catalogue/bulk-sync.mjs';
+          import { selectVerifiedSetCrosswalk } from './src/trader/catalogue/selection.mjs';
+          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
+          import { reconcileSetEvidence } from './src/trader/catalogue/reconcile.mjs';
+          import { reconcilePokemonCardCollections } from './src/trader/catalogue/pipeline.mjs';
+          import { promoteMatchedCardEvidence } from './src/trader/catalogue/verification.mjs';
+          import { buildVerifiedCatalogueBatch } from './src/trader/catalogue/persistence.mjs';
+
+          const requestedSetIds = process.env.SET_IDS.split(',').map((value) => value.trim()).filter(Boolean);
+          const verifiedAt = Date.now();
+          const tcgdex = createTcgdexClient({ languageCode: 'en' });
+          const pokemon = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null });
+          const crosswalk = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient: tcgdex, pokemonTcgClient: pokemon });
+          const selection = selectVerifiedSetCrosswalk(crosswalk, requestedSetIds);
+          const outputPath = process.env.RUNNER_TEMP + '/pokemon-ten-set-catalogue.json';
+
+          const result = {
+            format: 'fatedrop-pokemon-catalogue-v1',
+            generatedAt: new Date(verifiedAt).toISOString(),
+            verifiedAt,
+            requestedSetIds,
+            crosswalk: { sourceCounts: crosswalk.sourceCounts, counts: crosswalk.counts },
+            compilation: { verifiedSets: [], rejectedSets: [] },
+            rows: {
+              tcgs: [], series: [], sets: [], setSourceMappings: [], printings: [],
+              cardIdentities: [], cardSourceMappings: [], cardProvenance: [],
+            },
+          };
+
+          function putUnique(map, row, label) {
+            const existing = map.get(row.id);
+            if (!existing) { map.set(row.id, row); return; }
+            const stable = (value) => JSON.stringify(value, (key, item) => ['createdAt','updatedAt','verifiedAt','firstObservedAt','lastObservedAt','observedAt'].includes(key) ? 0 : item);
+            if (stable(existing) !== stable(row)) throw new Error(`${label} identity collision: ${row.id}`);
+          }
+
+          const maps = {
+            tcgs: new Map(), series: new Map(), sets: new Map(), setSourceMappings: new Map(),
+            printings: new Map(), cardIdentities: new Map(), cardSourceMappings: new Map(), cardProvenance: new Map(),
+          };
+
+          if (selection.selected.length !== requestedSetIds.length) {
+            result.compilation.rejectedSets.push({ reason: 'not_all_requested_sets_have_one_verified_crosswalk', selectedCount: selection.selected.length });
+            fs.writeFileSync(outputPath, JSON.stringify(result));
+            throw new Error(`Expected ${requestedSetIds.length} verified selected sets; received ${selection.selected.length}`);
+          }
+
+          for (const pair of selection.selected) {
+            const summary = { tcgdexSetId: pair.tcgdexSetId, pokemonTcgSetId: pair.pokemonTcgSetId, canonicalSetId: pair.setMatch.canonicalSetId, setName: pair.setMatch.setName };
+            try {
+              const [rawTcgdexSet, rawPokemonSet] = await Promise.all([
+                tcgdex.getSet(pair.tcgdexSetId),
+                pokemon.getSet(pair.pokemonTcgSetId),
+              ]);
+              const tcgdexSetEvidence = adaptTcgdexSet(rawTcgdexSet);
+              const setMatch = reconcileSetEvidence(tcgdexSetEvidence, adaptPokemonTcgSet(rawPokemonSet));
+              if (setMatch.status !== 'matched' || setMatch.canonicalSetId !== pair.setMatch.canonicalSetId) {
+                throw new Error('verified set crosswalk changed during compile');
+              }
+              if (!Array.isArray(rawTcgdexSet.cards) || !rawTcgdexSet.cards.length) throw new Error('TCGdex set contains no cards');
+
+              const refs = rawTcgdexSet.cards.map((row) => String(row?.id || '').trim()).filter(Boolean);
+              const tcgdexCards = [];
+              for (const id of refs) tcgdexCards.push(await tcgdex.getCard(id));
+              const pokemonCards = await pokemon.listCardsBySet(pair.pokemonTcgSetId);
+              const cardResults = reconcilePokemonCardCollections({
+                tcgdexCards,
+                pokemonTcgCards: pokemonCards,
+                setMatch,
+                sourceSeriesCode: tcgdexSetEvidence.sourceSeriesCode,
+                languageCode: 'en',
+              });
+
+              const problems = [];
+              if (tcgdexCards.length !== pokemonCards.length) problems.push('source_card_count_mismatch');
+              if (cardResults.matched.length !== tcgdexCards.length) problems.push('not_all_source_cards_reconciled');
+              if (cardResults.conflicts.length) problems.push('card_conflicts_present');
+              if (cardResults.quarantined.length) problems.push('quarantined_cards_present');
+              if (cardResults.unmatched.length) problems.push('unmatched_cards_present');
+              if (problems.length) {
+                result.compilation.rejectedSets.push({ ...summary, reasons: problems, sourceCards: tcgdexCards.length, independentCards: pokemonCards.length, matched: cardResults.matched.length, conflicts: cardResults.conflicts.length, quarantined: cardResults.quarantined.length, unmatched: cardResults.unmatched.length });
+                continue;
+              }
+
+              const promotions = cardResults.matched.map((match) => promoteMatchedCardEvidence(match, { verifiedAt }));
+              const rejectedPromotion = promotions.find((promotion) => promotion.status !== 'verified');
+              if (rejectedPromotion) throw new Error(`promotion rejected: ${rejectedPromotion.reason || 'unknown'}`);
+              const batch = buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt });
+
+              putUnique(maps.tcgs, batch.tcg, 'TCG');
+              putUnique(maps.series, batch.series, 'series');
+              putUnique(maps.sets, batch.set, 'set');
+              for (const row of batch.setSourceMappings) putUnique(maps.setSourceMappings, row, 'set source mapping');
+              for (const row of batch.printings) putUnique(maps.printings, row, 'printing');
+              for (const row of batch.cardIdentities) putUnique(maps.cardIdentities, row, 'card identity');
+              for (const row of batch.cardSourceMappings) putUnique(maps.cardSourceMappings, row, 'card source mapping');
+              for (const row of batch.cardProvenance) putUnique(maps.cardProvenance, row, 'card provenance');
+
+              result.compilation.verifiedSets.push({ ...summary, sourceCards: tcgdexCards.length, independentCards: pokemonCards.length, verifiedPrintings: batch.printings.length, verifiedCardIdentities: batch.cardIdentities.length, conflicts: 0, quarantined: 0, unmatched: 0 });
+            } catch (error) {
+              result.compilation.rejectedSets.push({ ...summary, reasons: ['compiler_error'], error: error?.message || String(error) });
+            }
+          }
+
+          for (const key of Object.keys(result.rows)) result.rows[key] = [...maps[key].values()];
+          result.counts = Object.fromEntries(Object.entries(result.rows).map(([key, rows]) => [key, rows.length]));
+          result.compilation.verifiedSetCount = result.compilation.verifiedSets.length;
+          result.compilation.rejectedSetCount = result.compilation.rejectedSets.length;
+          fs.writeFileSync(outputPath, JSON.stringify(result));
+
+          if (result.compilation.verifiedSetCount !== requestedSetIds.length || result.compilation.rejectedSetCount !== 0) {
+            throw new Error(`Ten-set compile rejected ${result.compilation.rejectedSetCount} set(s); no production write is permitted`);
+          }
+          console.log(JSON.stringify({ generatedAt: result.generatedAt, compilation: result.compilation, counts: result.counts }, null, 2));
+          NODE
+
+      - name: Summarise ten-set compile
+        if: always()
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/pokemon-ten-set-catalogue.json" ]; then
+            node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+            import fs from 'node:fs';
+            const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-ten-set-catalogue.json', 'utf8'));
+            console.log('# Ten-set canonical catalogue compile');
+            console.log('');
+            console.log(`- Verified sets: **${report.compilation.verifiedSetCount || 0}/${report.requestedSetIds.length}**`);
+            console.log(`- Rejected sets: **${report.compilation.rejectedSetCount || 0}**`);
+            for (const row of report.compilation.verifiedSets || []) console.log(`- ${row.setName}: ${row.verifiedPrintings} printings / ${row.verifiedCardIdentities} identities`);
+            for (const row of report.compilation.rejectedSets || []) console.log(`- REJECTED ${row.setName || row.tcgdexSetId || 'selection'}: ${(row.reasons || []).join(', ')}`);
+            console.log('');
+            console.log(`- Total printings: **${report.counts?.printings || 0}**`);
+            console.log(`- Total exact identities: **${report.counts?.cardIdentities || 0}**`);
+            console.log('- Production writes: **0** (compile/audit only)');
+            NODE
+          fi
+
+      - name: Upload ten-set canonical catalogue artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-ten-set-canonical-catalogue
+          path: ${{ runner.temp }}/pokemon-ten-set-catalogue.json
+          if-no-files-found: error
+          retention-days: 7
