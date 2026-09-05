@@ -23,6 +23,44 @@ function artifactSummary(artifact) {
   });
 }
 
+export async function listVerifiedNormalCardmarketProductIds(store) {
+  if (!store || (typeof store.read !== 'function' && typeof store.pool !== 'function')) {
+    throw new TypeError('Fate Value store is required');
+  }
+
+  if (typeof store.read === 'function') {
+    const state = await store.read();
+    const catalogue = state?.traderCatalogue;
+    if (!catalogue) return new Set();
+    const cards = catalogue.cards || {};
+    return new Set(Object.values(catalogue.cardSourceMappings || {})
+      .filter((mapping) => mapping?.sourceName === 'cardmarket' && mapping?.sourceVariantKey === 'normal')
+      .filter((mapping) => cards[mapping.cardIdentityId]?.verificationStatus === 'verified')
+      .map((mapping) => String(mapping.sourceRecordId)));
+  }
+
+  const pool = await store.pool();
+  const { rows } = await pool.query(`SELECT DISTINCT m.source_record_id
+    FROM fatedrop_card_source_mappings m
+    JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
+    WHERE m.source_name='cardmarket'
+      AND m.source_variant_key='normal'
+      AND c.verification_status='verified'`);
+  return new Set(rows.map((row) => String(row.source_record_id)));
+}
+
+export function scopeCardmarketPriceGuideToMappedProducts(payload, productIds) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new TypeError('Cardmarket priceGuidePayload is required');
+  }
+  if (!(productIds instanceof Set)) throw new TypeError('productIds must be a Set');
+  const priceGuides = Array.isArray(payload.priceGuides) ? payload.priceGuides : [];
+  return Object.freeze({
+    ...payload,
+    priceGuides: priceGuides.filter((row) => productIds.has(String(row?.idProduct ?? ''))),
+  });
+}
+
 export async function runCardmarketPokemonMarketCycle({
   store,
   mode = 'dry-run',
@@ -50,10 +88,15 @@ export async function runCardmarketPokemonMarketCycle({
     ...(maxBytes == null ? {} : { maxBytes }),
   });
 
+  const mappedProductIds = await listVerifiedNormalCardmarketProductIds(store);
+  if (!mappedProductIds.size) throw new Error('No verified Cardmarket normal mappings are available for the daily cycle');
+  const scopedPayload = scopeCardmarketPriceGuideToMappedProducts(source.artifact.payload, mappedProductIds);
+
   const batch = await prepareCardmarketDailyPriceGuideBatch({
     store,
-    priceGuidePayload: source.artifact.payload,
+    priceGuidePayload: scopedPayload,
     observedAt,
+    lanes: ['standard'],
   });
 
   let persistence = null;
@@ -70,6 +113,8 @@ export async function runCardmarketPokemonMarketCycle({
     sourceSnapshotId: batch.snapshot.sourceSnapshotId,
     sourceEffectiveAt: batch.snapshot.sourceEffectiveAt,
     sourceCurrency: batch.snapshot.currencyCode,
+    mappedProducts: mappedProductIds.size,
+    scopedPriceGuideRows: scopedPayload.priceGuides.length,
     recordsSeen: batch.run.recordsSeen,
     recordsAccepted: batch.run.recordsAccepted,
     recordsRejected: batch.run.recordsRejected,
