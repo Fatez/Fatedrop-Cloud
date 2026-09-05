@@ -61,6 +61,20 @@ Optional query parameters:
 
 A verified card with no safe market evidence returns HTTP 200 with `available: false` and an explicit reason. An unknown/unverified card identity returns 404.
 
+### Verified card discovery
+
+`GET /v1/fate-price/cards?q=<name-or-collector-number>`
+
+The read may also be constrained with an exact `setId`, `language`, or `variant`. At least two search characters or an exact set identity is required, and at most 100 verified cards are returned. This route belongs to Fate Price and remains available when the Fate Trader catalogue UI is dark; it does not enable the wider Trader API.
+
+`GET /v1/fate-price/cards/:fateCardId` returns one verified canonical card identity.
+
+### Historical points
+
+`GET /v1/fate-price/:fateCardId/history?days=30`
+
+`days` must be `7`, `30`, or `90`. Optional market-scope parameters are the same as the exact-card endpoint. Each point is a Cloud-calculated Fate Price anchored to a market day that has stored exact-card observations. Missing days are not filled, interpolated, or inferred. Ambiguous market scope fails closed until the caller selects one exact scope.
+
 ### Batch
 
 `GET /v1/fate-price?ids=<id1>,<id2>,...`

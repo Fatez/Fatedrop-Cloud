@@ -5,7 +5,7 @@ import {
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
 } from './store.mjs';
-import { getFatePriceFromStore, getFatePricesFromStore } from '../value/fate-price-service.mjs';
+import { getFatePriceFromStore, getFatePriceHistoryFromStore, getFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 
 function json(res, status, payload) {
@@ -42,7 +42,11 @@ function safeLimit(url, fallback, max) {
 }
 
 function isFatePricePath(pathname) {
-  return pathname === '/v1/fate-price' || /^\/v1\/fate-price\/[^/]+$/.test(pathname);
+  return pathname === '/v1/fate-price'
+    || pathname === '/v1/fate-price/cards'
+    || /^\/v1\/fate-price\/cards\/[^/]+$/.test(pathname)
+    || /^\/v1\/fate-price\/[^/]+$/.test(pathname)
+    || /^\/v1\/fate-price\/[^/]+\/history$/.test(pathname);
 }
 
 function fatePriceScope(url) {
@@ -82,6 +86,32 @@ export async function handleFateTraderCatalogue(req, res, {
   if (isFatePricePath(url.pathname)) {
     try {
       const scope = fatePriceScope(url);
+      if (url.pathname === '/v1/fate-price/cards') {
+        const query = (url.searchParams.get('q') || '').trim();
+        const setId = (url.searchParams.get('setId') || '').trim() || null;
+        if (query.length < 2 && !setId) {
+          errorResponse(res, 400, 'FATE_PRICE_CARD_FILTER_REQUIRED', 'Enter at least two search characters or an exact set identity.');
+          return true;
+        }
+        const cards = await listVerifiedCardsFromStore(store, {
+          setId,
+          query: query || null,
+          languageCode: url.searchParams.get('language') || null,
+          variantCode: url.searchParams.get('variant') || null,
+          limit: safeLimit(url, 50, 100),
+        });
+        ok(res, { cards, count: cards.length });
+        return true;
+      }
+
+      const priceCardMatch = url.pathname.match(/^\/v1\/fate-price\/cards\/([^/]+)$/);
+      if (priceCardMatch) {
+        const card = await getVerifiedCardFromStore(store, decodeURIComponent(priceCardMatch[1]));
+        if (!card) notFound(res, 'CARD_IDENTITY_NOT_VERIFIED', 'The requested card identity is not available.');
+        else ok(res, { card });
+        return true;
+      }
+
       if (url.pathname === '/v1/fate-price') {
         const ids = fatePriceIds(url);
         if (!ids.length) {
@@ -94,6 +124,20 @@ export async function handleFateTraderCatalogue(req, res, {
         }
         const prices = await getFatePricesFromStore(store, { cardIdentityIds: ids, ...scope });
         ok(res, { prices, count: prices.length });
+        return true;
+      }
+
+      const historyMatch = url.pathname.match(/^\/v1\/fate-price\/([^/]+)\/history$/);
+      if (historyMatch) {
+        const cardIdentityId = decodeURIComponent(historyMatch[1]);
+        const card = await getVerifiedCardFromStore(store, cardIdentityId);
+        if (!card) {
+          notFound(res, 'CARD_IDENTITY_NOT_VERIFIED', 'The requested card identity is not available.');
+          return true;
+        }
+        const days = Number.parseInt(url.searchParams.get('days') || '30', 10);
+        const history = await getFatePriceHistoryFromStore(store, { cardIdentityId, days, ...scope });
+        ok(res, { history });
         return true;
       }
 

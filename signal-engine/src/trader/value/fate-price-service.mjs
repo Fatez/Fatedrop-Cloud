@@ -1,4 +1,4 @@
-import { calculateFatePrice } from './fate-price.mjs';
+import { calculateFatePrice, calculateFatePriceHistory } from './fate-price.mjs';
 import { listFatePriceObservationsFromStore } from './fate-price-store.mjs';
 
 function groupByCard(observations) {
@@ -51,4 +51,29 @@ export async function getFatePricesFromStore(store, {
     conditionCode,
     now,
   })));
+}
+
+export async function getFatePriceHistoryFromStore(store, {
+  cardIdentityId,
+  currencyCode = null,
+  marketSegmentKey = null,
+  conditionCode = null,
+  days = 30,
+  now = Date.now(),
+} = {}) {
+  const id = String(cardIdentityId || '').trim();
+  if (!id) throw new TypeError('cardIdentityId is required');
+  if (![7, 30, 90].includes(days)) throw new TypeError('Fate Price history days must be 7, 30, or 90');
+  const observations = await listFatePriceObservationsFromStore(store, {
+    cardIdentityIds: [id],
+    observationsPerCard: 500,
+  });
+  return calculateFatePriceHistory(observations, {
+    cardIdentityId: id,
+    currencyCode,
+    marketSegmentKey,
+    conditionCode,
+    days,
+    now,
+  });
 }

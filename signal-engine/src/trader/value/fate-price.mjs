@@ -208,6 +208,137 @@ function unavailable(cardIdentityId, reason, { scopes = [], filter = null } = {}
   });
 }
 
+function historyUnavailable(cardIdentityId, reason, {
+  days,
+  scopes = [],
+  filter = null,
+} = {}) {
+  return Object.freeze({
+    contractVersion: 1,
+    policyVersion: FATE_PRICE_POLICY_VERSION,
+    cardIdentityId,
+    available: false,
+    reason,
+    days,
+    marketScope: null,
+    points: Object.freeze([]),
+    evidence: Object.freeze({
+      availableScopes: Object.freeze(scopes),
+      requestedScope: filter,
+      pointPolicy: 'stored_market_days_only_no_interpolation',
+    }),
+  });
+}
+
+function marketDayOf(observation, at) {
+  const explicit = text(observation?.marketDay);
+  if (explicit && /^\d{4}-\d{2}-\d{2}$/.test(explicit)) return explicit;
+  return new Date(at).toISOString().slice(0, 10);
+}
+
+export function calculateFatePriceHistory(observations, {
+  cardIdentityId,
+  currencyCode = null,
+  marketSegmentKey = null,
+  conditionCode = null,
+  days = 30,
+  now = Date.now(),
+} = {}) {
+  if (typeof cardIdentityId !== 'string' || !cardIdentityId.trim()) {
+    throw new TypeError('cardIdentityId is required');
+  }
+  if (!Array.isArray(observations)) throw new TypeError('observations must be an array');
+  if (!Number.isFinite(now) || now <= 0) throw new TypeError('now must be a positive timestamp');
+  if (![7, 30, 90].includes(days)) throw new TypeError('Fate Price history days must be 7, 30, or 90');
+
+  const id = cardIdentityId.trim();
+  const filter = normalizeFilter({ currencyCode, marketSegmentKey, conditionCode });
+  const exact = observations.filter((observation) => observation?.cardIdentityId === id);
+  if (!exact.length) return historyUnavailable(id, 'NO_VERIFIED_MARKET_EVIDENCE', { days, filter });
+
+  const allGroups = new Map();
+  for (const observation of exact) {
+    const scope = scopeOf(observation);
+    if (!scope.currencyCode) continue;
+    const key = scopeKey(scope);
+    const entry = allGroups.get(key) ?? { scope, observations: [] };
+    entry.observations.push(observation);
+    allGroups.set(key, entry);
+  }
+
+  const availableScopes = [...allGroups.values()]
+    .map((entry) => entry.scope)
+    .sort((left, right) => scopeKey(left).localeCompare(scopeKey(right)));
+  const groups = new Map(
+    [...allGroups.entries()].filter(([, entry]) => matchesScope(entry.scope, filter)),
+  );
+  if (!groups.size) return historyUnavailable(id, 'NO_MARKET_EVIDENCE_FOR_SCOPE', { days, scopes: availableScopes, filter });
+  if (groups.size > 1) return historyUnavailable(id, 'AMBIGUOUS_MARKET_SCOPE', { days, scopes: availableScopes, filter });
+
+  const [{ scope, observations: scoped }] = groups.values();
+  const nowDayStart = Date.parse(`${new Date(now).toISOString().slice(0, 10)}T00:00:00.000Z`);
+  const firstDayStart = nowDayStart - ((days - 1) * DAY_MS);
+  const anchorsByDay = new Map();
+
+  for (const observation of scoped) {
+    const at = timestamp(observation);
+    if (at == null || at > now) continue;
+    const marketDay = marketDayOf(observation, at);
+    const marketDayStart = Date.parse(`${marketDay}T00:00:00.000Z`);
+    if (!Number.isFinite(marketDayStart) || marketDayStart < firstDayStart || marketDayStart > nowDayStart) continue;
+    const previous = anchorsByDay.get(marketDay);
+    if (previous == null || at > previous) anchorsByDay.set(marketDay, at);
+  }
+
+  const points = [...anchorsByDay.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([marketDay, anchorAsOf]) => {
+      const snapshot = snapshotPrice(scoped, anchorAsOf);
+      if (!snapshot.available) return null;
+      const amount = roundMoney(snapshot.amount);
+      const confidence = confidenceFor({
+        sourceEstimates: snapshot.sourceEstimates,
+        valuationAsOf: snapshot.asOf,
+        anchorAsOf,
+        fairLow: snapshot.fairLow,
+        fairHigh: snapshot.fairHigh,
+        amount: snapshot.amount,
+      });
+      return Object.freeze({
+        marketDay,
+        asOf: snapshot.asOf,
+        amount,
+        currencyCode: scope.currencyCode,
+        fairLow: roundMoney(snapshot.fairLow),
+        fairHigh: roundMoney(snapshot.fairHigh),
+        guideLow: roundMoney(snapshot.guideLow),
+        confidence: confidence.level,
+        sourceCount: snapshot.sourceEstimates.length,
+      });
+    })
+    .filter(Boolean);
+
+  if (!points.length) {
+    return historyUnavailable(id, 'NO_MARKET_EVIDENCE_IN_RANGE', { days, scopes: availableScopes, filter });
+  }
+
+  return Object.freeze({
+    contractVersion: 1,
+    policyVersion: FATE_PRICE_POLICY_VERSION,
+    cardIdentityId: id,
+    available: true,
+    reason: null,
+    days,
+    marketScope: scope,
+    points: Object.freeze(points),
+    evidence: Object.freeze({
+      availableScopes: Object.freeze(availableScopes),
+      requestedScope: filter,
+      pointPolicy: 'stored_market_days_only_no_interpolation',
+    }),
+  });
+}
+
 export function calculateFatePrice(observations, {
   cardIdentityId,
   currencyCode = null,
