@@ -79,3 +79,30 @@ test('collector summary preserves unavailable catalogue states instead of fabric
   assert.equal(result.sets[0].status, 'unavailable');
   assert.equal(result.sets[0].reason, 'canonical_checklist_incomplete');
 });
+
+test('graded slabs remain outside raw binders and have a separate valuation boundary', () => {
+  const result = computeFateCollectorSummary({
+    sets: [sets[0]],
+    canonicalCards: canonicalCards.filter((card) => card.setId === 'set-a'),
+    collectionItems: [{
+      id: 'slab-a1',
+      fateCardId: 'a1-standard',
+      quantity: 1,
+      status: 'active',
+      copyState: 'graded',
+      grading: { gradingCompany: 'PSA', gradeLabel: '10' },
+    }],
+    exactCardValues,
+    gradedCardValues: [],
+    printingValues,
+    currencyCode: 'GBP',
+  });
+
+  assert.equal(result.rawCardUnits, 0);
+  assert.equal(result.gradedCardUnits, 1);
+  assert.equal(result.sets[0].ownedCount, 0);
+  assert.equal(result.sets[0].missingCount, 2);
+  assert.equal(result.rawCollection.totalValue, 0);
+  assert.equal(result.gradedCollection.totalValue, null);
+  assert.equal(result.gradedCollection.reason, 'graded_price_evidence_unavailable');
+});

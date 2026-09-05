@@ -110,6 +110,7 @@ export function computeCollectionSetProgress({
   const ownedPrintingIds = new Set();
   for (const item of collectionItems) {
     if (!item || item.status === 'removed' || Number(item.quantity ?? 1) <= 0) continue;
+    if (String(item.copyState || 'raw').toLowerCase() !== 'raw') continue;
     const printingId = cardToPrinting.get(text(item.fateCardId));
     if (printingId) ownedPrintingIds.add(printingId);
   }
