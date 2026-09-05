@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 jobs:
-  audit-pokemon-151:
+  audit-pokemon-prismatic-evolutions:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     defaults:
@@ -43,20 +43,20 @@ jobs:
       - name: Test Cardmarket expansion evidence logic
         run: node --test tests/cardmarket-mapping-audit.test.mjs
 
-      - name: Audit exact canonical acquisition for Pokemon 151
-        run: npm --silent run trader:catalogue:card-audit -- --tcgdex-set=sv03.5 --pokemon-set=sv3pt5 --verified-at=2026-09-04T00:00:00Z > "$RUNNER_TEMP/pokemon-151-card-audit.json"
+      - name: Audit exact canonical acquisition for Prismatic Evolutions
+        run: npm --silent run trader:catalogue:card-audit -- --tcgdex-set=sv08.5 --pokemon-set=sv8pt5 --verified-at=2026-09-05T00:00:00Z > "$RUNNER_TEMP/prismatic-evolutions-card-audit.json"
 
-      - name: Rank Cardmarket expansion evidence for Pokemon 151
-        run: npm --silent run market:cardmarket:set-evidence -- --cards-file="$RUNNER_TEMP/pokemon-151-card-audit.json" --limit=10 > "$RUNNER_TEMP/pokemon-151-cardmarket-expansion-evidence.json"
+      - name: Rank Cardmarket expansion evidence for Prismatic Evolutions
+        run: npm --silent run market:cardmarket:set-evidence -- --cards-file="$RUNNER_TEMP/prismatic-evolutions-card-audit.json" --limit=10 > "$RUNNER_TEMP/prismatic-evolutions-cardmarket-expansion-evidence.json"
 
       - name: Summarise card and Cardmarket expansion audit
         shell: bash
         run: |
           node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
           import fs from 'node:fs';
-          const cards = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-151-card-audit.json', 'utf8'));
-          const market = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-151-cardmarket-expansion-evidence.json', 'utf8'));
-          console.log('# Pokémon 151 canonical card acquisition');
+          const cards = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/prismatic-evolutions-card-audit.json', 'utf8'));
+          const market = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/prismatic-evolutions-cardmarket-expansion-evidence.json', 'utf8'));
+          console.log('# Prismatic Evolutions canonical card acquisition');
           console.log('');
           console.log(`- Pokémon source set code: **${cards.set.pokemonTcgSetCode || 'unknown'}**`);
           console.log(`- TCGdex cards fetched: **${cards.sourceCounts.tcgdexCardsFetched}**`);
@@ -87,15 +87,15 @@ jobs:
       - name: Upload canonical card audit
         uses: actions/upload-artifact@v4
         with:
-          name: pokemon-151-canonical-card-audit
-          path: ${{ runner.temp }}/pokemon-151-card-audit.json
+          name: prismatic-evolutions-canonical-card-audit
+          path: ${{ runner.temp }}/prismatic-evolutions-card-audit.json
           if-no-files-found: error
           retention-days: 7
 
       - name: Upload Cardmarket expansion evidence
         uses: actions/upload-artifact@v4
         with:
-          name: pokemon-151-cardmarket-expansion-evidence
-          path: ${{ runner.temp }}/pokemon-151-cardmarket-expansion-evidence.json
+          name: prismatic-evolutions-cardmarket-expansion-evidence
+          path: ${{ runner.temp }}/prismatic-evolutions-cardmarket-expansion-evidence.json
           if-no-files-found: error
           retention-days: 7
