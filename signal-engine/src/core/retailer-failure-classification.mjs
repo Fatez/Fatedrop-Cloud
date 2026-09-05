@@ -50,6 +50,7 @@ export function classifyRetailerFailure(input = {}) {
   else if (/retailer_access_blocked|\b403\b|\b401\b|forbidden|access[_ -]?blocked|blocked .*request/.test(combined)) failureClass = "access_blocked";
   else if (/retailer_rate_limited|\b429\b|rate.?limit|too many requests/.test(combined)) failureClass = "rate_limited";
   else if (/retailer_scan_deadline|retailer_request_timeout|\bdeadline\b|timed out|timeout/.test(combined)) failureClass = "timeout";
+  else if (/catalogue request failed \(404\)|structured catalogue request failed \(404\)|\bcatalogue\b.*\b404\b/.test(combined)) failureClass = "configuration";
   else if (/partial_catalogue_discovery|partial catalogue|verified product probes were processed/.test(combined)) failureClass = "partial_catalogue";
   else if (/zero_qualifying_products|qualification_no_products|zero qualifying products|zero qualifying catalogue/.test(combined)) failureClass = "catalogue_empty";
   else if (/stock[_ -]selector|availability selector|stock element|stock markup/.test(combined)) failureClass = "stock_selector_changed";
