@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateFatePrice } from '../src/trader/value/fate-price.mjs';
+import { calculateFatePrice, calculateFatePriceHistory } from '../src/trader/value/fate-price.mjs';
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 8, 3, 10, 0, 0);
@@ -97,4 +97,39 @@ test('independent source estimates combine by median and can raise confidence', 
   assert.equal(result.price.amount, 13);
   assert.equal(result.evidence.sourceCount, 2);
   assert.equal(result.confidence.level, 'high');
+});
+
+test('history returns only Cloud-calculated points anchored to stored market days', () => {
+  const rows = [
+    observation({ at: NOW - (6 * 60 * 60 * 1000), trend: 20, avg7: 20, avg30: 20 }),
+    observation({ at: NOW - (7 * DAY) - (6 * 60 * 60 * 1000), trend: 10, avg7: 10, avg30: 10 }),
+    observation({ at: NOW - (30 * DAY) - (6 * 60 * 60 * 1000), trend: 5, avg7: 5, avg30: 5 }),
+  ];
+  const result = calculateFatePriceHistory(rows, {
+    cardIdentityId: 'fdcard_1',
+    days: 30,
+    now: NOW,
+  });
+
+  assert.equal(result.available, true);
+  assert.equal(result.days, 30);
+  assert.deepEqual(result.points.map((point) => point.amount), [10, 20]);
+  assert.equal(result.evidence.pointPolicy, 'stored_market_days_only_no_interpolation');
+  assert.equal(result.points.length, 2);
+});
+
+test('history fails closed for scope ambiguity and unsupported windows', () => {
+  const rows = [observation({ segment: 'standard' }), observation({ segment: 'holo' })];
+  const ambiguous = calculateFatePriceHistory(rows, {
+    cardIdentityId: 'fdcard_1',
+    days: 7,
+    now: NOW,
+  });
+  assert.equal(ambiguous.available, false);
+  assert.equal(ambiguous.reason, 'AMBIGUOUS_MARKET_SCOPE');
+  assert.deepEqual(ambiguous.points, []);
+  assert.throws(
+    () => calculateFatePriceHistory(rows, { cardIdentityId: 'fdcard_1', days: 14, now: NOW }),
+    /must be 7, 30, or 90/,
+  );
 });
