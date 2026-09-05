@@ -1,5 +1,6 @@
 import { listCollectionItemsFromStore } from '../store.mjs';
 import { listCollectionImportSourcesFromStore } from '../import-source.mjs';
+import { makeCollectrConfirmationToken } from './confirmation-token.mjs';
 import { parseCollectrCsv } from './collectr-csv.mjs';
 import { matchCollectionImportRowsFromStore } from './matcher.mjs';
 import { planCollectionImportReconciliation } from './reconciliation.mjs';
@@ -27,18 +28,14 @@ export async function previewCollectrImportFromStore(store, {
     existingSources,
     existingItems,
   });
-
-  return Object.freeze({
+  const preview={
     sourceName:'collectr',
     parsed:Object.freeze({acceptedRows:parsed.rows.length,rejectedRows:parsed.rejected.length,rejected:parsed.rejected}),
     matched:matched.summary,
     plan:plan.summary,
-    scale:Object.freeze({
-      existingItemsRead:existingItems.length,
-      existingItemLimit,
-      mayBeTruncated:existingItems.length >= existingItemLimit,
-    }),
+    scale:Object.freeze({existingItemsRead:existingItems.length,existingItemLimit,mayBeTruncated:existingItems.length>=existingItemLimit}),
     rows:matched.matches,
     actions:plan,
-  });
+  };
+  return Object.freeze({...preview,requiresUserConfirmation:true,confirmationToken:makeCollectrConfirmationToken({csvText,preview})});
 }
