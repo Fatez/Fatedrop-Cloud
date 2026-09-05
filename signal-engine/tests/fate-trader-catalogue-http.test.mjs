@@ -65,6 +65,7 @@ test('Fate Trader flags default dark and enforce dependency ordering', () => {
     enabled: false,
     catalogueEnabled: false,
     collectionEnabled: false,
+    collectrImportWriteEnabled: false,
     binderEnabled: false,
     networkEnabled: false,
     matchingEnabled: false,
