@@ -52,6 +52,7 @@ test('publishes a median qualifying-set return with explicit breadth, coverage a
   assert.equal(result.schemaVersion, 'market-pulse-direction:1');
   assert.equal(result.method, 'median_qualifying_set_basket_return');
   assert.equal(result.minimumSetCoveragePct, 95);
+  assert.equal(result.rankingLimit, 3);
   assert.equal(period.status, 'available');
   assert.equal(period.reason, null);
   assert.equal(period.condition, 'mixed');
@@ -70,7 +71,7 @@ test('publishes a median qualifying-set return with explicit breadth, coverage a
   });
   assert.deepEqual(period.setRisers.map((set) => set.setCode), ['rise']);
   assert.deepEqual(period.setDecliners.map((set) => set.setCode), ['fall']);
-  assert.deepEqual(period.cardRisers.map((item) => item.cardIdentityId), ['a1', 'a2']);
+  assert.deepEqual(period.cardRisers.map((item) => item.cardIdentityId), ['d1', 'a1', 'a2']);
   assert.deepEqual(period.cardDecliners.map((item) => item.cardIdentityId), ['b1', 'b2']);
   assert.equal(period.setRisers[0].movementPercent, 20);
   assert.equal(period.setDecliners[0].movementPercent, -20);
@@ -83,6 +84,7 @@ test('fails closed when set totals are absent or exact baseline coverage is insu
   assert.equal(missingTotals.status, 'building');
   assert.equal(missingTotals.reason, 'set_totals_missing');
   assert.equal(missingTotals.condition, 'insufficient_evidence');
+  assert.deepEqual(missingTotals.cardRisers.map((item) => item.cardIdentityId), ['a1']);
 
   const missingBaseline = buildMarketPulseDirection({
     cards: [
