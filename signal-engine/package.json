@@ -17,6 +17,7 @@
     "trader:catalogue:card-audit": "node src/trader/catalogue/pokemon-card-acquisition-audit-cli.mjs",
     "market:cardmarket:set-evidence": "node src/trader/value/cardmarket-set-expansion-evidence-cli.mjs",
     "collectors:readiness": "node src/trader/catalogue/collectors-readiness-cli.mjs",
+    "market:cardmarket:universe": "node src/trader/value/cardmarket-native-universe-cli.mjs",
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
     "local-radar:reconcile": "node src/encounters/reconcile-uk-physical-store-master.mjs",
