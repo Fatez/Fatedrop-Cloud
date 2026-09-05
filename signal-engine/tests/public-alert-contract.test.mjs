@@ -163,6 +163,13 @@ test('manual online readiness is a durable inbox Echo without entering stock tru
   assert.equal(alert.notification.body, 'Pokémon Center UK · Traffic movement observed\nPossible drop approaching · Stock not confirmed');
 });
 
+test('effective manual Echo retractions remove only the matching readiness projection', () => {
+  assert.match(alertSource, /kind='operator_echo_retraction'/);
+  assert.match(alertSource, /evidence_json->>'targetEventId'=readiness\.id/);
+  assert.match(alertSource, /evidence_json->>'status'='effective'/);
+  assert.doesNotMatch(alertSource, /DELETE FROM fatedrop_signal_events/);
+});
+
 test('history-only Manifested anchors remain lifecycle evidence but never occupy the public inbox window', () => {
   assert.match(alertSource, /publicSignalSqlFilter/);
   assert.match(alertSource, /AND \$\{publicSignalSqlFilter\('s'\)\}/);

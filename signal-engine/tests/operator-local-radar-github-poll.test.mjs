@@ -52,6 +52,16 @@ test("transient GitHub failures receive one bounded retry", async () => {
   assert.equal(issues[0].number, 902);
 });
 
+test("manual Echo publication is processed before its later retraction issue", async () => {
+  const publish = issue(901);
+  const retract = { ...issue(902), title: "[FATEDROP ECHO RETRACTION] #901" };
+  const issues = await listOperatorIssues(async () => new Response(JSON.stringify([retract, publish]), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  }), { token: "test-read-only-token", authenticated: true, required: true });
+  assert.deepEqual(issues.map((item) => item.number), [901, 902]);
+});
+
 test("public operator health receives a redacted actionable GitHub failure code", async () => {
   const originalRailway = process.env.RAILWAY_ENVIRONMENT_NAME;
   const originalToken = process.env.FATEDROP_GITHUB_OPERATOR_TOKEN;

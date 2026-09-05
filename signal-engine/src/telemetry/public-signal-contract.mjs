@@ -307,6 +307,7 @@ function safeOperatorHealth(now = Math.floor(Date.now() / 1000)) {
     githubAuthenticated: health.githubAuthenticated === true,
     issuesSeen: safeCount(health.issuesSeen),
     published: safeCount(health.published),
+    retracted: safeCount(health.retracted),
     held: safeCount(health.held),
     retry: safeCount(health.retry),
     invalid: safeCount(health.invalid),

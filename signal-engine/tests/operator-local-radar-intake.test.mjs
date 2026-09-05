@@ -45,6 +45,29 @@ function operatorIssue(overrides = {}) {
   };
 }
 
+function operatorRetractionIssue(overrides = {}) {
+  const body = {
+    schemaVersion: 2,
+    operation: "retract",
+    operatorConfirmation: "RETRACT_GLOBAL_ECHO",
+    targetOperatorIssue: 301,
+    reason: "The source evidence was attributed to the wrong retailer.",
+    requestedAt: "2026-08-29T01:01:00+01:00",
+    ...overrides.body,
+  };
+  return {
+    number: 302,
+    state: "open",
+    title: "[FATEDROP ECHO RETRACTION] #301",
+    body: JSON.stringify(body),
+    created_at: "2026-08-29T01:01:00+01:00",
+    updated_at: "2026-08-29T01:01:00+01:00",
+    user: { login: "Fatez" },
+    ...overrides,
+    body: JSON.stringify(body),
+  };
+}
+
 test("authorised official preparation evidence remains advisory Echo and builds descriptive copy", () => {
   const parsed = parseOperatorIssue(operatorIssue(), NOW);
   assert.equal(parsed.entry.kind, "echo");
@@ -200,4 +223,88 @@ test("operator readiness persists before delivery and inactive TCGs stay fail cl
     },
   });
   assert.throws(() => parseOperatorIssue(issue, NOW), /Public lifecycle alerts are disabled for TCG: one-piece/);
+});
+
+test("retraction parser requires the exact owner command and targets one manual Echo", () => {
+  const parsed = parseOperatorIssue(operatorRetractionIssue(), NOW);
+  assert.equal(parsed.operation, "retract");
+  assert.equal(parsed.eventId, "local-radar-operator-retraction:302");
+  assert.equal(parsed.targetEventId, "local-radar-operator:301");
+  assert.equal(parsed.targetOperatorIssue, 301);
+  assert.throws(
+    () => parseOperatorIssue(operatorRetractionIssue({ body: { operatorConfirmation: "YES" } }), NOW),
+    /exact operator confirmation/,
+  );
+  assert.throws(
+    () => parseOperatorIssue(operatorRetractionIssue({ body: { reason: "wrong" } }), NOW),
+    /between 10 and 500 characters/,
+  );
+});
+
+test("only an immutable manual readiness Echo can be retracted and Web receives the correction command", async () => {
+  const events = [];
+  let outbound = null;
+  const original = {
+    id: "local-radar-operator:301",
+    kind: "operator_retailer_readiness",
+    occurred_at: 1787958000,
+    evidence_json: {
+      schemaVersion: 1,
+      stage: "echo",
+      signalKind: "operator_readiness",
+      availabilityScope: "online_retailer_readiness",
+      availabilityVerified: false,
+      sourceType: "operator_manual",
+      operatorIssue: 301,
+    },
+  };
+  const store = {
+    async getSignalEvent(id) { return id === original.id ? original : null; },
+    async getOperatorEchoRetraction() { return null; },
+    async appendSignalEvent(event) { events.push(event); },
+  };
+  const fetchImpl = async (url, options) => {
+    outbound = { url: String(url), options };
+    return new Response(JSON.stringify({ accepted: true, suppressed: 1, correctionsQueued: 1 }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  const originalUrl = process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+  const originalSecret = process.env.FATEDROP_METRICS_INGEST_SECRET;
+  process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = "https://fatedrop.co.uk";
+  process.env.FATEDROP_METRICS_INGEST_SECRET = "test-secret";
+  try {
+    const result = await processOperatorIssue({ issue: operatorRetractionIssue(), store, fetchImpl, now: NOW });
+    assert.equal(result.status, "retracted");
+    assert.equal(events.length, 1);
+    assert.equal(events[0].kind, "operator_echo_retraction");
+    assert.equal(events[0].evidence.status, "effective");
+    assert.equal(events[0].evidence.targetEventId, original.id);
+    assert.equal(outbound.url, "https://fatedrop.co.uk/api/dashboard/local-radar-operator-alert/retract");
+    const payload = JSON.parse(outbound.options.body);
+    assert.equal(payload.operatorConfirmation, "RETRACT_GLOBAL_ECHO");
+    assert.equal(payload.targetEventId, original.id);
+  } finally {
+    if (originalUrl === undefined) delete process.env.FATEDROP_WEBSITE_SNAPSHOT_URL;
+    else process.env.FATEDROP_WEBSITE_SNAPSHOT_URL = originalUrl;
+    if (originalSecret === undefined) delete process.env.FATEDROP_METRICS_INGEST_SECRET;
+    else process.env.FATEDROP_METRICS_INGEST_SECRET = originalSecret;
+  }
+});
+
+test("automated lifecycle and physical operator evidence cannot enter manual Echo retraction", async () => {
+  for (const original of [
+    { id: "local-radar-operator:301", kind: "operator_retailer_readiness", evidence: { stage: "manifested", signalKind: "operator_readiness", availabilityScope: "online_retailer_readiness", availabilityVerified: true, operatorIssue: 301 } },
+    { id: "local-radar-operator:301", kind: "operator_retailer_readiness", evidence: { stage: "echo", signalKind: "operator_readiness", availabilityScope: "physical_branch", availabilityVerified: false, operatorIssue: 301 } },
+    { id: "local-radar-operator:301", kind: "operator_retailer_readiness", evidence: { stage: "echo", signalKind: "operator_readiness", availabilityScope: "online_retailer_readiness", availabilityVerified: false, sourceType: "official_retailer_page", operatorIssue: 301 } },
+    { id: "local-radar-operator:301", kind: "stock_observation", evidence: { stage: "echo", signalKind: "operator_readiness", availabilityScope: "online_retailer_readiness", availabilityVerified: false, operatorIssue: 301 } },
+  ]) {
+    const store = {
+      async getSignalEvent() { return original; },
+      async getOperatorEchoRetraction() { return null; },
+      async appendSignalEvent() { throw new Error("must not append"); },
+    };
+    await assert.rejects(
+      () => processOperatorIssue({ issue: operatorRetractionIssue(), store, now: NOW }),
+      /Only the original manual operator readiness Echo can be retracted/,
+    );
+  }
 });

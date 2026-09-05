@@ -819,13 +819,20 @@ const ALERT_SQL = `
   LIMIT $3`;
 
 const OPERATOR_READINESS_SQL = `
-  SELECT id,occurred_at,evidence_json
-  FROM fatedrop_signal_events
-  WHERE kind='operator_retailer_readiness'
-    AND ($1::text IS NULL OR id=$1)
-    AND ($2::bigint IS NULL OR occurred_at >= $2)
-    AND ($3::bigint IS NULL OR occurred_at < $3 OR (occurred_at=$3 AND id>COALESCE($4::text,'')))
-  ORDER BY occurred_at DESC,id ASC
+  SELECT readiness.id,readiness.occurred_at,readiness.evidence_json
+  FROM fatedrop_signal_events readiness
+  WHERE readiness.kind='operator_retailer_readiness'
+    AND ($1::text IS NULL OR readiness.id=$1)
+    AND ($2::bigint IS NULL OR readiness.occurred_at >= $2)
+    AND ($3::bigint IS NULL OR readiness.occurred_at < $3 OR (readiness.occurred_at=$3 AND readiness.id>COALESCE($4::text,'')))
+    AND NOT EXISTS (
+      SELECT 1
+      FROM fatedrop_signal_events retraction
+      WHERE retraction.kind='operator_echo_retraction'
+        AND retraction.evidence_json->>'targetEventId'=readiness.id
+        AND retraction.evidence_json->>'status'='effective'
+    )
+  ORDER BY readiness.occurred_at DESC,readiness.id ASC
   LIMIT $5`;
 
 export async function listCanonicalPublicAlerts(store, { id = null, state = null, states = null, since = null, before = null, beforeId = null, currentOnly = false, limit = 50 } = {}) {
