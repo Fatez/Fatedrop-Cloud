@@ -5,6 +5,7 @@ import {
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
 } from './store.mjs';
+import { listScopedVerifiedCardsFromStore } from './fate-price-scope-store.mjs';
 import { getFatePriceFromStore, getFatePriceHistoryFromStore, getFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 
@@ -44,6 +45,8 @@ function safeLimit(url, fallback, max) {
 function isFatePricePath(pathname) {
   return pathname === '/v1/fate-price'
     || pathname === '/v1/fate-price/cards'
+    || pathname === '/v1/fate-price/series'
+    || pathname === '/v1/fate-price/sets'
     || /^\/v1\/fate-price\/cards\/[^/]+$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+\/history$/.test(pathname);
@@ -86,14 +89,38 @@ export async function handleFateTraderCatalogue(req, res, {
   if (isFatePricePath(url.pathname)) {
     try {
       const scope = fatePriceScope(url);
+
+      if (url.pathname === '/v1/fate-price/series') {
+        const rows = await listVerifiedCardSeriesFromStore(store, {
+          tcgCode: (url.searchParams.get('tcg') || 'pokemon').trim(),
+          limit: safeLimit(url, 100, 500),
+        });
+        ok(res, { series: rows, count: rows.length });
+        return true;
+      }
+
+      if (url.pathname === '/v1/fate-price/sets') {
+        const rows = await listVerifiedCardSetsFromStore(store, {
+          tcgCode: (url.searchParams.get('tcg') || 'pokemon').trim(),
+          seriesId: (url.searchParams.get('seriesId') || '').trim() || null,
+          limit: safeLimit(url, 500, 1000),
+        });
+        ok(res, { sets: rows, count: rows.length });
+        return true;
+      }
+
       if (url.pathname === '/v1/fate-price/cards') {
         const query = (url.searchParams.get('q') || '').trim();
+        const tcgCode = (url.searchParams.get('tcg') || '').trim() || null;
+        const seriesId = (url.searchParams.get('seriesId') || '').trim() || null;
         const setId = (url.searchParams.get('setId') || '').trim() || null;
-        if (query.length < 2 && !setId) {
-          errorResponse(res, 400, 'FATE_PRICE_CARD_FILTER_REQUIRED', 'Enter at least two search characters or an exact set identity.');
+        if (query.length < 2 && !tcgCode && !seriesId && !setId) {
+          errorResponse(res, 400, 'FATE_PRICE_CARD_FILTER_REQUIRED', 'Enter at least two search characters or choose a TCG, series, or exact set.');
           return true;
         }
-        const cards = await listVerifiedCardsFromStore(store, {
+        const cards = await listScopedVerifiedCardsFromStore(store, {
+          tcgCode,
+          seriesId,
           setId,
           query: query || null,
           languageCode: url.searchParams.get('language') || null,
