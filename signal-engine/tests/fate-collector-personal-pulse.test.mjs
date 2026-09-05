@@ -50,3 +50,17 @@ test('missing trustworthy history stays building instead of becoming fake zero m
   assert.deepEqual(pulse.periods.d7.risers,[]);
   assert.deepEqual(pulse.periods.d7.decliners,[]);
 });
+
+test('raw personal Pulse never ranks a graded slab using raw FatePrice movement',()=>{
+  const pulse=buildFateCollectorPersonalPulse({
+    collectionItems:[
+      {fateCardId:'card-a',quantity:1,status:'active',copyState:'graded'},
+      {fateCardId:'card-b',quantity:1,status:'active',copyState:'raw'},
+    ],
+    cards:[cards[0],cards[1]],
+    prices:[price('card-a',99,99),price('card-b',4,-8)],
+  });
+  assert.equal(pulse.ownedIdentityCount,1);
+  assert.deepEqual(pulse.periods.d7.risers.map((row)=>row.cardIdentityId),['card-b']);
+  assert.equal(pulse.periods.d7.risers.some((row)=>row.cardIdentityId==='card-a'),false);
+});

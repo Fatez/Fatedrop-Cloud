@@ -97,6 +97,24 @@ test('missing-card output ignores removed items, other sets and unverified catal
   assert.deepEqual(result.missingCards.map((entry) => entry.fateCardId),['a1','a2']);
 });
 
+test('graded pride cards never fill a raw binder slot', () => {
+  const cards = [
+    card({ tcgCode:'pokemon',setId:'set-a',printingId:'a1',id:'a1',number:1,name:'One' }),
+    card({ tcgCode:'pokemon',setId:'set-a',printingId:'a2',id:'a2',number:2,name:'Two' }),
+  ];
+  const result = computeCollectionSetProgress({
+    set:{ id:'set-a',name:'A',tcgCode:'pokemon' },
+    canonicalCards:cards,
+    collectionItems:[
+      { fateCardId:'a1',quantity:1,status:'active',copyState:'graded',grading:{gradingCompany:'PSA',gradeLabel:'10'} },
+      { fateCardId:'a2',quantity:1,status:'active',copyState:'raw' },
+    ],
+  });
+  assert.equal(result.ownedCount,1);
+  assert.equal(result.missingCount,1);
+  assert.deepEqual(result.missingCards.map((entry) => entry.fateCardId),['a1']);
+});
+
 test('fails closed when there is no verified canonical checklist', () => {
   const result = computeCollectionSetProgress({
     set:{ id:'empty',name:'Empty',tcgCode:'lorcana' },

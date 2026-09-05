@@ -23,7 +23,7 @@ export function isFateCollectorsPath(pathname){
 export async function handleFateCollectors(req,res,{store,flags=resolveFateTraderFlags(),resolveUser=resolveFateTraderSessionUser}={}){
   const url=new URL(req.url||'/',`http://${req.headers?.host||'localhost'}`);
   if(!isFateCollectorsPath(url.pathname))return false;
-  if(!flags.enabled||!flags.catalogueEnabled||!flags.collectionEnabled){fail(res,404,'NOT_FOUND','Fate Collectors resource not found.');return true;}
+  if(!flags.enabled||!flags.catalogueEnabled||!flags.collectionEnabled){fail(res,404,'NOT_FOUND','Fate Collections resource not found.');return true;}
   const user=await resolveUser(store,req);
   if(!user?.id){fail(res,401,'AUTH_REQUIRED','A valid FateDrop session is required.');return true;}
 
@@ -44,23 +44,23 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
     }
     if(req.method==='POST'&&url.pathname===PREVIEW_PATH){
       const body=await readBody(req);
-      if(typeof body.csvText!=='string'||!body.csvText.trim()){fail(res,400,'COLLECTR_CSV_REQUIRED','A user-exported Collectr CSV is required.');return true;}
+      if(typeof body.csvText!=='string'||!body.csvText.trim()){fail(res,400,'COLLECTR_CSV_REQUIRED','A user-exported collection CSV is required.');return true;}
       const preview=await previewCollectrImportFromStore(store,{userId:user.id,csvText:body.csvText});
       ok(res,Object.freeze({contractVersion:1,mode:'preview_only',source:Object.freeze({name:'collectr',kind:'user_supplied_export',affiliation:'none'}),writesPerformed:false,requiresUserConfirmation:true,confirmationToken:preview.confirmationToken,preview}));
       return true;
     }
     if(req.method==='POST'&&url.pathname===CONFIRM_PATH){
-      if(!flags.collectrImportWriteEnabled){fail(res,404,'NOT_FOUND','Collectr import confirmation is not enabled.');return true;}
+      if(!flags.collectrImportWriteEnabled){fail(res,404,'NOT_FOUND','Collection import confirmation is not enabled.');return true;}
       const body=await readBody(req);
-      if(typeof body.csvText!=='string'||!body.csvText.trim()){fail(res,400,'COLLECTR_CSV_REQUIRED','A user-exported Collectr CSV is required.');return true;}
-      if(typeof body.confirmationToken!=='string'||!body.confirmationToken.trim()){fail(res,400,'COLLECTR_CONFIRMATION_TOKEN_REQUIRED','Preview this Collectr CSV before confirming it.');return true;}
+      if(typeof body.csvText!=='string'||!body.csvText.trim()){fail(res,400,'COLLECTR_CSV_REQUIRED','A user-exported collection CSV is required.');return true;}
+      if(typeof body.confirmationToken!=='string'||!body.confirmationToken.trim()){fail(res,400,'COLLECTR_CONFIRMATION_TOKEN_REQUIRED','Preview this collection CSV before confirming it.');return true;}
       if(body.confirmed!==true){fail(res,400,'IMPORT_CONFIRMATION_REQUIRED','Explicit user confirmation is required before collection ownership is changed.');return true;}
       const result=await confirmCollectrImportFromStore(store,{userId:user.id,csvText:body.csvText,confirmationToken:body.confirmationToken,confirmed:true});
       ok(res,result);return true;
     }
-    fail(res,405,'METHOD_NOT_ALLOWED','Method not allowed for this Fate Collectors resource.');return true;
+    fail(res,405,'METHOD_NOT_ALLOWED','Method not allowed for this Fate Collections resource.');return true;
   }catch(error){
-    if(error?.message==='REQUEST_TOO_LARGE'){fail(res,413,'COLLECTR_CSV_TOO_LARGE','The Collectr export exceeds the 2 MB import limit.');return true;}
+    if(error?.message==='REQUEST_TOO_LARGE'){fail(res,413,'COLLECTR_CSV_TOO_LARGE','The collection export exceeds the 2 MB import limit.');return true;}
     if(error instanceof SyntaxError){fail(res,400,'INVALID_JSON','Request body must be valid JSON.');return true;}
     if(error?.code==='IMPORT_PREVIEW_CHANGED'||error?.code==='IMPORT_STATE_CHANGED'||error?.code==='IMPORT_PREVIEW_TRUNCATED'){fail(res,409,error.code,error.message);return true;}
     if(error?.code==='IMPORT_CONFIRMATION_REQUIRED'){fail(res,400,error.code,error.message);return true;}

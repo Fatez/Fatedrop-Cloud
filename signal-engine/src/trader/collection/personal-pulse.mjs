@@ -7,6 +7,7 @@ function activeQuantities(collectionItems){
   const quantities=new Map();
   for(const item of Array.isArray(collectionItems)?collectionItems:[]){
     if(!item||item.status==='removed')continue;
+    if(String(item.copyState||'raw').toLowerCase()!=='raw')continue;
     const id=text(item.fateCardId);
     const quantity=Number(item.quantity??1);
     if(!id||!Number.isFinite(quantity)||quantity<=0)continue;
