@@ -6,6 +6,7 @@ export function resolveFateTraderFlags(source = process.env) {
   const master = enabled(source.FATE_TRADER_ENABLED);
   const catalogue = master && enabled(source.FATE_TRADER_CATALOGUE_ENABLED);
   const collection = catalogue && enabled(source.FATE_TRADER_COLLECTION_ENABLED);
+  const collectrImportWrite = collection && enabled(source.FATEDROP_COLLECTR_IMPORT_WRITE_ENABLED);
   const binder = collection && enabled(source.FATE_TRADER_BINDER_ENABLED);
   const network = binder && enabled(source.FATE_TRADER_NETWORK_ENABLED);
   const matching = network && enabled(source.FATE_TRADER_MATCHING_ENABLED);
@@ -18,6 +19,7 @@ export function resolveFateTraderFlags(source = process.env) {
     enabled: master,
     catalogueEnabled: catalogue,
     collectionEnabled: collection,
+    collectrImportWriteEnabled: collectrImportWrite,
     binderEnabled: binder,
     networkEnabled: network,
     matchingEnabled: matching,
