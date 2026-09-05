@@ -1,5 +1,6 @@
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import { resolveFateTraderSessionUser } from '../auth.mjs';
+import { listVerifiedCardsByIdsFromStore } from '../catalogue/store.mjs';
 import {
   addCollectionMediaReference,
   createCollectionItemInStore,
@@ -55,7 +56,13 @@ export async function handleFateTraderCollection(req,res,{
         listCollectionItemsFromStore(store,{userId:user.id,limit:Math.min(2000,Math.max(1,Number.parseInt(url.searchParams.get('limit')||'500',10)||500))}),
         listExactWantsFromStore(store,{userId:user.id,limit:1000}),
       ]);
-      ok(res,{items,wants,summary:{ownedLots:items.length,totalCopies:items.reduce((sum,item)=>sum+item.quantity,0),tradeableCopies:items.reduce((sum,item)=>sum+item.tradeQuantity,0),wantedCards:wants.length}});return true;
+      const cards=await listVerifiedCardsByIdsFromStore(store,items.map((item)=>item.fateCardId),{limit:2000});
+      const cardsById=new Map(cards.map((card)=>[card.fateCardId,card]));
+      const enrichedItems=items.map((item)=>({
+        ...item,
+        card:cardsById.get(item.fateCardId)??null,
+      }));
+      ok(res,{items:enrichedItems,wants,summary:{ownedLots:items.length,totalCopies:items.reduce((sum,item)=>sum+item.quantity,0),tradeableCopies:items.reduce((sum,item)=>sum+item.tradeQuantity,0),wantedCards:wants.length}});return true;
     }
 
     if(req.method==='POST'&&url.pathname==='/v1/collection/items'){
