@@ -1,0 +1,103 @@
+name: OPS Capture Pokemon 151 Live Cardmarket Price Slice
+
+on:
+  push:
+    branches:
+      - ops/fateprice-151-full-live-price-2026-09-05
+    paths:
+      - '.github/workflows/ops-fateprice-151-live-price.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  capture-151-price-slice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out FateDrop repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture all 207 mapped Pokemon 151 main products
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+
+          const fetchedAt = Date.now();
+          const source = await fetchCardmarketPokemonPriceGuide({ fetchedAt });
+          const firstProductId = 733596;
+          const lastProductId = 733802;
+          const expected = lastProductId - firstProductId + 1;
+          const rows = source.snapshot.priceGuides
+            .filter((row) => Number(row.idProduct) >= firstProductId && Number(row.idProduct) <= lastProductId)
+            .sort((a, b) => Number(a.idProduct) - Number(b.idProduct));
+          const ids = new Set(rows.map((row) => Number(row.idProduct)));
+          const missing = [];
+          for (let id = firstProductId; id <= lastProductId; id += 1) if (!ids.has(id)) missing.push(id);
+          if (rows.length !== expected || missing.length) {
+            throw new Error(`151 live price slice incomplete: rows=${rows.length}/${expected}; missing=${missing.join(',')}`);
+          }
+
+          const report = {
+            generatedAt: new Date(fetchedAt).toISOString(),
+            mode: 'read_only_price_slice',
+            writesPerformed: false,
+            set: {
+              name: '151',
+              cardmarketExpansionId: 5402,
+              productIdRange: [firstProductId, lastProductId],
+              expectedProducts: expected,
+            },
+            source: {
+              url: source.artifact.url,
+              fetchedAt: source.artifact.fetchedAt,
+              sha256: source.artifact.sha256,
+              version: Number(source.artifact.payload.version),
+              sourceEffectiveAt: source.snapshot.sourceEffectiveAt,
+              currencyCode: source.snapshot.currencyCode,
+              totalGuideRows: source.snapshot.priceGuides.length,
+            },
+            priceGuides: rows,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/pokemon-151-live-cardmarket-price.json', JSON.stringify(report));
+          console.log(`Captured ${rows.length}/${expected} exact 151 main-product price rows.`);
+          NODE
+
+      - name: Summarise live price slice
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-151-live-cardmarket-price.json','utf8'));
+          console.log('# Pokémon 151 live Cardmarket price slice');
+          console.log('');
+          console.log(`- Exact main products: **${report.priceGuides.length}/${report.set.expectedProducts}**`);
+          console.log(`- Source market day: **${new Date(report.source.sourceEffectiveAt).toISOString()}**`);
+          console.log(`- Currency: **${report.source.currencyCode}**`);
+          console.log(`- Full guide rows: **${report.source.totalGuideRows}**`);
+          console.log(`- Writes performed: **${report.writesPerformed}**`);
+          NODE
+
+      - name: Upload exact 151 live price slice
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-151-live-cardmarket-price
+          path: ${{ runner.temp }}/pokemon-151-live-cardmarket-price.json
+          if-no-files-found: error
+          retention-days: 7
