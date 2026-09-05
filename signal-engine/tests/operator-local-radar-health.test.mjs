@@ -85,6 +85,7 @@ test("public Signal summary exposes only aggregate operator health", () => {
   assert.match(publicContract, /&& health\.githubAuthenticated === true/);
   assert.match(publicContract, /issuesSeen: safeCount\(health\.issuesSeen\)/);
   assert.match(publicContract, /published: safeCount\(health\.published\)/);
+  assert.match(publicContract, /retracted: safeCount\(health\.retracted\)/);
   assert.match(publicContract, /held: safeCount\(health\.held\)/);
   assert.match(publicContract, /retry: safeCount\(health\.retry\)/);
   assert.match(publicContract, /invalid: safeCount\(health\.invalid\)/);

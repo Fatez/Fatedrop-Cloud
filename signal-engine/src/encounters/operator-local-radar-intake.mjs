@@ -13,6 +13,7 @@ const OPERATOR_REPOSITORY = "Fatez/Fatedrop-Cloud";
 const OPERATOR_LOGIN = "Fatez";
 const ISSUE_PREFIX = "[FATEDROP LOCAL RADAR]";
 const ECHO_ISSUE_PREFIX = "[FATEDROP ECHO]";
+const ECHO_RETRACTION_ISSUE_PREFIX = "[FATEDROP ECHO RETRACTION]";
 const TEST_ISSUE_TITLE = "[FATEDROP LOCAL RADAR] TEST ONLY";
 const POLL_INTERVAL_MS = 120_000;
 const POLL_START_DELAY_MS = 20_000;
@@ -125,7 +126,7 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   if (issue.pull_request) throw new Error("Pull requests are not operator alerts");
   if (issue.state !== "open") throw new Error("Operator issue must be open");
   if (issue.user?.login !== OPERATOR_LOGIN) throw new Error("Operator issue author is not authorised");
-  if (![ISSUE_PREFIX, ECHO_ISSUE_PREFIX].some((prefix) => String(issue.title || "").startsWith(prefix))) throw new Error("Operator issue prefix is invalid");
+  if (![ISSUE_PREFIX, ECHO_ISSUE_PREFIX, ECHO_RETRACTION_ISSUE_PREFIX].some((prefix) => String(issue.title || "").startsWith(prefix))) throw new Error("Operator issue prefix is invalid");
 
   let payload;
   try {
@@ -134,7 +135,37 @@ export function parseOperatorIssue(issue, now = Date.now()) {
     throw new Error("Operator issue body must be raw JSON");
   }
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Operator payload must be an object");
-  if (Number(payload.schemaVersion) !== 1) throw new Error("Operator payload schemaVersion must be 1");
+  const schemaVersion = Number(payload.schemaVersion);
+  if (![1, 2].includes(schemaVersion)) throw new Error("Operator payload schemaVersion must be 1 or 2");
+  const retractionIssue = String(issue.title || "").startsWith(ECHO_RETRACTION_ISSUE_PREFIX);
+  const issueNumber = Number(issue.number);
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error("Operator issue number is invalid");
+
+  if (retractionIssue) {
+    if (schemaVersion !== 2 || payload.operation !== "retract" || payload.operatorConfirmation !== "RETRACT_GLOBAL_ECHO") {
+      throw new Error("Echo retraction requires schemaVersion 2 and the exact operator confirmation");
+    }
+    const targetOperatorIssue = Number(payload.targetOperatorIssue);
+    const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+    const requestedAt = iso(payload.requestedAt, "requestedAt") || iso(issue.created_at, "issue created_at") || new Date(now).toISOString();
+    if (!Number.isInteger(targetOperatorIssue) || targetOperatorIssue <= 0) throw new Error("targetOperatorIssue must identify the original manual Echo issue");
+    if (reason.length < 10 || reason.length > 500) throw new Error("Echo retraction reason must contain between 10 and 500 characters");
+    return {
+      operation: "retract",
+      issueNumber,
+      eventId: `local-radar-operator-retraction:${issueNumber}`,
+      targetOperatorIssue,
+      targetEventId: `local-radar-operator:${targetOperatorIssue}`,
+      reason,
+      requestedAt,
+      operatorLogin: OPERATOR_LOGIN,
+      commandPayload: payload,
+    };
+  }
+
+  if (schemaVersion === 2 && (payload.operation !== "publish" || payload.operatorConfirmation !== "SEND_GLOBAL_ECHO")) {
+    throw new Error("SchemaVersion 2 Echo publication requires the exact operator confirmation");
+  }
 
   const testOnly = payload.testOnly === true;
   if (testOnly && String(issue.title || "").trim() !== TEST_ISSUE_TITLE) {
@@ -189,10 +220,9 @@ export function parseOperatorIssue(issue, now = Date.now()) {
   const physicalEvidenceState = availabilityScope === "physical_branch"
     ? requestedPhysicalState || (OFFICIAL_PREPARATION_SOURCES.has(sourceType) ? "expected" : "reported")
     : null;
-  const issueNumber = Number(issue.number);
-  if (!Number.isInteger(issueNumber) || issueNumber <= 0) throw new Error("Operator issue number is invalid");
-
   return {
+    operation: "publish",
+    commandPayload: payload,
     issueNumber,
     testOnly,
     eventId: testOnly ? `local-radar-operator-test:${issueNumber}` : `local-radar-operator:${issueNumber}`,
@@ -339,8 +369,122 @@ function operatorReadinessEvent(parsed) {
       confidence: parsed.entry.confidence,
       evidenceBasis: parsed.entry.evidenceBasis,
       note: parsed.entry.note,
+      operatorCommand: parsed.commandPayload,
     },
   };
+}
+
+function operatorRetractionEvent(parsed, status) {
+  return {
+    id: parsed.eventId,
+    kind: "operator_echo_retraction",
+    occurredAt: Math.floor(Date.parse(parsed.requestedAt) / 1000),
+    evidence: {
+      schemaVersion: 2,
+      operation: "retract",
+      status,
+      targetEventId: parsed.targetEventId,
+      targetOperatorIssue: parsed.targetOperatorIssue,
+      retractionIssue: parsed.issueNumber,
+      reason: parsed.reason,
+      operatorLogin: parsed.operatorLogin,
+      requestedAt: parsed.requestedAt,
+      operatorCommand: parsed.commandPayload,
+    },
+  };
+}
+
+function jsonObject(value) {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function querySignalEvent(store, eventId) {
+  if (typeof store?.getSignalEvent === "function") return store.getSignalEvent(eventId);
+  if (typeof store?.pool !== "function") throw new Error("Operator Echo event lookup is unavailable");
+  const pool = await store.pool();
+  const { rows } = await pool.query(
+    `SELECT id,kind,occurred_at,evidence_json
+     FROM fatedrop_signal_events
+     WHERE id=$1
+     LIMIT 1`,
+    [eventId],
+  );
+  return rows[0] || null;
+}
+
+async function queryEffectiveRetraction(store, targetEventId) {
+  if (typeof store?.getOperatorEchoRetraction === "function") return store.getOperatorEchoRetraction(targetEventId);
+  // Lightweight in-memory stores used outside hosted PostgreSQL cannot contain
+  // durable operator-retraction rows unless they expose the explicit lookup.
+  if (typeof store?.appendSignalEvent === "function" && typeof store?.pool !== "function") return null;
+  if (typeof store?.pool !== "function") throw new Error("Operator Echo retraction lookup is unavailable");
+  const pool = await store.pool();
+  const { rows } = await pool.query(
+    `SELECT id,kind,occurred_at,evidence_json
+     FROM fatedrop_signal_events
+     WHERE kind='operator_echo_retraction'
+       AND evidence_json->>'targetEventId'=$1
+       AND evidence_json->>'status'='effective'
+     ORDER BY occurred_at ASC,id ASC
+     LIMIT 1`,
+    [targetEventId],
+  );
+  return rows[0] || null;
+}
+
+function assertRetractableOperatorEcho(row, parsed) {
+  const evidence = jsonObject(row?.evidence_json ?? row?.evidence);
+  if (!row
+    || row.id !== parsed.targetEventId
+    || row.kind !== "operator_retailer_readiness"
+    || evidence.stage !== "echo"
+    || evidence.signalKind !== "operator_readiness"
+    || evidence.availabilityScope !== "online_retailer_readiness"
+    || evidence.availabilityVerified !== false
+    || evidence.sourceType !== "operator_manual"
+    || Number(evidence.operatorIssue) !== parsed.targetOperatorIssue) {
+    throw new Error("Only the original manual operator readiness Echo can be retracted");
+  }
+  return evidence;
+}
+
+async function appendSignalEvent(store, event) {
+  if (typeof store?.appendSignalEvent === "function") {
+    await store.appendSignalEvent(event);
+    return { inserted: true, event };
+  }
+  if (typeof store?.pool !== "function") throw new Error("Operator Echo audit persistence is unavailable");
+  const pool = await store.pool();
+  const result = await pool.query(
+    `INSERT INTO fatedrop_signal_events
+      (id,kind,product_identity_id,offer_id,retailer_id,location_id,occurred_at,evidence_json)
+     VALUES ($1,$2,NULL,NULL,NULL,NULL,$3,$4::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
+    [event.id, event.kind, event.occurredAt, JSON.stringify(event.evidence)],
+  );
+  return { inserted: result.rowCount === 1, event };
+}
+
+async function persistOperatorRetractionEvent(store, parsed) {
+  if (!store) throw new Error("Echo retraction requires the canonical store");
+  const original = await querySignalEvent(store, parsed.targetEventId);
+  if (!original) {
+    const error = new Error("Original manual operator Echo has not been persisted yet");
+    error.code = "operator_echo_target_not_found";
+    throw error;
+  }
+  assertRetractableOperatorEcho(original, parsed);
+  const existing = await queryEffectiveRetraction(store, parsed.targetEventId);
+  const status = existing ? "already_retracted" : "effective";
+  const persisted = await appendSignalEvent(store, operatorRetractionEvent(parsed, status));
+  return { persisted: true, inserted: persisted.inserted, status, event: persisted.event, original };
 }
 
 async function persistOperatorReadinessEvent(store, parsed) {
@@ -360,6 +504,33 @@ async function persistOperatorReadinessEvent(store, parsed) {
     [event.id, event.kind, event.occurredAt, JSON.stringify(event.evidence)],
   );
   return { persisted: true, inserted: result.rowCount === 1, event };
+}
+
+export async function publishOperatorRetraction(retraction, fetchImpl = fetch) {
+  const { snapshotUrl, secret, configured } = operatorLocalRadarBridgeConfig();
+  if (!configured) return { published: false, reason: "web_bridge_not_configured" };
+  let target;
+  try {
+    target = new URL("/api/dashboard/local-radar-operator-alert/retract", snapshotUrl).toString();
+  } catch {
+    return { published: false, reason: "web_bridge_url_invalid" };
+  }
+  try {
+    const response = await fetchImpl(target, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(retraction),
+      signal: AbortSignal.timeout(8_000),
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) return { published: false, reason: "web_bridge_rejected", status: response.status, result };
+    return { published: true, status: response.status, result };
+  } catch (error) {
+    return { published: false, reason: "web_bridge_failed", error: String(error?.message || error) };
+  }
 }
 
 export async function publishOperatorNotification(notification, fetchImpl = fetch) {
@@ -391,8 +562,44 @@ export async function publishOperatorNotification(notification, fetchImpl = fetc
 
 export async function processOperatorIssue({ issue, store, fetchImpl = fetch, now = Date.now() }) {
   const parsed = parseOperatorIssue(issue, now);
+  if (parsed.operation === "retract") {
+    const audit = await persistOperatorRetractionEvent(store, parsed);
+    const push = await publishOperatorRetraction({
+      schemaVersion: 2,
+      operation: "retract",
+      operatorConfirmation: "RETRACT_GLOBAL_ECHO",
+      eventId: parsed.eventId,
+      targetEventId: parsed.targetEventId,
+      targetOperatorIssue: parsed.targetOperatorIssue,
+      retractionIssue: parsed.issueNumber,
+      reason: parsed.reason,
+      operatorLogin: parsed.operatorLogin,
+      requestedAt: parsed.requestedAt,
+    }, fetchImpl);
+    return {
+      status: push.published ? "retracted" : "retry",
+      eventId: parsed.eventId,
+      targetEventId: parsed.targetEventId,
+      audit,
+      push,
+      truthRule: "Retraction appends operator audit only. It cannot alter stock truth or create Manifested or Vanished.",
+    };
+  }
   if (parsed.availabilityScope === "online_retailer_readiness") {
     const readinessEvent = await persistOperatorReadinessEvent(store, parsed);
+    const retraction = await queryEffectiveRetraction(store, parsed.eventId);
+    if (retraction) {
+      return {
+        status: "retracted",
+        testOnly: parsed.testOnly,
+        eventId: parsed.eventId,
+        matchedBranches: 0,
+        expectedBranches: 0,
+        readinessEvent,
+        push: { published: false, reason: "operator_echo_retracted_before_send" },
+        truthRule: "The immutable readiness event remains audited, but its effective retraction prevents active delivery.",
+      };
+    }
     const notification = buildOperatorNotification(parsed, { matchedBranches: 0, unmatchedTargets: [] });
     const push = await publishOperatorNotification(notification, fetchImpl);
     return {
@@ -475,7 +682,9 @@ export async function listOperatorIssues(fetchImpl = fetch, config = operatorGit
     throw error;
   }
   return Array.isArray(issues)
-    ? issues.filter((issue) => !issue?.pull_request && issue?.state === "open" && issue?.user?.login === OPERATOR_LOGIN && [ISSUE_PREFIX, ECHO_ISSUE_PREFIX].some((prefix) => String(issue?.title || "").startsWith(prefix)))
+    ? issues
+      .filter((issue) => !issue?.pull_request && issue?.state === "open" && issue?.user?.login === OPERATOR_LOGIN && [ISSUE_PREFIX, ECHO_ISSUE_PREFIX, ECHO_RETRACTION_ISSUE_PREFIX].some((prefix) => String(issue?.title || "").startsWith(prefix)))
+      .sort((left, right) => Number(left?.number || 0) - Number(right?.number || 0))
     : [];
 }
 
@@ -489,6 +698,7 @@ const operatorHealth = {
   lastStatus: "not_started",
   issuesSeen: 0,
   published: 0,
+  retracted: 0,
   held: 0,
   retry: 0,
   invalid: 0,
@@ -525,17 +735,19 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
       try {
         const result = await processOperatorIssue({ issue, store, fetchImpl, now });
         results.push({ issue: issue.number, ...result });
-        if (["published", "ingested"].includes(result.status)) processedFingerprints.set(issue.number, fingerprint);
+        if (["published", "ingested", "retracted"].includes(result.status)) processedFingerprints.set(issue.number, fingerprint);
       } catch (error) {
         const reason = String(error?.message || error);
-        results.push({ issue: issue.number, status: "invalid", reason });
-        processedFingerprints.set(issue.number, fingerprint);
+        const retry = error?.code === "operator_echo_target_not_found";
+        results.push({ issue: issue.number, status: retry ? "retry" : "invalid", reason });
+        if (!retry) processedFingerprints.set(issue.number, fingerprint);
       }
     }
     operatorHealth.lastPollCompletedAt = Math.floor(now / 1000);
     operatorHealth.lastStatus = bridge.reachable ? "ok" : "bridge_unavailable";
     operatorHealth.issuesSeen = issues.length;
     operatorHealth.published = results.filter((result) => result.status === "published").length;
+    operatorHealth.retracted = results.filter((result) => result.status === "retracted").length;
     operatorHealth.held = results.filter((result) => result.status === "held").length;
     operatorHealth.retry = results.filter((result) => result.status === "retry").length;
     operatorHealth.invalid = results.filter((result) => result.status === "invalid").length;
@@ -547,6 +759,7 @@ export async function pollOperatorIssues({ store, fetchImpl = fetch, now = Date.
     operatorHealth.lastStatus = "failed";
     operatorHealth.issuesSeen = 0;
     operatorHealth.published = 0;
+    operatorHealth.retracted = 0;
     operatorHealth.held = 0;
     operatorHealth.retry = 0;
     operatorHealth.invalid = 0;
