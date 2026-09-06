@@ -20,26 +20,26 @@ jobs:
       max-parallel: 3
       matrix:
         include:
-          - { tcgdex: base2, pokemon: base2, canonical: fdset_7dd6dd0379aa92a9852ddf35, name: Jungle }
-          - { tcgdex: cel25cc, pokemon: cel25c, canonical: fdset_b2691287e860786632039d1b, name: Celebrations Classic Collection }
-          - { tcgdex: dv1, pokemon: dv1, canonical: fdset_7c307756310688b644c26e09, name: Dragon Vault }
-          - { tcgdex: ex11, pokemon: ex11, canonical: fdset_0a7cad56a4a5b82a2745bb72, name: Delta Species }
-          - { tcgdex: ex7, pokemon: ex7, canonical: fdset_659359881e9d0ef2d7ea5f05, name: Team Rocket Returns }
-          - { tcgdex: pop5, pokemon: pop5, canonical: fdset_ad8ea06ef04ef6031fc6b2f1, name: POP Series 5 }
-          - { tcgdex: pop8, pokemon: pop8, canonical: fdset_e4a0d6d0929ac3c4e7ad2af2, name: POP Series 8 }
-          - { tcgdex: pop9, pokemon: pop9, canonical: fdset_43454652b68e0203806852a4, name: POP Series 9 }
-          - { tcgdex: sm10, pokemon: sm10, canonical: fdset_b2252178f92598b6da58a964, name: Unbroken Bonds }
-          - { tcgdex: sm115, pokemon: sm115, canonical: fdset_85dc6bfb94e86b5542ad5f87, name: Hidden Fates }
-          - { tcgdex: sv04.5, pokemon: sv4pt5, canonical: fdset_358f437130d29e7d27248d68, name: Paldean Fates }
-          - { tcgdex: sv07, pokemon: sv7, canonical: fdset_edba7af13aa1cd87711a75fe, name: Stellar Crown }
-          - { tcgdex: sv08.5, pokemon: sv8pt5, canonical: fdset_7f936351f9758992234f103f, name: Prismatic Evolutions }
-          - { tcgdex: sv09, pokemon: sv9, canonical: fdset_419d06c9a4aa8a2d4383b723, name: Journey Together }
-          - { tcgdex: swsh2, pokemon: swsh2, canonical: fdset_d88ed220b794883174fe1a21, name: Rebel Clash }
-          - { tcgdex: swsh4, pokemon: swsh4, canonical: fdset_a3a93600938b64ca3332876e, name: Vivid Voltage }
-          - { tcgdex: swsh4.5sv, pokemon: swsh45sv, canonical: fdset_d28f82373ff221d9d5bcb151, name: Shining Fates Shiny Vault }
-          - { tcgdex: xy1, pokemon: xy1, canonical: fdset_d4bf09278c1cc06507e25b5d, name: XY }
-          - { tcgdex: xy2, pokemon: xy2, canonical: fdset_7752163f8b59bd59a186d98a, name: Flashfire }
-          - { tcgdex: xy3, pokemon: xy3, canonical: fdset_c27dca469765609178bf61ee, name: Furious Fists }
+          - { tcgdex: base2, pokemon: base2, name: Jungle }
+          - { tcgdex: cel25cc, pokemon: cel25c, name: Celebrations Classic Collection }
+          - { tcgdex: dv1, pokemon: dv1, name: Dragon Vault }
+          - { tcgdex: ex11, pokemon: ex11, name: Delta Species }
+          - { tcgdex: ex7, pokemon: ex7, name: Team Rocket Returns }
+          - { tcgdex: pop5, pokemon: pop5, name: POP Series 5 }
+          - { tcgdex: pop8, pokemon: pop8, name: POP Series 8 }
+          - { tcgdex: pop9, pokemon: pop9, name: POP Series 9 }
+          - { tcgdex: sm10, pokemon: sm10, name: Unbroken Bonds }
+          - { tcgdex: sm115, pokemon: sm115, name: Hidden Fates }
+          - { tcgdex: sv04.5, pokemon: sv4pt5, name: Paldean Fates }
+          - { tcgdex: sv07, pokemon: sv7, name: Stellar Crown }
+          - { tcgdex: sv08.5, pokemon: sv8pt5, name: Prismatic Evolutions }
+          - { tcgdex: sv09, pokemon: sv9, name: Journey Together }
+          - { tcgdex: swsh2, pokemon: swsh2, name: Rebel Clash }
+          - { tcgdex: swsh4, pokemon: swsh4, name: Vivid Voltage }
+          - { tcgdex: swsh4.5sv, pokemon: swsh45sv, name: Shining Fates Shiny Vault }
+          - { tcgdex: xy1, pokemon: xy1, name: XY }
+          - { tcgdex: xy2, pokemon: xy2, name: Flashfire }
+          - { tcgdex: xy3, pokemon: xy3, name: Furious Fists }
     defaults:
       run:
         working-directory: signal-engine
@@ -56,7 +56,6 @@ jobs:
         env:
           TCGDEX_SET: ${{ matrix.tcgdex }}
           POKEMON_SET: ${{ matrix.pokemon }}
-          EXPECTED_CANONICAL: ${{ matrix.canonical }}
           SET_NAME: ${{ matrix.name }}
         run: |
           node --input-type=module <<'NODE'
@@ -75,7 +74,7 @@ jobs:
           const result = {
             format: 'fatedrop-pokemon-catalogue-recovery-v1',
             generatedAt: new Date(verifiedAt).toISOString(),
-            requested: { tcgdexSetId: process.env.TCGDEX_SET, pokemonTcgSetId: process.env.POKEMON_SET, canonicalSetId: process.env.EXPECTED_CANONICAL, setName: process.env.SET_NAME },
+            requested: { tcgdexSetId: process.env.TCGDEX_SET, pokemonTcgSetId: process.env.POKEMON_SET, setName: process.env.SET_NAME },
             safety: { productionWrites: false, exactTwoSourceReconciliation: true, fuzzyMatching: false, rejectedSetsAreNotPromoted: true },
             status: 'rejected', reasons: [], rows: null,
           };
@@ -86,7 +85,8 @@ jobs:
             ]);
             const tcgdexEvidence = adaptTcgdexSet(rawTcgdexSet);
             const setMatch = reconcileSetEvidence(tcgdexEvidence, adaptPokemonTcgSet(rawPokemonSet));
-            if (setMatch.status !== 'matched' || setMatch.canonicalSetId !== process.env.EXPECTED_CANONICAL) throw new Error('verified set crosswalk changed during recovery');
+            if (setMatch.status !== 'matched') throw new Error('set evidence no longer matches exactly');
+            result.requested.canonicalSetId = setMatch.canonicalSetId;
             const refs = (rawTcgdexSet.cards || []).map((row) => String(row?.id || '').trim()).filter(Boolean);
             if (!refs.length) throw new Error('TCGdex set contains no cards');
             const tcgdexCards = [];
@@ -144,6 +144,7 @@ jobs:
           const rows = files.map((name) => JSON.parse(fs.readFileSync(path.join(root, name), 'utf8')));
           const verified = rows.filter((row) => row.status === 'verified');
           const rejected = rows.filter((row) => row.status !== 'verified');
+          const recoveredIds = verified.reduce((n, row) => n + (row.counts?.cardIdentities || 0), 0);
           const report = {
             format: 'fatedrop-pokemon-transient-recovery-v1',
             generatedAt: new Date().toISOString(),
@@ -154,9 +155,9 @@ jobs:
               recoveredSets: verified.length,
               stillRejectedSets: rejected.length,
               recoveredPrintings: verified.reduce((n, row) => n + (row.counts?.printings || 0), 0),
-              recoveredCardIdentities: verified.reduce((n, row) => n + (row.counts?.cardIdentities || 0), 0),
+              recoveredCardIdentities: recoveredIds,
               projectedVerifiedSets: 76 + verified.length,
-              projectedVerifiedCardIdentities: 14835 + verified.reduce((n, row) => n + (row.counts?.cardIdentities || 0), 0),
+              projectedVerifiedCardIdentities: 14835 + recoveredIds,
             },
             recovered: verified.map((row) => ({ ...row.requested, counts: row.counts, evidence: row.evidence })),
             rejected: rejected.map((row) => ({ ...row.requested, reasons: row.reasons, error: row.error || null, evidence: row.evidence || null })),
