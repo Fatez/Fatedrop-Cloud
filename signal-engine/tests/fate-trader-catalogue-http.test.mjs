@@ -171,3 +171,26 @@ test('series and set routes expose only the canonical browse hierarchy', async (
   );
   assert.equal(setsRes.body.data.sets[0].name, 'Example Set');
 });
+
+test('FatePrice set discovery and complete set-card browsing stay available while Trader is dark', async () => {
+  const setsRes = responseRecorder();
+  await handleFateTraderCatalogue(
+    { method: 'GET', url: '/v1/fate-price/sets?tcg=pokemon&q=example', headers: { host: 'localhost' } },
+    setsRes,
+    { store: catalogueStore(), flags: resolveFateTraderFlags({}) },
+  );
+  assert.equal(setsRes.status, 200);
+  assert.equal(setsRes.body.data.count, 1);
+  assert.equal(setsRes.body.data.sets[0].id, 'fdset_1');
+
+  const cardsRes = responseRecorder();
+  await handleFateTraderCatalogue(
+    { method: 'GET', url: '/v1/fate-price/sets/fdset_1/cards?language=en&variant=standard', headers: { host: 'localhost' } },
+    cardsRes,
+    { store: catalogueStore(), flags: resolveFateTraderFlags({}) },
+  );
+  assert.equal(cardsRes.status, 200);
+  assert.equal(cardsRes.body.data.set.name, 'Example Set');
+  assert.equal(cardsRes.body.data.count, 1);
+  assert.equal(cardsRes.body.data.cards[0].fateCardId, 'fdcard_verified');
+});

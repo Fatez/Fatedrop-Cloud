@@ -1,11 +1,14 @@
 import { resolveFateTraderSessionUser } from '../auth.mjs';
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import { getFateCollectorSummaryFromStore } from './collector-summary-service.mjs';
+import { getFateCollectorIntelligenceFromStore } from './collection-intelligence-service.mjs';
 import { confirmCollectrImportFromStore } from './import/confirmation.mjs';
 import { previewCollectrImportFromStore } from './import/preview.mjs';
 import { getCollectionSetProgressFromStore } from './progress-service.mjs';
+import { setCollectionSetBinderTrackedInStore } from './set-binder-store.mjs';
 
 const SUMMARY_PATH='/v1/collectors/summary';
+const INTELLIGENCE_PATH='/v1/collectors/intelligence';
 const PREVIEW_PATH='/v1/collectors/import/collectr/preview';
 const CONFIRM_PATH='/v1/collectors/import/collectr/confirm';
 
@@ -15,9 +18,10 @@ function ok(res,data,status=200){json(res,status,{ok:true,data,meta:meta()});}
 function fail(res,status,code,message,{retryable=false,details={}}={}){json(res,status,{ok:false,error:{code,message,retryable,details},meta:meta()});}
 async function readBody(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>2_000_000)throw new Error('REQUEST_TOO_LARGE');}return raw?JSON.parse(raw):{};}
 function progressSetId(pathname){return pathname.match(/^\/v1\/collectors\/sets\/([^/]+)\/progress$/)?.[1]||null;}
+function binderSetId(pathname){return pathname.match(/^\/v1\/collectors\/binders\/([^/]+)$/)?.[1]||null;}
 
 export function isFateCollectorsPath(pathname){
-  return pathname===SUMMARY_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+\/progress$/.test(pathname);
+  return pathname===SUMMARY_PATH||pathname===INTELLIGENCE_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+\/progress$/.test(pathname)||/^\/v1\/collectors\/binders\/[^/]+$/.test(pathname);
 }
 
 export async function handleFateCollectors(req,res,{store,flags=resolveFateTraderFlags(),resolveUser=resolveFateTraderSessionUser}={}){
@@ -35,12 +39,23 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
       const summary=await getFateCollectorSummaryFromStore(store,{userId:user.id,currencyCode,preferredLanguageCode,preferredVariantCode});
       ok(res,summary);return true;
     }
+    if(req.method==='GET'&&url.pathname===INTELLIGENCE_PATH){
+      const currencyCode=String(url.searchParams.get('currency')||'EUR').trim().toUpperCase();
+      const intelligence=await getFateCollectorIntelligenceFromStore(store,{userId:user.id,currencyCode});
+      ok(res,intelligence);return true;
+    }
     const setId=progressSetId(url.pathname);
     if(req.method==='GET'&&setId){
+      const currencyCode=String(url.searchParams.get('currency')||'EUR').trim().toUpperCase();
       const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
       const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
-      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),preferredLanguageCode,preferredVariantCode});
-      ok(res,{contractVersion:1,progress});return true;
+      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),currencyCode,preferredLanguageCode,preferredVariantCode});
+      ok(res,{contractVersion:2,progress});return true;
+    }
+    const trackedSetId=binderSetId(url.pathname);
+    if((req.method==='PUT'||req.method==='DELETE')&&trackedSetId){
+      const binder=await setCollectionSetBinderTrackedInStore(store,{userId:user.id,setId:decodeURIComponent(trackedSetId),tracked:req.method==='PUT'});
+      ok(res,{contractVersion:1,binder});return true;
     }
     if(req.method==='POST'&&url.pathname===PREVIEW_PATH){
       const body=await readBody(req);
@@ -64,6 +79,7 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
     if(error instanceof SyntaxError){fail(res,400,'INVALID_JSON','Request body must be valid JSON.');return true;}
     if(error?.code==='IMPORT_PREVIEW_CHANGED'||error?.code==='IMPORT_STATE_CHANGED'||error?.code==='IMPORT_PREVIEW_TRUNCATED'){fail(res,409,error.code,error.message);return true;}
     if(error?.code==='IMPORT_CONFIRMATION_REQUIRED'){fail(res,400,error.code,error.message);return true;}
+    if(error?.code==='SET_IDENTITY_NOT_VERIFIED'){fail(res,404,error.code,error.message);return true;}
     if(error instanceof TypeError){fail(res,400,'INVALID_COLLECTORS_REQUEST',error.message);return true;}
     throw error;
   }

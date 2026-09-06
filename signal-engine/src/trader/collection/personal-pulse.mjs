@@ -17,6 +17,10 @@ function activeQuantities(collectionItems){
 }
 
 function publicMover(card,price,movement,quantity){
+  const currentPrice=finite(price.price?.amount);
+  const movementPercent=finite(movement?.percent);
+  const factor=movementPercent==null?null:1+(movementPercent/100);
+  const movementAmount=currentPrice==null||factor==null||factor<=0?null:currentPrice-(currentPrice/factor);
   return Object.freeze({
     cardIdentityId:price.cardIdentityId,
     name:card?.name??null,
@@ -27,10 +31,58 @@ function publicMover(card,price,movement,quantity){
     variantCode:card?.variantCode??null,
     languageCode:card?.languageCode??null,
     quantity,
-    currentPrice:finite(price.price?.amount),
+    currentPrice,
     currencyCode:price.price?.currencyCode??null,
-    movementAmount:finite(movement?.absolute),
-    movementPercent:finite(movement?.percent),
+    movementAmount:movementAmount==null?null:Number(movementAmount.toFixed(2)),
+    movementPercent,
+  });
+}
+
+function setMovers(eligible,limit){
+  const groups=new Map();
+  for(const row of eligible){
+    const setId=text(row.setId);
+    const currentPrice=finite(row.currentPrice);
+    const movementPercent=finite(row.movementPercent);
+    const factor=movementPercent==null?null:1+(movementPercent/100);
+    if(!setId||currentPrice==null||factor==null||factor<=0)continue;
+    const group=groups.get(setId)||{
+      setId,
+      setName:row.setName??null,
+      tcgCode:row.tcgCode??null,
+      currencyCode:row.currencyCode??null,
+      currentValue:0,
+      baselineValue:0,
+      eligibleOwnedIdentities:0,
+      eligibleOwnedCopies:0,
+    };
+    const currentValue=currentPrice*row.quantity;
+    group.currentValue+=currentValue;
+    group.baselineValue+=currentValue/factor;
+    group.eligibleOwnedIdentities+=1;
+    group.eligibleOwnedCopies+=row.quantity;
+    groups.set(setId,group);
+  }
+  const rows=[...groups.values()].map((row)=>{
+    const movementAmount=row.currentValue-row.baselineValue;
+    return Object.freeze({
+      setId:row.setId,
+      setName:row.setName,
+      tcgCode:row.tcgCode,
+      currencyCode:row.currencyCode,
+      currentValue:Number(row.currentValue.toFixed(2)),
+      baselineValue:Number(row.baselineValue.toFixed(2)),
+      movementAmount:Number(movementAmount.toFixed(2)),
+      movementPercent:row.baselineValue>0?Number(((movementAmount/row.baselineValue)*100).toFixed(1)):null,
+      eligibleOwnedIdentities:row.eligibleOwnedIdentities,
+      eligibleOwnedCopies:row.eligibleOwnedCopies,
+    });
+  });
+  return Object.freeze({
+    risers:Object.freeze(rows.filter((row)=>Number(row.movementPercent)>0)
+      .sort((a,b)=>Number(b.movementPercent)-Number(a.movementPercent)||String(a.setName||'').localeCompare(String(b.setName||''))).slice(0,limit)),
+    decliners:Object.freeze(rows.filter((row)=>Number(row.movementPercent)<0)
+      .sort((a,b)=>Number(a.movementPercent)-Number(b.movementPercent)||String(a.setName||'').localeCompare(String(b.setName||''))).slice(0,limit)),
   });
 }
 
@@ -52,12 +104,15 @@ function periodResult(key,{prices,cardsById,quantities,limit}){
     .filter((row)=>Number(row.movementPercent)<0)
     .sort((a,b)=>Number(a.movementPercent)-Number(b.movementPercent)||String(a.name||'').localeCompare(String(b.name||'')))
     .slice(0,limit);
+  const sets=setMovers(eligible,limit);
   return Object.freeze({
     status:eligible.length?'available':'building',
     reason:eligible.length?null:'owned_price_history_insufficient',
     eligibleOwnedIdentities:eligible.length,
     risers:Object.freeze(risers),
     decliners:Object.freeze(decliners),
+    setRisers:sets.risers,
+    setDecliners:sets.decliners,
   });
 }
 

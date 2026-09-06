@@ -252,6 +252,35 @@ export async function listVerifiedCardSetsFromStore(store, { tcgCode = 'pokemon'
   return rows.map(dbSet);
 }
 
+export async function listVerifiedCardSetsByIdsFromStore(store, setIds, { limit = 2000 } = {}) {
+  if (!Array.isArray(setIds)) throw new TypeError('setIds must be an array');
+  const safeLimit = Math.min(2000, Math.max(1, Number(limit) || 2000));
+  const ids = [...new Set(setIds.map((value) => String(value || '').trim()).filter(Boolean))].slice(0, safeLimit);
+  if (!ids.length) return [];
+
+  if (typeof store?.read === 'function') {
+    const catalogue = fileCatalogue(await store.read());
+    return ids
+      .map((id) => catalogue.sets[id])
+      .filter((set) => set?.verificationStatus === 'verified')
+      .map((set) => publicSet(set, catalogue.series[set.seriesId], catalogue.tcgs[set.tcgId]));
+  }
+  if (typeof store?.pool !== 'function') return [];
+  const pool = await store.pool();
+  const { rows } = await pool.query(`SELECT s.*,t.code AS tcg_code,ser.name AS series_name
+    FROM fatedrop_card_sets s
+    JOIN fatedrop_tcgs t ON t.id=s.tcg_id
+    JOIN fatedrop_card_series ser ON ser.id=s.series_id
+    WHERE s.id=ANY($1::text[]) AND s.verification_status='verified'`, [ids]);
+  const byId = new Map(rows.map((row) => [row.id, dbSet(row)]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
+}
+
+export async function getVerifiedCardSetFromStore(store, setId) {
+  const [set] = await listVerifiedCardSetsByIdsFromStore(store, [setId], { limit: 1 });
+  return set ?? null;
+}
+
 export async function listVerifiedCardsFromStore(store, {
   setId = null,
   query = null,
