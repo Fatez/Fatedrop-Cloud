@@ -15,6 +15,7 @@ import {
   getPresentedFatePricesFromStore,
 } from '../value/fate-price-service.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
+import { getFatePriceRetailOffersFromStore } from '../value/fate-price-retail.mjs';
 
 function json(res, status, payload) {
   res.writeHead(status, {
@@ -56,6 +57,7 @@ function isFatePricePath(pathname) {
     || /^\/v1\/fate-price\/sets\/[^/]+\/cards$/.test(pathname)
     || /^\/v1\/fate-price\/cards\/[^/]+$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+$/.test(pathname)
+    || /^\/v1\/fate-price\/[^/]+\/offers$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+\/history$/.test(pathname);
 }
 
@@ -191,6 +193,19 @@ export async function handleFateTraderCatalogue(req, res, {
           ? await getPresentedFatePriceHistoryFromStore(store, { cardIdentityId, days, displayCurrencyCode, ...scope })
           : await getFatePriceHistoryFromStore(store, { cardIdentityId, days, ...scope });
         ok(res, { history });
+        return true;
+      }
+
+      const retailOffersMatch = url.pathname.match(/^\/v1\/fate-price\/([^/]+)\/offers$/);
+      if (retailOffersMatch) {
+        const cardIdentityId = decodeURIComponent(retailOffersMatch[1]);
+        const card = await getVerifiedCardFromStore(store, cardIdentityId);
+        if (!card) {
+          notFound(res, 'CARD_IDENTITY_NOT_VERIFIED', 'The requested card identity is not available.');
+          return true;
+        }
+        const retail = await getFatePriceRetailOffersFromStore(store, { cardIdentityId });
+        ok(res, { card, retail });
         return true;
       }
 

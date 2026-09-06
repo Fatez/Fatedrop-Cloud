@@ -75,6 +75,7 @@ test('Fate Price routes are recognised as Cloud catalogue-adjacent reads', () =>
   assert.equal(isFateTraderCataloguePath('/v1/fate-price/cards'), true);
   assert.equal(isFateTraderCataloguePath('/v1/fate-price/cards/fdcard_1'), true);
   assert.equal(isFateTraderCataloguePath('/v1/fate-price/fdcard_1/history'), true);
+  assert.equal(isFateTraderCataloguePath('/v1/fate-price/fdcard_1/offers'), true);
 });
 
 test('Fate Price verified-card discovery stays available while Trader catalogue remains dark', async () => {
