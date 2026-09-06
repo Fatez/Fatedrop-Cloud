@@ -1,0 +1,289 @@
+name: OPS FatePrice Expanded Price Slice
+
+on:
+  push:
+    branches:
+      - ops/fateprice-cardmarket-expanded-2026-09-06
+    paths:
+      - '.github/workflows/ops-fateprice-expanded-price-slice.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-expanded-price-slice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download original verified set evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fateprice-set-*
+          path: ${{ runner.temp }}/base-sets
+          github-token: ${{ github.token }}
+          run-id: 34017737476
+
+      - name: Download transient recovery set evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fateprice-recovery-*
+          path: ${{ runner.temp }}/recovery-sets
+          github-token: ${{ github.token }}
+          run-id: 34030526577
+
+      - name: Download Prismatic canonical identity evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: prismatic-evolutions-canonical-card-audit
+          path: ${{ runner.temp }}/prismatic
+          github-token: ${{ github.token }}
+          run-id: 33939136991
+
+      - name: Download expanded Cardmarket audit
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-cardmarket-audit
+          path: ${{ runner.temp }}/expanded-audit
+          github-token: ${{ github.token }}
+          run-id: 34032903501
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Build exact Cardmarket mapping bundle and current price slice
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { hasMeaningfulCardmarketLane } from './src/trader/value/cardmarket-adapter.mjs';
+
+          const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+          const recursiveJson = (root, suffix) => fs.existsSync(root)
+            ? fs.readdirSync(root, { recursive: true })
+              .map((name) => path.join(root, String(name)))
+              .filter((file) => file.endsWith(suffix) && fs.statSync(file).isFile())
+              .map(readJson)
+            : [];
+          const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}`;
+
+          const canonicalByTcgdexVariant = new Map();
+          const canonicalIds = new Set();
+          const addBatch = (batch) => {
+            if (!batch?.cardSourceMappings || !batch?.cardIdentities) return;
+            const verifiedIds = new Set(batch.cardIdentities.filter((card) => card.verificationStatus === 'verified').map((card) => card.id));
+            for (const mapping of batch.cardSourceMappings) {
+              if (mapping.sourceName !== 'tcgdex' || !verifiedIds.has(mapping.cardIdentityId)) continue;
+              canonicalByTcgdexVariant.set(`${mapping.sourceRecordId}|${mapping.sourceVariantKey}`, {
+                cardIdentityId: mapping.cardIdentityId,
+                setId: batch.set?.id ?? null,
+              });
+              canonicalIds.add(mapping.cardIdentityId);
+            }
+          };
+
+          for (const result of recursiveJson(process.env.RUNNER_TEMP + '/base-sets', 'set-result.json')) {
+            if (result.status === 'verified') addBatch(result.rows);
+          }
+          for (const result of recursiveJson(process.env.RUNNER_TEMP + '/recovery-sets', 'recovery-result.json')) {
+            if (result.status === 'verified') addBatch(result.rows);
+          }
+
+          const prismatic = readJson(process.env.RUNNER_TEMP + '/prismatic/prismatic-evolutions-card-audit.json');
+          for (const identity of prismatic.identities || []) {
+            if (identity.verificationStatus !== 'verified' || identity.sourceName !== 'tcgdex') continue;
+            canonicalByTcgdexVariant.set(`${identity.sourceRecordId}|${identity.sourceVariantKey}`, {
+              cardIdentityId: identity.fateCardId,
+              setId: prismatic.set?.canonicalSetId ?? null,
+            });
+            canonicalIds.add(identity.fateCardId);
+          }
+
+          const audit = readJson(process.env.RUNNER_TEMP + '/expanded-audit/expanded-cardmarket-audit.json');
+          const mappingRows = [];
+          const unresolvedCanonical = [];
+          for (const set of audit.sets || []) {
+            if (set.status !== 'proven') continue;
+            for (const evidence of set.cardAudit?.mappings || []) {
+              if (evidence.status !== 'proven') continue;
+              const variantKey = String(evidence.variant?.type || '').trim();
+              const canonical = canonicalByTcgdexVariant.get(`${evidence.tcgdexCardId}|${variantKey}`);
+              if (!canonical) {
+                unresolvedCanonical.push({
+                  tcgdexCardId: evidence.tcgdexCardId,
+                  variantKey,
+                  cardmarketProductId: evidence.cardmarketProductId,
+                  setName: set.setName,
+                  reason: 'verified_cardmarket_product_has_no_exact_canonical_variant_in_retained_evidence',
+                });
+                continue;
+              }
+              const sourceRecordId = String(evidence.cardmarketProductId);
+              mappingRows.push({
+                id: stableId('fdcardmap', [canonical.cardIdentityId, 'cardmarket', sourceRecordId, variantKey]),
+                cardIdentityId: canonical.cardIdentityId,
+                setId: canonical.setId,
+                sourceName: 'cardmarket',
+                sourceRecordId,
+                sourceVariantKey: variantKey,
+                sourceUrl: null,
+                sourceVersion: audit.cardmarketSource?.sha256 ?? null,
+                proof: {
+                  tcgdexCardId: evidence.tcgdexCardId,
+                  cardmarketProductName: evidence.cardmarketProductName,
+                  cardmarketExpansionId: evidence.cardmarketExpansionId,
+                  expansionRelation: evidence.expansionRelation,
+                  nameMatchBasis: evidence.nameMatchBasis,
+                  reason: evidence.reason,
+                },
+              });
+            }
+          }
+
+          const dedupedMappings = [...new Map(mappingRows.map((row) => [`${row.sourceRecordId}|${row.sourceVariantKey}`, row])).values()];
+          const mappingConflicts = [];
+          const bySource = new Map();
+          for (const row of mappingRows) {
+            const key = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            const prior = bySource.get(key);
+            if (prior && prior.cardIdentityId !== row.cardIdentityId) mappingConflicts.push({ key, left: prior, right: row });
+            else bySource.set(key, row);
+          }
+          if (mappingConflicts.length) throw new Error(`Cardmarket exact mapping conflicts detected: ${mappingConflicts.length}`);
+
+          const { artifact: priceArtifact, snapshot } = await fetchCardmarketPokemonPriceGuide();
+          const priceByProduct = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
+          const livePriceRows = [];
+          const lanesWithoutPriceGuideContract = [];
+          const priceGuideMissing = [];
+
+          for (const mapping of dedupedMappings) {
+            const lane = mapping.sourceVariantKey === 'normal' ? 'standard'
+              : mapping.sourceVariantKey === 'holo' ? 'holo'
+              : null;
+            if (!lane) {
+              lanesWithoutPriceGuideContract.push(mapping);
+              continue;
+            }
+            const row = priceByProduct.get(mapping.sourceRecordId);
+            if (!row || !hasMeaningfulCardmarketLane(row, lane)) {
+              priceGuideMissing.push({
+                cardIdentityId: mapping.cardIdentityId,
+                sourceRecordId: mapping.sourceRecordId,
+                sourceVariantKey: mapping.sourceVariantKey,
+                lane,
+              });
+              continue;
+            }
+            const suffix = lane === 'holo' ? '-holo' : '';
+            livePriceRows.push({
+              cardIdentityId: mapping.cardIdentityId,
+              cardSourceMappingId: mapping.id,
+              sourceName: 'cardmarket',
+              sourceRecordId: mapping.sourceRecordId,
+              sourceVariantKey: mapping.sourceVariantKey,
+              marketSegmentKey: lane,
+              conditionCode: 'unspecified',
+              currencyCode: snapshot.currencyCode,
+              sourceSnapshotId: snapshot.sourceSnapshotId,
+              sourceEffectiveAt: snapshot.sourceEffectiveAt,
+              lowPrice: row[`low${suffix}`] ?? null,
+              trendPrice: row[`trend${suffix}`] ?? null,
+              avg1d: row[`avg1${suffix}`] ?? null,
+              avg7d: row[`avg7${suffix}`] ?? null,
+              avg30d: row[`avg30${suffix}`] ?? null,
+              avgLifetime: row[`avg${suffix}`] ?? null,
+            });
+          }
+
+          const variantCounts = {};
+          for (const row of dedupedMappings) variantCounts[row.sourceVariantKey] = (variantCounts[row.sourceVariantKey] || 0) + 1;
+          const summary = {
+            verifiedCanonicalIdentitiesIndexed: canonicalIds.size,
+            exactCardmarketMappings: dedupedMappings.length,
+            exactCardmarketMappingVariants: variantCounts,
+            canonicalJoinMisses: unresolvedCanonical.length,
+            mappingConflicts: mappingConflicts.length,
+            currentPriceRows: livePriceRows.length,
+            priceGuideMappedIdentities: new Set(livePriceRows.map((row) => row.cardIdentityId)).size,
+            priceGuideMissingRows: priceGuideMissing.length,
+            exactMappingsWithoutDedicatedPriceGuideLane: lanesWithoutPriceGuideContract.length,
+            productionWrites: 0,
+            fuzzyMatching: false,
+          };
+
+          const report = {
+            format: 'fatedrop-expanded-cardmarket-price-slice-v1',
+            generatedAt: new Date().toISOString(),
+            safety: {
+              productionWrites: false,
+              exactOnly: true,
+              fuzzyMatching: false,
+              reverseAndMetalNotCoercedIntoStandardPriceLane: true,
+            },
+            provenance: {
+              baseUniverseRunId: 34017737476,
+              recoveryRunId: 34030526577,
+              prismaticAuditRunId: 33939136991,
+              expandedCardmarketAuditRunId: 34032903501,
+              cardmarketCatalogueSha256: audit.cardmarketSource?.sha256 ?? null,
+              priceGuideSha256: priceArtifact.sha256,
+              priceGuideLastModified: priceArtifact.lastModified,
+            },
+            summary,
+            mappings: dedupedMappings,
+            currentPrices: livePriceRows,
+            unresolvedCanonical,
+            priceGuideMissing,
+            mappingsWithoutDedicatedPriceGuideLane: lanesWithoutPriceGuideContract.map((row) => ({
+              cardIdentityId: row.cardIdentityId,
+              sourceRecordId: row.sourceRecordId,
+              sourceVariantKey: row.sourceVariantKey,
+            })),
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-expanded-price-slice.json', JSON.stringify(report));
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Summarise price slice
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fateprice-expanded-price-slice.json', 'utf8'));
+          const s = report.summary;
+          console.log('# FatePrice expanded exact mapping + current Cardmarket price slice');
+          console.log('');
+          console.log(`- Verified canonical identities indexed: **${s.verifiedCanonicalIdentitiesIndexed}**`);
+          console.log(`- Exact Cardmarket source mappings prepared: **${s.exactCardmarketMappings}**`);
+          console.log(`- Current exact Cardmarket price rows: **${s.currentPriceRows}**`);
+          console.log(`- Distinct exact identities with a current price row: **${s.priceGuideMappedIdentities}**`);
+          console.log(`- Canonical join misses: **${s.canonicalJoinMisses}**`);
+          console.log(`- Mapping conflicts: **${s.mappingConflicts}**`);
+          console.log(`- Exact mappings without a dedicated daily price-guide lane: **${s.exactMappingsWithoutDedicatedPriceGuideLane}**`);
+          console.log('- Reverse/metal mappings are preserved as evidence and are not coerced into standard pricing.');
+          console.log('- Production writes: **0**');
+          console.log('- Fuzzy matching: **disabled**');
+          NODE
+
+      - name: Upload exact mapping and price evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice
+          path: ${{ runner.temp }}/fateprice-expanded-price-slice.json
+          retention-days: 14
+          if-no-files-found: error
