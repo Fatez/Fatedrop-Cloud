@@ -79,6 +79,34 @@ export async function getFatePriceHistoryFromStore(store, {
   });
 }
 
+export async function getFatePriceHistoriesFromStore(store, {
+  cardIdentityIds,
+  currencyCode = null,
+  marketSegmentKey = null,
+  conditionCode = null,
+  days = 30,
+  now = Date.now(),
+  observationsPerCard = 120,
+} = {}) {
+  if (!Array.isArray(cardIdentityIds) || !cardIdentityIds.length) {
+    throw new TypeError('cardIdentityIds are required');
+  }
+  const ids = [...new Set(cardIdentityIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  if (!ids.length) throw new TypeError('cardIdentityIds are required');
+  if (ids.length > 100) throw new TypeError('Fate Price supports at most 100 card identities per request');
+  if (![7, 30, 90].includes(days)) throw new TypeError('Fate Price history days must be 7, 30, or 90');
+  const observations = await listFatePriceObservationsFromStore(store, { cardIdentityIds: ids, observationsPerCard });
+  const grouped = groupByCard(observations);
+  return Object.freeze(ids.map((cardIdentityId) => calculateFatePriceHistory(grouped.get(cardIdentityId) ?? [], {
+    cardIdentityId,
+    currencyCode,
+    marketSegmentKey,
+    conditionCode,
+    days,
+    now,
+  })));
+}
+
 export async function getPresentedFatePriceFromStore(store, {
   displayCurrencyCode = 'GBP',
   fxClient,
@@ -104,4 +132,17 @@ export async function getPresentedFatePriceHistoryFromStore(store, {
 } = {}) {
   const history = await getFatePriceHistoryFromStore(store, options);
   return presentFatePriceHistory(history, { displayCurrencyCode, fxClient });
+}
+
+
+export async function getPresentedFatePriceHistoriesFromStore(store, {
+  displayCurrencyCode = 'GBP',
+  fxClient,
+  ...options
+} = {}) {
+  const histories = await getFatePriceHistoriesFromStore(store, options);
+  return Object.freeze(await Promise.all(histories.map((history) => presentFatePriceHistory(history, {
+    displayCurrencyCode,
+    fxClient,
+  }))));
 }

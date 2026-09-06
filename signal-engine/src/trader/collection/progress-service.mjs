@@ -1,22 +1,13 @@
 import { listCollectionItemsFromStore } from './store.mjs';
-import { computeCollectionSetProgress } from './set-progress.mjs';
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
-import { listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
-import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
+import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore } from '../catalogue/store.mjs';
+import { getOwnedFatePrices, exactCardValuesFromFatePrices } from './collector-summary-service.mjs';
+import { computeFateCollectorSummary } from './collector-summary.mjs';
+import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
 
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
   return value.trim();
-}
-
-async function getVerifiedSet(store, setId) {
-  const id = requireText(setId, 'setId');
-  for (const tcgCode of SUPPORTED_TCG_CODES) {
-    const sets = await listVerifiedCardSetsFromStore(store, { tcgCode, limit: 1000 });
-    const match = sets.find((set) => set.id === id);
-    if (match) return match;
-  }
-  return null;
 }
 
 function unavailable({ reason, setId, set = null, catalogue = null }) {
@@ -38,12 +29,16 @@ function unavailable({ reason, setId, set = null, catalogue = null }) {
 export async function getCollectionSetProgressFromStore(store, {
   userId,
   setId,
+  currencyCode = 'GBP',
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
+  now = Date.now(),
+  fxClient,
 } = {}) {
   const ownerId = requireText(userId, 'userId');
   const canonicalSetId = requireText(setId, 'setId');
-  const set = await getVerifiedSet(store, canonicalSetId);
+  const currency = requireText(currencyCode, 'currencyCode').toUpperCase();
+  const set = await getVerifiedCardSetFromStore(store, canonicalSetId);
   if (!set) return unavailable({ reason:'verified_set_not_found', setId:canonicalSetId });
 
   const canonicalCards = await listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 });
@@ -58,13 +53,39 @@ export async function getCollectionSetProgressFromStore(store, {
   }
 
   const collectionItems = await listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 });
-  const progress = computeCollectionSetProgress({
-    set,
+  const valueCards = canonicalCards.filter((card) => (
+    (!preferredLanguageCode || card.languageCode === preferredLanguageCode)
+    && (!preferredVariantCode || card.variantCode === preferredVariantCode)
+  ));
+  const priceRead = await getOwnedFatePrices(store, valueCards.map((card) => card.fateCardId), {
+    currencyCode: currency,
+    now,
+    fxClient,
+  });
+  const exactCardValues = exactCardValuesFromFatePrices(priceRead.prices);
+  const cardById = new Map(valueCards.map((card) => [card.fateCardId, card]));
+  const printingValues = exactCardValues.map((value) => ({
+    printingId: cardById.get(value.fateCardId)?.printingId,
+    amount: value.amount,
+    currencyCode: value.currencyCode,
+    observedAt: value.observedAt,
+  })).filter((value) => value.printingId);
+  const summary = computeFateCollectorSummary({
+    sets: [set],
     canonicalCards,
     collectionItems,
+    exactCardValues,
+    printingValues,
+    currencyCode: currency,
     preferredLanguageCode,
     preferredVariantCode,
   });
-
-  return Object.freeze({ ...progress, catalogue });
+  const tracked = await listTrackedCollectionSetBindersFromStore(store, { userId: ownerId });
+  const progress = summary.sets[0];
+  return Object.freeze({
+    ...progress,
+    catalogue,
+    explicitlyTracked: tracked.some((binder) => binder.setId === canonicalSetId),
+    priceEvidenceConnected: priceRead.connected,
+  });
 }

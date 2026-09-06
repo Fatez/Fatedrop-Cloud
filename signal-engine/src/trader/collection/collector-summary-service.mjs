@@ -1,9 +1,9 @@
-import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from '../catalogue/store.mjs';
-import { SUPPORTED_TCG_CODES } from '../tcg-registry.mjs';
+import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsByIdsFromStore } from '../catalogue/store.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 import { getFatePricesFromStore, getPresentedFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { buildFateCollectorPersonalPulse } from './personal-pulse.mjs';
+import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
 function requireText(value, field) {
@@ -11,7 +11,7 @@ function requireText(value, field) {
   return value.trim();
 }
 
-async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now, fxClient }) {
+export async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now, fxClient }) {
   const prices = [];
   try {
     for (let index = 0; index < cardIdentityIds.length; index += 100) {
@@ -40,7 +40,7 @@ async function getOwnedFatePrices(store, cardIdentityIds, { currencyCode, now, f
   return Object.freeze({ connected: true, prices: Object.freeze(prices) });
 }
 
-function exactCardValuesFromFatePrices(fatePrices) {
+export function exactCardValuesFromFatePrices(fatePrices) {
   return fatePrices
     .filter((fatePrice) => fatePrice?.available === true && fatePrice.price)
     .map((fatePrice) => Object.freeze({
@@ -69,13 +69,15 @@ export async function getFateCollectorSummaryFromStore(store, {
   const ownedCardIds=[...new Set(collectionItems.map((item)=>item.fateCardId).filter(Boolean))];
   const ownedCards=await listVerifiedCardsByIdsFromStore(store,ownedCardIds,{limit:2000});
   const resolvedIds=new Set(ownedCards.map((card)=>card.fateCardId));
-  const ownedSetIds=new Set(ownedCards.map((card)=>card.setId).filter(Boolean));
-  const tcgCodes=new Set(ownedCards.map((card)=>card.tcgCode).filter((code)=>SUPPORTED_TCG_CODES.includes(code)));
-  const sets=[];
-  for(const tcgCode of tcgCodes){
-    const candidates=await listVerifiedCardSetsFromStore(store,{tcgCode,limit:1000});
-    sets.push(...candidates.filter((set)=>ownedSetIds.has(set.id)));
-  }
+  const rawOwnedCardIds=new Set(collectionItems
+    .filter((item)=>item?.status!=='removed'&&String(item?.copyState||'raw').toLowerCase()==='raw')
+    .map((item)=>item.fateCardId)
+    .filter(Boolean));
+  const ownedSetIds=new Set(ownedCards.filter((card)=>rawOwnedCardIds.has(card.fateCardId)).map((card)=>card.setId).filter(Boolean));
+  const trackedBinders=await listTrackedCollectionSetBindersFromStore(store,{userId:ownerId});
+  const explicitlyTrackedSetIds=new Set(trackedBinders.map((binder)=>binder.setId));
+  const binderSetIds=[...new Set([...ownedSetIds,...explicitlyTrackedSetIds])];
+  const sets=await listVerifiedCardSetsByIdsFromStore(store,binderSetIds,{limit:2000});
   const canonicalCards=[];
   for(const set of sets){
     canonicalCards.push(...await listVerifiedCardsFromStore(store,{setId:set.id,limit:500}));
@@ -88,7 +90,7 @@ export async function getFateCollectorSummaryFromStore(store, {
   });
   const fatePrices = fatePriceRead.prices;
   const exactCardValues = exactCardValuesFromFatePrices(fatePrices);
-  const summary=computeFateCollectorSummary({
+  const computedSummary=computeFateCollectorSummary({
     sets,
     canonicalCards,
     collectionItems,
@@ -98,6 +100,14 @@ export async function getFateCollectorSummaryFromStore(store, {
     currencyCode:currency,
     preferredLanguageCode:language,
     preferredVariantCode,
+  });
+  const summary=Object.freeze({
+    ...computedSummary,
+    bindersTracked:computedSummary.sets.length,
+    sets:Object.freeze(computedSummary.sets.map((set)=>Object.freeze({
+      ...set,
+      explicitlyTracked:explicitlyTrackedSetIds.has(set.setId),
+    }))),
   });
   const personalPulse=buildFateCollectorPersonalPulse({
     collectionItems:collectionItems.filter((item)=>String(item.copyState||'raw').toLowerCase()==='raw'),
@@ -122,6 +132,7 @@ export async function getFateCollectorSummaryFromStore(store, {
       valuationReason:fatePriceRead.connected?summary.collection.reason:'market_price_runtime_unavailable',
       personalPulseConnected:fatePriceRead.connected,
       binderOwnershipPolicy:'raw_only',
+      binderTrackingPolicy:'explicit_or_raw_owned_set',
       personalMovementPolicy:'raw_only',
       valuationCurrencyCode:currency,
       sourceMarketCurrencyCode:currency==='GBP'?'EUR':currency,

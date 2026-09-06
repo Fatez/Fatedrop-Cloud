@@ -1,6 +1,7 @@
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import {
   getVerifiedCardFromStore,
+  getVerifiedCardSetFromStore,
   listVerifiedCardsFromStore,
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
@@ -51,6 +52,8 @@ function safeLimit(url, fallback, max) {
 function isFatePricePath(pathname) {
   return pathname === '/v1/fate-price'
     || pathname === '/v1/fate-price/cards'
+    || pathname === '/v1/fate-price/sets'
+    || /^\/v1\/fate-price\/sets\/[^/]+\/cards$/.test(pathname)
     || /^\/v1\/fate-price\/cards\/[^/]+$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+$/.test(pathname)
     || /^\/v1\/fate-price\/[^/]+\/history$/.test(pathname);
@@ -99,6 +102,39 @@ export async function handleFateTraderCatalogue(req, res, {
     try {
       const scope = fatePriceScope(url);
       const displayCurrencyCode = displayCurrency(url);
+      if (url.pathname === '/v1/fate-price/sets') {
+        const tcgCode = (url.searchParams.get('tcg') || 'pokemon').trim().toLowerCase();
+        const query = (url.searchParams.get('q') || '').trim().toLowerCase();
+        const limit = safeLimit(url, 500, 1000);
+        const candidates = await listVerifiedCardSetsFromStore(store, {
+          tcgCode,
+          seriesId: url.searchParams.get('seriesId') || null,
+          limit: 1000,
+        });
+        const sets = candidates.filter((set) => !query || `${set.name || ''} ${set.seriesName || ''}`.toLowerCase().includes(query)).slice(0, limit);
+        ok(res, { sets, count: sets.length });
+        return true;
+      }
+
+      const priceSetCardsMatch = url.pathname.match(/^\/v1\/fate-price\/sets\/([^/]+)\/cards$/);
+      if (priceSetCardsMatch) {
+        const setId = decodeURIComponent(priceSetCardsMatch[1]);
+        const set = await getVerifiedCardSetFromStore(store, setId);
+        if (!set) {
+          notFound(res, 'SET_IDENTITY_NOT_VERIFIED', 'The requested set identity is not available.');
+          return true;
+        }
+        const cards = await listVerifiedCardsFromStore(store, {
+          setId,
+          query: url.searchParams.get('q') || null,
+          languageCode: url.searchParams.get('language') || null,
+          variantCode: url.searchParams.get('variant') || null,
+          limit: safeLimit(url, 250, 500),
+        });
+        ok(res, { set, cards, count: cards.length });
+        return true;
+      }
+
       if (url.pathname === '/v1/fate-price/cards') {
         const query = (url.searchParams.get('q') || '').trim();
         const setId = (url.searchParams.get('setId') || '').trim() || null;

@@ -40,7 +40,12 @@ test('personal pulse ranks only owned exact identities and caps top/bottom lists
   assert.deepEqual(pulse.periods.d30.risers.map((row)=>row.cardIdentityId),['card-a','card-d']);
   assert.deepEqual(pulse.periods.d30.decliners.map((row)=>row.cardIdentityId),['card-c','card-b']);
   assert.equal(pulse.periods.d7.risers[1].quantity,2);
+  assert.equal(pulse.periods.d7.risers[1].movementAmount,1.07);
   assert.equal(pulse.periods.d7.risers.some((row)=>row.cardIdentityId==='card-not-owned'),false);
+  assert.deepEqual(pulse.periods.d7.setRisers.map((row)=>row.setId),['set-c','set-a']);
+  assert.deepEqual(pulse.periods.d7.setDecliners.map((row)=>row.setId),['set-b']);
+  assert.equal(pulse.periods.d7.setRisers[1].eligibleOwnedCopies,3);
+  assert.equal(pulse.periods.d7.setRisers[1].currentValue,30);
 });
 
 test('missing trustworthy history stays building instead of becoming fake zero movement',()=>{
@@ -49,6 +54,8 @@ test('missing trustworthy history stays building instead of becoming fake zero m
   assert.equal(pulse.periods.d7.reason,'owned_price_history_insufficient');
   assert.deepEqual(pulse.periods.d7.risers,[]);
   assert.deepEqual(pulse.periods.d7.decliners,[]);
+  assert.deepEqual(pulse.periods.d7.setRisers,[]);
+  assert.deepEqual(pulse.periods.d7.setDecliners,[]);
 });
 
 test('raw personal Pulse never ranks a graded slab using raw FatePrice movement',()=>{
@@ -63,4 +70,21 @@ test('raw personal Pulse never ranks a graded slab using raw FatePrice movement'
   assert.equal(pulse.ownedIdentityCount,1);
   assert.deepEqual(pulse.periods.d7.risers.map((row)=>row.cardIdentityId),['card-b']);
   assert.equal(pulse.periods.d7.risers.some((row)=>row.cardIdentityId==='card-a'),false);
+});
+
+test('duplicate raw lots remain one quantity-weighted card and one ranking slot',()=>{
+  const pulse=buildFateCollectorPersonalPulse({
+    collectionItems:[
+      {fateCardId:'card-a',quantity:2,status:'active',copyState:'raw',conditionCode:'near_mint'},
+      {fateCardId:'card-a',quantity:3,status:'active',copyState:'raw',conditionCode:'played'},
+    ],
+    cards:[cards[0]],
+    prices:[price('card-a',12,25)],
+  });
+  assert.equal(pulse.ownedIdentityCount,1);
+  assert.equal(pulse.periods.d7.risers.length,1);
+  assert.equal(pulse.periods.d7.risers[0].cardIdentityId,'card-a');
+  assert.equal(pulse.periods.d7.risers[0].quantity,5);
+  assert.equal(pulse.periods.d7.setRisers[0].eligibleOwnedIdentities,1);
+  assert.equal(pulse.periods.d7.setRisers[0].eligibleOwnedCopies,5);
 });

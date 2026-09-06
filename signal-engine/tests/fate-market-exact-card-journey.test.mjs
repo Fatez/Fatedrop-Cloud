@@ -118,6 +118,25 @@ function journeyStore(now) {
 test('exact discovery flows through FatePrice, manual/import ownership, binder and personal Pulse', async () => {
   const store = journeyStore(Date.now());
 
+  const track = response();
+  await handleFateCollectors(
+    request('PUT', '/v1/collectors/binders/journey'),
+    track,
+    { store, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(track.status, 200);
+  assert.equal(track.body.data.binder.tracked, true);
+
+  const emptyBinder = response();
+  await handleFateCollectors(
+    request('GET', '/v1/collectors/summary?currency=EUR&language=en&variant=standard'),
+    emptyBinder,
+    { store, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(emptyBinder.status, 200);
+  assert.equal(emptyBinder.body.data.summary.sets[0].ownedCount, 0);
+  assert.equal(emptyBinder.body.data.summary.sets[0].explicitlyTracked, true);
+
   const discovery = response();
   await handleFateTraderCatalogue(
     request('GET', '/v1/fate-price/cards?q=Charizard'),
@@ -149,6 +168,15 @@ test('exact discovery flows through FatePrice, manual/import ownership, binder a
   );
   assert.equal(add.status, 201);
   assert.equal(add.body.data.item.fateCardId, exactCardId);
+
+  const increaseQuantity = response();
+  await handleFateTraderCollection(
+    request('PATCH', `/v1/collection/items/${add.body.data.item.id}`, { quantity: 3, expectedRevision: add.body.data.item.revision }),
+    increaseQuantity,
+    { store, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(increaseQuantity.status, 200);
+  assert.equal(increaseQuantity.body.data.item.quantity, 3);
 
   const csvText = 'Game,Set,Name,Card Number,Variant,Condition,Quantity\nPokémon,Journey Set,Blastoise,2,Normal,NM,1';
   const preview = response();
@@ -184,8 +212,8 @@ test('exact discovery flows through FatePrice, manual/import ownership, binder a
     { store, flags: FLAGS, resolveUser: USER },
   );
   assert.equal(collector.status, 200);
-  assert.equal(collector.body.data.summary.cardUnits, 2);
-  assert.equal(collector.body.data.summary.collection.totalValue, 36);
+  assert.equal(collector.body.data.summary.cardUnits, 4);
+  assert.equal(collector.body.data.summary.collection.totalValue, 76);
   assert.equal(collector.body.data.summary.collection.priceCoveragePercent, 100);
   assert.equal(collector.body.data.summary.sets[0].ownedCount, 2);
   assert.equal(collector.body.data.summary.sets[0].completionPercent, 100);
@@ -197,4 +225,21 @@ test('exact discovery flows through FatePrice, manual/import ownership, binder a
   assert.equal(collector.body.data.personalPulse.periods.d7.risers[0].cardIdentityId, exactCardId);
   assert.equal(collector.body.data.personalPulse.periods.d7.risers[0].movementPercent, 100);
   assert.equal(collector.body.data.personalPulse.periods.d7.decliners[0].cardIdentityId, 'blastoise-standard');
+  assert.equal(collector.body.data.personalPulse.periods.d7.setRisers[0].setId, 'journey');
+
+  const intelligence = response();
+  await handleFateCollectors(
+    request('GET', '/v1/collectors/intelligence?currency=EUR'),
+    intelligence,
+    { store, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(intelligence.status, 200);
+  assert.equal(intelligence.body.data.scope, 'owned_raw_cards_only');
+  assert.equal(intelligence.body.data.snapshot.currentKnownValue, 76);
+  assert.equal(intelligence.body.data.snapshot.totalCopies, 4);
+  assert.equal(intelligence.body.data.cards.length, 2);
+  assert.equal(intelligence.body.data.cards.find((row) => row.cardIdentityId === exactCardId).quantity, 3);
+  assert.equal(intelligence.body.data.snapshot.topFiveValue, 76);
+  assert.equal(intelligence.body.data.sets[0].setId, 'journey');
+  assert.equal(intelligence.body.data.history.pointPolicy, 'stored_market_days_only_no_interpolation');
 });
