@@ -40,20 +40,44 @@ function exactCollectorNumber(candidate) {
   return unique.length === 1 ? unique[0] : null;
 }
 
+function stripReviewedTrailingDescriptor(value, binding) {
+  let remainder = text(value);
+  const descriptors = [...(binding?.titleTrailingDescriptors || [])]
+    .map(text)
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  const descriptor = descriptors.find((candidate) => normalized(remainder).endsWith(normalized(candidate)));
+  if (descriptor) remainder = remainder.slice(0, remainder.length - descriptor.length).trim();
+  return remainder;
+}
+
+function exactAffix(value, candidates, position) {
+  const source = text(value);
+  const reviewed = [...(candidates || [])].map(text).filter(Boolean).sort((a, b) => b.length - a.length);
+  const match = reviewed.find((candidate) => position === 'prefix'
+    ? normalized(source).startsWith(`${normalized(candidate)} `)
+    : normalized(source).endsWith(normalized(candidate)));
+  if (!match) return null;
+  return position === 'prefix'
+    ? source.slice(match.length).trim()
+    : source.slice(0, source.length - match.length).trim();
+}
+
 function titleCardName(candidate, binding, collectorNumber) {
   const title = text(candidate?.productTitle);
   const leading = title.match(/^#\s*0*(\d+[a-z]?)\s+(.+)$/i);
   if (!leading || normalizedCollectorNumber(leading[1]) !== collectorNumber) return null;
-  let remainder = text(leading[2]);
-  const suffixes = [...(binding?.titleSuffixes || [])].sort((a, b) => text(b).length - text(a).length);
-  const suffix = suffixes.find((value) => {
-    const clean = text(value);
-    return clean && normalized(remainder).endsWith(normalized(clean));
-  });
-  if (!suffix) return null;
-  remainder = remainder.slice(0, remainder.length - text(suffix).length).trim();
-  remainder = remainder.replace(/\s+0*\d+[a-z]?\s*\/\s*\d+\s*$/i, '').trim();
-  return remainder || null;
+  const remainder = stripReviewedTrailingDescriptor(leading[2], binding);
+
+  // Cob & Pip mostly writes "#001 Card Set", but some reviewed collections
+  // (notably Twilight Masquerade) use "#001 Set Card". Both grammars remain
+  // collection-scoped and exact; an unreviewed affix never identifies a card.
+  let cardName = exactAffix(remainder, binding?.titleSuffixes, 'suffix');
+  if (!cardName) cardName = exactAffix(remainder, binding?.titlePrefixes, 'prefix');
+  if (!cardName) return null;
+
+  cardName = cardName.replace(/\s+0*\d+[a-z]?\s*\/\s*\d+\s*$/i, '').trim();
+  return cardName || null;
 }
 
 function reviewedCardName(sourceName, binding, collectorNumber) {
@@ -258,4 +282,5 @@ export const __test = Object.freeze({
   stableId,
   titleCardName,
   reviewedCardName,
+  stripReviewedTrailingDescriptor,
 });
