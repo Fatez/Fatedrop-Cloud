@@ -23,7 +23,42 @@ function unavailable({ reason, setId, set = null, catalogue = null }) {
     missingCount: null,
     completionPercent: null,
     missingCards: Object.freeze([]),
+    topMissingCards: Object.freeze([]),
   });
+}
+
+export function rankPricedMissingCards(missingCards, exactCardValues, { limit = 3 } = {}) {
+  if (!Array.isArray(missingCards)) throw new TypeError('missingCards must be an array');
+  if (!Array.isArray(exactCardValues)) throw new TypeError('exactCardValues must be an array');
+  if (!Number.isInteger(limit) || limit < 0) throw new TypeError('limit must be a non-negative integer');
+
+  const valueByCardId = new Map(
+    exactCardValues
+      .filter((value) => value && typeof value.fateCardId === 'string' && Number.isFinite(Number(value.amount)))
+      .map((value) => [value.fateCardId, value]),
+  );
+
+  return Object.freeze(
+    missingCards
+      .map((card) => {
+        const value = valueByCardId.get(card?.fateCardId);
+        if (!card || !value) return null;
+        return Object.freeze({
+          ...card,
+          currentPrice: Number(value.amount),
+          currencyCode: value.currencyCode ?? null,
+          priceObservedAt: value.observedAt ?? null,
+        });
+      })
+      .filter(Boolean)
+      .sort((a, b) => (
+        Number(b.currentPrice) - Number(a.currentPrice)
+        || String(a.collectorNumber || '').localeCompare(String(b.collectorNumber || ''), undefined, { numeric: true })
+        || String(a.name || '').localeCompare(String(b.name || ''))
+        || String(a.fateCardId || '').localeCompare(String(b.fateCardId || ''))
+      ))
+      .slice(0, limit),
+  );
 }
 
 export async function getCollectionSetProgressFromStore(store, {
@@ -82,8 +117,10 @@ export async function getCollectionSetProgressFromStore(store, {
   });
   const tracked = await listTrackedCollectionSetBindersFromStore(store, { userId: ownerId });
   const progress = summary.sets[0];
+  const topMissingCards = rankPricedMissingCards(progress?.missingCards || [], exactCardValues, { limit: 3 });
   return Object.freeze({
     ...progress,
+    topMissingCards,
     catalogue,
     explicitlyTracked: tracked.some((binder) => binder.setId === canonicalSetId),
     priceEvidenceConnected: priceRead.connected,
