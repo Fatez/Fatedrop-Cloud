@@ -99,13 +99,14 @@ jobs:
           await pool.end();
           NODE
 
-      - name: Persist exact 91-set bundle with existing catalogue path
+      - name: Persist all exact verified sets to rehearsal branch
         shell: bash
         env:
           FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
         run: |
           node src/trader/catalogue/load-activation-bundle-cli.mjs \
             --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
+            --concurrency=6 \
             --write | tee "$RUNNER_TEMP/catalogue-rehearsal-write.log"
 
       - name: Verify exact rehearsal result
