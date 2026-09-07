@@ -1,6 +1,6 @@
 import { load } from "cheerio";
 import { env } from "../config/env.mjs";
-import { extractCatalogueProducts } from "../core/extract.mjs";
+import { extractCatalogueProducts, extractDirectProductPage } from "../core/extract.mjs";
 import { sleep } from "../core/fetch.mjs";
 import { currentRetailerScanSignal, retailerScanDeadlineError } from "../core/scan-deadline.mjs";
 
@@ -102,10 +102,14 @@ export async function scanBigCommerceSitemapCatalogue(retailer) {
     const batch = urls.slice(offset, offset + concurrency);
     const results = await Promise.all(batch.map(async (productUrl) => {
       const response = await fetchText(productUrl, "text/html,application/xhtml+xml");
-      const products = extractCatalogueProducts({ html: response.text, pageUrl: productUrl, retailer })
+      const direct = extractDirectProductPage({ html: response.text, pageUrl: productUrl, retailer });
+      const products = direct
+        ? [direct]
+        : extractCatalogueProducts({ html: response.text, pageUrl: productUrl, retailer });
+      const accepted = products
         .filter((item) => !retailer.include || retailer.include.test(`${item.title} ${item.url}`))
         .filter((item) => !retailer.exclude || !retailer.exclude.test(`${item.title} ${item.url}`));
-      return { productUrl, status: response.status, products };
+      return { productUrl, status: response.status, products: accepted };
     }));
 
     for (const result of results) {
