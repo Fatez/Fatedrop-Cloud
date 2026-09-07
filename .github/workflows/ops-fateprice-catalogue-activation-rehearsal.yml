@@ -1,0 +1,45 @@
+name: OPS FatePrice Catalogue Activation Rehearsal
+
+on:
+  push:
+    branches:
+      - ops/fateprice-catalogue-activation-2026-09-07
+    paths:
+      - 'signal-engine/src/trader/catalogue/load-activation-bundle-cli.mjs'
+      - '.github/workflows/ops-fateprice-catalogue-activation-rehearsal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate-loader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Download successful 91-set activation bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/34083474722/artifacts?per_page=100" --jq '.artifacts[] | select(.name=="fateprice-catalogue-activation-bundle") | .id' | head -1)
+          test -n "$ARTIFACT_ID"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip" > "$RUNNER_TEMP/activation.zip"
+          unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
+      - name: Validate exact loader and split all clean sets
+        run: |
+          node src/trader/catalogue/load-activation-bundle-cli.mjs --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
+      - name: Focused catalogue tests
+        run: node --test tests/trader-catalogue*.test.mjs
