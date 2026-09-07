@@ -63,7 +63,7 @@ export const COB_PIP_REVIEWED_CARD_NAME_ALIASES = Object.freeze({
     '27': Object.freeze({ Sizzlepede: 'Sizzlipede' }),
     '29': Object.freeze({ Furecoco: 'Fuecoco' }),
     '56': Object.freeze({ 'Chien-Po': 'Chien-Pao' }),
-    '65': Object.freeze({ 'Tapu Kolo': 'Tapu Koko' }),
+    '65': Object.freeze({ 'Tapu Kolo:': 'Tapu Koko' }),
     '121': Object.freeze({ Grafarai: 'Grafaiai' }),
     '157': Object.freeze({ Tandermaus: 'Tandemaus' }),
     '162': Object.freeze({ 'ACESPEC Amulet of Hope': 'Amulet of Hope' }),
@@ -89,8 +89,19 @@ export const COB_PIP_REVIEWED_CARD_NAME_ALIASES = Object.freeze({
   }),
 });
 
-export function reviewedCobPipCardNameAlias(bindingKey, collectorNumber, sourceName) {
-  const aliases = COB_PIP_REVIEWED_CARD_NAME_ALIASES[String(bindingKey || '')]?.[String(collectorNumber || '')] || {};
-  const target = Object.entries(aliases).find(([source]) => source.localeCompare(String(sourceName || ''), undefined, { sensitivity: 'accent' }) === 0)?.[1];
-  return target || null;
+function freezeAliasMap(map) {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(map).map(([collectorNumber, aliases]) => [collectorNumber, Object.freeze({ ...aliases })]),
+  ));
+}
+
+export function withCobPipReviewedCardNameAliases(binding) {
+  const reviewed = COB_PIP_REVIEWED_CARD_NAME_ALIASES[String(binding?.key || '')] || {};
+  const existing = binding?.cardNameAliases || {};
+  const collectorNumbers = new Set([...Object.keys(existing), ...Object.keys(reviewed)]);
+  const merged = {};
+  for (const collectorNumber of collectorNumbers) {
+    merged[collectorNumber] = { ...(existing[collectorNumber] || {}), ...(reviewed[collectorNumber] || {}) };
+  }
+  return Object.freeze({ ...binding, cardNameAliases: freezeAliasMap(merged) });
 }
