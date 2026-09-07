@@ -46,6 +46,9 @@ function setSummaryUnavailable(set, catalogue) {
     reason: catalogue.reason,
     catalogue,
     ownedCount: null,
+    exactOwnedCount: null,
+    userConfirmedCount: null,
+    exactIdentityConfirmationNeededCount: null,
     totalCount: null,
     missingCount: null,
     completionPercent: null,
@@ -72,6 +75,7 @@ export function computeFateCollectorSummary({
   exactCardValues = [],
   gradedCardValues = [],
   printingValues = [],
+  setCompletionAssertions = [],
   currencyCode,
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
@@ -79,6 +83,7 @@ export function computeFateCollectorSummary({
   if (!Array.isArray(sets)) throw new TypeError('sets must be an array');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
   if (!Array.isArray(collectionItems)) throw new TypeError('collectionItems must be an array');
+  if (!Array.isArray(setCompletionAssertions)) throw new TypeError('setCompletionAssertions must be an array');
 
   const rawHoldings = rawItems(collectionItems);
   const gradedHoldings = gradedItems(collectionItems);
@@ -111,6 +116,11 @@ export function computeFateCollectorSummary({
     knownValue,
     unpricedItems: Object.freeze([...rawPortfolio.unpricedItems, ...gradedPortfolio.unpricedItems]),
   });
+  const assertionsBySet = new Map(
+    setCompletionAssertions
+      .filter((assertion) => assertion?.active === true && text(assertion.setId))
+      .map((assertion) => [text(assertion.setId), assertion]),
+  );
 
   const setSummaries = sets.map((set) => {
     const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
@@ -120,6 +130,7 @@ export function computeFateCollectorSummary({
       set,
       canonicalCards,
       collectionItems: rawHoldings,
+      assertedPrintingIds: assertionsBySet.get(set.id)?.printingIds ?? [],
       preferredLanguageCode,
       preferredVariantCode,
     });
@@ -140,10 +151,16 @@ export function computeFateCollectorSummary({
       reason: progress.reason,
       catalogue,
       ownedCount: progress.ownedCount,
+      exactOwnedCount: progress.exactOwnedCount,
+      userConfirmedCount: progress.userConfirmedCount,
+      exactIdentityConfirmationNeededCount: progress.exactIdentityConfirmationNeededCount,
       totalCount: progress.totalCount,
       missingCount: progress.missingCount,
       completionPercent: progress.completionPercent,
       missingCards: progress.missingCards,
+      hasUserCompletionAssertion: progress.userConfirmedCount > 0,
+      ownershipPolicy: progress.ownershipPolicy,
+      valuationPolicy: progress.valuationPolicy,
       value,
     });
   });

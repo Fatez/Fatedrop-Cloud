@@ -6,6 +6,11 @@ import { confirmCollectrImportFromStore } from './import/confirmation.mjs';
 import { previewCollectrImportFromStore } from './import/preview.mjs';
 import { getCollectionSetProgressFromStore } from './progress-service.mjs';
 import { setCollectionSetBinderTrackedInStore } from './set-binder-store.mjs';
+import {
+  confirmSetCompletionFromStore,
+  previewSetCompletionFromStore,
+  removeSetCompletionAssertionFromStore,
+} from './set-completion.mjs';
 
 const SUMMARY_PATH='/v1/collectors/summary';
 const INTELLIGENCE_PATH='/v1/collectors/intelligence';
@@ -19,9 +24,10 @@ function fail(res,status,code,message,{retryable=false,details={}}={}){json(res,
 async function readBody(req){let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>2_000_000)throw new Error('REQUEST_TOO_LARGE');}return raw?JSON.parse(raw):{};}
 function progressSetId(pathname){return pathname.match(/^\/v1\/collectors\/sets\/([^/]+)\/progress$/)?.[1]||null;}
 function binderSetId(pathname){return pathname.match(/^\/v1\/collectors\/binders\/([^/]+)$/)?.[1]||null;}
+function completionPath(pathname){const match=pathname.match(/^\/v1\/collectors\/sets\/([^/]+)\/complete(?:\/(preview|confirm))?$/);return match?{setId:match[1],action:match[2]||'remove'}:null;}
 
 export function isFateCollectorsPath(pathname){
-  return pathname===SUMMARY_PATH||pathname===INTELLIGENCE_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+\/progress$/.test(pathname)||/^\/v1\/collectors\/binders\/[^/]+$/.test(pathname);
+  return pathname===SUMMARY_PATH||pathname===INTELLIGENCE_PATH||pathname===PREVIEW_PATH||pathname===CONFIRM_PATH||/^\/v1\/collectors\/sets\/[^/]+\/progress$/.test(pathname)||/^\/v1\/collectors\/sets\/[^/]+\/complete(?:\/(?:preview|confirm))?$/.test(pathname)||/^\/v1\/collectors\/binders\/[^/]+$/.test(pathname);
 }
 
 export async function handleFateCollectors(req,res,{store,flags=resolveFateTraderFlags(),resolveUser=resolveFateTraderSessionUser}={}){
@@ -52,6 +58,31 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
       const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),currencyCode,preferredLanguageCode,preferredVariantCode});
       ok(res,{contractVersion:2,progress});return true;
     }
+    const completion=completionPath(url.pathname);
+    if(req.method==='POST'&&completion?.action==='preview'){
+      const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
+      const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
+      const preview=await previewSetCompletionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),preferredLanguageCode,preferredVariantCode});
+      const {_plan,...publicPreview}=preview;
+      ok(res,publicPreview);return true;
+    }
+    if(req.method==='POST'&&completion?.action==='confirm'){
+      const body=await readBody(req);
+      const result=await confirmSetCompletionFromStore(store,{
+        userId:user.id,
+        setId:decodeURIComponent(completion.setId),
+        confirmationToken:body.confirmationToken,
+        confirmed:body.confirmed,
+        preferredLanguageCode:String(body.preferredLanguageCode||'en').trim().toLowerCase(),
+        preferredVariantCode:String(body.preferredVariantCode||'standard').trim().toLowerCase(),
+      });
+      ok(res,result);return true;
+    }
+    if(req.method==='DELETE'&&completion?.action==='remove'){
+      const result=await removeSetCompletionAssertionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId)});
+      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),currencyCode:'GBP',preferredLanguageCode:'en',preferredVariantCode:'standard'});
+      ok(res,{contractVersion:1,...result,progress});return true;
+    }
     const trackedSetId=binderSetId(url.pathname);
     if((req.method==='PUT'||req.method==='DELETE')&&trackedSetId){
       const binder=await setCollectionSetBinderTrackedInStore(store,{userId:user.id,setId:decodeURIComponent(trackedSetId),tracked:req.method==='PUT'});
@@ -79,7 +110,11 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
     if(error instanceof SyntaxError){fail(res,400,'INVALID_JSON','Request body must be valid JSON.');return true;}
     if(error?.code==='IMPORT_PREVIEW_CHANGED'||error?.code==='IMPORT_STATE_CHANGED'||error?.code==='IMPORT_PREVIEW_TRUNCATED'){fail(res,409,error.code,error.message);return true;}
     if(error?.code==='IMPORT_CONFIRMATION_REQUIRED'){fail(res,400,error.code,error.message);return true;}
+    if(error?.code==='SET_COMPLETION_CONFIRMATION_REQUIRED'){fail(res,400,error.code,error.message);return true;}
+    if(error?.code==='SET_COMPLETION_PREVIEW_CHANGED'){fail(res,409,error.code,error.message);return true;}
+    if(error?.code==='SET_CHECKLIST_UNAVAILABLE'){fail(res,409,error.code,error.message,{details:error.details||{}});return true;}
     if(error?.code==='SET_IDENTITY_NOT_VERIFIED'){fail(res,404,error.code,error.message);return true;}
+    if(error?.code==='42P01'){fail(res,503,'SET_COMPLETION_STORAGE_UNAVAILABLE','Set completion is temporarily unavailable.',{retryable:true});return true;}
     if(error instanceof TypeError){fail(res,400,'INVALID_COLLECTORS_REQUEST',error.message);return true;}
     throw error;
   }
