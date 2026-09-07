@@ -1,0 +1,118 @@
+name: OPS FatePrice Catalogue Activation Bundle V2
+
+on:
+  push:
+    branches:
+      - ops/fateprice-catalogue-activation-2026-09-07
+    paths:
+      - '.github/workflows/ops-fateprice-catalogue-activation-bundle-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-activation-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Download retained verified-set evidence
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/activation-evidence"
+          mkdir -p "$ROOT"
+          download_run() {
+            local run_id="$1" prefix="$2"
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --jq '.artifacts[] | [.id,.name] | @tsv' |
+            while IFS=$'\t' read -r id name; do
+              case "$name" in
+                fateprice-set-*|fateprice-recovery-*)
+                  mkdir -p "$ROOT/$prefix/$name"
+                  echo "Downloading $name ($id)"
+                  gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" > "$ROOT/$prefix/$name.zip"
+                  unzip -q -o "$ROOT/$prefix/$name.zip" -d "$ROOT/$prefix/$name"
+                  ;;
+              esac
+            done
+          }
+          download_run 34017737476 base
+          download_run 34030526577 recovery
+
+      - name: Fresh exact Prismatic Evolutions compile
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { adaptTcgdexSet } from './src/trader/catalogue/tcgdex-adapter.mjs';
+          import { adaptPokemonTcgSet } from './src/trader/catalogue/pokemontcg-adapter.mjs';
+          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
+          import { reconcileSetEvidence } from './src/trader/catalogue/reconcile.mjs';
+          import { reconcilePokemonCardCollections } from './src/trader/catalogue/pipeline.mjs';
+          import { promoteMatchedCardEvidence } from './src/trader/catalogue/verification.mjs';
+          import { buildVerifiedCatalogueBatch } from './src/trader/catalogue/persistence.mjs';
+          const verifiedAt = Date.now();
+          const tcgdex = createTcgdexClient({ languageCode:'en', retryAttempts:6 });
+          const pokemon = createPokemonTcgClient({ apiKey:process.env.POKEMON_TCG_API_KEY || null, retryAttempts:6 });
+          const [rawTcgdexSet,rawPokemonSet] = await Promise.all([tcgdex.getSet('sv08.5'),pokemon.getSet('sv8pt5')]);
+          const tcgdexEvidence = adaptTcgdexSet(rawTcgdexSet);
+          const setMatch = reconcileSetEvidence(tcgdexEvidence,adaptPokemonTcgSet(rawPokemonSet));
+          if (setMatch.status !== 'matched' || setMatch.canonicalSetId !== 'fdset_20b6a6dcfa52bbe0cc54b919') throw new Error('Prismatic set crosswalk changed');
+          const refs = rawTcgdexSet.cards.map((x)=>String(x?.id||'').trim()).filter(Boolean);
+          const tcgdexCards=[]; for (const id of refs) tcgdexCards.push(await tcgdex.getCard(id));
+          const pokemonCards = await pokemon.listCardsBySet('sv8pt5');
+          const cardResults = reconcilePokemonCardCollections({tcgdexCards,pokemonTcgCards:pokemonCards,setMatch,sourceSeriesCode:tcgdexEvidence.sourceSeriesCode,languageCode:'en'});
+          if (tcgdexCards.length !== pokemonCards.length || cardResults.matched.length !== tcgdexCards.length || cardResults.conflicts.length || cardResults.quarantined.length || cardResults.unmatched.length) throw new Error(`Prismatic compile not clean: ${tcgdexCards.length}/${pokemonCards.length}, matched ${cardResults.matched.length}, conflicts ${cardResults.conflicts.length}, quarantined ${cardResults.quarantined.length}, unmatched ${cardResults.unmatched.length}`);
+          const promotions = cardResults.matched.map((m)=>promoteMatchedCardEvidence(m,{verifiedAt}));
+          if (promotions.some((p)=>p.status!=='verified')) throw new Error('Prismatic promotion rejected');
+          const batch = buildVerifiedCatalogueBatch({setMatch,promotions,verifiedAt});
+          const dir=process.env.RUNNER_TEMP+'/activation-evidence/prismatic'; fs.mkdirSync(dir,{recursive:true});
+          fs.writeFileSync(dir+'/set-result.json',JSON.stringify({format:'fatedrop-pokemon-catalogue-set-v1',generatedAt:new Date(verifiedAt).toISOString(),requested:{tcgdexSetId:'sv08.5',pokemonTcgSetId:'sv8pt5',canonicalSetId:setMatch.canonicalSetId,setName:setMatch.setName},safety:{productionWrites:false,exactTwoSourceReconciliation:true,fuzzyMatching:false},status:'verified',reasons:[],rows:batch,counts:{printings:batch.printings.length,cardIdentities:batch.cardIdentities.length,sourceMappings:batch.cardSourceMappings.length,provenance:batch.cardProvenance.length}}));
+          console.log(`Prismatic verified ${batch.printings.length}/${batch.cardIdentities.length}`);
+          NODE
+
+      - name: Aggregate and integrity-check the 91-set activation bundle
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs'; import path from 'node:path';
+          const root=process.env.RUNNER_TEMP+'/activation-evidence'; const files=[];
+          const walk=(d)=>{for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=path.join(d,e.name); if(e.isDirectory())walk(f); else if(e.isFile()&&e.name==='set-result.json')files.push(f);}}; walk(root);
+          const bySet=new Map();
+          for(const file of files.sort()){const row=JSON.parse(fs.readFileSync(file,'utf8')); if(row.status==='verified'&&row.rows?.set?.id)bySet.set(row.rows.set.id,row);}
+          const selected=[...bySet.values()];
+          const dedupe=(rows,key='id')=>[...new Map(rows.map((r)=>[r[key],r])).values()];
+          const bundle={format:'fatedrop-catalogue-activation-bundle-v1',generatedAt:new Date().toISOString(),safety:{exactOnly:true,fuzzyMatching:false,productionWrites:false,verifiedSetsOnly:true},provenance:{baseUniverseRunId:34017737476,recoveryRunId:34030526577,prismaticFreshCompile:true},tcgs:dedupe(selected.map(x=>x.rows.tcg)),series:dedupe(selected.map(x=>x.rows.series).filter(Boolean)),sets:dedupe(selected.map(x=>x.rows.set)),setSourceMappings:dedupe(selected.flatMap(x=>x.rows.setSourceMappings||[])),printings:dedupe(selected.flatMap(x=>x.rows.printings||[])),cardIdentities:dedupe(selected.flatMap(x=>x.rows.cardIdentities||[])),cardSourceMappings:dedupe(selected.flatMap(x=>x.rows.cardSourceMappings||[])),cardProvenance:dedupe(selected.flatMap(x=>x.rows.cardProvenance||[]))};
+          bundle.counts={sets:bundle.sets.length,series:bundle.series.length,printings:bundle.printings.length,cardIdentities:bundle.cardIdentities.length,cardSourceMappings:bundle.cardSourceMappings.length,cardProvenance:bundle.cardProvenance.length};
+          if(bundle.counts.sets!==91)throw new Error(`Expected 91 sets, got ${bundle.counts.sets}`);
+          if(bundle.counts.cardIdentities!==17312)throw new Error(`Expected 17312 identities, got ${bundle.counts.cardIdentities}`);
+          const setIds=new Set(bundle.sets.map(x=>x.id)), printingIds=new Set(bundle.printings.map(x=>x.id)), identityIds=new Set(bundle.cardIdentities.map(x=>x.id));
+          for(const r of bundle.printings)if(!setIds.has(r.setId))throw new Error(`Broken printing FK ${r.id}`);
+          for(const r of bundle.cardIdentities)if(!setIds.has(r.setId)||!printingIds.has(r.printingId))throw new Error(`Broken identity FK ${r.id}`);
+          const sourceKeys=new Map();
+          for(const r of bundle.cardSourceMappings){if(!identityIds.has(r.cardIdentityId))throw new Error(`Broken source mapping FK ${r.id}`); const k=`${r.sourceName}|${r.sourceRecordId}|${r.sourceVariantKey}`; const p=sourceKeys.get(k); if(p&&p!==r.cardIdentityId)throw new Error(`Catalogue source collision ${k}: ${p} vs ${r.cardIdentityId}`); sourceKeys.set(k,r.cardIdentityId);}
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/fateprice-catalogue-activation-bundle.json',JSON.stringify(bundle));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`# FatePrice catalogue activation bundle V2\n\n- Verified sets: **${bundle.counts.sets}**\n- Verified printings: **${bundle.counts.printings}**\n- Verified identities: **${bundle.counts.cardIdentities}**\n- Catalogue source mappings: **${bundle.counts.cardSourceMappings}**\n- Provenance rows: **${bundle.counts.cardProvenance}**\n- Fuzzy matching: **disabled**\n- Production writes: **0**\n`);
+          console.log(bundle.counts);
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle-v2
+          path: ${{ runner.temp }}/fateprice-catalogue-activation-bundle.json
+          retention-days: 14
+          if-no-files-found: error
