@@ -114,7 +114,7 @@ test('verified resolutions become reusable product, offer, observation and cross
   const records = buildVerifiedRetailSingleRecords(resolved, { now: Date.parse('2026-09-07T12:01:00.000Z') });
   assert.equal(records.product.productType, 'SINGLE');
   assert.equal(records.product.canonicalKey, 'single:fdcard_weedle_standard');
-  assert.equal(records.offer.retailerId, 'cob-pip');
+  assert.equal(records.offer.retailerId, 'cob-and-pip');
   assert.equal(records.offer.stockQuantity, null);
   assert.equal(records.mapping.cardIdentityId, 'fdcard_weedle_standard');
   assert.equal(records.mapping.verificationStatus, 'verified');
