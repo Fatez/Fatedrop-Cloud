@@ -1,0 +1,123 @@
+name: OPS FatePrice Catalogue Neon Rehearsal Write
+
+on:
+  push:
+    branches:
+      - ops/fateprice-catalogue-activation-2026-09-07
+    paths:
+      - '.github/workflows/ops-fateprice-catalogue-neon-rehearsal-write.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rehearse-write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    env:
+      NEON_PROJECT_ID: summer-truth-31037285
+      NEON_BRANCH_ID: br-proud-shape-axlh9tq9
+      NEON_DATABASE_NAME: neondb
+      NEON_ROLE_NAME: neondb_owner
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Download successful exact activation bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/10004449370/zip" > "$RUNNER_TEMP/activation.zip"
+          unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
+          test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
+
+      - name: Resolve isolated Neon branch connection
+        shell: bash
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_API_TOKEN: ${{ secrets.NEON_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          TOKEN="${NEON_API_KEY:-${NEON_API_TOKEN:-}}"
+          if [ -z "$TOKEN" ]; then
+            echo "Neither NEON_API_KEY nor NEON_API_TOKEN is configured" >&2
+            exit 20
+          fi
+          RESPONSE="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" \
+            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri?branch_id=${NEON_BRANCH_ID}&database_name=${NEON_DATABASE_NAME}&role_name=${NEON_ROLE_NAME}&pooled=true")"
+          DATABASE_URL="$(printf '%s' "$RESPONSE" | jq -r '.uri // empty')"
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Neon connection_uri response did not contain uri" >&2
+            exit 21
+          fi
+          echo "::add-mask::$DATABASE_URL"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+
+      - name: Baseline isolated branch counts
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const { rows } = await pool.query(`SELECT
+            (SELECT COUNT(*)::int FROM fatedrop_card_sets) AS sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities) AS identities,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings) AS source_mappings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_provenance) AS provenance`);
+          console.log(JSON.stringify({ event: 'baseline', ...rows[0] }));
+          await pool.end();
+          NODE
+
+      - name: Persist all exact verified sets to rehearsal branch
+        shell: bash
+        env:
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          node src/trader/catalogue/load-activation-bundle-cli.mjs \
+            --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
+            --write | tee "$RUNNER_TEMP/catalogue-rehearsal-write.log"
+
+      - name: Verify rehearsal counts and referential integrity
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const expected = { sets: 91, identities: 17312 };
+          const { rows: totals } = await pool.query(`SELECT
+            COUNT(*) FILTER (WHERE verification_status='verified')::int AS verified_sets
+            FROM fatedrop_card_sets`);
+          const { rows: ids } = await pool.query(`SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int AS verified_identities FROM fatedrop_card_identities`);
+          const { rows: missing } = await pool.query(`SELECT
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) AS orphan_card_sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) AS orphan_card_printings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) AS orphan_source_mappings`);
+          const result = { verifiedSets: totals[0].verified_sets, verifiedIdentities: ids[0].verified_identities, ...missing[0] };
+          console.log(JSON.stringify({ event: 'verification', ...result }));
+          if (result.verifiedSets < expected.sets) throw new Error(`Expected at least ${expected.sets} verified sets after rehearsal; got ${result.verifiedSets}`);
+          if (result.verifiedIdentities < expected.identities) throw new Error(`Expected at least ${expected.identities} verified identities after rehearsal; got ${result.verifiedIdentities}`);
+          if (result.orphan_card_sets || result.orphan_card_printings || result.orphan_source_mappings) throw new Error(`Referential integrity failed: ${JSON.stringify(result)}`);
+          await pool.end();
+          NODE
+
+      - name: Upload rehearsal log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-catalogue-neon-rehearsal-log
+          path: ${{ runner.temp }}/catalogue-rehearsal-write.log
+          retention-days: 14
+          if-no-files-found: ignore
