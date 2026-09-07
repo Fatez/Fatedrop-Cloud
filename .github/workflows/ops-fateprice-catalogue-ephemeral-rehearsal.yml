@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -38,20 +38,23 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
           test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
 
-      - name: Create one-run encryption key
+      - name: Create and publish one-run encryption key
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/fatedrop-rehearsal-key.pem" >/dev/null 2>&1
-          openssl pkey -in "$RUNNER_TEMP/fatedrop-rehearsal-key.pem" -pubout -out "$RUNNER_TEMP/fatedrop-rehearsal-pub.pem" >/dev/null 2>&1
-
-      - name: Publish one-run public key
-        uses: actions/upload-artifact@v4
-        with:
-          name: fateprice-rehearsal-public-key
-          path: ${{ runner.temp }}/fatedrop-rehearsal-pub.pem
-          retention-days: 1
-          if-no-files-found: error
+          KEY="$RUNNER_TEMP/fatedrop-rehearsal-key.pem"
+          PUB="$RUNNER_TEMP/fatedrop-rehearsal-pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
+          openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
+          CONTENT="$(base64 -w0 "$PUB")"
+          EXISTING_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-rehearsal-pub.pem?ref=${GITHUB_REF_NAME}" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-rehearsal-pub.pem" -f message='ops: rotate ephemeral rehearsal public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" -f sha="$EXISTING_SHA" >/dev/null
+          else
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-rehearsal-pub.pem" -f message='ops: publish ephemeral rehearsal public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" >/dev/null
+          fi
 
       - name: Wait for encrypted rehearsal URL
         shell: bash
@@ -62,13 +65,9 @@ jobs:
           KEY="$RUNNER_TEMP/fatedrop-rehearsal-key.pem"
           CIPHER_TEXT="$RUNNER_TEMP/neon-url.enc.b64"
           for attempt in $(seq 1 120); do
-            if gh api -H 'Accept: application/vnd.github.raw+json' \
-              "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" \
-              > "$CIPHER_TEXT" 2>/dev/null; then
+            if gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" > "$CIPHER_TEXT" 2>/dev/null; then
               if tr -d '\r\n' < "$CIPHER_TEXT" | base64 -d > "$RUNNER_TEMP/ciphertext.bin" 2>/dev/null; then
-                if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" \
-                  -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
-                  -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
+                if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
                   DATABASE_URL="$(cat "$RUNNER_TEMP/database-url.txt")"
                   if [ -n "$DATABASE_URL" ]; then
                     echo "::add-mask::$DATABASE_URL"
@@ -106,7 +105,6 @@ jobs:
         run: |
           node src/trader/catalogue/load-activation-bundle-cli.mjs \
             --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
-            --concurrency=6 \
             --write | tee "$RUNNER_TEMP/catalogue-rehearsal-write.log"
 
       - name: Verify exact rehearsal result
