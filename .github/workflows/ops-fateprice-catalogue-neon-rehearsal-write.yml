@@ -24,6 +24,7 @@ jobs:
       NEON_BRANCH_ID: br-proud-shape-axlh9tq9
       NEON_DATABASE_NAME: neondb
       NEON_ROLE_NAME: neondb_owner
+      NEON_PASSWORDLESS_HOST: ep-fragrant-scene-axferl9s.c-4.us-east-2.aws.neon.tech
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -51,16 +52,16 @@ jobs:
         run: |
           set -euo pipefail
           TOKEN="${NEON_API_KEY:-${NEON_API_TOKEN:-}}"
-          if [ -z "$TOKEN" ]; then
-            echo "Neither NEON_API_KEY nor NEON_API_TOKEN is configured" >&2
-            exit 20
+          if [ -n "$TOKEN" ]; then
+            RESPONSE="$(curl --fail-with-body --silent --show-error \
+              -H "Authorization: Bearer $TOKEN" \
+              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri?branch_id=${NEON_BRANCH_ID}&database_name=${NEON_DATABASE_NAME}&role_name=${NEON_ROLE_NAME}&pooled=true")"
+            DATABASE_URL="$(printf '%s' "$RESPONSE" | jq -r '.uri // empty')"
+          else
+            DATABASE_URL="postgresql://${NEON_ROLE_NAME}@${NEON_PASSWORDLESS_HOST}/${NEON_DATABASE_NAME}?sslmode=require"
           fi
-          RESPONSE="$(curl --fail-with-body --silent --show-error \
-            -H "Authorization: Bearer $TOKEN" \
-            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri?branch_id=${NEON_BRANCH_ID}&database_name=${NEON_DATABASE_NAME}&role_name=${NEON_ROLE_NAME}&pooled=true")"
-          DATABASE_URL="$(printf '%s' "$RESPONSE" | jq -r '.uri // empty')"
           if [ -z "$DATABASE_URL" ]; then
-            echo "Neon connection_uri response did not contain uri" >&2
+            echo "Could not resolve isolated Neon rehearsal connection" >&2
             exit 21
           fi
           echo "::add-mask::$DATABASE_URL"
@@ -97,9 +98,7 @@ jobs:
           import pg from 'pg';
           const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
           const expected = { sets: 91, identities: 17312 };
-          const { rows: totals } = await pool.query(`SELECT
-            COUNT(*) FILTER (WHERE verification_status='verified')::int AS verified_sets
-            FROM fatedrop_card_sets`);
+          const { rows: totals } = await pool.query(`SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int AS verified_sets FROM fatedrop_card_sets`);
           const { rows: ids } = await pool.query(`SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int AS verified_identities FROM fatedrop_card_identities`);
           const { rows: missing } = await pool.query(`SELECT
             (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) AS orphan_card_sets,
