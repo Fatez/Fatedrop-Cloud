@@ -56,39 +56,86 @@ jobs:
           download_run_artifacts 34017737476 base
           download_run_artifacts 34030526577 recovery
 
-      - name: Fresh exact Prismatic Evolutions compile
+          # Prismatic Evolutions already passed the exact two-source card audit in run 33939136991.
+          # Reuse that retained proof so a transient live API response cannot block activation.
+          mkdir -p "$ROOT/prismatic-retained"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/9961202202/zip" > "$ROOT/prismatic-retained.zip"
+          unzip -q -o "$ROOT/prismatic-retained.zip" -d "$ROOT/prismatic-retained"
+
+      - name: Build Prismatic batch from retained verified proof
         shell: bash
         run: |
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
-          import { adaptTcgdexSet } from './src/trader/catalogue/tcgdex-adapter.mjs';
-          import { adaptPokemonTcgSet } from './src/trader/catalogue/pokemontcg-adapter.mjs';
-          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
-          import { reconcileSetEvidence } from './src/trader/catalogue/reconcile.mjs';
-          import { reconcilePokemonCardCollections } from './src/trader/catalogue/pipeline.mjs';
-          import { promoteMatchedCardEvidence } from './src/trader/catalogue/verification.mjs';
           import { buildVerifiedCatalogueBatch } from './src/trader/catalogue/persistence.mjs';
 
-          const verifiedAt = Date.now();
-          const tcgdex = createTcgdexClient({ languageCode: 'en', retryAttempts: 6 });
-          const pokemon = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null, retryAttempts: 6 });
-          const rawTcgdexSet = await tcgdex.getSet('sv08.5');
-          const rawPokemonSet = await pokemon.getSet('sv8pt5');
-          const tcgdexEvidence = adaptTcgdexSet(rawTcgdexSet);
-          const setMatch = reconcileSetEvidence(tcgdexEvidence, adaptPokemonTcgSet(rawPokemonSet));
-          if (setMatch.status !== 'matched' || setMatch.canonicalSetId !== 'fdset_20b6a6dcfa52bbe0cc54b919') throw new Error('Prismatic set crosswalk changed');
-          const refs = rawTcgdexSet.cards.map((row) => String(row?.id || '').trim()).filter(Boolean);
-          const tcgdexCards = [];
-          for (const id of refs) tcgdexCards.push(await tcgdex.getCard(id));
-          const pokemonCards = await pokemon.listCardsBySet('sv8pt5');
-          const cardResults = reconcilePokemonCardCollections({ tcgdexCards, pokemonTcgCards: pokemonCards, setMatch, sourceSeriesCode: tcgdexEvidence.sourceSeriesCode, languageCode: 'en' });
-          if (tcgdexCards.length !== pokemonCards.length || cardResults.matched.length !== tcgdexCards.length || cardResults.conflicts.length || cardResults.quarantined.length || cardResults.unmatched.length) throw new Error('Prismatic exact compile not clean');
-          const promotions = cardResults.matched.map((match) => promoteMatchedCardEvidence(match, { verifiedAt }));
-          if (promotions.some((promotion) => promotion.status !== 'verified')) throw new Error('Prismatic promotion rejected');
+          const root = process.env.RUNNER_TEMP + '/activation-evidence/prismatic-retained';
+          const auditPath = root + '/prismatic-evolutions-card-audit.json';
+          const audit = JSON.parse(fs.readFileSync(auditPath, 'utf8'));
+
+          if (audit?.set?.tcgdexSetId !== 'sv08.5'
+            || audit?.set?.pokemonTcgSetId !== 'sv8pt5'
+            || audit?.set?.canonicalSetId !== 'fdset_20b6a6dcfa52bbe0cc54b919') {
+            throw new Error('Retained Prismatic set proof is not the expected canonical set');
+          }
+          if (audit?.sourceCounts?.tcgdexCardsFetched !== 180
+            || audit?.sourceCounts?.pokemonTcgCardsFetched !== 180
+            || audit?.reconciliation?.matchedCardRecords !== 180
+            || audit?.reconciliation?.conflicts !== 0
+            || audit?.reconciliation?.quarantined !== 0
+            || audit?.reconciliation?.unmatched !== 0
+            || audit?.verification?.verifiedIdentityRows !== 281
+            || audit?.verification?.rejectedPromotions !== 0
+            || !Array.isArray(audit.identities)
+            || audit.identities.length !== 281) {
+            throw new Error('Retained Prismatic exact-card proof is incomplete or no longer clean');
+          }
+
+          const first = audit.identities[0];
+          const seriesId = first?.seriesCode;
+          if (!seriesId || audit.identities.some((identity) => identity.verificationStatus !== 'verified'
+            || identity.setCode !== audit.set.canonicalSetId
+            || identity.seriesCode !== seriesId
+            || identity.tcgCode !== 'pokemon')) {
+            throw new Error('Retained Prismatic identities do not form one verified canonical set');
+          }
+
+          const verifiedAt = Math.max(...audit.identities.map((identity) => Number(identity.verifiedAt) || 0));
+          if (!verifiedAt) throw new Error('Retained Prismatic proof has no verification timestamp');
+
+          const setMatch = {
+            status: 'matched',
+            tcgCode: 'pokemon',
+            canonicalSeriesId: seriesId,
+            canonicalSetId: audit.set.canonicalSetId,
+            seriesName: audit.set.seriesName,
+            setName: audit.set.setName,
+            printedTotal: audit.set.printedTotal,
+            total: audit.set.total,
+            releasedAt: Date.parse('2025-01-17T00:00:00Z'),
+            evidence: [
+              {
+                sourceName: 'tcgdex',
+                sourceRecordId: audit.set.tcgdexSetId,
+                sourceSeriesCode: 'sv',
+                sourceUrl: `https://api.tcgdex.net/v2/en/sets/${audit.set.tcgdexSetId}`,
+              },
+              {
+                sourceName: 'pokemontcg-api',
+                sourceRecordId: audit.set.pokemonTcgSetId,
+                sourceSeriesCode: audit.set.pokemonTcgSetCode || null,
+                sourceUrl: `https://api.pokemontcg.io/v2/sets/${audit.set.pokemonTcgSetId}`,
+              },
+            ],
+          };
+
+          const promotions = audit.identities.map((identity) => ({ status: 'verified', identities: [identity] }));
           const batch = buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt });
-          const dir = process.env.RUNNER_TEMP + '/activation-evidence/prismatic';
-          fs.mkdirSync(dir,{recursive:true});
-          fs.writeFileSync(dir + '/set-result.json', JSON.stringify({ status:'verified', rows:batch }));
+          if (batch.cardIdentities.length !== 281) throw new Error('Prismatic retained batch identity count changed');
+
+          const out = process.env.RUNNER_TEMP + '/activation-evidence/prismatic';
+          fs.mkdirSync(out, { recursive: true });
+          fs.writeFileSync(out + '/set-result.json', JSON.stringify({ status: 'verified', rows: batch }));
           NODE
 
       - name: Build exact catalogue activation bundle
@@ -121,7 +168,7 @@ jobs:
             format:'fatedrop-catalogue-activation-bundle-v1',
             generatedAt:new Date().toISOString(),
             safety:{exactOnly:true,fuzzyMatching:false,productionWrites:false,verifiedSetsOnly:true},
-            provenance:{baseUniverseRunId:34017737476,recoveryRunId:34030526577},
+            provenance:{baseUniverseRunId:34017737476,recoveryRunId:34030526577,prismaticProofRunId:33939136991},
             tcgs:dedupe(selected.map((x)=>x.tcg).filter(Boolean)),
             series:dedupe(selected.map((x)=>x.series).filter(Boolean)),
             sets:dedupe(selected.map((x)=>x.set).filter(Boolean)),
@@ -142,8 +189,18 @@ jobs:
           if (bundle.counts.sets !== 91) throw new Error(`Expected 91 sets, got ${bundle.counts.sets}`);
           if (bundle.counts.cardIdentities !== 17312) throw new Error(`Expected 17312 identities, got ${bundle.counts.cardIdentities}`);
 
+          const setIds = new Set(bundle.sets.map((row) => row.id));
+          const printingIds = new Set(bundle.printings.map((row) => row.id));
+          const cardIds = new Set(bundle.cardIdentities.map((row) => row.id));
+          for (const printing of bundle.printings) if (!setIds.has(printing.setId)) throw new Error(`Orphan printing ${printing.id}`);
+          for (const card of bundle.cardIdentities) {
+            if (!setIds.has(card.setId)) throw new Error(`Orphan card set ${card.id}`);
+            if (!printingIds.has(card.printingId)) throw new Error(`Orphan card printing ${card.id}`);
+          }
+
           const sourceKeys = new Map();
           for (const row of bundle.cardSourceMappings) {
+            if (!cardIds.has(row.cardIdentityId)) throw new Error(`Orphan source mapping ${row.id}`);
             const key = `${row.sourceName}|${row.sourceRecordId}|${row.sourceVariantKey}`;
             const prior = sourceKeys.get(key);
             if (prior && prior !== row.cardIdentityId) throw new Error(`Source collision ${key}`);
