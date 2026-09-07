@@ -41,6 +41,20 @@ jobs:
           OUTPUT_PATH: ${{ runner.temp }}/retail-single-production-bundle.json
         run: node src/trader/value/retail-single-production-bundle-cli.mjs
 
+      - name: Check guarded production DB handoff
+        id: db_handoff
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        shell: bash
+        run: |
+          if [ -n "${DATABASE_URL:-}" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "Production DATABASE_URL handoff is configured." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "Production DATABASE_URL handoff is not configured under secrets.DATABASE_URL." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Summarise exact resolution
         shell: bash
         run: |
