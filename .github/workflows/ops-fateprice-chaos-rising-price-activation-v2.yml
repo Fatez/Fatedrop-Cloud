@@ -107,3 +107,4 @@ jobs:
           path: ${{ runner.temp }}/bulk-price-activation.log
           retention-days: 30
           if-no-files-found: ignore
+# rerun-expanded-catalogue: 2026-09-07T19:30:00Z
