@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 import { COB_PIP_RETAILER, COB_PIP_SINGLE_COLLECTIONS, collectCobPipSinglesPilot } from './cob-pip-singles-pilot.mjs';
+import { withCobPipReviewedCardNameAliases } from './cob-pip-reviewed-card-name-aliases.mjs';
 import { resolveRetailSingleBatch } from './retail-single-offers.mjs';
 
 const DEFAULT_BASE_URL = 'https://fatedrop-cloud-production.up.railway.app';
@@ -57,15 +58,16 @@ function reasonCounts(rows) {
 }
 
 async function auditCollection(baseUrl, configuredBinding, sets, observedAt) {
-  const canonical = resolveBinding(configuredBinding, sets);
+  const reviewedBinding = withCobPipReviewedCardNameAliases(configuredBinding);
+  const canonical = resolveBinding(reviewedBinding, sets);
   if (canonical.status !== 'ready') {
     return Object.freeze({
       status: 'held',
       reason: canonical.reason,
-      collectionKey: configuredBinding.key,
-      collectionHandle: configuredBinding.collectionHandle,
-      canonicalSetId: configuredBinding.canonicalSetId || null,
-      canonicalSetName: configuredBinding.canonicalSetName,
+      collectionKey: reviewedBinding.key,
+      collectionHandle: reviewedBinding.collectionHandle,
+      canonicalSetId: reviewedBinding.canonicalSetId || null,
+      canonicalSetName: reviewedBinding.canonicalSetName,
       canonicalCards: 0,
       productsSeen: 0,
       candidates: 0,
@@ -139,7 +141,7 @@ async function main() {
   const held = results.filter((row) => row.status === 'held');
   const failed = results.filter((row) => row.status === 'failed');
   const report = Object.freeze({
-    schemaVersion: 'cob-pip-full-singles-audit:2',
+    schemaVersion: 'cob-pip-full-singles-audit:3',
     mode: 'read_only_live_exact_coverage',
     writesPerformed: false,
     generatedAt: new Date(observedAt).toISOString(),
