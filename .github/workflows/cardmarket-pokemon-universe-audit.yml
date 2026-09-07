@@ -1,0 +1,71 @@
+name: Audit Cardmarket Pokemon Universe
+
+on:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/value/cardmarket-native-universe.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-native-universe-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-source-client.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-adapter.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-catalogue-adapter.mjs'
+      - 'signal-engine/tests/cardmarket-native-universe.test.mjs'
+      - 'signal-engine/package.json'
+      - '.github/workflows/cardmarket-pokemon-universe-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-cardmarket-universe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch and audit official Cardmarket Pokemon universe
+        run: node src/trader/value/cardmarket-native-universe-cli.mjs > "$RUNNER_TEMP/cardmarket-pokemon-universe.json"
+
+      - name: Summarise audit
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/cardmarket-pokemon-universe.json', 'utf8'));
+          const a = report.audit;
+          console.log('# Cardmarket Pokémon universe audit');
+          console.log('');
+          console.log(`- Catalogue products: **${a.catalogueProducts}**`);
+          console.log(`- Expansions: **${a.expansions}**`);
+          console.log(`- Price-guide rows: **${a.priceGuideRows}**`);
+          console.log(`- Product ↔ price join coverage: **${a.productPriceJoinCoveragePct}%**`);
+          console.log(`- Standard-lane priced products: **${a.standardPricedProducts} (${a.standardCoveragePct}%)**`);
+          console.log(`- Holo-lane priced products: **${a.holoPricedProducts} (${a.holoCoveragePct}%)**`);
+          console.log(`- Any-price-lane products: **${a.anyPricedProducts} (${a.anyPriceCoveragePct}%)**`);
+          console.log(`- Products without expansion: **${a.productsWithoutExpansion}**`);
+          console.log(`- Price rows without catalogue product: **${a.priceRowsWithoutCatalogueProduct}**`);
+          console.log('');
+          console.log(`Source snapshot: \`${a.sourceSnapshotId}\``);
+          NODE
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-pokemon-universe
+          path: ${{ runner.temp }}/cardmarket-pokemon-universe.json
+          if-no-files-found: error
+          retention-days: 7
