@@ -1,7 +1,54 @@
 const COB_PIP_BASE_URL = 'https://cobandpip.co.uk';
-const COB_PIP_SINGLES_COLLECTION = '/collections/pokemon-single-cards';
 const DEFAULT_PAGE_LIMIT = 250;
 const DEFAULT_MAX_PAGES = 20;
+
+// Reviewed collection bindings are deliberately explicit. Shopify collection
+// names are retailer-owned evidence; only this registry may bind one to a
+// canonical FateDrop set. New sets require a reviewed entry rather than a
+// fuzzy title match.
+export const COB_PIP_SINGLE_COLLECTIONS = Object.freeze({
+  'pokemon-151': Object.freeze({
+    key: 'pokemon-151',
+    tcgCode: 'pokemon',
+    collectionHandle: 'pokemon-sv-151',
+    canonicalSetId: 'fdset_067d68020460e775d43ff0cb',
+    canonicalSetName: '151',
+    titleSuffixes: Object.freeze(['Pokemon SV 151', 'Pokémon SV 151', '151']),
+    variantLanes: Object.freeze({
+      base: Object.freeze(['standard', 'holo']),
+      'rev holo': Object.freeze(['reverse-holo']),
+      'default title': Object.freeze(['standard', 'holo', 'reverse-holo']),
+    }),
+    cardNameAliases: Object.freeze({
+      '29': Object.freeze({ 'Nidoran ♀': 'Nidoran♀' }),
+      '75': Object.freeze({ Gravelar: 'Graveler' }),
+      '83': Object.freeze({ "Farfeth'd": "Farfetch'd" }),
+    }),
+    reviewedAt: '2026-09-07',
+  }),
+  'pokemon-chaos-rising': Object.freeze({
+    key: 'pokemon-chaos-rising',
+    tcgCode: 'pokemon',
+    collectionHandle: 'pokemon-mega-evolution-chaos-rising',
+    canonicalSetId: 'fdset_40b2ad368841bbd285a0df18',
+    canonicalSetName: 'Chaos Rising',
+    titleSuffixes: Object.freeze(['Pokemon Mega Evolution Chaos Rising', 'Pokémon Mega Evolution Chaos Rising', 'Mega Evolution Chaos Rising', 'Chaos Rising']),
+    variantLanes: Object.freeze({
+      base: Object.freeze(['standard', 'holo']),
+      'rev holo': Object.freeze(['reverse-holo']),
+      'default title': Object.freeze(['standard', 'holo', 'reverse-holo']),
+    }),
+    // Retailer wording differs from the exact canonical card names for these
+    // three energies. These narrow aliases are collector-number scoped and
+    // reviewed; they are not a general name similarity rule.
+    cardNameAliases: Object.freeze({
+      '84': Object.freeze({ 'Bubbly Energy': 'Bubbly Water Energy' }),
+      '85': Object.freeze({ 'Magnetic Energy': 'Magnetic Metal Energy' }),
+      '86': Object.freeze({ 'Nitro Energy': 'Nitro Fire Energy' }),
+    }),
+    reviewedAt: '2026-09-07',
+  }),
+});
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
@@ -49,7 +96,16 @@ function variantAvailable(variant) {
   return variant?.available === true;
 }
 
-export function normalizeCobPipSingleCandidate(product, variant, { observedAt = Date.now() } = {}) {
+function collectionBinding(value) {
+  if (value && typeof value === 'object') return value;
+  const key = text(value) || 'pokemon-151';
+  const binding = COB_PIP_SINGLE_COLLECTIONS[key];
+  if (!binding) throw new TypeError(`Unsupported Cob & Pip singles collection: ${key}`);
+  return binding;
+}
+
+export function normalizeCobPipSingleCandidate(product, variant, { observedAt = Date.now(), collection = 'pokemon-151' } = {}) {
+  const binding = collectionBinding(collection);
   const productId = integer(product?.id);
   const variantId = integer(variant?.id);
   const productTitle = text(product?.title);
@@ -69,7 +125,9 @@ export function normalizeCobPipSingleCandidate(product, variant, { observedAt = 
     sellerType: 'retailer',
     tcg: 'pokemon',
     sourceKind: 'shopify_collection_products_json',
-    sourceCollectionUrl: `${COB_PIP_BASE_URL}${COB_PIP_SINGLES_COLLECTION}`,
+    sourceCollectionKey: binding.key,
+    sourceCollectionHandle: binding.collectionHandle,
+    sourceCollectionUrl: `${COB_PIP_BASE_URL}/collections/${binding.collectionHandle}`,
     retailerProductId: String(productId),
     retailerVariantId: String(variantId),
     retailerSku: sku || `shopify-variant-${variantId}`,
@@ -112,19 +170,21 @@ export function normalizeCobPipProductsPayload(payload, options = {}) {
 }
 
 export async function collectCobPipSinglesPilot({
+  collection = 'pokemon-151',
   fetchImpl = globalThis.fetch,
   observedAt = Date.now(),
   maxPages = DEFAULT_MAX_PAGES,
   pageLimit = DEFAULT_PAGE_LIMIT,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl is required');
+  const binding = collectionBinding(collection);
   const safeMaxPages = Math.max(1, Math.min(50, Number(maxPages) || DEFAULT_MAX_PAGES));
   const safeLimit = Math.max(1, Math.min(250, Number(pageLimit) || DEFAULT_PAGE_LIMIT));
   const candidates = [];
   const pages = [];
 
   for (let page = 1; page <= safeMaxPages; page += 1) {
-    const url = `${COB_PIP_BASE_URL}${COB_PIP_SINGLES_COLLECTION}/products.json?limit=${safeLimit}&page=${page}`;
+    const url = `${COB_PIP_BASE_URL}/collections/${binding.collectionHandle}/products.json?limit=${safeLimit}&page=${page}`;
     const response = await fetchImpl(url, {
       headers: { accept: 'application/json', 'user-agent': 'FateDrop/0.1 (+https://fate-drop.com; exact-card-pilot)' },
     });
@@ -136,7 +196,7 @@ export async function collectCobPipSinglesPilot({
     }
     const payload = await response.json();
     const products = Array.isArray(payload?.products) ? payload.products : [];
-    const normalized = normalizeCobPipProductsPayload(payload, { observedAt });
+    const normalized = normalizeCobPipProductsPayload(payload, { observedAt, collection: binding });
     candidates.push(...normalized);
     pages.push(Object.freeze({ page, productCount: products.length, candidateCount: normalized.length }));
     if (products.length < safeLimit) break;
@@ -145,6 +205,7 @@ export async function collectCobPipSinglesPilot({
   return Object.freeze({
     retailerId: 'cob-pip',
     sellerType: 'retailer',
+    collection: binding,
     verificationStatus: 'staged',
     exactIdentityVerified: false,
     observedAt,
@@ -155,6 +216,6 @@ export async function collectCobPipSinglesPilot({
 
 export const __test = Object.freeze({
   COB_PIP_BASE_URL,
-  COB_PIP_SINGLES_COLLECTION,
   collectorNumberHints,
+  collectionBinding,
 });

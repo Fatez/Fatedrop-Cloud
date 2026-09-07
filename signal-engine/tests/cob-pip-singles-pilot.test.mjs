@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  COB_PIP_SINGLE_COLLECTIONS,
   collectCobPipSinglesPilot,
   normalizeCobPipSingleCandidate,
 } from '../src/trader/value/cob-pip-singles-pilot.mjs';
@@ -41,6 +42,7 @@ test('Cob & Pip candidates remain staged even when collector evidence looks exac
   assert.equal(candidate.stockStatus, 'in_stock');
   assert.equal(candidate.verificationStatus, 'staged');
   assert.equal(candidate.exactIdentityVerified, false);
+  assert.equal(candidate.sourceCollectionHandle, 'pokemon-sv-151');
   assert.ok(candidate.identityHints.collectorNumbers.some((hint) => hint.cardNumber === '199' && hint.setSize === '165'));
   assert.equal(candidate.url, 'https://cobandpip.co.uk/products/199-charizard-ex-pokemon-sv-151');
 });
@@ -63,6 +65,7 @@ test('Cob & Pip collector pages Shopify collection feed and returns discovery ca
   ];
   let index = 0;
   const result = await collectCobPipSinglesPilot({
+    collection: 'pokemon-chaos-rising',
     pageLimit: 1,
     maxPages: 5,
     observedAt: Date.parse('2026-09-07T05:50:00.000Z'),
@@ -74,11 +77,21 @@ test('Cob & Pip collector pages Shopify collection feed and returns discovery ca
   });
 
   assert.equal(requested.length, 2);
-  assert.match(requested[0], /pokemon-single-cards\/products\.json\?limit=1&page=1$/);
-  assert.match(requested[1], /pokemon-single-cards\/products\.json\?limit=1&page=2$/);
+  assert.match(requested[0], /pokemon-mega-evolution-chaos-rising\/products\.json\?limit=1&page=1$/);
+  assert.match(requested[1], /pokemon-mega-evolution-chaos-rising\/products\.json\?limit=1&page=2$/);
   assert.equal(result.candidates.length, 1);
+  assert.equal(result.collection.canonicalSetName, 'Chaos Rising');
   assert.equal(result.verificationStatus, 'staged');
   assert.equal(result.exactIdentityVerified, false);
+});
+
+test('Cob & Pip collection handles are reviewed exact set bindings, never arbitrary URLs', async () => {
+  assert.equal(COB_PIP_SINGLE_COLLECTIONS['pokemon-151'].canonicalSetName, '151');
+  assert.equal(COB_PIP_SINGLE_COLLECTIONS['pokemon-chaos-rising'].canonicalSetName, 'Chaos Rising');
+  await assert.rejects(
+    collectCobPipSinglesPilot({ collection: 'whatever-a-title-search-found', fetchImpl: async () => ({ ok: true, async json() { return { products: [] }; } }) }),
+    /Unsupported Cob & Pip singles collection/,
+  );
 });
 
 test('Cob & Pip collector fails closed when the retailer feed cannot be observed', async () => {
