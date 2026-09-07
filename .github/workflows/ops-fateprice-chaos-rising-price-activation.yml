@@ -1,0 +1,155 @@
+name: OPS FatePrice Chaos Rising Price Activation
+
+on:
+  push:
+    branches:
+      - ops/fateprice-chaos-rising-prices-2026-09-07
+    paths:
+      - 'signal-engine/src/trader/value/chaos-rising-price-activation.mjs'
+      - '.github/workflows/ops-fateprice-chaos-rising-price-activation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  activate-chaos-rising-prices:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Download retained exact Cardmarket mapping proof
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/9989646893/zip" > "$RUNNER_TEMP/price-slice.zip"
+          unzip -q -o "$RUNNER_TEMP/price-slice.zip" -d "$RUNNER_TEMP/price-slice"
+          test -s "$RUNNER_TEMP/price-slice/fateprice-expanded-price-slice-v2.json"
+
+      - name: Validate Chaos Rising exact mapping tranche
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const p=JSON.parse(await readFile(process.env.RUNNER_TEMP + '/price-slice/fateprice-expanded-price-slice-v2.json','utf8'));
+          if (p.safety?.exactOnly !== true || p.safety?.fuzzyMatching !== false || p.safety?.mappingConflictsQuarantined !== true) throw new Error('unsafe price-slice artifact');
+          const setId='fdset_40b2ad368841bbd285a0df18';
+          const rows=(p.mappings||[]).filter(m=>m.setId===setId && m.sourceName==='cardmarket');
+          const byVariant=Object.fromEntries(['normal','holo','reverse'].map(v=>[v,rows.filter(m=>m.sourceVariantKey===v).length]));
+          if (rows.length!==200 || byVariant.normal!==68 || byVariant.holo!==59 || byVariant.reverse!==73) throw new Error(`unexpected Chaos Rising mapping counts ${JSON.stringify({rows:rows.length,byVariant})}`);
+          console.log(JSON.stringify({setId,exactMappings:rows.length,byVariant,fuzzy:false,productionWrites:0}));
+          NODE
+
+      - name: Create and publish one-run production encryption key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/chaos-rising-key.pem"
+          PUB="$RUNNER_TEMP/chaos-rising-pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
+          openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
+          CONTENT="$(base64 -w0 "$PUB")"
+          API="repos/${GITHUB_REPOSITORY}/contents/.ops/chaos-rising-price-pub.pem"
+          EXISTING_SHA="$(gh api "$API?ref=${GITHUB_REF_NAME}" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api --method PUT "$API" -f message='ops: refresh Chaos Rising ephemeral price key' -f branch="${GITHUB_REF_NAME}" -f content="$CONTENT" -f sha="$EXISTING_SHA" >/dev/null
+          else
+            gh api --method PUT "$API" -f message='ops: publish Chaos Rising ephemeral price key' -f branch="${GITHUB_REF_NAME}" -f content="$CONTENT" >/dev/null
+          fi
+
+      - name: Wait for encrypted production URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/chaos-rising-key.pem"
+          for attempt in $(seq 1 120); do
+            if gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/chaos-rising-price-url.enc.b64?ref=${GITHUB_REF_NAME}" --jq '.content' > "$RUNNER_TEMP/cipher.b64" 2>/dev/null; then
+              tr -d '\n' < "$RUNNER_TEMP/cipher.b64" | base64 -d > "$RUNNER_TEMP/cipher.bin" 2>/dev/null || true
+              if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/cipher.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/db-url.txt" 2>/dev/null; then
+                DATABASE_URL="$(cat "$RUNNER_TEMP/db-url.txt")"
+                if [ -n "$DATABASE_URL" ]; then
+                  echo "::add-mask::$DATABASE_URL"
+                  echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+                  rm -f "$KEY" "$RUNNER_TEMP/db-url.txt" "$RUNNER_TEMP/cipher.bin" "$RUNNER_TEMP/cipher.b64"
+                  exit 0
+                fi
+              fi
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for encrypted production URL' >&2
+          exit 31
+
+      - name: Production baseline
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
+          const {rows}=await pool.query(`SELECT
+            COUNT(DISTINCT c.id) FILTER (WHERE c.verification_status='verified')::int verified_identities,
+            COUNT(DISTINCT m.card_identity_id)::int mapped_identities,
+            COUNT(DISTINCT o.card_identity_id)::int priced_identities
+            FROM fatedrop_card_identities c
+            LEFT JOIN fatedrop_card_source_mappings m ON m.card_identity_id=c.id AND m.source_name='cardmarket'
+            LEFT JOIN fatedrop_market_observations o ON o.card_identity_id=c.id
+            WHERE c.set_id='fdset_40b2ad368841bbd285a0df18'`);
+          console.log(JSON.stringify({event:'baseline',...rows[0]}));
+          if (rows[0].verified_identities !== 203) throw new Error('Chaos Rising verified identity count changed');
+          await pool.end();
+          NODE
+
+      - name: Activate exact mappings and fresh prices
+        shell: bash
+        run: |
+          node src/trader/value/chaos-rising-price-activation.mjs \
+            --artifact="$RUNNER_TEMP/price-slice/fateprice-expanded-price-slice-v2.json" \
+            | tee "$RUNNER_TEMP/chaos-rising-price-activation.log"
+
+      - name: Verify Chaos Rising production prices
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
+          const {rows}=await pool.query(`SELECT
+            COUNT(DISTINCT c.id) FILTER (WHERE c.verification_status='verified')::int verified_identities,
+            COUNT(DISTINCT m.card_identity_id)::int mapped_identities,
+            COUNT(DISTINCT o.card_identity_id)::int priced_identities,
+            COUNT(o.*)::int observation_rows
+            FROM fatedrop_card_identities c
+            LEFT JOIN fatedrop_card_source_mappings m ON m.card_identity_id=c.id AND m.source_name='cardmarket'
+            LEFT JOIN fatedrop_market_observations o ON o.card_identity_id=c.id
+            WHERE c.set_id='fdset_40b2ad368841bbd285a0df18'`);
+          console.log(JSON.stringify({event:'verification',...rows[0]}));
+          if (rows[0].verified_identities !== 203) throw new Error('verified catalogue regressed');
+          if (rows[0].mapped_identities < 127) throw new Error(`expected at least 127 price-capable mapped identities, got ${rows[0].mapped_identities}`);
+          if (rows[0].priced_identities < 1) throw new Error('no fresh Chaos Rising price observations were persisted');
+          await pool.end();
+          NODE
+
+      - name: Upload activation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-chaos-rising-price-activation-log
+          path: ${{ runner.temp }}/chaos-rising-price-activation.log
+          retention-days: 30
+          if-no-files-found: ignore
