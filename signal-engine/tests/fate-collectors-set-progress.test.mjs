@@ -115,6 +115,27 @@ test('graded pride cards never fill a raw binder slot', () => {
   assert.deepEqual(result.missingCards.map((entry) => entry.fateCardId),['a1']);
 });
 
+test('user-confirmed printing checklist completes a binder without inventing exact card identity', () => {
+  const cards = [
+    card({ tcgCode:'pokemon',setId:'set-a',printingId:'a1',id:'a1-standard',number:1,name:'One' }),
+    card({ tcgCode:'pokemon',setId:'set-a',printingId:'a1',id:'a1-reverse',number:1,name:'One',variantCode:'reverse-holo' }),
+    card({ tcgCode:'pokemon',setId:'set-a',printingId:'a2',id:'a2-standard',number:2,name:'Two' }),
+  ];
+  const result = computeCollectionSetProgress({
+    set:{ id:'set-a',name:'A',tcgCode:'pokemon' },
+    canonicalCards:cards,
+    collectionItems:[{ fateCardId:'a1-reverse',quantity:1,status:'active',copyState:'raw' }],
+    assertedPrintingIds:['a1','a2','not-in-this-set'],
+  });
+  assert.equal(result.ownedCount,2);
+  assert.equal(result.exactOwnedCount,1);
+  assert.equal(result.userConfirmedCount,2);
+  assert.equal(result.exactIdentityConfirmationNeededCount,1);
+  assert.equal(result.missingCount,0);
+  assert.equal(result.completionPercent,100);
+  assert.equal(result.valuationPolicy,'exact_identity_only');
+});
+
 test('fails closed when there is no verified canonical checklist', () => {
   const result = computeCollectionSetProgress({
     set:{ id:'empty',name:'Empty',tcgCode:'lorcana' },

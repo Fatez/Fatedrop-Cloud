@@ -4,6 +4,7 @@ import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore } from '../cata
 import { getOwnedFatePrices, exactCardValuesFromFatePrices } from './collector-summary-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
+import { listSetCompletionAssertionsFromStore } from './set-completion.mjs';
 
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
@@ -19,6 +20,9 @@ function unavailable({ reason, setId, set = null, catalogue = null }) {
     setName: set?.name ?? null,
     catalogue,
     ownedCount: null,
+    exactOwnedCount: null,
+    userConfirmedCount: null,
+    exactIdentityConfirmationNeededCount: null,
     totalCount: null,
     missingCount: null,
     completionPercent: null,
@@ -52,7 +56,11 @@ export async function getCollectionSetProgressFromStore(store, {
     });
   }
 
-  const collectionItems = await listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 });
+  const [collectionItems, completionAssertions] = await Promise.all([
+    listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 }),
+    listSetCompletionAssertionsFromStore(store, { userId: ownerId, setIds: [canonicalSetId] }),
+  ]);
+  const assertedPrintingIds = completionAssertions[0]?.printingIds ?? [];
   const valueCards = canonicalCards.filter((card) => (
     (!preferredLanguageCode || card.languageCode === preferredLanguageCode)
     && (!preferredVariantCode || card.variantCode === preferredVariantCode)
@@ -79,6 +87,7 @@ export async function getCollectionSetProgressFromStore(store, {
     currencyCode: currency,
     preferredLanguageCode,
     preferredVariantCode,
+    setCompletionAssertions: completionAssertions,
   });
   const tracked = await listTrackedCollectionSetBindersFromStore(store, { userId: ownerId });
   const progress = summary.sets[0];
@@ -86,6 +95,7 @@ export async function getCollectionSetProgressFromStore(store, {
     ...progress,
     catalogue,
     explicitlyTracked: tracked.some((binder) => binder.setId === canonicalSetId),
+    hasUserCompletionAssertion: assertedPrintingIds.length > 0,
     priceEvidenceConnected: priceRead.connected,
   });
 }

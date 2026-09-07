@@ -65,6 +65,7 @@ export function computeCollectionSetProgress({
   set,
   canonicalCards,
   collectionItems,
+  assertedPrintingIds = [],
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
 } = {}) {
@@ -73,6 +74,7 @@ export function computeCollectionSetProgress({
   if (!setId) throw new TypeError('set.id is required');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
   if (!Array.isArray(collectionItems)) throw new TypeError('collectionItems must be an array');
+  if (!Array.isArray(assertedPrintingIds)) throw new TypeError('assertedPrintingIds must be an array');
 
   const tcgCode = text(set.tcgCode).toLowerCase() || null;
   const verifiedCards = canonicalCards
@@ -101,6 +103,9 @@ export function computeCollectionSetProgress({
       checklistScope: 'printing',
       totalCount: null,
       ownedCount: null,
+      exactOwnedCount: null,
+      userConfirmedCount: null,
+      exactIdentityConfirmationNeededCount: null,
       missingCount: null,
       completionPercent: null,
       missingCards: Object.freeze([]),
@@ -115,15 +120,25 @@ export function computeCollectionSetProgress({
     if (printingId) ownedPrintingIds.add(printingId);
   }
 
+  const userConfirmedPrintingIds = new Set(
+    assertedPrintingIds
+      .map(text)
+      .filter((printingId) => printings.has(printingId)),
+  );
+  const completedPrintingIds = new Set([...ownedPrintingIds, ...userConfirmedPrintingIds]);
+  const assertedOnlyPrintingIds = new Set(
+    [...userConfirmedPrintingIds].filter((printingId) => !ownedPrintingIds.has(printingId)),
+  );
+
   const missingCards = [...printings.entries()]
-    .filter(([printingId]) => !ownedPrintingIds.has(printingId))
+    .filter(([printingId]) => !completedPrintingIds.has(printingId))
     .map(([, identities]) => selectPreferredPrintingRepresentative(identities, { preferredLanguageCode, preferredVariantCode }))
     .filter(Boolean)
     .sort(compareCards)
     .map(publicMissingCard);
 
   const totalCount = printings.size;
-  const ownedCount = ownedPrintingIds.size;
+  const ownedCount = completedPrintingIds.size;
   const missingCount = totalCount - ownedCount;
   const completionPercent = Number(((ownedCount / totalCount) * 100).toFixed(1));
 
@@ -136,8 +151,13 @@ export function computeCollectionSetProgress({
     checklistScope: 'printing',
     totalCount,
     ownedCount,
+    exactOwnedCount: ownedPrintingIds.size,
+    userConfirmedCount: userConfirmedPrintingIds.size,
+    exactIdentityConfirmationNeededCount: assertedOnlyPrintingIds.size,
     missingCount,
     completionPercent,
     missingCards: Object.freeze(missingCards),
+    ownershipPolicy: 'exact_identity_or_user_confirmed_printing',
+    valuationPolicy: 'exact_identity_only',
   });
 }

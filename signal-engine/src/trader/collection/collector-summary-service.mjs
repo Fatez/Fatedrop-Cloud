@@ -4,6 +4,7 @@ import { getFatePricesFromStore, getPresentedFatePricesFromStore } from '../valu
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { buildFateCollectorPersonalPulse } from './personal-pulse.mjs';
 import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
+import { listSetCompletionAssertionsFromStore } from './set-completion.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
 function requireText(value, field) {
@@ -74,9 +75,13 @@ export async function getFateCollectorSummaryFromStore(store, {
     .map((item)=>item.fateCardId)
     .filter(Boolean));
   const ownedSetIds=new Set(ownedCards.filter((card)=>rawOwnedCardIds.has(card.fateCardId)).map((card)=>card.setId).filter(Boolean));
-  const trackedBinders=await listTrackedCollectionSetBindersFromStore(store,{userId:ownerId});
+  const [trackedBinders,completionAssertions]=await Promise.all([
+    listTrackedCollectionSetBindersFromStore(store,{userId:ownerId}),
+    listSetCompletionAssertionsFromStore(store,{userId:ownerId}),
+  ]);
   const explicitlyTrackedSetIds=new Set(trackedBinders.map((binder)=>binder.setId));
-  const binderSetIds=[...new Set([...ownedSetIds,...explicitlyTrackedSetIds])];
+  const userConfirmedSetIds=new Set(completionAssertions.map((assertion)=>assertion.setId));
+  const binderSetIds=[...new Set([...ownedSetIds,...explicitlyTrackedSetIds,...userConfirmedSetIds])];
   const sets=await listVerifiedCardSetsByIdsFromStore(store,binderSetIds,{limit:2000});
   const canonicalCards=[];
   for(const set of sets){
@@ -97,6 +102,7 @@ export async function getFateCollectorSummaryFromStore(store, {
     exactCardValues,
     gradedCardValues:[],
     printingValues:[],
+    setCompletionAssertions:completionAssertions,
     currencyCode:currency,
     preferredLanguageCode:language,
     preferredVariantCode,
@@ -116,23 +122,28 @@ export async function getFateCollectorSummaryFromStore(store, {
     limit:3,
   });
   const unresolvedCollectionItemCount=collectionItems.filter((item)=>!resolvedIds.has(item.fateCardId)).length;
+  const exactIdentityConfirmationNeededCount=summary.sets.reduce((sum,set)=>sum+Number(set.exactIdentityConfirmationNeededCount||0),0);
+  const hasCollectionEvidence=collectionItems.length>0||completionAssertions.length>0;
   return Object.freeze({
     contractVersion:2,
-    status:collectionItems.length===0?'empty':unresolvedCollectionItemCount||summary.unavailableSetCount?'partial':'available',
-    reason:collectionItems.length===0?'collection_empty':unresolvedCollectionItemCount?'collection_identity_unresolved':summary.unavailableSetCount?'canonical_checklist_incomplete':null,
+    status:!hasCollectionEvidence?'empty':unresolvedCollectionItemCount||summary.unavailableSetCount||exactIdentityConfirmationNeededCount?'partial':'available',
+    reason:!hasCollectionEvidence?'collection_empty':unresolvedCollectionItemCount?'collection_identity_unresolved':summary.unavailableSetCount?'canonical_checklist_incomplete':exactIdentityConfirmationNeededCount?'exact_identity_confirmation_needed':null,
     summary,
     personalPulse,
     evidence:Object.freeze({
       collectionItemsRead:collectionItems.length,
       verifiedOwnedIdentities:ownedCards.length,
+      userConfirmedSetAssertions:completionAssertions.length,
+      exactIdentityConfirmationNeededCount,
       unresolvedCollectionItemCount,
       exactCollectionValuesConnected:fatePriceRead.connected,
       gradedCollectionValuesConnected:false,
       completeSetValuesConnected:false,
       valuationReason:fatePriceRead.connected?summary.collection.reason:'market_price_runtime_unavailable',
       personalPulseConnected:fatePriceRead.connected,
-      binderOwnershipPolicy:'raw_only',
+      binderOwnershipPolicy:'raw_exact_or_user_confirmed_printing',
       binderTrackingPolicy:'explicit_or_raw_owned_set',
+      assertedPrintingValuationPolicy:'excluded_until_exact_identity_confirmed',
       personalMovementPolicy:'raw_only',
       valuationCurrencyCode:currency,
       sourceMarketCurrencyCode:currency==='GBP'?'EUR':currency,

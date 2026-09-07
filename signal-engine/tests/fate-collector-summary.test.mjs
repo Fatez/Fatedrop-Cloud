@@ -106,3 +106,27 @@ test('graded slabs remain outside raw binders and have a separate valuation boun
   assert.equal(result.gradedCollection.totalValue, null);
   assert.equal(result.gradedCollection.reason, 'graded_price_evidence_unavailable');
 });
+
+test('user-confirmed checklist completion changes binder progress but never exact portfolio value', () => {
+  const result = computeFateCollectorSummary({
+    sets: [sets[0]],
+    canonicalCards: canonicalCards.filter((card) => card.setId === 'set-a'),
+    collectionItems: [collectionItems[0]],
+    exactCardValues,
+    printingValues,
+    setCompletionAssertions: [{
+      setId: 'set-a',
+      active: true,
+      printingIds: ['a1', 'a2'],
+    }],
+    currencyCode: 'GBP',
+  });
+
+  assert.equal(result.sets[0].completionPercent, 100);
+  assert.equal(result.sets[0].exactOwnedCount, 1);
+  assert.equal(result.sets[0].exactIdentityConfirmationNeededCount, 1);
+  assert.equal(result.sets[0].value.ownedExpectedCount, 1);
+  assert.equal(result.sets[0].value.ownedValue, 10);
+  assert.equal(result.rawCardUnits, 1);
+  assert.equal(result.collection.totalValue, 10);
+});
