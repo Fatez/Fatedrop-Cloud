@@ -16,6 +16,7 @@
     "trader:catalogue:load": "node src/trader/catalogue/load-compiled-cli.mjs",
     "trader:catalogue:card-audit": "node src/trader/catalogue/pokemon-card-acquisition-audit-cli.mjs",
     "market:cardmarket:set-evidence": "node src/trader/value/cardmarket-set-expansion-evidence-cli.mjs",
+    "retail-singles:cob-pip": "node src/trader/value/cob-pip-exact-card-offers-cli.mjs",
     "collectors:readiness": "node src/trader/catalogue/collectors-readiness-cli.mjs",
     "publish:reference": "node src/publish-once.mjs",
     "discord:test": "node src/discord-test.mjs",
