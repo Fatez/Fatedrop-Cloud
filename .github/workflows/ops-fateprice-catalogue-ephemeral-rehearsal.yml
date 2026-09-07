@@ -38,23 +38,30 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
           test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
 
-      - name: Create one-run encryption key and wait for encrypted rehearsal URL
+      - name: Create one-run encryption key
+        shell: bash
+        run: |
+          set -euo pipefail
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/fatedrop-rehearsal-key.pem" >/dev/null 2>&1
+          openssl pkey -in "$RUNNER_TEMP/fatedrop-rehearsal-key.pem" -pubout -out "$RUNNER_TEMP/fatedrop-rehearsal-pub.pem" >/dev/null 2>&1
+
+      - name: Publish one-run public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-rehearsal-public-key
+          path: ${{ runner.temp }}/fatedrop-rehearsal-pub.pem
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Wait for encrypted rehearsal URL
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/fatedrop-rehearsal-key.pem"
-          PUB="$RUNNER_TEMP/fatedrop-rehearsal-pub.pem"
-          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
-          openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
-          echo 'FATEDROP_EPHEMERAL_PUBLIC_KEY_BEGIN'
-          base64 -w0 "$PUB"
-          echo
-          echo 'FATEDROP_EPHEMERAL_PUBLIC_KEY_END'
-
           CIPHER="$RUNNER_TEMP/neon-url.enc.b64"
-          for attempt in $(seq 1 90); do
+          for attempt in $(seq 1 120); do
             if gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" --jq '.content' > "$CIPHER" 2>/dev/null; then
               tr -d '\n' < "$CIPHER" | base64 -d > "$RUNNER_TEMP/ciphertext.bin"
               if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" \
@@ -71,7 +78,7 @@ jobs:
             fi
             sleep 5
           done
-          echo 'Timed out waiting for a ciphertext matching this run public key' >&2
+          echo 'Timed out waiting for ciphertext matching this run public key' >&2
           exit 31
 
       - name: Baseline isolated rehearsal branch
