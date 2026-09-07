@@ -1,0 +1,144 @@
+name: OPS FatePrice Catalogue Production Halfway
+
+on:
+  push:
+    branches:
+      - ops/fateprice-catalogue-activation-2026-09-07
+    paths:
+      - '.github/workflows/ops-fateprice-catalogue-production-halfway.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  activate-halfway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Download successful 91-set exact bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/10004449370/zip" > "$RUNNER_TEMP/activation.zip"
+          unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
+          test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
+
+      - name: Validate halfway tranche
+        shell: bash
+        run: |
+          set -euo pipefail
+          node src/trader/catalogue/load-activation-bundle-cli.mjs \
+            --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
+            --limit=46
+
+      - name: Create and publish one-run production encryption key
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/fatedrop-production-key.pem"
+          PUB="$RUNNER_TEMP/fatedrop-production-pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
+          openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
+          CONTENT="$(base64 -w0 "$PUB")"
+          EXISTING_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem?ref=${GITHUB_REF_NAME}" --jq '.sha' 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ]; then
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem" -f message='ops: rotate ephemeral production public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" -f sha="$EXISTING_SHA" >/dev/null
+          else
+            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem" -f message='ops: publish ephemeral production public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" >/dev/null
+          fi
+
+      - name: Wait for encrypted production URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/fatedrop-production-key.pem"
+          CIPHER_TEXT="$RUNNER_TEMP/neon-production-url.enc.b64"
+          for attempt in $(seq 1 120); do
+            if gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-production-url.enc.b64?ref=${GITHUB_REF_NAME}" > "$CIPHER_TEXT" 2>/dev/null; then
+              if tr -d '\r\n' < "$CIPHER_TEXT" | base64 -d > "$RUNNER_TEMP/ciphertext.bin" 2>/dev/null; then
+                if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
+                  DATABASE_URL="$(cat "$RUNNER_TEMP/database-url.txt")"
+                  if [ -n "$DATABASE_URL" ]; then
+                    echo "::add-mask::$DATABASE_URL"
+                    echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+                    rm -f "$KEY" "$RUNNER_TEMP/database-url.txt" "$RUNNER_TEMP/ciphertext.bin" "$CIPHER_TEXT"
+                    exit 0
+                  fi
+                fi
+              fi
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for production ciphertext matching this run public key' >&2
+          exit 31
+
+      - name: Production baseline
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const { rows } = await pool.query(`SELECT
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_sets) AS verified_sets,
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_identities) AS verified_identities`);
+          console.log(JSON.stringify({event:'production_baseline',...rows[0]}));
+          await pool.end();
+          NODE
+
+      - name: Activate first 46 exact verified sets
+        shell: bash
+        env:
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          node src/trader/catalogue/load-activation-bundle-cli.mjs \
+            --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
+            --limit=46 \
+            --concurrency=4 \
+            --write | tee "$RUNNER_TEMP/catalogue-production-halfway.log"
+
+      - name: Verify halfway production result
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const { rows } = await pool.query(`SELECT
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_sets) AS verified_sets,
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_identities) AS verified_identities,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) AS orphan_card_sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) AS orphan_card_printings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) AS orphan_source_mappings`);
+          const v=rows[0];
+          console.log(JSON.stringify({event:'production_halfway_verification',...v}));
+          if (v.verified_sets < 46) throw new Error(`expected at least 46 verified sets, got ${v.verified_sets}`);
+          if (v.orphan_card_sets || v.orphan_card_printings || v.orphan_source_mappings) throw new Error(`referential integrity failure: ${JSON.stringify(v)}`);
+          await pool.end();
+          NODE
+
+      - name: Upload production activation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-catalogue-production-halfway-log
+          path: ${{ runner.temp }}/catalogue-production-halfway.log
+          retention-days: 30
+          if-no-files-found: ignore
