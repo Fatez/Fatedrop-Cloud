@@ -63,7 +63,7 @@ export const COB_PIP_REVIEWED_CARD_NAME_ALIASES = Object.freeze({
     '27': Object.freeze({ Sizzlepede: 'Sizzlipede' }),
     '29': Object.freeze({ Furecoco: 'Fuecoco' }),
     '56': Object.freeze({ 'Chien-Po': 'Chien-Pao' }),
-    '65': Object.freeze({ 'Tapu Kolo:': 'Tapu Koko' }),
+    '65': Object.freeze({ 'Tapu Kolo': 'Tapu Koko' }),
     '121': Object.freeze({ Grafarai: 'Grafaiai' }),
     '157': Object.freeze({ Tandermaus: 'Tandemaus' }),
     '162': Object.freeze({ 'ACESPEC Amulet of Hope': 'Amulet of Hope' }),
