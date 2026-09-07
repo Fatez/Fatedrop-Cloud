@@ -1,0 +1,39 @@
+name: Probe Amazon Shadow Foundation Runtime
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/probe-amazon-shadow-runtime-20260901.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Prove Railway is serving merged Amazon foundation commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected='288fc896a5abe9e24fbddc73e34ba4e3616e2e6c'
+          curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 20 \
+            -H 'accept: application/json' \
+            -H 'content-type: application/json' \
+            --data '{"mode":"verdict","query":"Mega Dream Japanese"}' \
+            'https://fatedrop-cloud-production.up.railway.app/api/fatefind/matches' \
+            > response.json
+          python - <<'PY'
+          import json
+          expected = '288fc896a5abe9e24fbddc73e34ba4e3616e2e6c'
+          with open('response.json', encoding='utf-8') as fh:
+              data = json.load(fh)
+          assert data.get('success') is True, data
+          runtime = data.get('runtime') or {}
+          actual = runtime.get('gitCommitSha')
+          assert actual == expected, (actual, expected)
+          print('DEPLOYED_GIT_SHA=' + str(actual))
+          print('RAILWAY_DEPLOYMENT_ID=' + str(runtime.get('deploymentId')))
+          PY
