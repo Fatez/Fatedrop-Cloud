@@ -45,9 +45,7 @@ function assertUnique(rows, keyFn, label) {
 export function validateActivationBundle(bundle) {
   if (!bundle || typeof bundle !== 'object' || Array.isArray(bundle)) throw new TypeError('activation bundle is required');
   if (bundle.format !== 'fatedrop-catalogue-activation-bundle-v1') throw new Error(`unsupported activation bundle format: ${bundle.format || 'missing'}`);
-  if (bundle.safety?.exactOnly !== true || bundle.safety?.fuzzyMatching !== false || bundle.safety?.verifiedSetsOnly !== true) {
-    throw new Error('activation bundle safety contract is not exact-only verified catalogue data');
-  }
+  if (bundle.safety?.exactOnly !== true || bundle.safety?.fuzzyMatching !== false || bundle.safety?.verifiedSetsOnly !== true) throw new Error('activation bundle safety contract is not exact-only verified catalogue data');
 
   const tcgs = requireArray(bundle.tcgs, 'tcgs');
   const series = requireArray(bundle.series, 'series');
@@ -72,13 +70,7 @@ export function validateActivationBundle(bundle) {
   const cardById = new Map(cardIdentities.map((row) => [row.id, row]));
 
   if (tcgs.some((row) => row.code !== 'pokemon')) throw new Error('activation bundle contains a non-Pokemon TCG row');
-  if (series.some((row) => row.verificationStatus !== 'verified')
-    || sets.some((row) => row.verificationStatus !== 'verified')
-    || printings.some((row) => row.verificationStatus !== 'verified')
-    || cardIdentities.some((row) => row.verificationStatus !== 'verified')) {
-    throw new Error('activation bundle contains a non-verified canonical row');
-  }
-
+  if (series.some((row) => row.verificationStatus !== 'verified') || sets.some((row) => row.verificationStatus !== 'verified') || printings.some((row) => row.verificationStatus !== 'verified') || cardIdentities.some((row) => row.verificationStatus !== 'verified')) throw new Error('activation bundle contains a non-verified canonical row');
   for (const row of series) if (!tcgById.has(row.tcgId)) throw new Error(`orphan series ${row.id}`);
   for (const row of sets) if (!tcgById.has(row.tcgId) || !seriesById.has(row.seriesId)) throw new Error(`orphan set ${row.id}`);
   for (const row of setSourceMappings) if (!setById.has(row.setId)) throw new Error(`orphan set source mapping ${row.id}`);
@@ -92,7 +84,6 @@ export function validateActivationBundle(bundle) {
 
   assertUnique(setSourceMappings, (row) => `${requireText(row.sourceName, 'setSourceMappings.sourceName')}|${requireText(row.sourceRecordId, 'setSourceMappings.sourceRecordId')}`, 'set source mapping');
   assertUnique(cardSourceMappings, (row) => `${requireText(row.sourceName, 'cardSourceMappings.sourceName')}|${requireText(row.sourceRecordId, 'cardSourceMappings.sourceRecordId')}|${requireText(row.sourceVariantKey, 'cardSourceMappings.sourceVariantKey')}`, 'card source mapping');
-
   return Object.freeze({ sets: sets.length, printings: printings.length, cardIdentities: cardIdentities.length, cardSourceMappings: cardSourceMappings.length, cardProvenance: cardProvenance.length });
 }
 
@@ -106,22 +97,18 @@ export function splitActivationBundleBySet(bundle) {
   const cardMappingsByCard = new Map();
   const provenanceByCard = new Map();
   const push = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
-
   for (const row of bundle.printings) push(printingsBySet, row.setId, row);
   for (const row of bundle.cardIdentities) push(cardsBySet, row.setId, row);
   for (const row of bundle.setSourceMappings) push(setMappingsBySet, row.setId, row);
   for (const row of bundle.cardSourceMappings) push(cardMappingsByCard, row.cardIdentityId, row);
   for (const row of bundle.cardProvenance) push(provenanceByCard, row.cardIdentityId, row);
-
   return bundle.sets.map((set) => {
     const cards = cardsBySet.get(set.id) || [];
     const cardIds = new Set(cards.map((row) => row.id));
     const batch = {
       tcg: tcgById.get(set.tcgId), series: seriesById.get(set.seriesId), set,
-      setSourceMappings: setMappingsBySet.get(set.id) || [],
-      printings: printingsBySet.get(set.id) || [], cardIdentities: cards,
-      cardSourceMappings: [...cardIds].flatMap((id) => cardMappingsByCard.get(id) || []),
-      cardProvenance: [...cardIds].flatMap((id) => provenanceByCard.get(id) || []),
+      setSourceMappings: setMappingsBySet.get(set.id) || [], printings: printingsBySet.get(set.id) || [], cardIdentities: cards,
+      cardSourceMappings: [...cardIds].flatMap((id) => cardMappingsByCard.get(id) || []), cardProvenance: [...cardIds].flatMap((id) => provenanceByCard.get(id) || []),
     };
     if (!batch.printings.length || !batch.cardIdentities.length) throw new Error(`verified set ${set.id} has no verified card data`);
     return batch;
@@ -133,12 +120,14 @@ async function main() {
   if (!artifactPath) throw new Error('--artifact=<activation-bundle.json> is required');
   const bundle = JSON.parse(await readFile(resolve(artifactPath), 'utf8'));
   const validation = validateActivationBundle(bundle);
-  const batches = splitActivationBundleBySet(bundle);
+  const allBatches = splitActivationBundleBySet(bundle);
+  const limit = boundedInt(argValue('limit'), allBatches.length, 1, allBatches.length, 'limit');
+  const batches = allBatches.slice(0, limit);
   const write = process.argv.includes('--write');
   const concurrency = boundedInt(argValue('concurrency'), 1, 1, 8, 'concurrency');
 
   if (!write) {
-    console.log(JSON.stringify({ mode: 'validate', artifactPath: resolve(artifactPath), validation, batches: batches.length, concurrency }, null, 2));
+    console.log(JSON.stringify({ mode: 'validate', artifactPath: resolve(artifactPath), validation, selectedBatches: batches.length, totalBatches: allBatches.length, concurrency }, null, 2));
     return;
   }
   if (!enabled(process.env.FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED)) throw new Error('Catalogue activation writes are disabled. Set FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true explicitly.');
@@ -154,14 +143,14 @@ async function main() {
       if (index >= batches.length) return;
       const batch = batches[index];
       const result = await persistVerifiedCatalogueBatch(store, batch);
-      results[index] = { setId: batch.set.id, savedPrintings: Number(result.savedPrintings || 0), savedCards: Number(result.savedCards || 0) };
+      results[index] = { setId: batch.set.id, setName: batch.set.name, savedPrintings: Number(result.savedPrintings || 0), savedCards: Number(result.savedCards || 0) };
       console.log(JSON.stringify({ event: 'set_persisted', workerId, setId: batch.set.id, setName: batch.set.name, savedPrintings: result.savedPrintings, savedCards: result.savedCards }));
     }
   }
   await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i + 1)));
   const savedPrintings = results.reduce((sum, row) => sum + row.savedPrintings, 0);
   const savedCards = results.reduce((sum, row) => sum + row.savedCards, 0);
-  console.log(JSON.stringify({ mode: 'write', concurrency, setsPersisted: results.length, savedPrintings, savedCards, expected: validation }, null, 2));
+  console.log(JSON.stringify({ mode: 'write', concurrency, selectedSetsPersisted: results.length, totalBundleSets: allBatches.length, savedPrintings, savedCards, expected: validation }, null, 2));
 }
 
 main().catch((error) => {
