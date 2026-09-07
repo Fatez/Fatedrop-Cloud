@@ -97,7 +97,7 @@ async function auditCollection(baseUrl, configuredBinding, sets, observedAt) {
       buyableVerified: resolution.counts.buyableVerified,
       quarantined: resolution.counts.quarantined,
       quarantineReasons: Object.freeze(reasonCounts(resolution.quarantined)),
-      quarantinedSamples: Object.freeze(resolution.quarantined.slice(0, 20).map((row) => Object.freeze({
+      quarantinedRows: Object.freeze(resolution.quarantined.map((row) => Object.freeze({
         reason: row.reason,
         retailerVariantId: row.candidate.retailerVariantId,
         title: row.candidate.productTitle,
@@ -139,7 +139,7 @@ async function main() {
   const held = results.filter((row) => row.status === 'held');
   const failed = results.filter((row) => row.status === 'failed');
   const report = Object.freeze({
-    schemaVersion: 'cob-pip-full-singles-audit:1',
+    schemaVersion: 'cob-pip-full-singles-audit:2',
     mode: 'read_only_live_exact_coverage',
     writesPerformed: false,
     generatedAt: new Date(observedAt).toISOString(),
