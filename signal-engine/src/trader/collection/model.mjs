@@ -103,7 +103,9 @@ export function normalizeCollectionItemPatch(input, current) {
     grading: current.grading ?? null,
     notes: Object.prototype.hasOwnProperty.call(input || {}, 'notes') ? input.notes : current.notes,
   };
-  return normalizeCollectionItemInput(merged);
+  const normalized = normalizeCollectionItemInput(merged);
+  // Copy identity and grading evidence are immutable in an ownership/availability patch.
+  return Object.freeze({ ...normalized, grading: current.grading ?? null });
 }
 
 export function normalizeExactWantInput(fateCardId, input = {}) {
