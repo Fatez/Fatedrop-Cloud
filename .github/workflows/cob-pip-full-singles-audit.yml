@@ -7,6 +7,7 @@ on:
       - '.github/workflows/cob-pip-full-singles-audit.yml'
       - 'signal-engine/src/trader/value/cob-pip-full-singles-audit-cli.mjs'
       - 'signal-engine/src/trader/value/cob-pip-singles-pilot.mjs'
+      - 'signal-engine/src/trader/value/cob-pip-reviewed-card-name-aliases.mjs'
       - 'signal-engine/src/trader/value/retail-single-offers.mjs'
       - 'signal-engine/src/trader/value/cob-pip-exact-card-offers.mjs'
   workflow_dispatch:
