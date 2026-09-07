@@ -1,0 +1,70 @@
+name: OPS Build Retail Single Production Bundle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/retail-single-production-bundle.yml'
+      - 'signal-engine/src/trader/value/retail-single-production-bundle-cli.mjs'
+      - 'signal-engine/src/trader/value/cob-pip-singles-pilot.mjs'
+      - 'signal-engine/src/trader/value/retail-single-offers.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-retail-single-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out exact resolver
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build read-only exact production bundle
+        env:
+          FATEDROP_PRODUCTION_BASE_URL: https://fatedrop-cloud-production.up.railway.app
+          OUTPUT_PATH: ${{ runner.temp }}/retail-single-production-bundle.json
+        run: node src/trader/value/retail-single-production-bundle-cli.mjs
+
+      - name: Summarise exact resolution
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/retail-single-production-bundle.json', 'utf8'));
+          console.log('# Exact retail-single production bundle');
+          console.log('');
+          console.log(`- Mode: **${report.mode}**`);
+          console.log(`- Writes performed: **${report.writesPerformed}**`);
+          console.log(`- Retailer: **${report.retailer.name}**`);
+          console.log(`- Verified records: **${report.totals.verified}**`);
+          console.log(`- Live buyable verified: **${report.totals.buyableVerified}**`);
+          console.log(`- Quarantined: **${report.totals.quarantined}**`);
+          console.log('');
+          for (const row of report.collections) {
+            console.log(`- ${row.canonicalSetName}: ${row.verified}/${row.candidates} exact verified; ${row.buyableVerified} buyable; ${row.quarantined.length} quarantined.`);
+          }
+          NODE
+
+      - name: Upload reviewed exact bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: retail-single-production-bundle
+          path: ${{ runner.temp }}/retail-single-production-bundle.json
+          if-no-files-found: error
+          retention-days: 3
