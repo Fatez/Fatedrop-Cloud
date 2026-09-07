@@ -13,6 +13,13 @@ function argValue(name) {
   return found ? found.slice(prefix.length) : null;
 }
 
+function boundedInt(value, fallback, min, max, label) {
+  if (value == null || value === '') return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new TypeError(`${label} must be an integer between ${min} and ${max}`);
+  return parsed;
+}
+
 function requireArray(value, field) {
   if (!Array.isArray(value)) throw new TypeError(`${field} must be an array`);
   return value;
@@ -72,41 +79,21 @@ export function validateActivationBundle(bundle) {
     throw new Error('activation bundle contains a non-verified canonical row');
   }
 
-  for (const row of series) {
-    if (!tcgById.has(row.tcgId)) throw new Error(`orphan series ${row.id}`);
-  }
-  for (const row of sets) {
-    if (!tcgById.has(row.tcgId) || !seriesById.has(row.seriesId)) throw new Error(`orphan set ${row.id}`);
-  }
-  for (const row of setSourceMappings) {
-    if (!setById.has(row.setId)) throw new Error(`orphan set source mapping ${row.id}`);
-  }
-  for (const row of printings) {
-    if (!setById.has(row.setId) || !seriesById.has(row.seriesId) || !tcgById.has(row.tcgId)) throw new Error(`orphan printing ${row.id}`);
-  }
+  for (const row of series) if (!tcgById.has(row.tcgId)) throw new Error(`orphan series ${row.id}`);
+  for (const row of sets) if (!tcgById.has(row.tcgId) || !seriesById.has(row.seriesId)) throw new Error(`orphan set ${row.id}`);
+  for (const row of setSourceMappings) if (!setById.has(row.setId)) throw new Error(`orphan set source mapping ${row.id}`);
+  for (const row of printings) if (!setById.has(row.setId) || !seriesById.has(row.seriesId) || !tcgById.has(row.tcgId)) throw new Error(`orphan printing ${row.id}`);
   for (const row of cardIdentities) {
-    if (!setById.has(row.setId) || !printingById.has(row.printingId) || !seriesById.has(row.seriesId) || !tcgById.has(row.tcgId)) {
-      throw new Error(`orphan card identity ${row.id}`);
-    }
+    if (!setById.has(row.setId) || !printingById.has(row.printingId) || !seriesById.has(row.seriesId) || !tcgById.has(row.tcgId)) throw new Error(`orphan card identity ${row.id}`);
     if (printingById.get(row.printingId).setId !== row.setId) throw new Error(`card/printing set mismatch ${row.id}`);
   }
-  for (const row of cardSourceMappings) {
-    if (!cardById.has(row.cardIdentityId)) throw new Error(`orphan card source mapping ${row.id}`);
-  }
-  for (const row of cardProvenance) {
-    if (!cardById.has(row.cardIdentityId)) throw new Error(`orphan card provenance ${row.id}`);
-  }
+  for (const row of cardSourceMappings) if (!cardById.has(row.cardIdentityId)) throw new Error(`orphan card source mapping ${row.id}`);
+  for (const row of cardProvenance) if (!cardById.has(row.cardIdentityId)) throw new Error(`orphan card provenance ${row.id}`);
 
   assertUnique(setSourceMappings, (row) => `${requireText(row.sourceName, 'setSourceMappings.sourceName')}|${requireText(row.sourceRecordId, 'setSourceMappings.sourceRecordId')}`, 'set source mapping');
   assertUnique(cardSourceMappings, (row) => `${requireText(row.sourceName, 'cardSourceMappings.sourceName')}|${requireText(row.sourceRecordId, 'cardSourceMappings.sourceRecordId')}|${requireText(row.sourceVariantKey, 'cardSourceMappings.sourceVariantKey')}`, 'card source mapping');
 
-  return Object.freeze({
-    sets: sets.length,
-    printings: printings.length,
-    cardIdentities: cardIdentities.length,
-    cardSourceMappings: cardSourceMappings.length,
-    cardProvenance: cardProvenance.length,
-  });
+  return Object.freeze({ sets: sets.length, printings: printings.length, cardIdentities: cardIdentities.length, cardSourceMappings: cardSourceMappings.length, cardProvenance: cardProvenance.length });
 }
 
 export function splitActivationBundleBySet(bundle) {
@@ -118,11 +105,7 @@ export function splitActivationBundleBySet(bundle) {
   const setMappingsBySet = new Map();
   const cardMappingsByCard = new Map();
   const provenanceByCard = new Map();
-
-  const push = (map, key, value) => {
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(value);
-  };
+  const push = (map, key, value) => { if (!map.has(key)) map.set(key, []); map.get(key).push(value); };
 
   for (const row of bundle.printings) push(printingsBySet, row.setId, row);
   for (const row of bundle.cardIdentities) push(cardsBySet, row.setId, row);
@@ -134,12 +117,9 @@ export function splitActivationBundleBySet(bundle) {
     const cards = cardsBySet.get(set.id) || [];
     const cardIds = new Set(cards.map((row) => row.id));
     const batch = {
-      tcg: tcgById.get(set.tcgId),
-      series: seriesById.get(set.seriesId),
-      set,
+      tcg: tcgById.get(set.tcgId), series: seriesById.get(set.seriesId), set,
       setSourceMappings: setMappingsBySet.get(set.id) || [],
-      printings: printingsBySet.get(set.id) || [],
-      cardIdentities: cards,
+      printings: printingsBySet.get(set.id) || [], cardIdentities: cards,
       cardSourceMappings: [...cardIds].flatMap((id) => cardMappingsByCard.get(id) || []),
       cardProvenance: [...cardIds].flatMap((id) => provenanceByCard.get(id) || []),
     };
@@ -155,37 +135,33 @@ async function main() {
   const validation = validateActivationBundle(bundle);
   const batches = splitActivationBundleBySet(bundle);
   const write = process.argv.includes('--write');
+  const concurrency = boundedInt(argValue('concurrency'), 1, 1, 8, 'concurrency');
 
   if (!write) {
-    console.log(JSON.stringify({ mode: 'validate', artifactPath: resolve(artifactPath), validation, batches: batches.length }, null, 2));
+    console.log(JSON.stringify({ mode: 'validate', artifactPath: resolve(artifactPath), validation, batches: batches.length, concurrency }, null, 2));
     return;
   }
-
-  if (!enabled(process.env.FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED)) {
-    throw new Error('Catalogue activation writes are disabled. Set FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true explicitly.');
-  }
+  if (!enabled(process.env.FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED)) throw new Error('Catalogue activation writes are disabled. Set FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED=true explicitly.');
   const databaseUrl = String(process.env.DATABASE_URL || '').trim();
   if (!databaseUrl) throw new Error('DATABASE_URL is required for --write');
 
   const store = new PostgresStore(databaseUrl);
-  const completed = [];
-  let savedPrintings = 0;
-  let savedCards = 0;
-  for (const batch of batches) {
-    const result = await persistVerifiedCatalogueBatch(store, batch);
-    completed.push(batch.set.id);
-    savedPrintings += Number(result.savedPrintings || 0);
-    savedCards += Number(result.savedCards || 0);
-    console.log(JSON.stringify({ event: 'set_persisted', setId: batch.set.id, setName: batch.set.name, savedPrintings: result.savedPrintings, savedCards: result.savedCards }));
+  const results = new Array(batches.length);
+  let cursor = 0;
+  async function worker(workerId) {
+    while (true) {
+      const index = cursor++;
+      if (index >= batches.length) return;
+      const batch = batches[index];
+      const result = await persistVerifiedCatalogueBatch(store, batch);
+      results[index] = { setId: batch.set.id, savedPrintings: Number(result.savedPrintings || 0), savedCards: Number(result.savedCards || 0) };
+      console.log(JSON.stringify({ event: 'set_persisted', workerId, setId: batch.set.id, setName: batch.set.name, savedPrintings: result.savedPrintings, savedCards: result.savedCards }));
+    }
   }
-
-  console.log(JSON.stringify({
-    mode: 'write',
-    setsPersisted: completed.length,
-    savedPrintings,
-    savedCards,
-    expected: validation,
-  }, null, 2));
+  await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i + 1)));
+  const savedPrintings = results.reduce((sum, row) => sum + row.savedPrintings, 0);
+  const savedCards = results.reduce((sum, row) => sum + row.savedCards, 0);
+  console.log(JSON.stringify({ mode: 'write', concurrency, setsPersisted: results.length, savedPrintings, savedCards, expected: validation }, null, 2));
 }
 
 main().catch((error) => {
