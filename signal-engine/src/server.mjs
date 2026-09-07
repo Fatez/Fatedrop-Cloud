@@ -24,6 +24,7 @@ import { loadSignalHealthSummary } from "./telemetry/signal-health-summary.mjs";
 import { loadSignalYieldReport } from "./telemetry/signal-yield-report.mjs";
 import { getWebsiteSnapshotHealth } from "./telemetry/website-snapshot-health.mjs";
 import { createRetailerRunId, recordRetailerRunFinish } from "./telemetry/retailer-runs.mjs";
+import { runRetailSingleNetworkCycle } from "./trader/value/retail-single-connector-registry.mjs";
 
 const RRP_AUTHORITY_REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const RRP_LEARNING_RECONCILE_INTERVAL_MS = 15 * 60 * 1000;
@@ -310,6 +311,7 @@ let checkingDiscordRoutes = false;
 let checkingBetaReadiness = false;
 let reconcilingDiscordDeliveries = false;
 let reconcilingDiscoveryWatch = false;
+let reconcilingRetailSingles = false;
 
 async function scheduledScan() {
   if (scanning) return;
@@ -474,6 +476,36 @@ async function reconcileDiscoveryWatchEvidence() {
   }
 }
 
+async function reconcileRetailSingleOffers() {
+  if (!env.retailSingleNetwork.enabled || reconcilingRetailSingles) return;
+  reconcilingRetailSingles = true;
+  try {
+    const outcome = await runRetailSingleNetworkCycle({
+      store,
+      write: true,
+      concurrency: env.retailSingleNetwork.concurrency,
+    });
+    console.log("[signal-engine] exact-card retailer network reconciliation", {
+      status: outcome.status,
+      connectorCount: outcome.connectorCount,
+      completedCount: outcome.completedCount,
+      failedCount: outcome.failedCount,
+      totals: outcome.totals,
+      connectors: outcome.connectors.map((item) => ({
+        id: item.id,
+        status: item.status,
+        error: item.error?.message || null,
+      })),
+    });
+  } catch (error) {
+    console.error("[signal-engine] exact-card retailer network reconciliation failed", {
+      error: String(error?.message || error),
+    });
+  } finally {
+    reconcilingRetailSingles = false;
+  }
+}
+
 async function refreshDiscordRoutes() {
   if (checkingDiscordRoutes) return;
   checkingDiscordRoutes = true;
@@ -498,6 +530,7 @@ server.listen(env.port, () => {
   void refreshBetaReadiness();
   void reconcileDiscordDeliveries();
   void reconcileDiscoveryWatchEvidence();
+  void reconcileRetailSingleOffers();
 });
 if (env.scanOnStart) scheduledScan();
 setInterval(scheduledScan, env.scanIntervalSeconds * 1000).unref();
@@ -507,3 +540,4 @@ setInterval(refreshDiscordRoutes, DISCORD_ROUTE_HEALTH_INTERVAL_MS).unref();
 setInterval(refreshBetaReadiness, BETA_READINESS_INTERVAL_MS).unref();
 setInterval(reconcileDiscordDeliveries, DISCORD_DELIVERY_RECONCILE_INTERVAL_MS).unref();
 setInterval(reconcileDiscoveryWatchEvidence, DISCOVERY_WATCH_RECONCILE_INTERVAL_MS).unref();
+setInterval(reconcileRetailSingleOffers, env.retailSingleNetwork.intervalMs).unref();

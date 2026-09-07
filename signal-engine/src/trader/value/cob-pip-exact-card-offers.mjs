@@ -1,9 +1,7 @@
 import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore } from '../catalogue/store.mjs';
-import { COB_PIP_SINGLE_COLLECTIONS, collectCobPipSinglesPilot } from './cob-pip-singles-pilot.mjs';
+import { COB_PIP_RETAILER, COB_PIP_SINGLE_COLLECTIONS, collectCobPipSinglesPilot } from './cob-pip-singles-pilot.mjs';
 import { buildVerifiedRetailSingleRecords, resolveRetailSingleBatch } from './retail-single-offers.mjs';
 import { persistVerifiedRetailSingleRecords } from './retail-single-offer-store.mjs';
-
-const RETAILER = Object.freeze({ id: 'cob-pip', name: 'Cob & Pip' });
 
 function selectedBindings(collectionKeys) {
   const keys = Array.isArray(collectionKeys) && collectionKeys.length
@@ -74,7 +72,7 @@ export async function runCobPipExactCardOfferCycle({
 
   const persistence = write
     ? await persistVerifiedRetailSingleRecords(store, {
-      retailer: RETAILER,
+      retailer: COB_PIP_RETAILER,
       records: allRecords,
       observedAt: Math.floor(Number(now) / 1000),
       pagesScanned,
@@ -83,7 +81,7 @@ export async function runCobPipExactCardOfferCycle({
     : null;
   return Object.freeze({
     mode: write ? 'write' : 'dry-run',
-    retailer: RETAILER,
+    retailer: COB_PIP_RETAILER,
     generatedAt: new Date(now).toISOString(),
     collectionCount: results.length,
     productsSeen,
@@ -97,3 +95,9 @@ export async function runCobPipExactCardOfferCycle({
 }
 
 export const __test = Object.freeze({ assertCanonicalSet, selectedBindings });
+
+export const COB_PIP_EXACT_CARD_CONNECTOR = Object.freeze({
+  id: COB_PIP_RETAILER.id,
+  retailer: COB_PIP_RETAILER,
+  runCycle: runCobPipExactCardOfferCycle,
+});

@@ -2,6 +2,11 @@ const COB_PIP_BASE_URL = 'https://cobandpip.co.uk';
 const DEFAULT_PAGE_LIMIT = 250;
 const DEFAULT_MAX_PAGES = 20;
 
+// Keep this aligned with the canonical retailer registry. Exact-card offers,
+// public retailer profiles and outbound attribution must all resolve to the
+// same business identity.
+export const COB_PIP_RETAILER = Object.freeze({ id: 'cob-and-pip', name: 'Cob & Pip' });
+
 // Reviewed collection bindings are deliberately explicit. Shopify collection
 // names are retailer-owned evidence; only this registry may bind one to a
 // canonical FateDrop set. New sets require a reviewed entry rather than a
@@ -120,8 +125,8 @@ export function normalizeCobPipSingleCandidate(product, variant, { observedAt = 
   if (productId == null || variantId == null || !productTitle || !url) return null;
 
   return Object.freeze({
-    retailerId: 'cob-pip',
-    retailerName: 'Cob & Pip',
+    retailerId: COB_PIP_RETAILER.id,
+    retailerName: COB_PIP_RETAILER.name,
     sellerType: 'retailer',
     tcg: 'pokemon',
     sourceKind: 'shopify_collection_products_json',
@@ -203,7 +208,7 @@ export async function collectCobPipSinglesPilot({
   }
 
   return Object.freeze({
-    retailerId: 'cob-pip',
+    retailerId: COB_PIP_RETAILER.id,
     sellerType: 'retailer',
     collection: binding,
     verificationStatus: 'staged',

@@ -82,7 +82,7 @@ test('write mode publishes only verified mappings without emitting market signal
   assert.equal(Object.values(store.state.fatePriceRetailOfferMappings).length, 1);
   assert.equal(Object.values(store.state.fatePriceRetailOfferMappings)[0].cardIdentityId, 'fdcard_weedle');
   assert.equal(Object.values(store.state.offers)[0].stockQuantity, null);
-  assert.equal(store.state.retailers['cob-pip'].healthy, true);
+  assert.equal(store.state.retailers['cob-and-pip'].healthy, true);
   assert.deepEqual(store.state.signals, undefined);
 });
 

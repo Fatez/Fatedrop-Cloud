@@ -34,7 +34,7 @@ test('Cob & Pip candidates remain staged even when collector evidence looks exac
     observedAt: Date.parse('2026-09-07T05:50:00.000Z'),
   });
 
-  assert.equal(candidate.retailerId, 'cob-pip');
+  assert.equal(candidate.retailerId, 'cob-and-pip');
   assert.equal(candidate.sellerType, 'retailer');
   assert.equal(candidate.retailerVariantId, '456');
   assert.equal(candidate.retailerSku, 'SV151-199-NM');

@@ -50,6 +50,10 @@ export function defaultRetailerRegistryEnabled(options = {}) {
   return defaultProductionPostgresFeatureEnabled(options);
 }
 
+export function defaultRetailSingleNetworkEnabled(options = {}) {
+  return defaultProductionPostgresFeatureEnabled(options);
+}
+
 const signalStore = process.env.FATEDROP_SIGNAL_STORE || "file";
 const databaseUrl = process.env.DATABASE_URL || "";
 const productionPostgresDefaults = {
@@ -60,6 +64,7 @@ const productionPostgresDefaults = {
 const hostedFateFindExplicitlyConfigured = explicitlyConfigured("FATEDROP_HOSTED_FATEFIND_ENABLED");
 const hostedFateFindProductionDefault = defaultHostedFateFindEnabled(productionPostgresDefaults);
 const retailerRegistryProductionDefault = defaultRetailerRegistryEnabled(productionPostgresDefaults);
+const retailSingleNetworkProductionDefault = defaultRetailSingleNetworkEnabled(productionPostgresDefaults);
 
 const amazonCreatorsClientId = process.env.AMAZON_CREATORS_CLIENT_ID || "";
 const amazonCreatorsClientSecret = process.env.AMAZON_CREATORS_CLIENT_SECRET || "";
@@ -100,6 +105,11 @@ export const env = {
   filePath: path.resolve(process.cwd(), process.env.FATEDROP_SIGNAL_FILE || "data/signal-engine.json"),
   databaseUrl,
   retailerRegistryEnabled: bool("FATEDROP_RETAILER_REGISTRY_ENABLED", retailerRegistryProductionDefault),
+  retailSingleNetwork: {
+    enabled: bool("FATEDROP_RETAIL_SINGLE_NETWORK_ENABLED", retailSingleNetworkProductionDefault),
+    intervalMs: Math.max(5 * 60 * 1000, int("FATEDROP_RETAIL_SINGLE_NETWORK_INTERVAL_MS", 15 * 60 * 1000)),
+    concurrency: Math.max(1, Math.min(4, int("FATEDROP_RETAIL_SINGLE_NETWORK_CONCURRENCY", 2))),
+  },
   scanIntervalSeconds: Math.max(60, int("FATEDROP_SCAN_INTERVAL_SECONDS", 300)),
   scanOnStart: bool("FATEDROP_SCAN_ON_START", false),
   scanConcurrency: Math.max(1, Math.min(4, int("FATEDROP_SCAN_CONCURRENCY", 2))),
