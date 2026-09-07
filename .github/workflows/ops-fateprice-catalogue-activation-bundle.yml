@@ -150,7 +150,7 @@ jobs:
             for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
               const full = path.join(dir,entry.name);
               if (entry.isDirectory()) walk(full);
-              else if (entry.isFile() && entry.name === 'set-result.json') files.push(full);
+              else if (entry.isFile() && ['set-result.json','recovery-result.json'].includes(entry.name)) files.push(full);
             }
           };
           walk(root);
