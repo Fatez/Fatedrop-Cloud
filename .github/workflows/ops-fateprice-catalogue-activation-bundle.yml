@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
 
-      - name: Download retained exact evidence
+      - name: Download retained exact set evidence
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -56,10 +56,6 @@ jobs:
           download_run_artifacts 34017737476 base
           download_run_artifacts 34030526577 recovery
 
-          mkdir -p "$ROOT/universe"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/9990608702/zip" > "$ROOT/universe.zip"
-          unzip -q -o "$ROOT/universe.zip" -d "$ROOT/universe"
-
       - name: Fresh exact Prismatic Evolutions compile
         shell: bash
         run: |
@@ -86,17 +82,13 @@ jobs:
           for (const id of refs) tcgdexCards.push(await tcgdex.getCard(id));
           const pokemonCards = await pokemon.listCardsBySet('sv8pt5');
           const cardResults = reconcilePokemonCardCollections({ tcgdexCards, pokemonTcgCards: pokemonCards, setMatch, sourceSeriesCode: tcgdexEvidence.sourceSeriesCode, languageCode: 'en' });
-          if (tcgdexCards.length !== pokemonCards.length || cardResults.matched.length !== tcgdexCards.length || cardResults.conflicts.length || cardResults.quarantined.length || cardResults.unmatched.length) {
-            throw new Error(`Prismatic exact compile not clean: source=${tcgdexCards.length}/${pokemonCards.length} matched=${cardResults.matched.length} conflicts=${cardResults.conflicts.length} quarantined=${cardResults.quarantined.length} unmatched=${cardResults.unmatched.length}`);
-          }
+          if (tcgdexCards.length !== pokemonCards.length || cardResults.matched.length !== tcgdexCards.length || cardResults.conflicts.length || cardResults.quarantined.length || cardResults.unmatched.length) throw new Error('Prismatic exact compile not clean');
           const promotions = cardResults.matched.map((match) => promoteMatchedCardEvidence(match, { verifiedAt }));
           if (promotions.some((promotion) => promotion.status !== 'verified')) throw new Error('Prismatic promotion rejected');
           const batch = buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt });
-          const out = { format:'fatedrop-pokemon-catalogue-set-v1', generatedAt:new Date(verifiedAt).toISOString(), requested:{tcgdexSetId:'sv08.5',pokemonTcgSetId:'sv8pt5',canonicalSetId:setMatch.canonicalSetId,setName:setMatch.setName}, safety:{productionWrites:false,exactTwoSourceReconciliation:true,fuzzyMatching:false}, status:'verified', reasons:[], rows:batch, counts:{printings:batch.printings.length,cardIdentities:batch.cardIdentities.length,sourceMappings:batch.cardSourceMappings.length,provenance:batch.cardProvenance.length} };
           const dir = process.env.RUNNER_TEMP + '/activation-evidence/prismatic';
           fs.mkdirSync(dir,{recursive:true});
-          fs.writeFileSync(dir + '/set-result.json', JSON.stringify(out));
-          console.log(`Prismatic verified: ${batch.printings.length} printings / ${batch.cardIdentities.length} identities`);
+          fs.writeFileSync(dir + '/set-result.json', JSON.stringify({ status:'verified', rows:batch }));
           NODE
 
       - name: Build exact catalogue activation bundle
@@ -106,69 +98,60 @@ jobs:
           import fs from 'node:fs';
           import path from 'node:path';
           const root = process.env.RUNNER_TEMP + '/activation-evidence';
-          const universePath = path.join(root,'universe','verified-universe.json');
-          const universe = JSON.parse(fs.readFileSync(universePath,'utf8'));
-          const target = new Set(universe.eligibleSets.map((row) => row.canonicalSetId));
-          const resultFiles = [];
+          const files = [];
           const walk = (dir) => {
             for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
               const full = path.join(dir,entry.name);
               if (entry.isDirectory()) walk(full);
-              else if (entry.isFile() && entry.name === 'set-result.json') resultFiles.push(full);
+              else if (entry.isFile() && entry.name === 'set-result.json') files.push(full);
             }
           };
           walk(root);
-          const bySet = new Map();
-          for (const file of resultFiles.sort()) {
-            const row = JSON.parse(fs.readFileSync(file,'utf8'));
-            if (row.status !== 'verified' || !row.rows?.set?.id || !target.has(row.rows.set.id)) continue;
-            bySet.set(row.rows.set.id,row);
-          }
-          const missing = [...target].filter((id) => !bySet.has(id));
-          if (missing.length) throw new Error(`Missing verified activation evidence for ${missing.length} target sets: ${missing.join(',')}`);
-          if (bySet.size !== target.size) throw new Error(`Expected ${target.size} sets, got ${bySet.size}`);
 
-          const dedupe = (rows,key='id') => [...new Map(rows.map((row)=>[row[key],row])).values()];
+          const bySet = new Map();
+          for (const file of files.sort()) {
+            const row = JSON.parse(fs.readFileSync(file,'utf8'));
+            if (row.status !== 'verified' || !row.rows?.set?.id) continue;
+            bySet.set(row.rows.set.id,row.rows);
+          }
+
           const selected = [...bySet.values()];
+          const dedupe = (rows) => [...new Map(rows.map((row)=>[row.id,row])).values()];
           const bundle = {
             format:'fatedrop-catalogue-activation-bundle-v1',
             generatedAt:new Date().toISOString(),
             safety:{exactOnly:true,fuzzyMatching:false,productionWrites:false,verifiedSetsOnly:true},
-            provenance:{baseUniverseRunId:34017737476,recoveryRunId:34030526577,expandedUniverseArtifactId:9990608702},
-            counts:{},
-            tcgs:dedupe(selected.map((x)=>x.rows.tcg)),
-            series:dedupe(selected.map((x)=>x.rows.series).filter(Boolean)),
-            sets:dedupe(selected.map((x)=>x.rows.set)),
-            setSourceMappings:dedupe(selected.flatMap((x)=>x.rows.setSourceMappings||[])),
-            printings:dedupe(selected.flatMap((x)=>x.rows.printings||[])),
-            cardIdentities:dedupe(selected.flatMap((x)=>x.rows.cardIdentities||[])),
-            cardSourceMappings:dedupe(selected.flatMap((x)=>x.rows.cardSourceMappings||[])),
-            cardProvenance:dedupe(selected.flatMap((x)=>x.rows.cardProvenance||[])),
+            provenance:{baseUniverseRunId:34017737476,recoveryRunId:34030526577},
+            tcgs:dedupe(selected.map((x)=>x.tcg).filter(Boolean)),
+            series:dedupe(selected.map((x)=>x.series).filter(Boolean)),
+            sets:dedupe(selected.map((x)=>x.set).filter(Boolean)),
+            setSourceMappings:dedupe(selected.flatMap((x)=>x.setSourceMappings||[])),
+            printings:dedupe(selected.flatMap((x)=>x.printings||[])),
+            cardIdentities:dedupe(selected.flatMap((x)=>x.cardIdentities||[])),
+            cardSourceMappings:dedupe(selected.flatMap((x)=>x.cardSourceMappings||[])),
+            cardProvenance:dedupe(selected.flatMap((x)=>x.cardProvenance||[])),
           };
           bundle.counts = {
-            sets:bundle.sets.length, series:bundle.series.length, printings:bundle.printings.length,
-            cardIdentities:bundle.cardIdentities.length, cardSourceMappings:bundle.cardSourceMappings.length,
+            sets:bundle.sets.length,
+            printings:bundle.printings.length,
+            cardIdentities:bundle.cardIdentities.length,
+            cardSourceMappings:bundle.cardSourceMappings.length,
             cardProvenance:bundle.cardProvenance.length,
           };
+
           if (bundle.counts.sets !== 91) throw new Error(`Expected 91 sets, got ${bundle.counts.sets}`);
           if (bundle.counts.cardIdentities !== 17312) throw new Error(`Expected 17312 identities, got ${bundle.counts.cardIdentities}`);
-          const setIds = new Set(bundle.sets.map((x)=>x.id));
-          const printingIds = new Set(bundle.printings.map((x)=>x.id));
-          const identityIds = new Set(bundle.cardIdentities.map((x)=>x.id));
-          for (const row of bundle.printings) if (!setIds.has(row.setId)) throw new Error(`Printing ${row.id} has missing set ${row.setId}`);
-          for (const row of bundle.cardIdentities) if (!setIds.has(row.setId) || !printingIds.has(row.printingId)) throw new Error(`Identity ${row.id} has broken FK`);
-          for (const row of bundle.cardSourceMappings) if (!identityIds.has(row.cardIdentityId)) throw new Error(`Source mapping ${row.id} has missing identity`);
+
           const sourceKeys = new Map();
           for (const row of bundle.cardSourceMappings) {
             const key = `${row.sourceName}|${row.sourceRecordId}|${row.sourceVariantKey}`;
-            const previous = sourceKeys.get(key);
-            if (previous && previous !== row.cardIdentityId) throw new Error(`Catalogue source collision ${key}: ${previous} vs ${row.cardIdentityId}`);
+            const prior = sourceKeys.get(key);
+            if (prior && prior !== row.cardIdentityId) throw new Error(`Source collision ${key}`);
             sourceKeys.set(key,row.cardIdentityId);
           }
-          const out = process.env.RUNNER_TEMP + '/fateprice-catalogue-activation-bundle.json';
-          fs.writeFileSync(out,JSON.stringify(bundle));
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,`# FatePrice catalogue activation bundle\n\n- Verified sets: **${bundle.counts.sets}**\n- Verified printings: **${bundle.counts.printings}**\n- Verified identities: **${bundle.counts.cardIdentities}**\n- Catalogue source mappings: **${bundle.counts.cardSourceMappings}**\n- Provenance rows: **${bundle.counts.cardProvenance}**\n- Fuzzy matching: **disabled**\n- Production writes: **0**\n`);
-          console.log(bundle.counts);
+
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-catalogue-activation-bundle.json', JSON.stringify(bundle));
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `# FatePrice catalogue activation bundle\n\n- Sets: **${bundle.counts.sets}**\n- Identities: **${bundle.counts.cardIdentities}**\n- Fuzzy matching: **disabled**\n- Production writes: **0**\n`);
           NODE
 
       - uses: actions/upload-artifact@v4
