@@ -60,10 +60,12 @@ jobs:
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/fatedrop-rehearsal-key.pem"
-          CIPHER="$RUNNER_TEMP/neon-url.enc.b64"
+          API_CONTENT="$RUNNER_TEMP/github-content.b64"
+          CIPHER_TEXT="$RUNNER_TEMP/neon-url.enc.b64"
           for attempt in $(seq 1 120); do
-            if gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" --jq '.content' > "$CIPHER" 2>/dev/null; then
-              tr -d '\n' < "$CIPHER" | base64 -d > "$RUNNER_TEMP/ciphertext.bin"
+            if gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" --jq '.content' > "$API_CONTENT" 2>/dev/null; then
+              tr -d '\n' < "$API_CONTENT" | base64 -d > "$CIPHER_TEXT"
+              tr -d '\n' < "$CIPHER_TEXT" | base64 -d > "$RUNNER_TEMP/ciphertext.bin"
               if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" \
                 -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
                 -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
@@ -71,7 +73,7 @@ jobs:
                 if [ -n "$DATABASE_URL" ]; then
                   echo "::add-mask::$DATABASE_URL"
                   echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
-                  rm -f "$KEY" "$RUNNER_TEMP/database-url.txt" "$RUNNER_TEMP/ciphertext.bin" "$CIPHER"
+                  rm -f "$KEY" "$RUNNER_TEMP/database-url.txt" "$RUNNER_TEMP/ciphertext.bin" "$API_CONTENT" "$CIPHER_TEXT"
                   exit 0
                 fi
               fi
