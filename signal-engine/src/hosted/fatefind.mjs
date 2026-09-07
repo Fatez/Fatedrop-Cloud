@@ -115,12 +115,15 @@ export function buildFateMatchNotification({ find, offer, product, result }) {
   const isPreorder = offer?.stockStatus === "preorder";
   const huntLabel = String(find?.queryText || productTitle).trim();
 
+  const companionNames = { koru: "Koru", fenn: "Fenn", oru: "Oru", nyxen: "Nyxen" };
+  const companionId = String(find?.notifications?.companionId || "").toLowerCase();
+  const companion = Object.hasOwn(companionNames, companionId) ? companionNames[companionId] : "Koru";
   return {
-    title: isPreorder ? "Koru found it · your FateFind matched" : "Koru found stock · go get it",
+    title: isPreorder ? `${companion} found it · your FateFind matched` : `${companion} found stock · go get it`,
     body: `${productTitle} matched your FateFind “${huntLabel}” at ${offer.retailerName} · ${priceLabel}. ${isPreorder ? "Open the listing now to check preorder terms." : "Move quickly — availability can change fast."}`,
     payload: {
       urgency: "high",
-      companion: "Koru",
+      companion,
       huntQuery: huntLabel,
       stockStatus: offer?.stockStatus || null,
       deliveredPricePence: Number.isFinite(result?.deliveredPricePence) ? result.deliveredPricePence : null,
@@ -155,8 +158,10 @@ export function evaluateFateFind(find, offer, product) {
   if (!productTcgCode) return { matched: false, reasons: ["product-tcg-unknown"] };
   if (findTcgCode !== productTcgCode) return { matched: false, reasons: ["tcg-mismatch"] };
   const title = product?.title || offer.title || "";
-  if (find.productIdentityId && find.productIdentityId === product?.id) reasons.push("product-identity");
-  else if (!queryMatches(find.queryText, title)) return { matched: false, reasons: ["query-mismatch"] };
+  if (find.productIdentityId) {
+    if (find.productIdentityId !== product?.id) return { matched: false, reasons: ["product-identity-mismatch"] };
+    reasons.push("product-identity");
+  } else if (!queryMatches(find.queryText, title)) return { matched: false, reasons: ["query-mismatch"] };
   else reasons.push("query");
 
   if (find.preferredRetailerIds.length && !find.preferredRetailerIds.includes(offer.retailerId)) return { matched: false, reasons: ["retailer-not-preferred"] };
