@@ -1,0 +1,68 @@
+name: Incident Production Alert Audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/incident-production-alert-audit.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cross-check live lifecycle categories
+        shell: bash
+        run: |
+          set -euo pipefail
+          CLOUD="https://fatedrop-cloud-production.up.railway.app"
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signals?limit=200" -o /tmp/signals.json
+          curl --fail --silent --show-error --retry 3 --retry-delay 2 "$CLOUD/api/signal-summary" -o /tmp/summary.json
+          node <<'NODE'
+          const fs = require('fs');
+          const signals = JSON.parse(fs.readFileSync('/tmp/signals.json','utf8'));
+          const summary = JSON.parse(fs.readFileSync('/tmp/summary.json','utf8'));
+          const rows = Array.isArray(signals.signals) ? signals.signals : [];
+          const now = Date.now();
+          const epochMs = value => {
+            const n = Number(value);
+            if (Number.isFinite(n) && n > 0) return n > 1e12 ? n : n * 1000;
+            const parsed = Date.parse(value || '');
+            return Number.isFinite(parsed) ? parsed : null;
+          };
+          const last24 = rows.filter(r => {
+            const ms = epochMs(r.detectedAt);
+            return ms != null && now - ms <= 24 * 3600000;
+          });
+          const states = ['whisper','echo','manifested','vanished'];
+          const stockByState = Object.fromEntries(states.map(state => {
+            const subset = last24.filter(r => r.state === state);
+            const counts = subset.reduce((acc, r) => {
+              const key = String(r.stockStatus ?? 'unknown');
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+            }, {});
+            return [state, { total: subset.length, stockStatuses: counts }];
+          }));
+          const inconsistentPublicSurface = last24.filter(r =>
+            (r.state === 'manifested' && !['in_stock','low_stock'].includes(r.stockStatus)) ||
+            (r.state === 'vanished' && ['in_stock','low_stock'].includes(r.stockStatus)) ||
+            (['whisper','echo'].includes(r.state) && ['in_stock','low_stock'].includes(r.stockStatus))
+          ).map(r => ({ id:r.id, state:r.state, retailerId:r.retailerId, title:r.title, stockStatus:r.stockStatus, confidence:r.confidence, detectedAt:r.detectedAt }));
+          const today = Object.fromEntries(states.map(state => [state, {
+            generated: Number(summary.lifecycle?.[state]?.today || 0),
+            discordSent: Number(summary.delivery?.[state]?.todaySent || 0),
+          }]));
+          console.log('=== FATEDROP PUBLIC LIFECYCLE CROSS-CHECK ===');
+          console.log(JSON.stringify({
+            measuredAt: new Date(now).toISOString(),
+            signalsLast24h: last24.length,
+            stockByState,
+            publicSurfaceInconsistencies: inconsistentPublicSurface.length,
+            inconsistentExamples: inconsistentPublicSurface,
+            todayLifecycleDiscordParity: today,
+            note: 'Public /api/signals omits internal evidence arrays and previous-state proof; this cross-check validates lifecycle state against the stock status exposed by production, not the hidden classifier evidence.',
+          }, null, 2));
+          NODE
