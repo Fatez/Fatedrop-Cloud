@@ -4,6 +4,7 @@ import {
   listVerifiedCardSetsFromStore,
 } from '../catalogue/store.mjs';
 import { COB_PIP_RETAILER, COB_PIP_SINGLE_COLLECTIONS, collectCobPipSinglesPilot } from './cob-pip-singles-pilot.mjs';
+import { withCobPipReviewedCardNameAliases } from './cob-pip-reviewed-card-name-aliases.mjs';
 import { buildVerifiedRetailSingleRecords, resolveRetailSingleBatch } from './retail-single-offers.mjs';
 import { persistVerifiedRetailSingleRecords } from './retail-single-offer-store.mjs';
 
@@ -14,7 +15,7 @@ function selectedBindings(collectionKeys) {
   return keys.map((key) => {
     const binding = COB_PIP_SINGLE_COLLECTIONS[key];
     if (!binding) throw new TypeError(`Unsupported Cob & Pip collection key: ${key}`);
-    return binding;
+    return withCobPipReviewedCardNameAliases(binding);
   });
 }
 
