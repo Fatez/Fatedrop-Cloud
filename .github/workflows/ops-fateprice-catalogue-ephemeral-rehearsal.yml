@@ -1,0 +1,128 @@
+name: OPS FatePrice Catalogue Ephemeral Neon Rehearsal
+
+on:
+  push:
+    branches:
+      - ops/fateprice-catalogue-activation-2026-09-07
+    paths:
+      - '.github/workflows/ops-fateprice-catalogue-ephemeral-rehearsal.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  rehearse-exact-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Download successful 91-set exact bundle
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts/10004449370/zip" > "$RUNNER_TEMP/activation.zip"
+          unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
+          test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
+
+      - name: Create one-run encryption key and wait for encrypted rehearsal URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KEY="$RUNNER_TEMP/fatedrop-rehearsal-key.pem"
+          PUB="$RUNNER_TEMP/fatedrop-rehearsal-pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
+          openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
+          echo 'FATEDROP_EPHEMERAL_PUBLIC_KEY_BEGIN'
+          base64 -w0 "$PUB"
+          echo
+          echo 'FATEDROP_EPHEMERAL_PUBLIC_KEY_END'
+
+          CIPHER="$RUNNER_TEMP/neon-url.enc.b64"
+          for attempt in $(seq 1 90); do
+            if gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-rehearsal-url.enc.b64?ref=${GITHUB_REF_NAME}" --jq '.content' > "$CIPHER" 2>/dev/null; then
+              tr -d '\n' < "$CIPHER" | base64 -d > "$RUNNER_TEMP/ciphertext.bin"
+              if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" \
+                -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+                -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
+                DATABASE_URL="$(cat "$RUNNER_TEMP/database-url.txt")"
+                if [ -n "$DATABASE_URL" ]; then
+                  echo "::add-mask::$DATABASE_URL"
+                  echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+                  rm -f "$KEY" "$RUNNER_TEMP/database-url.txt" "$RUNNER_TEMP/ciphertext.bin" "$CIPHER"
+                  exit 0
+                fi
+              fi
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for a ciphertext matching this run public key' >&2
+          exit 31
+
+      - name: Baseline isolated rehearsal branch
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const { rows } = await pool.query(`SELECT
+            (SELECT COUNT(*)::int FROM fatedrop_card_sets) AS sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities) AS identities,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings) AS source_mappings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_provenance) AS provenance`);
+          console.log(JSON.stringify({event:'baseline',...rows[0]}));
+          await pool.end();
+          NODE
+
+      - name: Persist exact 91-set bundle with existing catalogue path
+        shell: bash
+        env:
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          node src/trader/catalogue/load-activation-bundle-cli.mjs \
+            --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
+            --write | tee "$RUNNER_TEMP/catalogue-rehearsal-write.log"
+
+      - name: Verify exact rehearsal result
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+          const { rows } = await pool.query(`SELECT
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_sets) AS verified_sets,
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_identities) AS verified_identities,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) AS orphan_card_sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) AS orphan_card_printings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) AS orphan_source_mappings`);
+          const v=rows[0];
+          console.log(JSON.stringify({event:'verification',...v}));
+          if (v.verified_sets < 91) throw new Error(`expected at least 91 verified sets, got ${v.verified_sets}`);
+          if (v.verified_identities < 17312) throw new Error(`expected at least 17312 verified identities, got ${v.verified_identities}`);
+          if (v.orphan_card_sets || v.orphan_card_printings || v.orphan_source_mappings) throw new Error(`referential integrity failure: ${JSON.stringify(v)}`);
+          await pool.end();
+          NODE
+
+      - name: Upload set-by-set rehearsal log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-catalogue-ephemeral-neon-rehearsal-log
+          path: ${{ runner.temp }}/catalogue-rehearsal-write.log
+          retention-days: 14
+          if-no-files-found: ignore
