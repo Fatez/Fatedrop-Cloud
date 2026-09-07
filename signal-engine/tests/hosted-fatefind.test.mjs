@@ -100,3 +100,28 @@ test("outside quiet hours notifications are eligible immediately",()=>{
   assert.equal(plan.nextAttemptAt.discord,now);
   assert.equal(plan.quietUntil,null);
 });
+
+test("an exact identity cannot fall back to a matching title", () => {
+  const result = evaluateFateFind({...baseFind, productIdentityId:"another-printing"}, offer, product);
+  assert.equal(result.matched, false);
+  assert.deepEqual(result.reasons, ["product-identity-mismatch"]);
+});
+test("an exact hunt fails closed when the product identity is missing", () => {
+  assert.equal(evaluateFateFind({...baseFind, productIdentityId:"prd_1"}, offer, {...product,id:null}).matched, false);
+});
+test("a matching exact identity does not require a redundant text match", () => {
+  assert.equal(evaluateFateFind({...baseFind,productIdentityId:"prd_1",queryText:""},offer,product).matched,true);
+});
+test("chosen companions deliver the same stock facts without changing qualification", () => {
+  for (const [id, name] of [["koru","Koru"],["fenn","Fenn"],["oru","Oru"],["nyxen","Nyxen"]]) {
+    const notification = buildFateMatchNotification({find:{...baseFind,notifications:{companionId:id}},offer,product,result:{deliveredPricePence:5598}});
+    assert.equal(notification.title, name + " found stock · go get it");
+    assert.equal(notification.payload.companion,name);
+    assert.equal(notification.payload.stockStatus,"in_stock");
+    assert.match(notification.body,/£55\.98 delivered/);
+  }
+});
+test("unknown companion settings safely retain Koru", () => {
+  const notification=buildFateMatchNotification({find:{...baseFind,notifications:{companionId:"constructor"}},offer,product,result:{}});
+  assert.equal(notification.payload.companion,"Koru");
+});
