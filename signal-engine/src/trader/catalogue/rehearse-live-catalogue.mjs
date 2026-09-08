@@ -1,0 +1,82 @@
+import assert from 'node:assert/strict';
+import { readFile, writeFile } from 'node:fs/promises';
+import { Pool } from 'pg';
+import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
+import { createPokemonTcgClient, createTcgdexClient } from './source-clients.mjs';
+import { validateRehearsalTarget, assertRehearsalCounts } from './rehearsal-guard.mjs';
+
+// No production credential is accepted, fetched or needed by this rehearsal.
+const connectionString = process.env.CATALOGUE_REHEARSAL_DATABASE_URL;
+validateRehearsalTarget(connectionString);
+const pool = new Pool({ connectionString, max: 2 });
+const store = { pool: async () => pool };
+const verifiedAt = Date.now();
+const output = process.env.RUNNER_TEMP || '.';
+const progress = { mode: 'isolated_rehearsal', productionWrites: false, sets: [] };
+const save = () => writeFile(`${output}/catalogue-rehearsal.json`, JSON.stringify(progress, null, 2));
+
+// Replay uses exactly the same fetched evidence; no second provider crawl.
+function cached(client) {
+  const result = {};
+  for (const [name, method] of Object.entries(client)) {
+    if (typeof method !== 'function') { result[name] = method; continue; }
+    const cache = new Map();
+    result[name] = (...args) => {
+      const key = JSON.stringify(args);
+      if (!cache.has(key)) cache.set(key, Promise.resolve().then(() => method.apply(client, args)));
+      return cache.get(key);
+    };
+  }
+  return result;
+}
+
+async function counts() {
+  const {rows} = await pool.query(`SELECT
+    (SELECT count(*)::int FROM fatedrop_card_sets WHERE verification_status='verified') verified_sets,
+    (SELECT count(*)::int FROM fatedrop_card_printings) printings,
+    (SELECT count(*)::int FROM fatedrop_card_identities WHERE verification_status='verified') verified_identities,
+    (SELECT count(*)::int FROM fatedrop_card_source_mappings) source_mappings,
+    (SELECT count(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) orphan_sets,
+    (SELECT count(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) orphan_printings,
+    (SELECT count(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) orphan_mappings,
+    (SELECT count(*)::int FROM (SELECT printing_id,variant_code,language_code FROM fatedrop_card_identities GROUP BY 1,2,3 HAVING count(*)>1) d) duplicate_identities`);
+  return rows[0];
+}
+
+try {
+  for (const file of ['fate-trader-card-identity.sql','fate-trader-catalogue-crosswalk.sql'])
+    await pool.query(await readFile(new URL(`../../../database/${file}`, import.meta.url), 'utf8'));
+  assert.equal((await counts()).verified_identities, 0, 'Rehearsal database must start empty');
+  const tcgdexClient = cached(createTcgdexClient({languageCode:'en'}));
+  const pokemonTcgClient = cached(createPokemonTcgClient());
+  const crosswalk = await buildVerifiedPokemonSetCrosswalk({tcgdexClient,pokemonTcgClient});
+  assert.ok(crosswalk.counts.matched >= 132);
+  assert.equal(crosswalk.counts.ambiguous, 0);
+  progress.crosswalk = crosswalk.counts;
+  await save();
+  for (const pair of crosswalk.matched) {
+    const scoped = {...crosswalk, matched:[pair]};
+    const result = await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:scoped,maxSets:1,maxCardsPerChunk:250,verifiedAt});
+    assert.equal(result.status,'complete');
+    progress.sets.push(result.sets[0]);
+    await save();
+    console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...result.sets[0]}));
+  }
+  progress.saved = await counts();
+  assertRehearsalCounts(progress.saved);
+  // Replay every set: duplicate identities/mappings must not inflate saved totals.
+  for (const pair of crosswalk.matched)
+    await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:{...crosswalk,matched:[pair]},maxSets:1,maxCardsPerChunk:250,verifiedAt});
+  progress.replayed = await counts();
+  assert.deepEqual(progress.replayed,progress.saved);
+  progress.status = 'passed';
+  console.log(JSON.stringify({event:'rehearsal_passed',...progress.saved,replayCountsUnchanged:true,productionWrites:false}));
+} catch (error) {
+  progress.status = 'failed';
+  progress.error = error.message;
+  process.exitCode = 1;
+  console.error(error.message);
+} finally {
+  await save();
+  await pool.end();
+}

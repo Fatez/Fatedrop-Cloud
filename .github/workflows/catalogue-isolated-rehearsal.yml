@@ -1,0 +1,60 @@
+name: Rehearse full catalogue in isolated PostgreSQL
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/catalogue-isolated-rehearsal.yml'
+      - 'signal-engine/src/trader/catalogue/rehearse-live-catalogue.mjs'
+      - 'signal-engine/src/trader/catalogue/rehearsal-guard.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalogue-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fatedrop_catalogue_rehearsal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fatedrop_catalogue_rehearsal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify isolation guard
+        run: node --test tests/catalogue-rehearsal-guard.test.mjs
+      - name: Import and replay exact catalogue in disposable PostgreSQL
+        env:
+          CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
+        run: node src/trader/catalogue/rehearse-live-catalogue.mjs
+      - name: Retain rehearsal progress and saved counts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-isolated-rehearsal
+          path: ${{ runner.temp }}/catalogue-rehearsal.json
+          if-no-files-found: warn
+          retention-days: 14
