@@ -15,7 +15,7 @@ permissions:
 jobs:
   activate-halfway:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: signal-engine
@@ -46,7 +46,7 @@ jobs:
             --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
             --limit=91
 
-      - name: Create and publish one-run production encryption key
+      - name: Publish run-scoped production public key
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,33 +54,35 @@ jobs:
           set -euo pipefail
           KEY="$RUNNER_TEMP/fatedrop-production-key.pem"
           PUB="$RUNNER_TEMP/fatedrop-production-pub.pem"
+          PUB_PATH=".ops/fateprice-catalogue-${GITHUB_RUN_ID}.pub.pem"
+          CIPHER_PATH=".ops/fateprice-catalogue-${GITHUB_RUN_ID}.enc.b64"
+          echo "PUB_PATH=$PUB_PATH" >> "$GITHUB_ENV"
+          echo "CIPHER_PATH=$CIPHER_PATH" >> "$GITHUB_ENV"
           openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$KEY" >/dev/null 2>&1
           openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
           CONTENT="$(base64 -w0 "$PUB")"
-          EXISTING_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem?ref=${GITHUB_REF_NAME}" --jq '.sha' 2>/dev/null || true)"
-          if [ -n "$EXISTING_SHA" ]; then
-            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem" -f message='ops: rotate ephemeral production public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" -f sha="$EXISTING_SHA" >/dev/null
-          else
-            gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-production-pub.pem" -f message='ops: publish ephemeral production public key' -f content="$CONTENT" -f branch="$GITHUB_REF_NAME" >/dev/null
-          fi
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${PUB_PATH}" \
+            -f message="ops: publish catalogue key ${GITHUB_RUN_ID}" \
+            -f branch="$GITHUB_REF_NAME" \
+            -f content="$CONTENT" >/dev/null
+          echo "Published run-scoped catalogue key for run ${GITHUB_RUN_ID}."
 
-      - name: Wait for encrypted production URL
+      - name: Wait for run-scoped encrypted production URL
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           KEY="$RUNNER_TEMP/fatedrop-production-key.pem"
-          CIPHER_TEXT="$RUNNER_TEMP/neon-production-url.enc.b64"
-          for attempt in $(seq 1 120); do
-            if gh api -H 'Accept: application/vnd.github.raw+json' "repos/${GITHUB_REPOSITORY}/contents/.ops/fateprice-neon-production-url.enc.b64?ref=${GITHUB_REF_NAME}" > "$CIPHER_TEXT" 2>/dev/null; then
-              if tr -d '\r\n' < "$CIPHER_TEXT" | base64 -d > "$RUNNER_TEMP/ciphertext.bin" 2>/dev/null; then
-                if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/ciphertext.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/database-url.txt" 2>/dev/null; then
-                  DATABASE_URL="$(cat "$RUNNER_TEMP/database-url.txt")"
+          for attempt in $(seq 1 180); do
+            if gh api "repos/${GITHUB_REPOSITORY}/contents/${CIPHER_PATH}?ref=${GITHUB_REF_NAME}" --jq '.content' > "$RUNNER_TEMP/github.b64" 2>/dev/null; then
+              if tr -d '\n' < "$RUNNER_TEMP/github.b64" | base64 -d > "$RUNNER_TEMP/text.b64" 2>/dev/null && tr -d '\r\n' < "$RUNNER_TEMP/text.b64" | base64 -d > "$RUNNER_TEMP/cipher.bin" 2>/dev/null; then
+                if openssl pkeyutl -decrypt -inkey "$KEY" -in "$RUNNER_TEMP/cipher.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/db.txt" 2>/dev/null; then
+                  DATABASE_URL="$(cat "$RUNNER_TEMP/db.txt")"
                   if [ -n "$DATABASE_URL" ]; then
                     echo "::add-mask::$DATABASE_URL"
                     echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
-                    rm -f "$KEY" "$RUNNER_TEMP/database-url.txt" "$RUNNER_TEMP/ciphertext.bin" "$CIPHER_TEXT"
+                    echo "Accepted run-scoped catalogue database handoff."
                     exit 0
                   fi
                 fi
@@ -88,7 +90,7 @@ jobs:
             fi
             sleep 5
           done
-          echo 'Timed out waiting for production ciphertext matching this run public key' >&2
+          echo 'Timed out waiting for run-scoped encrypted catalogue handoff.' >&2
           exit 31
 
       - name: Production baseline
