@@ -19,6 +19,7 @@ function sourceKey(sourceName, sourceRecordId, sourceVariantKey = null) {
 function publicSet(set, series, tcg) {
   return {
     id: set.id,
+    code: set.code ?? null,
     tcgCode: tcg?.code ?? null,
     seriesId: set.seriesId,
     seriesName: series?.name ?? null,
@@ -54,6 +55,7 @@ function publicCard(card, printing, set, series, tcg) {
 function dbSet(row) {
   return {
     id: row.id,
+    code: row.code ?? null,
     tcgCode: row.tcg_code,
     seriesId: row.series_id,
     seriesName: row.series_name,
