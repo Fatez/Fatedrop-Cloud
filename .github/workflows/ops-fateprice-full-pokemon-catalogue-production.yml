@@ -49,8 +49,9 @@ jobs:
           set -euo pipefail
           KEY="$RUNNER_TEMP/fatedrop-full-catalogue-key.pem"
           PUB="$RUNNER_TEMP/fatedrop-full-catalogue-pub.pem"
-          PUB_PATH=".ops/fateprice-full-catalogue-${GITHUB_RUN_ID}.pub.pem"
-          CIPHER_PATH=".ops/fateprice-full-catalogue-${GITHUB_RUN_ID}.enc.b64"
+          RUN_SCOPE="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
+          PUB_PATH=".ops/fateprice-full-catalogue-${RUN_SCOPE}.pub.pem"
+          CIPHER_PATH=".ops/fateprice-full-catalogue-${RUN_SCOPE}.enc.b64"
           echo "KEY=$KEY" >> "$GITHUB_ENV"
           echo "PUB_PATH=$PUB_PATH" >> "$GITHUB_ENV"
           echo "CIPHER_PATH=$CIPHER_PATH" >> "$GITHUB_ENV"
@@ -58,7 +59,7 @@ jobs:
           openssl pkey -in "$KEY" -pubout -out "$PUB" >/dev/null 2>&1
           CONTENT="$(base64 -w0 "$PUB")"
           gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${PUB_PATH}" \
-            -f message="ops: publish full catalogue key ${GITHUB_RUN_ID}" \
+            -f message="ops: publish full catalogue key ${RUN_SCOPE}" \
             -f branch="$GITHUB_REF_NAME" \
             -f content="$CONTENT" >/dev/null
 
