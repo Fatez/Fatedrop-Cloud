@@ -1,4 +1,4 @@
-name: OPS FatePrice Catalogue Production Halfway
+name: OPS FatePrice Catalogue Production Full Bundle
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
   activate-halfway:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     defaults:
       run:
         working-directory: signal-engine
@@ -38,13 +38,13 @@ jobs:
           unzip -q -o "$RUNNER_TEMP/activation.zip" -d "$RUNNER_TEMP/activation"
           test -s "$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json"
 
-      - name: Validate halfway tranche
+      - name: Validate full tranche
         shell: bash
         run: |
           set -euo pipefail
           node src/trader/catalogue/load-activation-bundle-cli.mjs \
             --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
-            --limit=46
+            --limit=91
 
       - name: Create and publish one-run production encryption key
         shell: bash
@@ -104,18 +104,18 @@ jobs:
           await pool.end();
           NODE
 
-      - name: Activate first 46 exact verified sets
+      - name: Activate all 91 exact verified sets
         shell: bash
         env:
           FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
         run: |
           node src/trader/catalogue/load-activation-bundle-cli.mjs \
             --artifact="$RUNNER_TEMP/activation/fateprice-catalogue-activation-bundle.json" \
-            --limit=46 \
+            --limit=91 \
             --concurrency=4 \
-            --write | tee "$RUNNER_TEMP/catalogue-production-halfway.log"
+            --write | tee "$RUNNER_TEMP/catalogue-production-full.log"
 
-      - name: Verify halfway production result
+      - name: Verify full production result
         shell: bash
         run: |
           node --input-type=module <<'NODE'
@@ -128,8 +128,8 @@ jobs:
             (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) AS orphan_card_printings,
             (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) AS orphan_source_mappings`);
           const v=rows[0];
-          console.log(JSON.stringify({event:'production_halfway_verification',...v}));
-          if (v.verified_sets < 46) throw new Error(`expected at least 46 verified sets, got ${v.verified_sets}`);
+          console.log(JSON.stringify({event:'production_full_verification',...v}));
+          if (v.verified_sets < 91) throw new Error(`expected at least 91 verified sets, got ${v.verified_sets}`);
           if (v.orphan_card_sets || v.orphan_card_printings || v.orphan_source_mappings) throw new Error(`referential integrity failure: ${JSON.stringify(v)}`);
           await pool.end();
           NODE
@@ -138,7 +138,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: fateprice-catalogue-production-halfway-log
-          path: ${{ runner.temp }}/catalogue-production-halfway.log
+          name: fateprice-catalogue-production-full-log
+          path: ${{ runner.temp }}/catalogue-production-full.log
           retention-days: 30
           if-no-files-found: ignore
