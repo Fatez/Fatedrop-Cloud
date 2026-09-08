@@ -1,0 +1,53 @@
+name: OPS FatePrice Full Catalogue Crosswalk
+
+on:
+  push:
+    branches:
+      - ops/fateprice-full-pokemon-universe-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-full-catalogue-crosswalk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  crosswalk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Build full live-source catalogue crosswalk plan
+        run: npm --silent run trader:catalogue -- --max-sets=100 > "$RUNNER_TEMP/full-catalogue-crosswalk.json"
+      - name: Summarise crosswalk
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/full-catalogue-crosswalk.json','utf8'));
+          console.log('# Full live-source catalogue crosswalk');
+          console.log('');
+          console.log(`- Matched verified sets: **${r.counts?.matched ?? r.matchedSets?.length ?? 0}**`);
+          console.log(`- Selected sets: **${r.selection?.selectedCount ?? 0}**`);
+          console.log(`- Source counts: **${JSON.stringify(r.sourceCounts || {})}**`);
+          console.log(`- Ambiguous: **${r.unresolved?.ambiguous?.length ?? 0}**`);
+          console.log(`- Rejected: **${r.unresolved?.rejected?.length ?? 0}**`);
+          console.log(`- Unmatched TCGdex: **${r.unresolved?.unmatchedTcgdex?.length ?? 0}**`);
+          console.log(`- Unmatched Pokemon source: **${r.unresolved?.unmatchedPokemon?.length ?? 0}**`);
+          NODE
+      - name: Upload crosswalk plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-full-catalogue-crosswalk-plan
+          path: ${{ runner.temp }}/full-catalogue-crosswalk.json
+          if-no-files-found: error
+          retention-days: 30
