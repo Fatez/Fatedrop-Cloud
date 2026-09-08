@@ -1,0 +1,131 @@
+name: OPS FatePrice Full Pokemon Catalogue Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      activate:
+        description: 'Write the verified expansion (leave false to check production access only)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: fateprice-production-catalogue
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Validate production credential before any source work
+        run: node src/trader/catalogue/production-target-check.mjs
+      - run: npm ci
+
+      - name: Production baseline
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
+          const {rows}=await pool.query(`SELECT (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_sets) verified_sets,(SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_identities) verified_identities`);
+          if (rows[0].verified_sets < 91 || rows[0].verified_identities < 17312) throw new Error('Production baseline is below the confirmed catalogue; refusing activation.');
+          console.log(JSON.stringify({event:'baseline',...rows[0]}));
+          await pool.end();
+          NODE
+
+      - name: Validate full live-source crosswalk
+        if: ${{ inputs.activate == true }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm --silent run trader:catalogue -- --max-sets=100 > "$RUNNER_TEMP/catalogue-plan.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/catalogue-plan.json','utf8'));
+          if ((p.counts?.matched||0) < 132) throw new Error(`expected >=132 exact matched sets, got ${p.counts?.matched}`);
+          if ((p.counts?.ambiguous||0) !== 0) throw new Error(`ambiguous set crosswalk present: ${p.counts?.ambiguous}`);
+          console.log(JSON.stringify({matched:p.counts.matched,rejected:p.counts.rejected,unmatchedTcgdex:p.counts.unmatchedTcgdex,unmatchedPokemon:p.counts.unmatchedPokemon}));
+          NODE
+
+      - name: Activate first 100 exact matched sets
+        if: ${{ inputs.activate == true }}
+        shell: bash
+        env:
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          npm --silent run trader:catalogue -- --max-sets=100 --max-cards=250 --write | tee "$RUNNER_TEMP/full-catalogue-batch1.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/full-catalogue-batch1.json','utf8'));
+          if (r.sync?.totals?.setsCompleted !== 100) throw new Error(`batch1 expected 100 completed sets, got ${r.sync?.totals?.setsCompleted}`);
+          if (!r.sync?.nextSetCursor) throw new Error('batch1 did not return nextSetCursor');
+          fs.writeFileSync(process.env.RUNNER_TEMP+'/next-set-cursor.txt',r.sync.nextSetCursor);
+          console.log(JSON.stringify({event:'batch1',status:r.sync.status,setsCompleted:r.sync.totals.setsCompleted,verifiedCardIdentities:r.sync.totals.verifiedCardIdentities,nextSetCursor:r.sync.nextSetCursor}));
+          NODE
+
+      - name: Activate remaining exact matched sets
+        if: ${{ inputs.activate == true }}
+        shell: bash
+        env:
+          FATE_TRADER_CATALOGUE_BULK_WRITE_ENABLED: 'true'
+        run: |
+          set -euo pipefail
+          CURSOR="$(cat "$RUNNER_TEMP/next-set-cursor.txt")"
+          npm --silent run trader:catalogue -- --start-after="$CURSOR" --max-sets=100 --max-cards=250 --write | tee "$RUNNER_TEMP/full-catalogue-batch2.json"
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/full-catalogue-batch2.json','utf8'));
+          if (r.sync?.status !== 'complete') throw new Error(`batch2 expected complete, got ${r.sync?.status}`);
+          if ((r.sync?.totals?.setsCompleted||0) < 32) throw new Error(`batch2 expected at least 32 sets, got ${r.sync?.totals?.setsCompleted}`);
+          console.log(JSON.stringify({event:'batch2',status:r.sync.status,setsCompleted:r.sync.totals.setsCompleted,verifiedCardIdentities:r.sync.totals.verifiedCardIdentities}));
+          NODE
+
+      - name: Verify expanded production catalogue
+        if: ${{ inputs.activate == true }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from 'pg';
+          const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
+          const {rows}=await pool.query(`SELECT
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_sets) verified_sets,
+            (SELECT COUNT(*) FILTER (WHERE verification_status='verified')::int FROM fatedrop_card_identities) verified_identities,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_sets s ON s.id=c.set_id WHERE s.id IS NULL) orphan_card_sets,
+            (SELECT COUNT(*)::int FROM fatedrop_card_identities c LEFT JOIN fatedrop_card_printings p ON p.id=c.printing_id WHERE p.id IS NULL) orphan_card_printings,
+            (SELECT COUNT(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) orphan_source_mappings`);
+          const v=rows[0];
+          console.log(JSON.stringify({event:'expanded_production_verification',...v}));
+          if (v.verified_sets < 132) throw new Error(`expected >=132 verified sets, got ${v.verified_sets}`);
+          if (v.verified_identities <= 17312) throw new Error(`expected identities above prior 17312 baseline, got ${v.verified_identities}`);
+          if (v.orphan_card_sets||v.orphan_card_printings||v.orphan_source_mappings) throw new Error(`referential integrity failure: ${JSON.stringify(v)}`);
+          await pool.end();
+          NODE
+
+      - name: Upload activation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-full-pokemon-catalogue-production-log
+          path: |
+            ${{ runner.temp }}/full-catalogue-batch1.json
+            ${{ runner.temp }}/full-catalogue-batch2.json
+          retention-days: 30
+          if-no-files-found: ignore
+
