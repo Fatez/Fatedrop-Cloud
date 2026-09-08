@@ -32,8 +32,8 @@ export function classifyPreparedFinish(mapping) {
   const variantKey = normaliseVariantKey(mapping?.sourceVariantKey);
   if (!variantKey) return 'unknown';
   if (variantKey.includes('reverse')) return 'reverse-holo';
+  if (variantKey.includes('non-holo') || variantKey.includes('nonholo') || variantKey.includes('standard') || variantKey.includes('normal')) return 'standard';
   if (variantKey.includes('holo')) return 'holo';
-  if (variantKey.includes('standard') || variantKey.includes('normal') || variantKey.includes('non-holo')) return 'standard';
   return 'unknown';
 }
 
