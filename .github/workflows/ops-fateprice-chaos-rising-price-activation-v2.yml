@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 jobs:
@@ -46,32 +46,59 @@ jobs:
           if((p.mappings||[]).length!==12045) throw new Error('unexpected mapping proof count');
           console.log(JSON.stringify({mappings:p.mappings.length}));
           NODE
-      - name: Verify production database handoff
+      - name: Publish run-scoped ephemeral public key
         shell: bash
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ -z "${DATABASE_URL:-}" ]; then
-            echo 'Production DATABASE_URL secret is not configured.' >&2
-            exit 31
-          fi
-          echo 'Production database handoff available.'
+          PUB_PATH=".ops/fateprice-price-${GITHUB_RUN_ID}.pub.pem"
+          CIPHER_PATH=".ops/fateprice-price-${GITHUB_RUN_ID}.enc.b64"
+          echo "PUB_PATH=$PUB_PATH" >> "$GITHUB_ENV"
+          echo "CIPHER_PATH=$CIPHER_PATH" >> "$GITHUB_ENV"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out "$RUNNER_TEMP/key.pem" >/dev/null 2>&1
+          openssl pkey -in "$RUNNER_TEMP/key.pem" -pubout -out "$RUNNER_TEMP/pub.pem" >/dev/null 2>&1
+          CONTENT="$(base64 -w0 "$RUNNER_TEMP/pub.pem")"
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/${PUB_PATH}" \
+            -f message="ops: publish FatePrice key ${GITHUB_RUN_ID}" \
+            -f branch="${GITHUB_REF_NAME}" \
+            -f content="$CONTENT" >/dev/null
+          echo "Published run-scoped public key for run ${GITHUB_RUN_ID}."
+      - name: Wait for run-scoped encrypted database handoff
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 180); do
+            if gh api "repos/${GITHUB_REPOSITORY}/contents/${CIPHER_PATH}?ref=${GITHUB_REF_NAME}" --jq '.content' > "$RUNNER_TEMP/github.b64" 2>/dev/null; then
+              if tr -d '\n' < "$RUNNER_TEMP/github.b64" | base64 -d > "$RUNNER_TEMP/text.b64" 2>/dev/null && tr -d '\r\n' < "$RUNNER_TEMP/text.b64" | base64 -d > "$RUNNER_TEMP/cipher.bin" 2>/dev/null; then
+                if openssl pkeyutl -decrypt -inkey "$RUNNER_TEMP/key.pem" -in "$RUNNER_TEMP/cipher.bin" -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 -out "$RUNNER_TEMP/db.txt" 2>/dev/null; then
+                  DATABASE_URL="$(cat "$RUNNER_TEMP/db.txt")"
+                  if [ -n "$DATABASE_URL" ]; then
+                    echo "::add-mask::$DATABASE_URL"
+                    echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+                    echo "Accepted run-scoped database handoff."
+                    exit 0
+                  fi
+                fi
+              fi
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for run-scoped encrypted database handoff." >&2
+          exit 31
       - name: Activate exact mappings and fresh observed prices
         shell: bash
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           node src/trader/value/bulk-exact-price-coverage-activation.mjs --artifact="$RUNNER_TEMP/price-slice/fateprice-expanded-price-slice-v2.json" | tee "$RUNNER_TEMP/bulk-price-activation.log"
-      - name: Verify production coverage advanced
+      - name: Verify production coverage
         shell: bash
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           node --input-type=module <<'NODE'
           import pg from 'pg';
           const pool=new pg.Pool({connectionString:process.env.DATABASE_URL});
-          const {rows}=await pool.query(`SELECT COUNT(DISTINCT s.id) FILTER (WHERE s.verification_status='verified')::int verified_sets,COUNT(DISTINCT c.id) FILTER (WHERE c.verification_status='verified')::int verified_identities,COUNT(DISTINCT m.card_identity_id)::int mapped_identities,COUNT(DISTINCT o.card_identity_id)::int priced_identities,COUNT(o.*)::int observation_rows FROM fatedrop_card_sets s LEFT JOIN fatedrop_card_identities c ON c.set_id=s.id LEFT JOIN fatedrop_card_source_mappings m ON m.card_identity_id=c.id AND m.source_name='cardmarket' LEFT JOIN fatedrop_market_observations o ON o.card_identity_id=c.id WHERE s.verification_status='verified'`);
+          const {rows}=await pool.query(`SELECT COUNT(DISTINCT s.id) FILTER (WHERE s.verification_status='verified')::int verified_sets,COUNT(DISTINCT c.id) FILTER (WHERE c.verification_status='verified')::int verified_identities,COUNT(DISTINCT m.card_identity_id)::int mapped_identities,COUNT(DISTINCT o.card_identity_id)::int priced_identities,COUNT(DISTINCT o.id)::int observation_rows FROM fatedrop_card_sets s LEFT JOIN fatedrop_card_identities c ON c.set_id=s.id LEFT JOIN fatedrop_card_source_mappings m ON m.card_identity_id=c.id AND m.source_name='cardmarket' LEFT JOIN fatedrop_market_observations o ON o.card_identity_id=c.id WHERE s.verification_status='verified'`);
           console.log(JSON.stringify(rows[0]));
           if(rows[0].verified_sets<48||rows[0].verified_identities<8882||rows[0].mapped_identities<4135||rows[0].priced_identities<1898) throw new Error('production coverage regressed');
           await pool.end();
