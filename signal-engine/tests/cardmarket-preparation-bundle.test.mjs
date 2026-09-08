@@ -67,6 +67,14 @@ test('finish lane mismatches and unconfirmed finishes fail closed', () => {
     { ok: false, reason: 'finish_price_lane_mismatch' },
   );
   assert.deepEqual(
+    validateCardmarketPriceLaneMapping(mapping({ sourceVariantKey: 'non-holo' }), 'standard'),
+    { ok: true, reason: null },
+  );
+  assert.deepEqual(
+    validateCardmarketPriceLaneMapping(mapping({ sourceVariantKey: 'non-holo' }), 'holo'),
+    { ok: false, reason: 'finish_price_lane_mismatch' },
+  );
+  assert.deepEqual(
     validateCardmarketPriceLaneMapping(mapping({ sourceVariantKey: 'variant-x' }), 'standard'),
     { ok: false, reason: 'finish_unconfirmed' },
   );
