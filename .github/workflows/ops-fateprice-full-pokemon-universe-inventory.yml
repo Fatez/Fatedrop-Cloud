@@ -1,0 +1,91 @@
+name: OPS FatePrice Full Pokemon Universe Inventory
+
+on:
+  push:
+    branches:
+      - ops/fateprice-full-pokemon-universe-2026-09-08
+    paths:
+      - 'signal-engine/src/trader/catalogue/pokemon-full-universe-inventory-cli.mjs'
+      - '.github/workflows/ops-fateprice-full-pokemon-universe-inventory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out FateDrop
+        uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex card database evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: dd4fc9460b54b91c25df750c68ca36b9946448e2
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build full English Pokemon binder universe inventory
+        run: |
+          node src/trader/catalogue/pokemon-full-universe-inventory-cli.mjs \
+            --tcgdex-repo="$GITHUB_WORKSPACE/_evidence/tcgdex-cards-database" \
+            --tcgdex-revision=dd4fc9460b54b91c25df750c68ca36b9946448e2 \
+            --as-of=2026-09-08T00:00:00Z \
+            > "$RUNNER_TEMP/pokemon-full-universe-inventory.json"
+
+      - name: Validate binder-universe safety
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-full-universe-inventory.json', 'utf8'));
+          if (!report.safety?.binderUniverseIncludesPulseExcludedSets) throw new Error('binder universe must include Pulse-excluded sets');
+          if (!report.safety?.noCardsDiscardedForPulsePolicy) throw new Error('cards were discarded by Pulse policy');
+          if (!report.safety?.noFuzzyMatching) throw new Error('fuzzy matching is forbidden');
+          if (report.summary.sets < 91) throw new Error(`unexpected set regression: ${report.summary.sets}`);
+          if (report.summary.cards < 17312) throw new Error(`unexpected card regression: ${report.summary.cards}`);
+          console.log(JSON.stringify(report.summary));
+          NODE
+
+      - name: Summarise universe
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-full-universe-inventory.json', 'utf8'));
+          console.log('# Full English Pokémon binder universe');
+          console.log('');
+          console.log(`- Sets: **${r.summary.sets}**`);
+          console.log(`- Card files: **${r.summary.cards}**`);
+          console.log(`- Printing/variant records: **${r.summary.variants}**`);
+          console.log(`- Variant records with explicit Cardmarket product ID: **${r.summary.variantsWithCardmarketId}**`);
+          console.log(`- Sets with explicit Cardmarket expansion ID: **${r.summary.setsWithCardmarketExpansionId}**`);
+          console.log(`- Pulse-eligible sets: **${r.summary.pulseEligibleSets}**`);
+          console.log(`- Pulse-excluded but binder-retained sets: **${r.summary.pulseExcludedSets}**`);
+          console.log('');
+          console.log('Binder completeness is independent from FatePulse eligibility and price coverage.');
+          NODE
+
+      - name: Upload full universe inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-full-universe-inventory
+          path: ${{ runner.temp }}/pokemon-full-universe-inventory.json
+          if-no-files-found: error
+          retention-days: 30
