@@ -1,0 +1,241 @@
+name: OPS FatePrice Legacy Card-Level Cardmarket Recovery
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - .github/workflows/ops-fateprice-legacy-card-level-cardmarket-recovery.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  legacy-card-level-recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out current TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 1c30c50253756bafecf0f065fc377f77016ad12f
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download verified catalogue
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 34083474722
+
+      - name: Download full remaining pass
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-full-remaining-exact-recovery
+          path: ${{ runner.temp }}/full
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 34315545571
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install signal-engine dependencies
+        working-directory: signal-engine
+        run: npm ci
+
+      - name: Recover exact mappings from legacy card-level Cardmarket IDs
+        working-directory: signal-engine
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { fetchCardmarketPokemonSinglesCatalogue } from './src/trader/value/cardmarket-source-client.mjs';
+          import { indexCardmarketProducts, loadTcgdexRepositoryEvidence } from './src/trader/value/tcgdex-repository-cardmarket-evidence.mjs';
+          import { normaliseComparableName } from './src/trader/catalogue/reconcile.mjs';
+
+          const read = (p) => JSON.parse(fs.readFileSync(p, 'utf8'));
+          const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0,24)}`;
+          const comparable = (value) => normaliseComparableName(String(value || '').trim().replace(/♀/g, ' female ').replace(/♂/g, ' male '));
+          const exactNameMatch = (productName, cardName) => {
+            const canonical = comparable(cardName);
+            const raw = String(productName || '').trim();
+            let candidate = raw.replace(/^Nidoran\s+\[F\](?=\s|$)/i, 'Nidoran female').replace(/^Nidoran\s+\[M\](?=\s|$)/i, 'Nidoran male');
+            if (comparable(candidate) === canonical) return 'exact_name';
+            const trailingDescriptor = /\s+\[[^[\]]+\]\s*$/;
+            while (trailingDescriptor.test(candidate)) {
+              candidate = candidate.replace(trailingDescriptor, '').trim();
+              if (candidate && comparable(candidate) === canonical) return 'provider_disambiguation_suffix';
+            }
+            return null;
+          };
+
+          const bundle = read(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json');
+          const full = read(process.env.RUNNER_TEMP + '/full/full-remaining-exact-recovery.json');
+          const repo = loadTcgdexRepositoryEvidence(process.env.GITHUB_WORKSPACE + '/_evidence/tcgdex-cards-database', { includeCards: true });
+          const { artifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
+          const { byId } = indexCardmarketProducts(products);
+
+          const unresolvedTargets = new Set((full.unresolved || [])
+            .filter((x) => x.reason === 'tcgdex_variant_absent_from_current_repository')
+            .map((x) => x.cardIdentityId));
+
+          const identityById = new Map((bundle.cardIdentities || []).map((x) => [x.id, x]));
+          const tcgdexSourceByIdentity = new Map((bundle.cardSourceMappings || [])
+            .filter((x) => x.sourceName === 'tcgdex')
+            .map((x) => [x.cardIdentityId, x]));
+          const cardById = new Map();
+          for (const set of repo.sets || []) for (const card of set.cards || []) cardById.set(card.tcgdexCardId, { set, card });
+
+          const candidates = [];
+          const held = [];
+          let noVariantArray = 0;
+          let withVariantArray = 0;
+          let cardLevelProductIdFound = 0;
+
+          for (const cardIdentityId of unresolvedTargets) {
+            const identity = identityById.get(cardIdentityId);
+            const source = tcgdexSourceByIdentity.get(cardIdentityId);
+            const found = source ? cardById.get(source.sourceRecordId) : null;
+            if (!identity || !source || !found) {
+              held.push({ cardIdentityId, reason: 'missing_retained_identity_or_tcgdex_card' });
+              continue;
+            }
+
+            if ((found.card.variants || []).length > 0) {
+              withVariantArray += 1;
+              held.push({ cardIdentityId, tcgdexCardId: source.sourceRecordId, sourceVariantKey: source.sourceVariantKey, reason: 'card_has_variant_array_legacy_card_level_fallback_not_used' });
+              continue;
+            }
+            noVariantArray += 1;
+
+            const raw = fs.readFileSync(found.card.sourcePath, 'utf8');
+            const block = /\bthirdParty\s*:\s*\{([\s\S]*?)\}/m.exec(raw);
+            const idMatch = block ? /\bcardmarket\s*:\s*(\d+)/m.exec(block[1]) : null;
+            const productId = idMatch ? Number(idMatch[1]) : null;
+            if (!Number.isSafeInteger(productId) || productId <= 0) {
+              held.push({ cardIdentityId, tcgdexCardId: source.sourceRecordId, sourceVariantKey: source.sourceVariantKey, reason: 'legacy_card_has_no_card_level_cardmarket_product_id' });
+              continue;
+            }
+            cardLevelProductIdFound += 1;
+
+            const product = byId.get(productId);
+            if (!product) {
+              held.push({ cardIdentityId, tcgdexCardId: source.sourceRecordId, sourceVariantKey: source.sourceVariantKey, productId, reason: 'legacy_card_level_product_absent_from_official_catalogue' });
+              continue;
+            }
+            const matchBasis = exactNameMatch(product.name, found.card.name);
+            if (!matchBasis) {
+              held.push({ cardIdentityId, tcgdexCardId: source.sourceRecordId, sourceVariantKey: source.sourceVariantKey, productId, cardName: found.card.name, productName: product.name, reason: 'legacy_card_level_product_name_conflict' });
+              continue;
+            }
+
+            candidates.push({
+              id: stableId('fdcardmap', [cardIdentityId, 'cardmarket', String(productId), String(source.sourceVariantKey || '')]),
+              cardIdentityId,
+              setId: identity.setId,
+              sourceName: 'cardmarket',
+              sourceRecordId: String(productId),
+              sourceVariantKey: String(source.sourceVariantKey || ''),
+              sourceVersion: artifact.sha256,
+              proof: {
+                method: 'tcgdex_legacy_card_level_cardmarket_product_id_exact_name',
+                tcgdexCardId: source.sourceRecordId,
+                cardmarketProductName: product.name,
+                cardmarketExpansionId: Number(product.sourceExpansionId) || null,
+                nameMatchBasis: matchBasis,
+              },
+            });
+          }
+
+          const bySource = new Map();
+          const badSource = new Set();
+          for (const row of candidates) {
+            const key = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            const prior = bySource.get(key);
+            if (prior && prior.cardIdentityId !== row.cardIdentityId) badSource.add(key);
+            else if (!prior) bySource.set(key, row);
+          }
+
+          const byCanonical = new Map();
+          const badCanonical = new Set();
+          for (const [key, row] of bySource) {
+            if (badSource.has(key)) continue;
+            const canonicalKey = `${row.cardIdentityId}|${row.sourceVariantKey}`;
+            const prior = byCanonical.get(canonicalKey);
+            if (prior && prior.sourceRecordId !== row.sourceRecordId) badCanonical.add(canonicalKey);
+            else if (!prior) byCanonical.set(canonicalKey, row);
+          }
+
+          const safeMappings = [...byCanonical.entries()].filter(([key]) => !badCanonical.has(key)).map(([, row]) => row);
+          const newIds = new Set(safeMappings.map((x) => x.cardIdentityId));
+          const summary = {
+            targetedVariantAbsentIdentities: unresolvedTargets.size,
+            targetRowsWithNoVariantArray: noVariantArray,
+            targetRowsWithVariantArrayHeld: withVariantArray,
+            cardLevelProductIdsFound: cardLevelProductIdFound,
+            newSafeExactMappings: safeMappings.length,
+            newMappedIdentities: newIds.size,
+            projectedMappedIdentities: Number(full.summary.projectedMappedIdentities || 0) + newIds.size,
+            projectedRemainingUnmapped: Number(full.summary.projectedRemainingUnmapped || 0) - newIds.size,
+            sourceConflictsQuarantined: badSource.size,
+            canonicalConflictsQuarantined: badCanonical.size,
+            heldRows: held.length,
+            productionWrites: 0,
+            fuzzyMatching: false,
+            matcherChanged: false,
+            crossLaneSubstitution: false,
+            reversePriceInference: false,
+          };
+
+          const report = {
+            format: 'fatedrop-legacy-card-level-cardmarket-recovery-v1',
+            generatedAt: new Date().toISOString(),
+            provenance: {
+              tcgdexRevision: '1c30c50253756bafecf0f065fc377f77016ad12f',
+              cardmarketCatalogueSha256: artifact.sha256,
+              fullRemainingRunId: 34315545571,
+            },
+            safety: { productionWrites: false, exactOnly: true, fuzzyMatching: false, matcherChanged: false },
+            summary,
+            safeMappings,
+            held,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/legacy-card-level-cardmarket-recovery.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Summarise
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/legacy-card-level-cardmarket-recovery.json', 'utf8'));
+          const s = r.summary;
+          console.log('# FatePrice legacy card-level exact recovery');
+          console.log(`- Targeted variant-absent identities: **${s.targetedVariantAbsentIdentities}**`);
+          console.log(`- Legacy rows with card-level Cardmarket IDs: **${s.cardLevelProductIdsFound}**`);
+          console.log(`- New safe exact mappings: **${s.newSafeExactMappings}**`);
+          console.log(`- Projected mapped identities: **${s.projectedMappedIdentities}**`);
+          console.log(`- Projected remaining unmapped: **${s.projectedRemainingUnmapped}**`);
+          console.log(`- Held rows: **${s.heldRows}**`);
+          console.log('- Matcher changed: **no**');
+          console.log('- Production writes: **0**');
+          NODE
+
+      - name: Upload legacy recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-legacy-card-level-cardmarket-recovery
+          path: ${{ runner.temp }}/legacy-card-level-cardmarket-recovery.json
+          retention-days: 14
+          if-no-files-found: error
