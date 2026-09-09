@@ -47,14 +47,26 @@ const progress = { mode: 'isolated_rehearsal', productionWrites: false, sets: []
 const save = () => writeFile(`${output}/catalogue-rehearsal.json`, JSON.stringify(progress, null, 2));
 
 // Replay uses exactly the same fetched evidence; no second provider crawl.
-function cached(client) {
+function cached(client, { sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
   const result = {};
   for (const [name, method] of Object.entries(client)) {
     if (typeof method !== 'function') { result[name] = method; continue; }
     const cache = new Map();
     result[name] = (...args) => {
       const key = JSON.stringify(args);
-      if (!cache.has(key)) cache.set(key, Promise.resolve().then(() => method.apply(client, args)));
+      if (!cache.has(key)) {
+        const request = (async () => {
+          for (let attempt = 0; ; attempt += 1) {
+            try { return await method.apply(client, args); }
+            catch (error) {
+              if (attempt >= 2 || ![429, 500, 502, 503, 504, 'network'].includes(error?.status)) throw error;
+              await sleep(15_000 * (attempt + 1));
+            }
+          }
+        })();
+        cache.set(key, request);
+        request.catch(() => { if (cache.get(key) === request) cache.delete(key); });
+      }
       return cache.get(key);
     };
   }
@@ -87,15 +99,25 @@ try {
   progress.sourceRevision = process.env.POKEMON_TCG_DATA_REVISION;
   progress.sourceRepository = 'PokemonTCG/pokemon-tcg-data';
   await save();
+  progress.sourceFailures = [];
   for (const pair of crosswalk.matched) {
+    try {
     const scoped = {...crosswalk, matched:[pair]};
     const result = await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:scoped,maxSets:1,maxCardsPerChunk:250,verifiedAt});
     assert.equal(result.status,'complete');
     progress.sets.push(result.sets[0]);
     await save();
     console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...result.sets[0]}));
+    } catch (error) {
+      if (![429, 500, 502, 503, 504, 'network'].includes(error?.status)) throw error;
+      progress.sourceFailures.push({setId:pair.tcgdexSetId,status:error.status,sourceUrl:error.sourceUrl,message:error.message});
+      await save();
+      console.error(JSON.stringify({event:'set_source_unavailable',setId:pair.tcgdexSetId,status:error.status}));
+    }
   }
   progress.saved = await counts();
+  await save();
+  if (progress.sourceFailures.length) throw new Error('Catalogue source failures remain: ' + progress.sourceFailures.map(x => x.setId).join(', '));
   assertRehearsalCounts(progress.saved);
   // Replay every set: duplicate identities/mappings must not inflate saved totals.
   for (const pair of crosswalk.matched)
