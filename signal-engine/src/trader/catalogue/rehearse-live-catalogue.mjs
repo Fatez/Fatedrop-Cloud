@@ -2,8 +2,39 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
-import { createPokemonTcgClient, createTcgdexClient } from './source-clients.mjs';
+import { createTcgdexClient } from './source-clients.mjs';
 import { validateRehearsalTarget, assertRehearsalCounts } from './rehearsal-guard.mjs';
+
+// The repository is the API publisher's versioned data; matching rules are unchanged.
+async function repositoryPokemonClient(root) {
+  if (!root) throw new Error('Pinned Pokemon TCG repository is required');
+  const sets = JSON.parse(await readFile(root + '/sets/en.json', 'utf8'));
+  if (!Array.isArray(sets)) throw new Error('Invalid repository set listing');
+  const byId = new Map(sets.map(set => [set.id, set]));
+  if (byId.size !== sets.length) throw new Error('Duplicate repository set IDs');
+  return {
+    async listSets() { return sets; },
+    async getSet(id) {
+      const set = byId.get(id);
+      if (!set) throw new Error('Repository set missing: ' + id);
+      return set;
+    },
+    async listCardsBySet(id) {
+      if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error('Invalid set ID');
+      const set = await this.getSet(id);
+      const cards = JSON.parse(await readFile(root + '/cards/en/' + id + '.json', 'utf8'));
+      if (!Array.isArray(cards)) throw new Error('Invalid repository cards');
+      const seen = new Set();
+      return cards.map(card => {
+        if (!card.id?.startsWith(id + '-') || seen.has(card.id))
+          throw new Error('Conflicting repository card ID: ' + card.id);
+        seen.add(card.id);
+        if (card.set && card.set.id !== id) throw new Error('Conflicting embedded set');
+        return {...card, set};
+      });
+    }
+  };
+}
 
 // No production credential is accepted, fetched or needed by this rehearsal.
 const connectionString = process.env.CATALOGUE_REHEARSAL_DATABASE_URL;
@@ -48,11 +79,13 @@ try {
     await pool.query(await readFile(new URL(`../../../database/${file}`, import.meta.url), 'utf8'));
   assert.equal((await counts()).verified_identities, 0, 'Rehearsal database must start empty');
   const tcgdexClient = cached(createTcgdexClient({languageCode:'en'}));
-  const pokemonTcgClient = cached(createPokemonTcgClient());
+  const pokemonTcgClient = cached(await repositoryPokemonClient(process.env.POKEMON_TCG_DATA_ROOT));
   const crosswalk = await buildVerifiedPokemonSetCrosswalk({tcgdexClient,pokemonTcgClient});
   assert.ok(crosswalk.counts.matched >= 132);
   assert.equal(crosswalk.counts.ambiguous, 0);
   progress.crosswalk = crosswalk.counts;
+  progress.sourceRevision = process.env.POKEMON_TCG_DATA_REVISION;
+  progress.sourceRepository = 'PokemonTCG/pokemon-tcg-data';
   await save();
   for (const pair of crosswalk.matched) {
     const scoped = {...crosswalk, matched:[pair]};
