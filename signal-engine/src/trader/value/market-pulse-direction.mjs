@@ -40,11 +40,11 @@ function stableKey(item) {
   return [item.tcgCode ?? '', item.setCode ?? '', item.cardIdentityId ?? '', item.sourceVariantKey ?? ''].join('|');
 }
 
-function stableMovementSort(direction) {
+function stableMovementSort(direction, field = 'movementPercent') {
   return (left, right) => {
     const movementDifference = direction === 'ascending'
-      ? left.movementPercent - right.movementPercent
-      : right.movementPercent - left.movementPercent;
+      ? left[field] - right[field]
+      : right[field] - left[field];
     return movementDifference || stableKey(left).localeCompare(stableKey(right));
   };
 }
@@ -227,10 +227,10 @@ function buildPeriod(groups, cards, periodKey, minimumSetCoveragePct, rankingLim
     }),
     setRisers: Object.freeze(setRisers),
     setDecliners: Object.freeze(setDecliners),
-    cardRisers: Object.freeze(cardMovers.filter((card) => card.movementPercent > 0)
-      .sort(stableMovementSort('descending')).slice(0, rankingLimit).map(publicCard)),
-    cardDecliners: Object.freeze(cardMovers.filter((card) => card.movementPercent < 0)
-      .sort(stableMovementSort('ascending')).slice(0, rankingLimit).map(publicCard)),
+    cardRisers: Object.freeze(cardMovers.filter((card) => card.movementAmount > 0)
+      .sort(stableMovementSort('descending', 'movementAmount')).slice(0, rankingLimit).map(publicCard)),
+    cardDecliners: Object.freeze(cardMovers.filter((card) => card.movementAmount < 0)
+      .sort(stableMovementSort('ascending', 'movementAmount')).slice(0, rankingLimit).map(publicCard)),
   });
 }
 
@@ -252,6 +252,7 @@ export function buildMarketPulseDirection({
   return Object.freeze({
     schemaVersion: 'market-pulse-direction:1',
     method: 'median_qualifying_set_basket_return',
+    cardRankingMethod: 'absolute_price_change',
     minimumSetCoveragePct,
     rankingLimit,
     periods: Object.freeze(Object.fromEntries(PERIOD_KEYS.map((periodKey) => [
@@ -260,3 +261,4 @@ export function buildMarketPulseDirection({
     ]))),
   });
 }
+
