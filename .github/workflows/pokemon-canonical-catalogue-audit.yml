@@ -1,0 +1,66 @@
+name: Audit Pokemon Canonical Catalogue Sources
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pokemon-canonical-catalogue-audit.yml'
+      - 'signal-engine/src/trader/catalogue/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  canonical-catalogue-plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reconcile English Pokemon set sources in plan-only mode
+        run: node src/trader/catalogue/sync-all-cli.mjs --max-sets=100 > "$RUNNER_TEMP/pokemon-canonical-catalogue-plan.json"
+
+      - name: Summarise source reconciliation
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-canonical-catalogue-plan.json', 'utf8'));
+          const s = report.sourceCounts;
+          const c = report.counts;
+          console.log('# Pokémon canonical catalogue source audit');
+          console.log('');
+          console.log(`- TCGdex physical sets: **${s.tcgdex}**`);
+          console.log(`- TCGdex Pocket sets excluded: **${s.tcgdexPocketExcluded}**`);
+          console.log(`- Pokémon TCG API sets: **${s.pokemonTcgApi}**`);
+          console.log(`- Exact reconciled sets: **${c.matched}**`);
+          console.log(`- Ambiguous: **${c.ambiguous}**`);
+          console.log(`- Rejected conflicts: **${c.rejected}**`);
+          console.log(`- Source errors: **${c.sourceErrors}**`);
+          console.log(`- Unmatched TCGdex: **${c.unmatchedTcgdex}**`);
+          console.log(`- Unmatched Pokémon TCG API: **${c.unmatchedPokemon}**`);
+          console.log('');
+          console.log('**Plan-only. No database writes were performed.**');
+          NODE
+
+      - name: Upload catalogue audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemon-canonical-catalogue-plan
+          path: ${{ runner.temp }}/pokemon-canonical-catalogue-plan.json
+          if-no-files-found: error
+          retention-days: 7
