@@ -1,0 +1,133 @@
+name: OPS Catalogue 50k Expansion Census
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/ops-catalogue-50k-expansion-census.yml'
+
+permissions:
+  contents: read
+
+env:
+  TARGET_VERIFIED_IDENTITIES: '50000'
+  CONFIRMED_REHEARSAL_IDENTITIES: '24084'
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Build exact catalogue crosswalk plan with bounded retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/catalogue-50k-plan.json"
+          for attempt in 1 2 3; do
+            if npm --silent run trader:catalogue -- --max-sets=100 > "$OUT"; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "Exact catalogue plan failed after 3 attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 20))
+          done
+
+      - name: Rank unresolved exact-set opportunities without writes
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const planPath = process.env.RUNNER_TEMP + '/catalogue-50k-plan.json';
+          const plan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+          const current = Number(process.env.CONFIRMED_REHEARSAL_IDENTITIES || 0);
+          const target = Number(process.env.TARGET_VERIFIED_IDENTITIES || 50000);
+          const gap = Math.max(0, target - current);
+
+          const arrays = [
+            ['rejected', plan.unresolved?.rejected || []],
+            ['unmatchedTcgdex', plan.unresolved?.unmatchedTcgdex || []],
+            ['unmatchedPokemon', plan.unresolved?.unmatchedPokemon || []],
+          ];
+
+          const pick = (row, keys) => {
+            for (const key of keys) {
+              const value = row?.[key] ?? row?.set?.[key] ?? row?.source?.[key] ?? row?.evidence?.[key];
+              if (value !== undefined && value !== null && value !== '') return value;
+            }
+            return null;
+          };
+
+          const ranked = [];
+          for (const [bucket, rows] of arrays) {
+            for (const row of rows) {
+              const total = Number(pick(row, ['total','printedTotal','cardCount','officialCardCount'])) || 0;
+              ranked.push({
+                bucket,
+                tcgdexSetId: pick(row, ['tcgdexSetId','setId','id']),
+                pokemonTcgSetId: pick(row, ['pokemonTcgSetId','pokemonSetId']),
+                setName: pick(row, ['setName','name']),
+                field: pick(row, ['field','reason','status']),
+                estimatedCards: total,
+              });
+            }
+          }
+
+          ranked.sort((a, b) => b.estimatedCards - a.estimatedCards || String(a.setName || '').localeCompare(String(b.setName || '')));
+
+          const report = {
+            generatedAt: new Date().toISOString(),
+            targetVerifiedIdentities: target,
+            confirmedRehearsalIdentities: current,
+            identitiesNeededForTarget: gap,
+            crosswalkCounts: plan.counts,
+            sourceCounts: plan.sourceCounts,
+            policy: {
+              exactOnly: true,
+              fuzzyMatching: false,
+              productionWrites: false,
+              preserveAstraFirstEditionQuarantine: true,
+              reverseHoloSubstitution: false,
+              missingPriceMeansZero: false,
+            },
+            unresolvedCounts: Object.fromEntries(arrays.map(([name, rows]) => [name, rows.length])),
+            rankedCandidates: ranked,
+          };
+
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/catalogue-50k-census.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify({
+            event: 'catalogue_50k_census',
+            matchedSets: plan.counts?.matched ?? null,
+            ambiguousSets: plan.counts?.ambiguous ?? null,
+            rejectedSets: plan.counts?.rejected ?? null,
+            unmatchedTcgdex: plan.counts?.unmatchedTcgdex ?? null,
+            unmatchedPokemon: plan.counts?.unmatchedPokemon ?? null,
+            confirmedRehearsalIdentities: current,
+            identitiesNeededForTarget: gap,
+            rankedCandidateCount: ranked.length,
+            productionWrites: false,
+          }));
+          NODE
+
+      - name: Upload 50k expansion census evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-50k-expansion-census
+          path: |
+            ${{ runner.temp }}/catalogue-50k-plan.json
+            ${{ runner.temp }}/catalogue-50k-census.json
+          retention-days: 30
