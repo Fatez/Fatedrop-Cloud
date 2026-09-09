@@ -43,6 +43,15 @@ function compactSetEvidence(evidence) {
   });
 }
 
+function allowsCelebrationsClassicCollectorAlias(setMatch, variantEvidence, corroboratingEvidence) {
+  return variantEvidence.sourceName === 'tcgdex'
+    && variantEvidence.sourceSetCode === 'cel25cc'
+    && corroboratingEvidence.sourceName === 'pokemontcg-api'
+    && corroboratingEvidence.sourceSetCode === 'cel25c'
+    && setEvidenceContains(setMatch, variantEvidence)
+    && setEvidenceContains(setMatch, corroboratingEvidence);
+}
+
 export function reconcileSetEvidence(left, right) {
   if (!left || !right) throw new TypeError('two set evidence records are required');
   if (left.sourceName === right.sourceName) {
@@ -180,7 +189,8 @@ export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setM
 
   const variantNumber = normaliseCollectorNumber(variantEvidence.collectorNumber);
   const corroboratingNumber = normaliseCollectorNumber(corroboratingEvidence.collectorNumber);
-  if (variantNumber !== corroboratingNumber) {
+  const acceptedCollectorAlias = allowsCelebrationsClassicCollectorAlias(setMatch, variantEvidence, corroboratingEvidence);
+  if (variantNumber !== corroboratingNumber && !acceptedCollectorAlias) {
     return conflict('collectorNumber', variantEvidence.collectorNumber, corroboratingEvidence.collectorNumber);
   }
 
@@ -215,5 +225,13 @@ export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setM
       sourceRecordId: corroboratingEvidence.sourceRecordId,
       sourceUrl: corroboratingEvidence.sourceUrl,
     }),
+    acceptedDifferences: acceptedCollectorAlias && variantNumber !== corroboratingNumber
+      ? Object.freeze([Object.freeze({
+        field: 'collectorNumber',
+        left: variantEvidence.collectorNumber,
+        right: corroboratingEvidence.collectorNumber,
+        reason: 'celebrations_classic_source_numbering_convention',
+      })])
+      : Object.freeze([]),
   });
 }

@@ -18,6 +18,22 @@ function pushMap(map, key, value) {
   map.set(key, list);
 }
 
+function setMatchHasEvidence(setMatch, sourceName, sourceRecordId) {
+  return setMatch.evidence?.some((entry) => entry.sourceName === sourceName && entry.sourceRecordId === sourceRecordId) === true;
+}
+
+// Celebrations Classic Collection is a numbered subset in TCGdex (CC001..CC025),
+// while PokemonTCG/pokemon-tcg-data retains each reprint's original collector number.
+// The two providers therefore cannot share the normal number+name lookup key. Keep
+// this exception narrow: only the already-verified cel25cc <-> cel25c set crosswalk
+// may fall back to an exact, unique normalized card name. Canonical collector IDs
+// remain the TCGdex CC numbers, so cards that share an original vintage number do
+// not collapse into one printing.
+function allowsCelebrationsClassicNameAlias(setMatch) {
+  return setMatchHasEvidence(setMatch, 'tcgdex', 'cel25cc')
+    && setMatchHasEvidence(setMatch, 'pokemontcg-api', 'cel25c');
+}
+
 export function reconcilePokemonSetCollections(tcgdexSets, pokemonTcgSets) {
   if (!Array.isArray(tcgdexSets) || !Array.isArray(pokemonTcgSets)) {
     throw new TypeError('both set collections must be arrays');
@@ -76,12 +92,17 @@ export function reconcilePokemonCardCollections({
 
   const right = pokemonTcgCards.map((card) => adaptPokemonTcgCardEvidence(card));
   const rightIndex = new Map();
-  for (const evidence of right) pushMap(rightIndex, comparableCardKey(evidence), evidence);
+  const rightNameIndex = new Map();
+  for (const evidence of right) {
+    pushMap(rightIndex, comparableCardKey(evidence), evidence);
+    pushMap(rightNameIndex, normaliseComparableName(evidence.name), evidence);
+  }
 
   const matched = [];
   const conflicts = [];
   const quarantined = [];
   const unmatched = [];
+  const celebrationsClassicAlias = allowsCelebrationsClassicNameAlias(setMatch);
 
   for (const rawCard of tcgdexCards) {
     const variantRecord = adaptTcgdexCard(rawCard, { sourceSeriesCode, languageCode });
@@ -94,7 +115,10 @@ export function reconcilePokemonCardCollections({
       continue;
     }
 
-    const candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
+    let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
+    if (candidates.length === 0 && celebrationsClassicAlias) {
+      candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
+    }
     if (candidates.length !== 1) {
       unmatched.push(Object.freeze({
         sourceName: variantRecord.baseEvidence.sourceName,
