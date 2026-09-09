@@ -1,0 +1,98 @@
+name: OPS FatePrice Remaining Unmapped Census
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-remaining-unmapped-census.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download verified catalogue
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ github.token }}
+          run-id: 34083474722
+      - name: Download retained mappings
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice-v2
+          path: ${{ runner.temp }}/v2
+          github-token: ${{ github.token }}
+          run-id: 34034268478
+      - name: Download derived-expansion recovery
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-derived-expansion-recovery
+          path: ${{ runner.temp }}/derived
+          github-token: ${{ github.token }}
+          run-id: 34311198953
+      - name: Download multi-expansion recovery
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-multi-expansion-explicit-recovery
+          path: ${{ runner.temp }}/multi
+          github-token: ${{ github.token }}
+          run-id: 34312555914
+      - name: Build remaining-unmapped census
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const read = p => JSON.parse(fs.readFileSync(p,'utf8'));
+          const bundle = read(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json');
+          const retained = read(process.env.RUNNER_TEMP + '/v2/fateprice-expanded-price-slice-v2.json');
+          const derived = read(process.env.RUNNER_TEMP + '/derived/derived-expansion-recovery.json');
+          const multi = read(process.env.RUNNER_TEMP + '/multi/multi-expansion-explicit-recovery.json');
+          const mapped = new Set((retained.mappings||[]).map(x=>x.cardIdentityId));
+          for (const x of derived.safeMappings||[]) mapped.add(x.cardIdentityId);
+          for (const x of multi.safeMappings||[]) mapped.add(x.cardIdentityId);
+          const setById = new Map((bundle.sets||[]).map(x=>[x.id,x]));
+          const identities = (bundle.cardIdentities||[]).filter(x=>x.verificationStatus==='verified');
+          const bySet = new Map();
+          for (const id of identities) {
+            if (mapped.has(id.id)) continue;
+            const row = bySet.get(id.setId) || {setId:id.setId,setName:setById.get(id.setId)?.name||id.setId,unmapped:0,variants:{}};
+            row.unmapped += 1;
+            row.variants[id.variantCode] = (row.variants[id.variantCode]||0)+1;
+            bySet.set(id.setId,row);
+          }
+          const rows=[...bySet.values()].sort((a,b)=>b.unmapped-a.unmapped || a.setName.localeCompare(b.setName));
+          const report={format:'fatedrop-remaining-unmapped-census-v1',generatedAt:new Date().toISOString(),safety:{productionWrites:false,matcherChanged:false,fuzzyMatching:false},summary:{verifiedIdentities:identities.length,mappedIdentities:mapped.size,remainingUnmapped:identities.length-mapped.size,setsWithRemaining:rows.length},sets:rows};
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/remaining-unmapped-census.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(report.summary,null,2));
+          console.log('TOP_SETS');
+          for (const r of rows.slice(0,20)) console.log(`${r.unmapped}\t${r.setName}\t${JSON.stringify(r.variants)}`);
+          NODE
+      - name: Summarise
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/remaining-unmapped-census.json','utf8'));
+          console.log('# FatePrice remaining unmapped census');
+          console.log(`- Mapped identities: **${r.summary.mappedIdentities}**`);
+          console.log(`- Remaining unmapped: **${r.summary.remainingUnmapped}**`);
+          console.log(`- Sets with remaining identities: **${r.summary.setsWithRemaining}**`);
+          console.log('');
+          console.log('## Largest remaining sets');
+          for (const x of r.sets.slice(0,15)) console.log(`- ${x.setName}: **${x.unmapped}**`);
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-remaining-unmapped-census
+          path: ${{ runner.temp }}/remaining-unmapped-census.json
+          retention-days: 14
+          if-no-files-found: error
