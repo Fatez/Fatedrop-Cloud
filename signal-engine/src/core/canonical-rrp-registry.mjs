@@ -81,6 +81,16 @@ function normalizeRrpAliasInput(input = {}) {
       .trim();
   }
 
+  // These named expansions uniquely identify their series. Retail listings
+  // omit the series prefix; strip only the correct prefix for these exact sets.
+  // Any other series words remain and still cause an identity mismatch.
+  if (tcg === "pokemon" && /\bpaldean[\s-]+fates\b/i.test(normalized.title)) {
+    normalized.title = normalized.title.replace(/\bScarlet\s*(?:&|and)\s*Violet\b/gi, " ").replace(/\s+/g, " ").trim();
+  }
+  if (tcg === "pokemon" && /\bbrilliant[\s-]+stars\b/i.test(normalized.title)) {
+    normalized.title = normalized.title.replace(/\bSword\s*(?:&|and)\s*Shield\b/gi, " ").replace(/\s+/g, " ").trim();
+  }
+
   return normalized;
 }
 
