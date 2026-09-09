@@ -71,7 +71,7 @@ test('publishes a median qualifying-set return with explicit breadth, coverage a
   });
   assert.deepEqual(period.setRisers.map((set) => set.setCode), ['rise']);
   assert.deepEqual(period.setDecliners.map((set) => set.setCode), ['fall']);
-  assert.deepEqual(period.cardRisers.map((item) => item.cardIdentityId), ['d1', 'a1', 'a2']);
+  assert.deepEqual(period.cardRisers.map((item) => item.cardIdentityId), ['a1', 'a2', 'd1']);
   assert.deepEqual(period.cardDecliners.map((item) => item.cardIdentityId), ['b1', 'b2']);
   assert.equal(period.setRisers[0].movementPercent, 20);
   assert.equal(period.setDecliners[0].movementPercent, -20);
@@ -118,3 +118,22 @@ test('validates policy inputs rather than silently changing them', () => {
   assert.throws(() => buildMarketPulseDirection({ minimumSetCoveragePct: 0 }), /between 0 and 100/);
   assert.throws(() => buildMarketPulseDirection({ rankingLimit: 0 }), /between 1 and 20/);
 });
+
+test('card rankings select currency gains and losses before limiting, for each period', () => {
+  const cards = [
+    card({ id: 'penny-rise', current: 0.20, d1: 100, d7: 100, d30: 100 }),
+    card({ id: 'penny-fall', current: 0.10, d1: -50, d7: -50, d30: -50 }),
+    card({ id: 'large-rise', current: 160, d1: 50, d7: 50, d30: 50 }),
+    card({ id: 'large-fall', current: 60, d1: -40, d7: -40, d30: -40 }),
+    card({ id: 'no-baseline', current: 1000 }),
+  ];
+  const result = buildMarketPulseDirection({ cards, rankingLimit: 1 });
+  assert.equal(result.cardRankingMethod, 'absolute_price_change');
+  for (const period of Object.values(result.periods)) {
+    assert.equal(period.cardRisers[0].cardIdentityId, 'large-rise');
+    assert.equal(period.cardDecliners[0].cardIdentityId, 'large-fall');
+    assert.equal(period.cardRisers[0].movementPercent, 50);
+    assert.equal(period.cardDecliners[0].movementAmount, -40);
+  }
+});
+
