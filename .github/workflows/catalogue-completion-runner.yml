@@ -5,8 +5,10 @@ on:
     paths:
       - '.github/workflows/catalogue-completion-runner.yml'
       - 'signal-engine/src/trader/catalogue/primary-coverage-ledger.mjs'
+      - 'signal-engine/src/trader/catalogue/primary-finish-evidence.mjs'
       - 'signal-engine/scripts/catalogue-primary-coverage-cli.mjs'
       - 'signal-engine/tests/primary-coverage-ledger.test.mjs'
+      - 'signal-engine/tests/primary-finish-evidence.test.mjs'
 permissions:
   contents: read
 concurrency:
@@ -20,7 +22,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: node --test signal-engine/tests/primary-coverage-ledger.test.mjs
+      - run: node --test signal-engine/tests/primary-coverage-ledger.test.mjs signal-engine/tests/primary-finish-evidence.test.mjs
   complete-rehearsal:
     if: github.event_name == 'workflow_dispatch'
     needs: tests
@@ -108,6 +110,7 @@ jobs:
           path: |
             ${{ runner.temp }}/primary-source-census.json
             ${{ runner.temp }}/catalogue-rehearsal.json
+            ${{ runner.temp }}/primary-finish-evidence-reconciliation.json
             ${{ runner.temp }}/primary-coverage-ledger.json
             ${{ runner.temp }}/primary-coverage-summary.md
           if-no-files-found: warn
