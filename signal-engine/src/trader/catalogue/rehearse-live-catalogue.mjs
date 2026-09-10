@@ -120,6 +120,10 @@ try {
   progress.sourceRepository = 'PokemonTCG/pokemon-tcg-data';
   await save();
   progress.sourceFailures = [];
+  progress.setBlockers = [];
+  // Diagnostic completion runs collect all per-set failures. Production workflows
+  // keep their existing fail-fast behaviour; failed diagnostics never pass activation.
+  const collectAllBlockers = process.env.CATALOGUE_COLLECT_ALL_BLOCKERS === 'true';
   for (const pair of crosswalk.matched) {
     try {
       const scoped = {...crosswalk, matched:[pair]};
@@ -129,10 +133,13 @@ try {
       await save();
       console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...result.sets[0]}));
     } catch (error) {
-      if (![429, 500, 502, 503, 504, 'network'].includes(error?.status)) throw error;
-      progress.sourceFailures.push({setId:pair.tcgdexSetId,status:error.status,sourceUrl:error.sourceUrl,message:error.message});
+      const sourceFailure = [429, 500, 502, 503, 504, 'network'].includes(error?.status);
+      if (!sourceFailure && !collectAllBlockers) throw error;
+      const blocker = {setId:pair.tcgdexSetId,status:error.status ?? null,sourceUrl:error.sourceUrl ?? null,message:error.message};
+      if (sourceFailure) progress.sourceFailures.push(blocker);
+      else progress.setBlockers.push(blocker);
       await save();
-      console.error(JSON.stringify({event:'set_source_unavailable',setId:pair.tcgdexSetId,status:error.status}));
+      console.error(JSON.stringify({event:sourceFailure ? 'set_source_unavailable' : 'set_blocked',...blocker}));
     }
   }
   progress.saved = await counts();
@@ -140,6 +147,7 @@ try {
   progress.intentionalQuarantineSetIds = zeroSaved.intentional;
   progress.unexplainedZeroSavedSetIds = zeroSaved.unexplained;
   await save();
+  if (progress.setBlockers.length) throw new Error('Catalogue set blockers remain: ' + progress.setBlockers.map(x => x.setId).join(', '));
   if (progress.sourceFailures.length) throw new Error('Catalogue source failures remain: ' + progress.sourceFailures.map(x => x.setId).join(', '));
   assertRehearsalCounts(progress.saved, {
     matchedSets: crosswalk.matched.length,
