@@ -8,6 +8,9 @@ on:
       - 'signal-engine/src/trader/catalogue/rehearse-live-catalogue.mjs'
       - 'signal-engine/src/trader/catalogue/rehearsal-guard.mjs'
       - 'signal-engine/src/trader/catalogue/reconcile.mjs'
+      - 'signal-engine/src/trader/catalogue/pipeline.mjs'
+      - 'signal-engine/src/trader/catalogue/sync.mjs'
+      - 'signal-engine/src/trader/catalogue/bulk-sync.mjs'
 
 permissions:
   contents: read
