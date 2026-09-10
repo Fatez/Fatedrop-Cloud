@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { TABLES, planUnion, validateEvidence } from '../src/trader/catalogue/activate-rehearsed-catalogue.mjs';
+const empty = () => Object.fromEntries(Object.keys(TABLES).map(table => [table, []]));
+const evidence = () => ({status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved:{verified_sets:124,verified_identities:24084},replayed:{verified_sets:124,verified_identities:24084},intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],crosswalk:{matched:132},sets:Array(132).fill({})});
+test('accepts only the complete pinned rehearsal and all eight quarantines', () => {
+  validateEvidence(evidence());
+  for (const mutate of [r=>r.saved.verified_sets=132,r=>r.sourceRevision='other',r=>r.intentionalQuarantineSetIds.pop(),r=>r.sourceFailures.push({setId:'x'}),r=>r.unexplainedZeroSavedSetIds.push('x'),r=>r.replayed.verified_identities++,r=>r.productionWrites=true]) {
+    const report=evidence(); mutate(report); assert.throws(()=>validateEvidence(report));
+  }
+});
+test('preserves existing metadata and production-only rows; inserts only missing rows', () => {
+  const old=empty(), candidate=empty();
+  old.fatedrop_card_sets=[{id:'existing',tcg_id:'pokemon',series_id:'sv',code:'sv1',verification_status:'verified',name:'Existing title',updated_at:'1'},{id:'production-only'}];
+  candidate.fatedrop_card_sets=[{...old.fatedrop_card_sets[0],name:'Provider title',updated_at:'2'},{id:'new'}];
+  const before=structuredClone(old), plan=planUnion(old,candidate);
+  assert.deepEqual(old,before);
+  assert.deepEqual(plan.additions.fatedrop_card_sets,[{id:'new'}]);
+  assert.deepEqual(plan.retainedOnly.fatedrop_card_sets,['production-only']);
+  assert.deepEqual(plan.differences.fatedrop_card_sets,[{id:'existing',fields:['name','updated_at'],action:'preserved_existing'}]);
+});
+test('blocks changed identity, edition/finish, language, status and mapping targets', () => {
+  for (const [table,fields] of Object.entries(TABLES)) for (const field of fields) {
+    const old=empty(), candidate=empty();
+    old[table]=[{id:'same',[field]:'original'}]; candidate[table]=[{id:'same',[field]:'different'}];
+    assert.throws(()=>planUnion(old,candidate),new RegExp('incompatible '+field));
+  }
+});
+test('duplicate candidate IDs fail and replay is idempotent', () => {
+  const candidate=empty(); candidate.fatedrop_tcgs=[{id:'pokemon',code:'pokemon',status:'active'}];
+  assert.ok(Object.values(planUnion(candidate,candidate).additions).every(rows=>rows.length===0));
+  candidate.fatedrop_tcgs.push(candidate.fatedrop_tcgs[0]);
+  assert.throws(()=>planUnion(empty(),candidate),/Duplicate/);
+});
