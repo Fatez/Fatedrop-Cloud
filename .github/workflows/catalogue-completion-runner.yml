@@ -42,7 +42,7 @@ jobs:
       CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
       POKEMON_TCG_DATA_ROOT: ${{ github.workspace }}/_evidence/pokemon-tcg-data
       POKEMON_TCG_DATA_REVISION: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
-      CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ runner.temp }}/catalogue-source-snapshots
+      CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ github.workspace }}/_cache/catalogue-source-snapshots
       CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-en-v1
     steps:
       - uses: actions/checkout@v4
@@ -70,7 +70,7 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/catalogue-source-snapshots
+          path: ${{ github.workspace }}/_cache/catalogue-source-snapshots
           key: catalogue-completion-tcgdex-en-v1-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             catalogue-completion-tcgdex-en-v1-
@@ -89,7 +89,7 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/catalogue-source-snapshots
+          path: ${{ github.workspace }}/_cache/catalogue-source-snapshots
           key: catalogue-completion-tcgdex-en-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Publish worker summary
         if: always()
