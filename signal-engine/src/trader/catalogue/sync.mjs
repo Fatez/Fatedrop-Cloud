@@ -16,6 +16,24 @@ function cardRefId(ref) {
   return id || null;
 }
 
+async function mapConcurrent(items, concurrency, mapper) {
+  const limit = Math.max(1, Math.min(8, Number(concurrency) || 1));
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await mapper(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
+}
+
 export async function syncVerifiedPokemonSet({
   store,
   tcgdexClient,
@@ -25,6 +43,7 @@ export async function syncVerifiedPokemonSet({
   cursor = null,
   maxCards = 100,
   verifiedAt = Date.now(),
+  tcgdexConcurrency = 4,
 } = {}) {
   const tcgdex = requireClient(tcgdexClient, 'tcgdexClient');
   const pokemon = requireClient(pokemonTcgClient, 'pokemonTcgClient');
@@ -67,10 +86,13 @@ export async function syncVerifiedPokemonSet({
     return Object.freeze({ status: 'complete', persisted: false, setResult: setMatch, nextCursor: null });
   }
 
-  // Deliberately sequential for the first controlled sync. Provider-friendly
-  // bounded concurrency can be introduced only after rate-limit telemetry exists.
-  const tcgdexCards = [];
-  for (const cardId of selectedRefs) tcgdexCards.push(await tcgdex.getCard(cardId));
+  // Preserve source-card order while allowing a deliberately small number of
+  // provider requests in flight. Existing retry/backoff remains authoritative.
+  const tcgdexCards = await mapConcurrent(
+    selectedRefs,
+    tcgdexConcurrency,
+    (cardId) => tcgdex.getCard(cardId),
+  );
   const pokemonCards = await pokemon.listCardsBySet(pokemonTcgSetId);
 
   const cardResults = reconcilePokemonCardCollections({

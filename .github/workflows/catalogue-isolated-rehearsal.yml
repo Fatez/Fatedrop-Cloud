@@ -11,6 +11,8 @@ on:
       - 'signal-engine/src/trader/catalogue/pipeline.mjs'
       - 'signal-engine/src/trader/catalogue/sync.mjs'
       - 'signal-engine/src/trader/catalogue/bulk-sync.mjs'
+      - 'signal-engine/src/trader/catalogue/source-clients.mjs'
+      - 'signal-engine/src/trader/catalogue/source-snapshot-cache.mjs'
 
 permissions:
   contents: read
@@ -54,6 +56,11 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
+      - name: Restore versioned TCGdex source snapshots
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/catalogue-source-snapshots
+          key: catalogue-tcgdex-en-v1
       - run: npm ci
       - name: Verify isolation guard
         run: node --test tests/catalogue-rehearsal-guard.test.mjs
@@ -62,6 +69,8 @@ jobs:
           POKEMON_TCG_DATA_ROOT: ${{ github.workspace }}/_evidence/pokemon-tcg-data
           POKEMON_TCG_DATA_REVISION: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
           CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
+          CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ runner.temp }}/catalogue-source-snapshots
+          CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-en-v1
         run: node src/trader/catalogue/rehearse-live-catalogue.mjs
       - name: Retain rehearsal progress and saved counts
         if: always()
