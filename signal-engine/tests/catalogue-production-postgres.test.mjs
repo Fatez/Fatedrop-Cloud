@@ -21,18 +21,22 @@ test('PostgreSQL compatibility, conflicting natural keys, atomic rollback and re
       INSERT INTO fatedrop_card_sets (id,tcg_id,series_id,code,name,created_at,updated_at,verification_status,verified_at)
         SELECT 's'||n,'pokemon','series','s'||n,'Set '||n,1,1,'verified',1 FROM generate_series(1,138) n;
       INSERT INTO fatedrop_card_printings (id,tcg_id,series_id,set_id,printing_code,collector_number,name,created_at,updated_at,verification_status,verified_at)
-        SELECT 'p'||n,'pokemon','series','s'||n,'p'||n,'1','Card '||n,1,1,'verified',1 FROM generate_series(1,138) n;
+        SELECT 'p'||n,'pokemon','series',
+          CASE WHEN n<=16664 THEN 's'||(1+((n-1)%124)) ELSE 's'||(125+((n-16665)%14)) END,
+          'p'||n,n::text,'Card '||n,1,1,'verified',1 FROM generate_series(1,18250) n;
       INSERT INTO fatedrop_card_identities (id,canonical_key,tcg_id,series_id,set_id,printing_id,collector_number,variant_code,language_code,verification_status,verified_at,created_at,updated_at)
-        SELECT 'c'||n,'c'||n,'pokemon','series','s'||s,'p'||s,'1','fixture-'||n,'en','verified',1,1,1
-        FROM (SELECT n,CASE WHEN n<=17312 THEN 1 ELSE 92+(n%47) END s FROM generate_series(1,26169) n) x;
+        SELECT 'c'||n,'c'||n,'pokemon','series',
+          CASE WHEN p<=16664 THEN 's'||(1+((p-1)%124)) ELSE 's'||(125+((p-16665)%14)) END,
+          'p'||p,p::text,'fixture-'||n,'en','verified',1,1,1
+        FROM (SELECT n,CASE WHEN n<=24084 THEN 1+((n-1)%16664) ELSE 16665+((n-24085)%1586) END p FROM generate_series(1,26169) n) x;
       INSERT INTO fatedrop_card_source_mappings (id,card_identity_id,source_name,source_record_id,source_variant_key,first_observed_at,last_observed_at)
         SELECT 'm'||n,'c'||n,'fixture','r'||n,'standard',1,1 FROM generate_series(1,26169) n;`);
     for (const table of Object.keys(TABLES)) {
       let rows=(await local.query(`SELECT * FROM ${table}`)).rows;
-      if(table==='fatedrop_card_sets') rows=rows.filter(r=>Number(r.id.slice(1))<=91);
-      if(table==='fatedrop_card_printings') rows=rows.filter(r=>Number(r.id.slice(1))<=91);
-      if(table==='fatedrop_card_identities') rows=rows.filter(r=>Number(r.id.slice(1))<=17312);
-      if(table==='fatedrop_card_source_mappings') rows=rows.filter(r=>Number(r.id.slice(1))<=17312);
+      if(table==='fatedrop_card_sets') rows=rows.filter(r=>Number(r.id.slice(1))<=124);
+      if(table==='fatedrop_card_printings') rows=rows.filter(r=>Number(r.id.slice(1))<=16664);
+      if(table==='fatedrop_card_identities') rows=rows.filter(r=>Number(r.id.slice(1))<=24084);
+      if(table==='fatedrop_card_source_mappings') rows=rows.filter(r=>Number(r.id.slice(1))<=24084);
       if(rows.length) await production.query(`INSERT INTO ${table} SELECT * FROM jsonb_populate_recordset(NULL::${table},$1::jsonb)`,[JSON.stringify(rows)]);
     }
     await production.query("UPDATE fatedrop_card_sets SET name='Preserve me' WHERE id='s1'");
@@ -44,9 +48,9 @@ test('PostgreSQL compatibility, conflicting natural keys, atomic rollback and re
     assert.equal(check.expected.verified_identities,26169);
     await production.query("INSERT INTO fatedrop_card_source_mappings VALUES ('collision','c1','fixture','r26169','standard',NULL,NULL,1,1)");
     await assert.rejects(activate({production,local,evidence,activate:true,report:{}}),/unique|duplicate/);
-    assert.equal((await recount(production)).verified_identities,17312);
+    assert.equal((await recount(production)).verified_identities,24084);
     await production.query("DELETE FROM fatedrop_card_source_mappings WHERE id='collision'");
-    await production.query(`CREATE FUNCTION reject_new_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='s92' THEN RAISE EXCEPTION 'fixture rollback'; END IF; RETURN NEW; END $$;
+    await production.query(`CREATE FUNCTION reject_new_fixture() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.id='s125' THEN RAISE EXCEPTION 'fixture rollback'; END IF; RETURN NEW; END $$;
       CREATE TRIGGER reject_new BEFORE INSERT ON fatedrop_card_sets FOR EACH ROW EXECUTE FUNCTION reject_new_fixture()`);
     await assert.rejects(activate({production,local,evidence,activate:true,report:{}}),/fixture rollback/);
     assert.deepEqual(await recount(production),before);
