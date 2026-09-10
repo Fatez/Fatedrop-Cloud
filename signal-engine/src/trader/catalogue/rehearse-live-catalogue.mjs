@@ -5,7 +5,6 @@ import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from '
 import { createTcgdexClient } from './source-clients.mjs';
 import { validateRehearsalTarget, assertRehearsalCounts } from './rehearsal-guard.mjs';
 
-// The repository is the API publisher's versioned data; matching rules are unchanged.
 async function repositoryPokemonClient(root) {
   if (!root) throw new Error('Pinned Pokemon TCG repository is required');
   const sets = JSON.parse(await readFile(root + '/sets/en.json', 'utf8'));
@@ -36,13 +35,11 @@ async function repositoryPokemonClient(root) {
   };
 }
 
-// These sets are deliberately held by the existing Astra-era first-edition safety rule.
-// Do not weaken that adapter rule here: edition+finish composition needs its own model.
 const INTENTIONAL_FIRST_EDITION_QUARANTINE_SET_IDS = new Set([
   'base2', 'base3', 'base5', 'gym1', 'neo1', 'neo2', 'neo3', 'neo4',
 ]);
 
-// No production credential is accepted, fetched or needed by this rehearsal.
+const TRANSIENT_SOURCE_STATUSES = new Set([429, 500, 502, 503, 504, 'network']);
 const connectionString = process.env.CATALOGUE_REHEARSAL_DATABASE_URL;
 validateRehearsalTarget(connectionString);
 const pool = new Pool({ connectionString, max: 2 });
@@ -51,9 +48,9 @@ const verifiedAt = Date.now();
 const output = process.env.RUNNER_TEMP || '.';
 const progress = { mode: 'isolated_rehearsal', productionWrites: false, sets: [] };
 const save = () => writeFile(`${output}/catalogue-rehearsal.json`, JSON.stringify(progress, null, 2));
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Replay uses exactly the same fetched evidence; no second provider crawl.
-function cached(client, { sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms)) } = {}) {
+function cached(client, { sleep: sleepImpl = sleep } = {}) {
   const result = {};
   for (const [name, method] of Object.entries(client)) {
     if (typeof method !== 'function') { result[name] = method; continue; }
@@ -65,8 +62,8 @@ function cached(client, { sleep = (ms) => new Promise(resolve => setTimeout(reso
           for (let attempt = 0; ; attempt += 1) {
             try { return await method.apply(client, args); }
             catch (error) {
-              if (attempt >= 2 || ![429, 500, 502, 503, 504, 'network'].includes(error?.status)) throw error;
-              await sleep(15_000 * (attempt + 1));
+              if (attempt >= 2 || !TRANSIENT_SOURCE_STATUSES.has(error?.status)) throw error;
+              await sleepImpl(15_000 * (attempt + 1));
             }
           }
         })();
@@ -106,6 +103,37 @@ function classifyZeroSavedSets(sets) {
   return { intentional, unexplained };
 }
 
+async function rehearsePair(pair, crosswalk, tcgdexClient, pokemonTcgClient) {
+  const scoped = {...crosswalk, matched:[pair]};
+  let lastError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await syncVerifiedPokemonCatalogue({
+        store,
+        tcgdexClient,
+        pokemonTcgClient,
+        crosswalk:scoped,
+        maxSets:1,
+        maxCardsPerChunk:250,
+        verifiedAt,
+      });
+    } catch (error) {
+      lastError = error;
+      if (!TRANSIENT_SOURCE_STATUSES.has(error?.status) || attempt === 2) throw error;
+      const delayMs = 10_000 * (attempt + 1);
+      console.error(JSON.stringify({
+        event:'set_source_retry',
+        setId:pair.tcgdexSetId,
+        status:error.status,
+        attempt:attempt + 1,
+        retryInMs:delayMs,
+      }));
+      await sleep(delayMs);
+    }
+  }
+  throw lastError;
+}
+
 try {
   for (const file of ['fate-trader-card-identity.sql','fate-trader-catalogue-crosswalk.sql'])
     await pool.query(await readFile(new URL(`../../../database/${file}`, import.meta.url), 'utf8'));
@@ -122,14 +150,13 @@ try {
   progress.sourceFailures = [];
   for (const pair of crosswalk.matched) {
     try {
-      const scoped = {...crosswalk, matched:[pair]};
-      const result = await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:scoped,maxSets:1,maxCardsPerChunk:250,verifiedAt});
+      const result = await rehearsePair(pair, crosswalk, tcgdexClient, pokemonTcgClient);
       assert.equal(result.status,'complete');
       progress.sets.push(result.sets[0]);
       await save();
       console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...result.sets[0]}));
     } catch (error) {
-      if (![429, 500, 502, 503, 504, 'network'].includes(error?.status)) throw error;
+      if (!TRANSIENT_SOURCE_STATUSES.has(error?.status)) throw error;
       progress.sourceFailures.push({setId:pair.tcgdexSetId,status:error.status,sourceUrl:error.sourceUrl,message:error.message});
       await save();
       console.error(JSON.stringify({event:'set_source_unavailable',setId:pair.tcgdexSetId,status:error.status}));
@@ -147,7 +174,6 @@ try {
     intentionalQuarantineSets: zeroSaved.intentional.length,
     unexplainedZeroSavedSetIds: zeroSaved.unexplained,
   });
-  // Replay every set: duplicate identities/mappings must not inflate saved totals.
   for (const pair of crosswalk.matched)
     await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:{...crosswalk,matched:[pair]},maxSets:1,maxCardsPerChunk:250,verifiedAt});
   progress.replayed = await counts();
