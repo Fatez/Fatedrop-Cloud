@@ -19,14 +19,14 @@ test('PostgreSQL compatibility, conflicting natural keys, atomic rollback and re
     await local.query(`INSERT INTO fatedrop_tcgs VALUES ('pokemon','pokemon','Pokemon','active',1,1);
       INSERT INTO fatedrop_card_series (id,tcg_id,code,name,created_at,updated_at,verification_status,verified_at) VALUES ('series','pokemon','series','Series',1,1,'verified',1);
       INSERT INTO fatedrop_card_sets (id,tcg_id,series_id,code,name,created_at,updated_at,verification_status,verified_at)
-        SELECT 's'||n,'pokemon','series','s'||n,'Set '||n,1,1,'verified',1 FROM generate_series(1,124) n;
+        SELECT 's'||n,'pokemon','series','s'||n,'Set '||n,1,1,'verified',1 FROM generate_series(1,138) n;
       INSERT INTO fatedrop_card_printings (id,tcg_id,series_id,set_id,printing_code,collector_number,name,created_at,updated_at,verification_status,verified_at)
-        SELECT 'p'||n,'pokemon','series','s'||n,'p'||n,'1','Card '||n,1,1,'verified',1 FROM generate_series(1,124) n;
+        SELECT 'p'||n,'pokemon','series','s'||n,'p'||n,'1','Card '||n,1,1,'verified',1 FROM generate_series(1,138) n;
       INSERT INTO fatedrop_card_identities (id,canonical_key,tcg_id,series_id,set_id,printing_id,collector_number,variant_code,language_code,verification_status,verified_at,created_at,updated_at)
         SELECT 'c'||n,'c'||n,'pokemon','series','s'||s,'p'||s,'1','fixture-'||n,'en','verified',1,1,1
-        FROM (SELECT n,CASE WHEN n<=17312 THEN 1 ELSE 92+(n%33) END s FROM generate_series(1,24084) n) x;
+        FROM (SELECT n,CASE WHEN n<=17312 THEN 1 ELSE 92+(n%47) END s FROM generate_series(1,26169) n) x;
       INSERT INTO fatedrop_card_source_mappings (id,card_identity_id,source_name,source_record_id,source_variant_key,first_observed_at,last_observed_at)
-        SELECT 'm'||n,'c'||n,'fixture','r'||n,'standard',1,1 FROM generate_series(1,24084) n;`);
+        SELECT 'm'||n,'c'||n,'fixture','r'||n,'standard',1,1 FROM generate_series(1,26169) n;`);
     for (const table of Object.keys(TABLES)) {
       let rows=(await local.query(`SELECT * FROM ${table}`)).rows;
       if(table==='fatedrop_card_sets') rows=rows.filter(r=>Number(r.id.slice(1))<=91);
@@ -37,12 +37,12 @@ test('PostgreSQL compatibility, conflicting natural keys, atomic rollback and re
     }
     await production.query("UPDATE fatedrop_card_sets SET name='Preserve me' WHERE id='s1'");
     const saved=await recount(local);
-    const evidence={status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved,replayed:saved,intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],crosswalk:{matched:132},sets:Array.from({length:132},()=>({savedCards:1}))};
+    const evidence={status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved,replayed:saved,intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],crosswalk:{matched:146},sets:Array.from({length:146},()=>({savedCards:1}))};
     const before=await recount(production);
     const check={}; await activate({production,local,evidence,report:check});
     assert.equal(check.compatibility,'passed'); assert.deepEqual(await recount(production),before);
-    assert.equal(check.expected.verified_identities,24084);
-    await production.query("INSERT INTO fatedrop_card_source_mappings VALUES ('collision','c1','fixture','r24084','standard',NULL,NULL,1,1)");
+    assert.equal(check.expected.verified_identities,26169);
+    await production.query("INSERT INTO fatedrop_card_source_mappings VALUES ('collision','c1','fixture','r26169','standard',NULL,NULL,1,1)");
     await assert.rejects(activate({production,local,evidence,activate:true,report:{}}),/unique|duplicate/);
     assert.equal((await recount(production)).verified_identities,17312);
     await production.query("DELETE FROM fatedrop_card_source_mappings WHERE id='collision'");
