@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TABLES, planUnion, validateEvidence } from '../src/trader/catalogue/activate-rehearsed-catalogue.mjs';
 const empty = () => Object.fromEntries(Object.keys(TABLES).map(table => [table, []]));
-const saved = () => ({verified_sets:138,printings:18250,verified_identities:26169,source_mappings:26169,orphan_sets:0,orphan_printings:0,orphan_mappings:0,duplicate_identities:0});
-const evidence = () => ({status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved:saved(),replayed:saved(),intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],crosswalk:{matched:146},sets:Array(146).fill({})});
-test('accepts only the complete pinned Batch 2 rehearsal and all eight quarantines', () => {
+const saved = () => ({verified_sets:157,printings:19087,verified_identities:27624,source_mappings:27624,orphan_sets:0,orphan_printings:0,orphan_mappings:0,duplicate_identities:0});
+const evidence = () => ({status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved:saved(),replayed:saved(),intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],crosswalk:{matched:165},sets:Array(165).fill({})});
+test('accepts only the complete pinned PR #448 rehearsal and all eight quarantines', () => {
   validateEvidence(evidence());
-  for (const mutate of [r=>r.saved.verified_sets=124,r=>r.saved.printings--,r=>r.saved.source_mappings--,r=>r.sourceRevision='other',r=>r.intentionalQuarantineSetIds.pop(),r=>r.sourceFailures.push({setId:'x'}),r=>r.unexplainedZeroSavedSetIds.push('x'),r=>r.replayed.verified_identities++,r=>r.productionWrites=true]) {
+  for (const mutate of [r=>r.saved.verified_sets=138,r=>r.setBlockers=[{setId:'blocked'}],r=>r.saved.printings--,r=>r.saved.source_mappings--,r=>r.sourceRevision='other',r=>r.intentionalQuarantineSetIds.pop(),r=>r.sourceFailures.push({setId:'x'}),r=>r.unexplainedZeroSavedSetIds.push('x'),r=>r.replayed.verified_identities++,r=>r.productionWrites=true]) {
     const report=evidence(); mutate(report); assert.throws(()=>validateEvidence(report));
   }
 });
