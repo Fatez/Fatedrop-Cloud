@@ -1,3 +1,5 @@
+import { withVersionedSourceSnapshots } from './source-snapshot-cache.mjs';
+
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
   return value.trim();
@@ -67,12 +69,14 @@ export function createTcgdexClient({
   languageCode = 'en',
   retryAttempts = 4,
   sleepImpl,
+  snapshotDirectory = process.env.CATALOGUE_SOURCE_SNAPSHOT_DIR || null,
+  snapshotVersion = process.env.CATALOGUE_TCGDEX_SNAPSHOT_VERSION || null,
 } = {}) {
   const language = requireText(languageCode, 'languageCode').toLowerCase();
   const base = requireText(baseUrl, 'baseUrl').replace(/\/$/, '');
   const request = { fetchImpl, retryAttempts, sleepImpl };
 
-  return Object.freeze({
+  const client = Object.freeze({
     async listSets() {
       const payload = await fetchJson(`${base}/${encodeURIComponent(language)}/sets`, request);
       if (!Array.isArray(payload)) throw new TypeError('TCGdex sets payload must be an array');
@@ -87,6 +91,16 @@ export function createTcgdexClient({
     async getCard(id) {
       return fetchJson(`${base}/${encodeURIComponent(language)}/cards/${encodeURIComponent(requireText(id, 'cardId'))}`, request);
     },
+  });
+
+  if (!snapshotDirectory && !snapshotVersion) return client;
+  if (!snapshotDirectory || !snapshotVersion) {
+    throw new Error('TCGdex snapshots require both snapshotDirectory and snapshotVersion');
+  }
+  return withVersionedSourceSnapshots(client, {
+    directory: snapshotDirectory,
+    namespace: `tcgdex-${language}`,
+    sourceVersion: snapshotVersion,
   });
 }
 
