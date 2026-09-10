@@ -46,6 +46,7 @@ jobs:
         env:
           PTCG_API_KEY: ${{ secrets.PTCG_API_KEY }}
           CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ runner.temp }}/catalogue-source-snapshots
+          CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-capacity-v1
           CATALOGUE_PTCGAPI_SNAPSHOT_VERSION: pokemontcgapi-v1
         run: node src/trader/catalogue/reconcile-50k-source-capacity.mjs
       - name: Upload exact capacity census
