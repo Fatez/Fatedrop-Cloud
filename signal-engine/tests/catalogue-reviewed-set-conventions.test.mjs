@@ -32,40 +32,40 @@ test('reviewed exact series-name convention matches only the pinned source pair'
 });
 
 test('reviewed exact set-name convention matches only the pinned values', () => {
-  const left = evidence({ sourceName: 'tcgdex', sourceRecordId: 'base1', setName: 'Base Set', seriesName: 'Base' });
-  const right = evidence({ sourceName: 'pokemontcg-api', sourceRecordId: 'base1', setName: 'Base', seriesName: 'Base' });
+  const left = evidence({ sourceName: 'tcgdex', sourceRecordId: 'hgss1', setName: 'HeartGold SoulSilver', seriesName: 'HeartGold & SoulSilver' });
+  const right = evidence({ sourceName: 'pokemontcg-api', sourceRecordId: 'hgss1', setName: 'HeartGold & SoulSilver', seriesName: 'HeartGold & SoulSilver' });
   assert.equal(reconcileSetEvidence(left, right).status, 'matched');
-  assert.equal(reconcileSetEvidence(left, { ...right, setName: 'Base Unlimited' }).status, 'conflict');
+  assert.equal(reconcileSetEvidence(left, { ...right, setName: 'HS Unlimited' }).status, 'conflict');
 });
 
 test('crosswalk uses reviewed source-id alias only when exact-name lookup has no candidate', async () => {
   const tcgdexSet = {
-    id: 'base1',
-    name: 'Base Set',
-    serie: { id: 'base', name: 'Base' },
-    cardCount: { official: 102, total: 102 },
-    releaseDate: '2000-01-01',
+    id: 'hgss1',
+    name: 'HeartGold SoulSilver',
+    serie: { id: 'hgss', name: 'HeartGold & SoulSilver' },
+    cardCount: { official: 123, total: 124 },
+    releaseDate: '2010-02-10',
   };
   const pokemonSet = {
-    id: 'base1',
-    name: 'Base',
-    series: 'Base',
-    printedTotal: 102,
-    total: 102,
-    releaseDate: '2000/01/01',
+    id: 'hgss1',
+    name: 'HeartGold & SoulSilver',
+    series: 'HeartGold & SoulSilver',
+    printedTotal: 123,
+    total: 124,
+    releaseDate: '2010/02/10',
   };
   const tcgdexClient = {
-    async listSets() { return [{ id: 'base1', name: 'Base Set' }]; },
+    async listSets() { return [{ id: 'hgss1', name: 'HeartGold SoulSilver' }]; },
     async getSeries() { return { sets: [] }; },
-    async getSet(id) { assert.equal(id, 'base1'); return tcgdexSet; },
+    async getSet(id) { assert.equal(id, 'hgss1'); return tcgdexSet; },
   };
   const pokemonTcgClient = {
     async listSets() { return [pokemonSet]; },
-    async getSet(id) { assert.equal(id, 'base1'); return pokemonSet; },
+    async getSet(id) { assert.equal(id, 'hgss1'); return pokemonSet; },
   };
   const crosswalk = await buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTcgClient });
   assert.equal(crosswalk.counts.matched, 1);
   assert.equal(crosswalk.counts.unmatchedTcgdex, 0);
-  assert.equal(crosswalk.matched[0].tcgdexSetId, 'base1');
-  assert.equal(crosswalk.matched[0].pokemonTcgSetId, 'base1');
+  assert.equal(crosswalk.matched[0].tcgdexSetId, 'hgss1');
+  assert.equal(crosswalk.matched[0].pokemonTcgSetId, 'hgss1');
 });
