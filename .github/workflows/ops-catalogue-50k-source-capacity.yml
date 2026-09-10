@@ -2,13 +2,17 @@ name: OPS Catalogue 50k Source Capacity
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/**'
+      - '.github/workflows/ops-catalogue-50k-source-capacity.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: catalogue-50k-source-capacity
-  cancel-in-progress: false
+  group: catalogue-50k-source-capacity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   census:
