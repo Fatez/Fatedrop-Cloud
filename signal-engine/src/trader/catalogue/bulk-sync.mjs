@@ -7,8 +7,10 @@ import { syncVerifiedPokemonSet } from './sync.mjs';
 // and PokemonTCG data. These are not fuzzy aliases: each pair was observed in
 // the post-Batch-2 census and is allowed only when the normal exact-name lookup
 // returns no candidate. reconcileSetEvidence still has to verify the full set.
+// Base Set is deliberately excluded: TCGdex exposes firstEdition on those cards,
+// so it remains behind the existing edition+finish model gate instead of becoming
+// a misleading finish-only identity.
 const REVIEWED_SET_ID_ALIASES = new Map([
-  ['base1', 'base1'],
   ['hgss1', 'hgss1'],
   ['hgss2', 'hgss2'],
   ['hgss3', 'hgss3'],
