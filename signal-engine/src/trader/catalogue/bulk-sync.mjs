@@ -3,6 +3,21 @@ import { adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
 import { normaliseComparableName, reconcileSetEvidence } from './reconcile.mjs';
 import { syncVerifiedPokemonSet } from './sync.mjs';
 
+// Exact source-ID aliases for sets whose publisher names differ between TCGdex
+// and PokemonTCG data. These are not fuzzy aliases: each pair was observed in
+// the post-Batch-2 census and is allowed only when the normal exact-name lookup
+// returns no candidate. reconcileSetEvidence still has to verify the full set.
+const REVIEWED_SET_ID_ALIASES = new Map([
+  ['base1', 'base1'],
+  ['hgss1', 'hgss1'],
+  ['hgss2', 'hgss2'],
+  ['hgss3', 'hgss3'],
+  ['hgss4', 'hgss4'],
+  ['fut2020', 'fut20'],
+  ['svp', 'svp'],
+  ['sve', 'sve'],
+]);
+
 function requireClient(client, name) {
   if (!client || typeof client.listSets !== 'function' || typeof client.getSet !== 'function') {
     throw new TypeError(`${name} with listSets/getSet is required`);
@@ -87,7 +102,10 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
   const physicalTcgdexBriefs = tcgdexBriefs.filter((set) => !pocketSetIds.has(String(set?.id ?? '').trim()));
 
   const pokemonByName = new Map();
+  const pokemonById = new Map();
   for (const set of pokemonBriefs) {
+    const id = sourceId(set.id, 'pokemon set id');
+    pokemonById.set(id, set);
     const key = normaliseComparableName(sourceName(set.name, 'pokemon set name'));
     const rows = pokemonByName.get(key) || [];
     rows.push(set);
@@ -123,7 +141,12 @@ export async function buildVerifiedPokemonSetCrosswalk({ tcgdexClient, pokemonTc
     const tcgdexSetId = sourceId(brief.id, 'tcgdex set id');
     const tcgdexSetName = sourceName(brief.name, 'tcgdex set name');
     const key = normaliseComparableName(tcgdexSetName);
-    const candidates = pokemonByName.get(key) || [];
+    let candidates = pokemonByName.get(key) || [];
+    if (candidates.length === 0) {
+      const reviewedPokemonId = REVIEWED_SET_ID_ALIASES.get(tcgdexSetId);
+      const reviewedCandidate = reviewedPokemonId ? pokemonById.get(reviewedPokemonId) : null;
+      if (reviewedCandidate) candidates = [reviewedCandidate];
+    }
     if (candidates.length === 0) {
       unmatchedTcgdex.push(Object.freeze({ tcgdexSetId, tcgdexSetName, reason: 'no_name_candidate' }));
       continue;
@@ -300,7 +323,6 @@ export async function syncVerifiedPokemonCatalogue({
         setTotals.cardConflicts += result.conflicts || 0;
         setTotals.quarantined += result.quarantined || 0;
         if (result.unsupportedPublisherEvidence?.length) {
-          // Each chunk sees the full publisher collection; retain each hold once.
           const held = new Map((setTotals.unsupportedPublisherEvidence || [])
             .map(evidence => [evidence.sourceRecordId, evidence]));
           for (const evidence of result.unsupportedPublisherEvidence) held.set(evidence.sourceRecordId, evidence);
