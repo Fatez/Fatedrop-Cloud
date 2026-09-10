@@ -1,0 +1,43 @@
+name: Catalogue production compatibility tests
+on:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/**'
+      - 'signal-engine/tests/catalogue-production*.mjs'
+      - '.github/workflows/catalogue-production-compatibility.yml'
+      - '.github/workflows/ops-fateprice-full-pokemon-catalogue-production.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fatedrop_catalogue_rehearsal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fatedrop_catalogue_rehearsal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - run: node --test tests/catalogue-production-compatibility.test.mjs tests/catalogue-production-postgres.test.mjs tests/catalogue-rehearsal-guard.test.mjs
+        env:
+          CATALOGUE_COMPATIBILITY_TEST_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
