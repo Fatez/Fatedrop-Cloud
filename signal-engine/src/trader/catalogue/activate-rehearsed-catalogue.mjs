@@ -142,8 +142,10 @@ export async function activate({production, local, evidence, activate = false, r
       const byId = new Map(combined[table].map(row => [row.id, row]));
       for (const row of baseline[table]) assert.deepEqual(byId.get(row.id), row, `Existing row changed: ${table}:${row.id}`);
     }
+    report.commitAttempted = true;
     await production.query('COMMIT');
     committed = true;
+    report.commitConfirmed = true;
     report.productionWrites = true;
   } catch (error) {
     if (!committed) await production.query('ROLLBACK');
@@ -166,7 +168,7 @@ async function main() {
     const evidence = JSON.parse(await readFile(`${output}/catalogue-rehearsal.json`, 'utf8'));
     await activate({production,local,evidence,activate:process.env.CATALOGUE_ACTIVATE === 'true',report});
   } catch (error) {
-    report.status = report.productionWrites ? 'committed_audit_failed' : 'blocked';
+    report.status = report.productionWrites ? 'committed_audit_failed' : report.commitAttempted ? 'commit_outcome_unknown_recount_required' : 'blocked';
     report.error = error.message;
     process.exitCode = 1;
   } finally {
