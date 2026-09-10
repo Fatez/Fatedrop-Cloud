@@ -12,22 +12,72 @@ function id(value) {
 }
 
 function positiveTotal(set) {
-  const total = Number(set?.total ?? set?.printed_total ?? set?.printedTotal);
+  const total = Number(set?.total ?? set?.printed_total ?? set?.printedTotal ?? set?.card_count ?? set?.cardCount?.total);
   return Number.isInteger(total) && total >= 0 ? total : 0;
+}
+
+function normalizeName(value) {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .toLocaleLowerCase('en-US')
+    .replace(/[’‘]/g, "'")
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ');
+}
+
+function epochDay(value) {
+  if (value == null || value === '') return null;
+  const ms = Date.parse(String(value));
+  return Number.isFinite(ms) ? Math.floor(ms / 86_400_000) : null;
+}
+
+function sourceReleaseDay(set) {
+  return epochDay(set?.release_date ?? set?.releaseDate ?? set?.released_at ?? set?.releasedAt);
+}
+
+function tcgdexReleaseDay(set) {
+  return epochDay(set?.releaseDate ?? set?.release_date ?? set?.releasedAt);
 }
 
 async function tcgdexPhysicalSets(languageCode) {
   const client = createTcgdexClient({ languageCode });
-  const [sets, pocket] = await Promise.all([
+  const [briefs, pocket] = await Promise.all([
     client.listSets(),
     client.getSeries('tcgp').catch(() => null),
   ]);
   const pocketIds = new Set((pocket?.sets || []).map((set) => id(set?.id)).filter(Boolean));
-  return sets.filter((set) => !pocketIds.has(id(set?.id)));
+  const physicalBriefs = briefs.filter((set) => !pocketIds.has(id(set?.id)));
+
+  // Set listings are intentionally treated as navigation evidence only. Fetch
+  // the full set records before using totals/dates as exact reconciliation anchors.
+  const full = [];
+  for (const brief of physicalBriefs) full.push(await client.getSet(id(brief.id)));
+  return full;
 }
 
 function exactSetCandidates(sourceSet) {
   return new Set([id(sourceSet?.id), id(sourceSet?.code), id(sourceSet?.legacy_id)].filter(Boolean));
+}
+
+function evidenceKey(set, releaseDayFn) {
+  const name = normalizeName(set?.name);
+  const total = positiveTotal(set);
+  const day = releaseDayFn(set);
+  if (!name || !total || day == null) return null;
+  return `${name}|${total}|${day}`;
+}
+
+function indexUnique(rows, keyFn) {
+  const map = new Map();
+  for (const row of rows) {
+    const key = keyFn(row);
+    if (!key) continue;
+    const list = map.get(key) || [];
+    list.push(row);
+    map.set(key, list);
+  }
+  return map;
 }
 
 async function regionCapacity(region, apiClient) {
@@ -37,16 +87,42 @@ async function regionCapacity(region, apiClient) {
     tcgdexPhysicalSets(languageCode),
   ]);
   const tcgdexIds = new Set(tcgdexSets.map((set) => id(set?.id)).filter(Boolean));
-  const exactOverlap = sourceSets.filter((set) => [...exactSetCandidates(set)].some((candidate) => tcgdexIds.has(candidate)));
-  const unmatched = sourceSets.filter((set) => ![...exactSetCandidates(set)].some((candidate) => tcgdexIds.has(candidate)));
+  const tcgdexEvidence = indexUnique(tcgdexSets, (set) => evidenceKey(set, tcgdexReleaseDay));
 
+  const exactIdOverlap = [];
+  const exactEvidenceOverlap = [];
+  const unmatched = [];
+  const claimedTcgdexIds = new Set();
+
+  for (const sourceSet of sourceSets) {
+    const matchingId = [...exactSetCandidates(sourceSet)].find((candidate) => tcgdexIds.has(candidate));
+    if (matchingId) {
+      exactIdOverlap.push(sourceSet);
+      claimedTcgdexIds.add(matchingId);
+      continue;
+    }
+
+    const key = evidenceKey(sourceSet, sourceReleaseDay);
+    const candidates = key ? (tcgdexEvidence.get(key) || []) : [];
+    const available = candidates.filter((candidate) => !claimedTcgdexIds.has(id(candidate?.id)));
+    if (available.length === 1) {
+      exactEvidenceOverlap.push(sourceSet);
+      claimedTcgdexIds.add(id(available[0]?.id));
+      continue;
+    }
+    unmatched.push(sourceSet);
+  }
+
+  const exactOverlap = [...exactIdOverlap, ...exactEvidenceOverlap];
   return Object.freeze({
     region,
     languageCode,
     sourceSetCount: sourceSets.length,
     tcgdexPhysicalSetCount: tcgdexSets.length,
     declaredSourcePrintings: sourceSets.reduce((sum, set) => sum + positiveTotal(set), 0),
-    exactSetIdOrLegacyOverlapCount: exactOverlap.length,
+    exactSetIdOrLegacyOverlapCount: exactIdOverlap.length,
+    exactNameTotalReleaseDateOverlapCount: exactEvidenceOverlap.length,
+    exactSetEvidenceOverlapCount: exactOverlap.length,
     exactOverlapDeclaredPrintings: exactOverlap.reduce((sum, set) => sum + positiveTotal(set), 0),
     unmatchedSourceSetCount: unmatched.length,
     unmatchedSourceSets: unmatched.map((set) => ({
@@ -55,6 +131,7 @@ async function regionCapacity(region, apiClient) {
       legacyId: id(set?.legacy_id),
       name: String(set?.name ?? ''),
       declaredTotal: positiveTotal(set),
+      releaseDate: set?.release_date ?? set?.releaseDate ?? set?.released_at ?? set?.releasedAt ?? null,
     })),
   });
 }
@@ -80,7 +157,8 @@ async function main() {
     source: 'pokemontcgapi',
     corroboratingSource: 'tcgdex',
     policy: {
-      exactSetIdsOrExplicitLegacyIdsOnly: true,
+      exactSetIdsOrExplicitLegacyIdsOnly: false,
+      exactUniqueNameTotalReleaseDateAllowed: true,
       fuzzyMatching: false,
       sourceMappingsAreNotCards: true,
       declaredPrintingCapacityIsNotYetVerifiedIdentityCount: true,
