@@ -1,0 +1,35 @@
+name: Catalogue primary source census
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/catalogue-primary-source-census.yml'
+      - 'signal-engine/scripts/catalogue-primary-source-census.mjs'
+permissions:
+  contents: read
+concurrency:
+  group: primary-source-census-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: e36a155168d02590b69b1c92429a9877e04377d8
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.22'
+      - name: Count primary records once without API or production credentials
+        run: bun signal-engine/scripts/catalogue-primary-source-census.mjs --repo=_evidence/tcgdex --revision=e36a155168d02590b69b1c92429a9877e04377d8 --out=primary-source-census.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-primary-source-census
+          path: primary-source-census.json
+          if-no-files-found: error
+          retention-days: 30

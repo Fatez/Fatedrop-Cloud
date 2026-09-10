@@ -1,0 +1,114 @@
+name: Catalogue completion runner
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/catalogue-completion-runner.yml'
+      - 'signal-engine/src/trader/catalogue/primary-coverage-ledger.mjs'
+      - 'signal-engine/scripts/catalogue-primary-coverage-cli.mjs'
+      - 'signal-engine/tests/primary-coverage-ledger.test.mjs'
+permissions:
+  contents: read
+concurrency:
+  group: catalogue-completion-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test signal-engine/tests/primary-coverage-ledger.test.mjs
+  complete-rehearsal:
+    if: github.event_name == 'workflow_dispatch'
+    needs: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fatedrop_catalogue_rehearsal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fatedrop_catalogue_rehearsal"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
+      POKEMON_TCG_DATA_ROOT: ${{ github.workspace }}/_evidence/pokemon-tcg-data
+      POKEMON_TCG_DATA_REVISION: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
+      CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ github.workspace }}/_cache/catalogue-source-snapshots
+      CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-en-v1
+      CATALOGUE_COLLECT_ALL_BLOCKERS: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: e36a155168d02590b69b1c92429a9877e04377d8
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: PokemonTCG/pokemon-tcg-data
+          ref: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
+          path: _evidence/pokemon-tcg-data
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.2.22'
+      - name: Generate full primary inventory
+        run: bun signal-engine/scripts/catalogue-primary-source-census.mjs --repo=_evidence/tcgdex --revision=e36a155168d02590b69b1c92429a9877e04377d8 --out="$RUNNER_TEMP/primary-source-census.json"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/_cache/catalogue-source-snapshots
+          key: catalogue-completion-tcgdex-en-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            catalogue-completion-tcgdex-en-v1-
+            catalogue-tcgdex-en-v1
+      - run: npm ci
+        working-directory: signal-engine
+      - name: Rehearse all matched sets and replay
+        id: rehearsal
+        working-directory: signal-engine
+        run: node src/trader/catalogue/rehearse-live-catalogue.mjs
+      - name: Account for full inventory including unmatched records
+        if: always() && steps.rehearsal.outcome != 'skipped'
+        working-directory: signal-engine
+        run: node scripts/catalogue-primary-coverage-cli.mjs
+      - name: Retain fetched evidence even after source failure
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/_cache/catalogue-source-snapshots
+          key: catalogue-completion-tcgdex-en-v1-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Publish worker summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/primary-coverage-summary.md" ]; then
+            cat "$RUNNER_TEMP/primary-coverage-summary.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Coverage report unavailable. Inspect the failed step; catalogue completion is NOT proven." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Retain full run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-completion-evidence
+          path: |
+            ${{ runner.temp }}/primary-source-census.json
+            ${{ runner.temp }}/catalogue-rehearsal.json
+            ${{ runner.temp }}/primary-coverage-ledger.json
+            ${{ runner.temp }}/primary-coverage-summary.md
+          if-no-files-found: warn
+          retention-days: 30
