@@ -102,6 +102,7 @@ export async function syncVerifiedPokemonSet({
     verifiedCardIdentities: promotions.reduce((sum, promotion) => sum + promotion.identities.length, 0),
     conflicts: cardResults.conflicts.length,
     quarantined: cardResults.quarantined.length,
+    ...(cardResults.unsupportedPublisherEvidence ? { unsupportedPublisherEvidence: cardResults.unsupportedPublisherEvidence } : {}),
     unmatched: cardResults.unmatched.length,
     persistence,
     nextCursor: hasMore ? lastProcessed : null,

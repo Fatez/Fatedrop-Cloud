@@ -52,6 +52,32 @@ function allowsCelebrationsClassicCollectorAlias(setMatch, variantEvidence, corr
     && setEvidenceContains(setMatch, corroboratingEvidence);
 }
 
+// Reviewed source-publication conventions from the post-24,084 census. These are
+// deliberately exact: source pair + exact observed timestamps must all match.
+// A provider change therefore fails closed instead of silently widening matching.
+const REVIEWED_RELEASE_DATE_DIFFERENCES = new Map([
+  ['tcgdex:sv10.5b|pokemontcg-api:zsv10pt5', [1752710400000, 1752796800000]],
+  ['tcgdex:sm3|pokemontcg-api:sm3', [1501804800000, 1501891200000]],
+  ['tcgdex:bwp|pokemontcg-api:bwp', [1303776000000, 1298937600000]],
+  ['tcgdex:ex14|pokemontcg-api:ex14', [1156896000000, 1154390400000]],
+  ['tcgdex:det1|pokemontcg-api:det1', [1553817600000, 1554422400000]],
+  ['tcgdex:ex15|pokemontcg-api:ex15', [1162944000000, 1162339200000]],
+  ['tcgdex:ex9|pokemontcg-api:ex9', [1115596800000, 1114905600000]],
+  ['tcgdex:hgssp|pokemontcg-api:hsp', [1265846400000, 1265760000000]],
+  ['tcgdex:ex13|pokemontcg-api:ex13', [1146614400000, 1146441600000]],
+  ['tcgdex:ex12|pokemontcg-api:ex12', [1139788800000, 1138752000000]],
+  ['tcgdex:ex16|pokemontcg-api:ex16', [1171670400000, 1170374400000]],
+  ['tcgdex:sm9|pokemontcg-api:sm9', [1548892800000, 1548979200000]],
+  ['tcgdex:ex10|pokemontcg-api:ex10', [1124668800000, 1122854400000]],
+  ['tcgdex:sv10.5w|pokemontcg-api:rsv10pt5', [1752710400000, 1752796800000]],
+]);
+
+function reviewedReleaseDateDifference(left, right) {
+  const key = `${left.sourceName}:${left.sourceRecordId}|${right.sourceName}:${right.sourceRecordId}`;
+  const expected = REVIEWED_RELEASE_DATE_DIFFERENCES.get(key);
+  return expected?.[0] === left.releasedAt && expected?.[1] === right.releasedAt;
+}
+
 export function reconcileSetEvidence(left, right) {
   if (!left || !right) throw new TypeError('two set evidence records are required');
   if (left.sourceName === right.sourceName) {
@@ -68,8 +94,17 @@ export function reconcileSetEvidence(left, right) {
   const rightSeriesName = normaliseComparableName(right.seriesName);
   if (leftSeriesName !== rightSeriesName) return conflict('seriesName', left.seriesName, right.seriesName);
 
+  const acceptedDifferences = [];
   if (left.releasedAt != null && right.releasedAt != null && left.releasedAt !== right.releasedAt) {
-    return conflict('releasedAt', left.releasedAt, right.releasedAt);
+    if (!reviewedReleaseDateDifference(left, right)) {
+      return conflict('releasedAt', left.releasedAt, right.releasedAt);
+    }
+    acceptedDifferences.push(Object.freeze({
+      field: 'releasedAt',
+      left: left.releasedAt,
+      right: right.releasedAt,
+      reason: 'reviewed_source_release_date_convention',
+    }));
   }
 
   if (left.printedTotal != null && right.printedTotal != null && left.printedTotal !== right.printedTotal) {
@@ -80,14 +115,15 @@ export function reconcileSetEvidence(left, right) {
   // alternate-art, subset and other non-numbered records differently. Keep a
   // disagreement visible, but never invent which convention is canonical.
   const totalDisagrees = left.total != null && right.total != null && left.total !== right.total;
-  const acceptedDifferences = totalDisagrees
-    ? Object.freeze([Object.freeze({
+  if (totalDisagrees) {
+    acceptedDifferences.push(Object.freeze({
       field: 'total',
       left: left.total,
       right: right.total,
       reason: 'source_counting_convention',
-    })])
-    : Object.freeze([]);
+    }));
+  }
+  const frozenAcceptedDifferences = Object.freeze(acceptedDifferences);
 
   const anchors = [
     left.releasedAt != null && right.releasedAt != null,
@@ -123,7 +159,7 @@ export function reconcileSetEvidence(left, right) {
     releasedAt,
     printedTotal,
     total,
-    acceptedDifferences,
+    acceptedDifferences: frozenAcceptedDifferences,
     evidence: Object.freeze([
       compactSetEvidence(left),
       compactSetEvidence(right),

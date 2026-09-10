@@ -22,14 +22,20 @@ export function validateEvidence(report) {
   assert.equal(report.status, 'passed');
   assert.equal(report.productionWrites, false);
   assert.equal(report.sourceRevision, REVISION);
-  assert.equal(report.saved.verified_sets, 124);
-  assert.equal(report.saved.verified_identities, 24084);
+  assert.equal(report.saved.verified_sets, 138);
+  assert.equal(report.saved.printings, 18250);
+  assert.equal(report.saved.verified_identities, 26169);
+  assert.equal(report.saved.source_mappings, 26169);
+  assert.equal(report.saved.orphan_sets, 0);
+  assert.equal(report.saved.orphan_printings, 0);
+  assert.equal(report.saved.orphan_mappings, 0);
+  assert.equal(report.saved.duplicate_identities, 0);
   assert.deepEqual(report.saved, report.replayed);
   assert.deepEqual([...report.intentionalQuarantineSetIds].sort(), [...QUARANTINES].sort());
   assert.deepEqual(report.unexplainedZeroSavedSetIds, []);
   assert.deepEqual(report.sourceFailures, []);
-  assert.equal(report.crosswalk.matched, 132);
-  assert.equal(report.sets.length, 132);
+  assert.equal(report.crosswalk.matched, 146);
+  assert.equal(report.sets.length, 146);
 }
 
 // Existing rows are preserved in full. Structural differences block the entire

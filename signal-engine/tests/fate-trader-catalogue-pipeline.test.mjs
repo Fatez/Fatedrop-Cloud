@@ -121,3 +121,43 @@ test('ambiguous independent set candidates are not guessed through', () => {
   assert.equal(result.unmatched.length, 1);
   assert.equal(result.unmatched[0].reason, 'ambiguous_independent_set_candidates');
 });
+
+function unseenForcesFixture() {
+  const setMatch = reconcilePokemonSetCollections(
+    [{id:'ex10',name:'Unseen Forces',serie:{id:'ex',name:'EX'},cardCount:{official:115,total:145},releaseDate:'2005-08-22'}],
+    [{id:'ex10',name:'Unseen Forces',series:'EX',printedTotal:115,total:145,releaseDate:'2005/08/22'}],
+  ).matched[0];
+  assert.ok(setMatch);
+  const set={id:'ex10',name:'Unseen Forces',series:'EX'};
+  const symbolic=['!','?'].map(number=>({id:'ex10-'+number,name:'Unown',number,set,supertype:'Pokémon'}));
+  return {setMatch,set,symbolic};
+}
+test('exact symbolic Unown publisher records are explicit holds while ordinary cards still reconcile', () => {
+  const {setMatch,set,symbolic}=unseenForcesFixture();
+  const result=reconcilePokemonCardCollections({setMatch,sourceSeriesCode:'ex',
+    tcgdexCards:[{...tcgdexCards[0],id:'ex10-001',set:{id:'ex10',name:'Unseen Forces'}}],
+    pokemonTcgCards:[...symbolic,{...pokemonCards[0],id:'ex10-001',set}],
+  });
+  assert.equal(result.matched.length,1);
+  assert.equal(result.quarantined.length,0);
+  assert.deepEqual(result.unsupportedPublisherEvidence.map(x=>[x.sourceRecordId,x.collectorNumber,x.reason]),[
+    ['ex10-!','!','symbolic_collector_number_not_supported'],
+    ['ex10-?','?','symbolic_collector_number_not_supported'],
+  ]);
+});
+test('symbolic hold fails closed on changed source pair, ID, number, name or set metadata', () => {
+  for(const mutate of [
+    x=>x.card.id='ex10-other', x=>x.card.number='?', x=>x.card.name='Other',
+    x=>x.card.set.id='other', x=>x.card.set.name='Other', x=>x.card.set.series='Other',
+    x=>x.setMatch.evidence=x.setMatch.evidence.filter(e=>e.sourceName!=='tcgdex'),
+  ]) {
+    const f=unseenForcesFixture();
+    const x={card:structuredClone(f.symbolic[0]),setMatch:structuredClone(f.setMatch)}; mutate(x);
+    assert.throws(()=>reconcilePokemonCardCollections({tcgdexCards:[],pokemonTcgCards:[x.card],setMatch:x.setMatch,sourceSeriesCode:'ex'}));
+  }
+});
+test('lettered Unown remains ordinary evidence rather than being silently held', () => {
+  const {setMatch,set}=unseenForcesFixture();
+  const result=reconcilePokemonCardCollections({tcgdexCards:[],pokemonTcgCards:[{id:'ex10-A',name:'Unown',number:'A',set}],setMatch,sourceSeriesCode:'ex'});
+  assert.equal(result.unsupportedPublisherEvidence,undefined);
+});

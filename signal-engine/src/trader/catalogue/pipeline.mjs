@@ -90,7 +90,25 @@ export function reconcilePokemonCardCollections({
     throw new TypeError('matched set crosswalk is required');
   }
 
-  const right = pokemonTcgCards.map((card) => adaptPokemonTcgCardEvidence(card));
+  // The pinned publisher includes symbolic Unown numbers absent from TCGdex ex10.
+  // Hold only these exact records: do not normalize symbols or invent a counterpart.
+  const unsupportedPublisherEvidence = [];
+  const right = pokemonTcgCards.flatMap((card) => {
+    const evidence = adaptPokemonTcgCardEvidence(card);
+    if (setMatchHasEvidence(setMatch, 'tcgdex', 'ex10')
+      && setMatchHasEvidence(setMatch, 'pokemontcg-api', 'ex10')
+      && card.set.id === 'ex10' && card.set.name === 'Unseen Forces'
+      && card.set.series === 'EX' && card.name === 'Unown'
+      && ((card.id === 'ex10-!' && card.number === '!')
+        || (card.id === 'ex10-?' && card.number === '?'))) {
+      unsupportedPublisherEvidence.push(Object.freeze({
+        ...evidence,
+        reason: 'symbolic_collector_number_not_supported',
+      }));
+      return [];
+    }
+    return [evidence];
+  });
   const rightIndex = new Map();
   const rightNameIndex = new Map();
   for (const evidence of right) {
@@ -144,6 +162,7 @@ export function reconcilePokemonCardCollections({
   }
 
   return Object.freeze({
+    ...(unsupportedPublisherEvidence.length ? { unsupportedPublisherEvidence: Object.freeze(unsupportedPublisherEvidence) } : {}),
     matched: Object.freeze(matched),
     conflicts: Object.freeze(conflicts),
     quarantined: Object.freeze(quarantined),

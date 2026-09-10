@@ -299,6 +299,13 @@ export async function syncVerifiedPokemonCatalogue({
         setTotals.verifiedCardIdentities += result.verifiedCardIdentities || 0;
         setTotals.cardConflicts += result.conflicts || 0;
         setTotals.quarantined += result.quarantined || 0;
+        if (result.unsupportedPublisherEvidence?.length) {
+          // Each chunk sees the full publisher collection; retain each hold once.
+          const held = new Map((setTotals.unsupportedPublisherEvidence || [])
+            .map(evidence => [evidence.sourceRecordId, evidence]));
+          for (const evidence of result.unsupportedPublisherEvidence) held.set(evidence.sourceRecordId, evidence);
+          setTotals.unsupportedPublisherEvidence = [...held.values()];
+        }
         setTotals.unmatchedCards += result.unmatched || 0;
         setTotals.savedPrintings += result.persistence?.savedPrintings || 0;
         setTotals.savedCards += result.persistence?.savedCards || 0;
