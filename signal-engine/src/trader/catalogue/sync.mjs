@@ -34,6 +34,27 @@ async function mapConcurrent(items, concurrency, mapper) {
   return results;
 }
 
+async function fetchTcgdexCardOrMissing(tcgdex, cardId) {
+  try {
+    return { card: await tcgdex.getCard(cardId), missing: null };
+  } catch (error) {
+    // A set listing can temporarily retain a card reference that the card endpoint
+    // no longer serves. Fail closed for that one identity rather than fabricating
+    // evidence or aborting the rest of an otherwise verifiable catalogue.
+    if (error?.status !== 404) throw error;
+    return {
+      card: null,
+      missing: Object.freeze({
+        sourceName: 'tcgdex',
+        sourceRecordId: String(cardId),
+        status: 404,
+        sourceUrl: error.sourceUrl ?? null,
+        reason: 'source_card_reference_not_found',
+      }),
+    };
+  }
+}
+
 export async function syncVerifiedPokemonSet({
   store,
   tcgdexClient,
@@ -86,13 +107,13 @@ export async function syncVerifiedPokemonSet({
     return Object.freeze({ status: 'complete', persisted: false, setResult: setMatch, nextCursor: null });
   }
 
-  // Preserve source-card order while allowing a deliberately small number of
-  // provider requests in flight. Existing retry/backoff remains authoritative.
-  const tcgdexCards = await mapConcurrent(
+  const fetched = await mapConcurrent(
     selectedRefs,
     tcgdexConcurrency,
-    (cardId) => tcgdex.getCard(cardId),
+    (cardId) => fetchTcgdexCardOrMissing(tcgdex, cardId),
   );
+  const tcgdexCards = fetched.map((entry) => entry.card).filter(Boolean);
+  const unavailableSourceCards = fetched.map((entry) => entry.missing).filter(Boolean);
   const pokemonCards = await pokemon.listCardsBySet(pokemonTcgSetId);
 
   const cardResults = reconcilePokemonCardCollections({
@@ -125,7 +146,8 @@ export async function syncVerifiedPokemonSet({
     conflicts: cardResults.conflicts.length,
     quarantined: cardResults.quarantined.length,
     ...(cardResults.unsupportedPublisherEvidence ? { unsupportedPublisherEvidence: cardResults.unsupportedPublisherEvidence } : {}),
-    unmatched: cardResults.unmatched.length,
+    ...(unavailableSourceCards.length ? { unavailableSourceCards: Object.freeze(unavailableSourceCards) } : {}),
+    unmatched: cardResults.unmatched.length + unavailableSourceCards.length,
     persistence,
     nextCursor: hasMore ? lastProcessed : null,
   });

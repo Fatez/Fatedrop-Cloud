@@ -1,0 +1,59 @@
+name: OPS Catalogue 50k Source Capacity
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'signal-engine/src/trader/catalogue/**'
+      - '.github/workflows/ops-catalogue-50k-source-capacity.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: catalogue-50k-source-capacity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - name: Require independent catalogue key
+        env:
+          PTCG_API_KEY: ${{ secrets.PTCG_API_KEY }}
+        run: |
+          if [ -z "$PTCG_API_KEY" ]; then
+            echo "PTCG_API_KEY repository secret is required" >&2
+            exit 1
+          fi
+      - name: Restore versioned catalogue source snapshots
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/catalogue-source-snapshots
+          key: catalogue-capacity-pokemontcgapi-v1
+      - run: npm ci
+      - name: Reconcile bulk regional capacity toward 50k
+        env:
+          PTCG_API_KEY: ${{ secrets.PTCG_API_KEY }}
+          CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ runner.temp }}/catalogue-source-snapshots
+          CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-capacity-v1
+          CATALOGUE_PTCGAPI_SNAPSHOT_VERSION: pokemontcgapi-v1
+        run: node src/trader/catalogue/reconcile-50k-source-capacity.mjs
+      - name: Upload exact capacity census
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: catalogue-50k-source-capacity
+          path: ${{ runner.temp }}/catalogue-50k-source-capacity.json
+          if-no-files-found: warn
+          retention-days: 14
