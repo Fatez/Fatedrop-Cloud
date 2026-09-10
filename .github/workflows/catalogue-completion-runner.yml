@@ -44,6 +44,7 @@ jobs:
       POKEMON_TCG_DATA_REVISION: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
       CATALOGUE_SOURCE_SNAPSHOT_DIR: ${{ github.workspace }}/_cache/catalogue-source-snapshots
       CATALOGUE_TCGDEX_SNAPSHOT_VERSION: tcgdex-en-v1
+      CATALOGUE_COLLECT_ALL_BLOCKERS: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
