@@ -35,7 +35,7 @@ jobs:
           set -euo pipefail
           OUT="$RUNNER_TEMP/catalogue-remaining-plan.json"
           for attempt in 1 2 3; do
-            if npm --silent run trader:catalogue -- --max-sets=250 > "$OUT"; then
+            if npm --silent run trader:catalogue -- --max-sets=100 > "$OUT"; then
               break
             fi
             if [ "$attempt" = 3 ]; then
