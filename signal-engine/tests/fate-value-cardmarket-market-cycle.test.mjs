@@ -125,7 +125,7 @@ test('daily cycle refuses to persist without verified exact Cardmarket mappings'
       fetchImpl: fetchImpl(),
       fetchedAt: FETCHED_AT,
     }),
-    /No verified Cardmarket normal mappings are available for the daily cycle/,
+    /No verified Cardmarket normal\/holo mappings are available for the daily cycle/,
   );
 
   assert.equal(valueStore.snapshot().fateValueLab, undefined);
