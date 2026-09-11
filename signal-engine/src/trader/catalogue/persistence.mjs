@@ -28,7 +28,6 @@ export function buildVerifiedCatalogueBatch({ setMatch, promotions = [], checkli
     }
     return promotion.identities;
   });
-  if (!identities.length) throw new TypeError('verified card identities are required');
 
   const tcgId = makeFateTcgId(setMatch.tcgCode);
   const tcg = Object.freeze({
