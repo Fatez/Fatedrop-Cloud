@@ -286,6 +286,7 @@ function filePreview(state, { userId, setId, preferredLanguageCode, preferredVar
     userId,
     set,
     canonicalCards,
+    canonicalPrintings,
     collectionItems,
     assertion,
     preferredLanguageCode,
