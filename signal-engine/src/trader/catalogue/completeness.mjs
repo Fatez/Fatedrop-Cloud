@@ -7,19 +7,20 @@ function text(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function assessCanonicalSetCompleteness({ set, canonicalCards } = {}) {
+export function assessCanonicalSetCompleteness({ set, canonicalCards = [], canonicalPrintings = null } = {}) {
   if (!set || typeof set !== 'object') throw new TypeError('set is required');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
+  if (canonicalPrintings != null && !Array.isArray(canonicalPrintings)) throw new TypeError('canonicalPrintings must be an array when provided');
 
   const setId = text(set.id);
   if (!setId) throw new TypeError('set.id is required');
 
   const expectedTotal = intOrNull(set.total) ?? intOrNull(set.printedTotal);
   const verifiedPrintingIds = new Set(
-    canonicalCards
-      .filter((card) => card && card.verificationStatus === 'verified')
-      .filter((card) => text(card.setId) === setId)
-      .map((card) => text(card.printingId))
+    (canonicalPrintings ?? canonicalCards)
+      .filter((row) => row && row.verificationStatus === 'verified')
+      .filter((row) => text(row.setId) === setId)
+      .map((row) => text(canonicalPrintings == null ? row.printingId : (row.printingId ?? row.id)))
       .filter(Boolean),
   );
   const observedTotal = verifiedPrintingIds.size;
