@@ -110,19 +110,35 @@ export async function buildExactRecovery({ db, tcgdexRepo }) {
     else noGuideLane++;
   }
 
+  const conflictedCanonicalKeys = new Set();
+  const conflictedSourceKeys = new Set();
+  for (const conflict of conflicts) {
+    if (conflict.cardIdentityId && conflict.variant) conflictedCanonicalKeys.add(key(conflict.cardIdentityId, conflict.variant));
+    if (conflict.sourceRecordId && conflict.variant) conflictedSourceKeys.add(key(conflict.sourceRecordId, conflict.variant));
+    if (conflict.key) {
+      if (conflict.type === 'candidate_source_conflict') conflictedSourceKeys.add(conflict.key);
+      if (conflict.type === 'candidate_canonical_conflict') conflictedCanonicalKeys.add(conflict.key);
+    }
+  }
+  const safeCandidates = unique.filter((row) =>
+    !conflictedCanonicalKeys.has(key(row.cardIdentityId, row.sourceVariantKey))
+    && !conflictedSourceKeys.has(key(row.sourceRecordId, row.sourceVariantKey)));
+  const heldCandidates = unique.filter((row) => !safeCandidates.includes(row));
+
   return {
-    status: conflicts.length ? 'review_required' : 'clean',
+    status: conflicts.length ? 'clean_subset_available' : 'clean',
     productionWrites:false,
     source:{tcgdexRevision:process.env.TCGDEX_REVISION||null,cardmarketCatalogueSha256:catalogueArtifact.sha256,cardmarketPriceGuideSha256:priceArtifact.sha256},
     before:{exactCardmarketMappings:cmRows.length,exactMappedIdentities:new Set(cmRows.map(r=>r.card_identity_id)).size},
-    candidates:unique,
-    counts:{verifiedSets:setRows.length,newExactMappings:unique.length,newMappedIdentities:new Set(unique.map(r=>r.cardIdentityId)).size,newPriceableIdentities:new Set(unique.filter(r=>{const p=priceByProduct.get(r.sourceRecordId);return p&&hasMeaningfulCardmarketLane(p,PRICE_LANE[r.sourceVariantKey]);}).map(r=>r.cardIdentityId)).size,priceableRows:priceable,noGuideLane,conflicts:conflicts.length,unresolvedSets:unresolvedSets.length},
+    candidates:safeCandidates,
+    heldCandidates,
+    counts:{verifiedSets:setRows.length,newExactMappings:unique.length,safeExactMappings:safeCandidates.length,heldExactMappings:heldCandidates.length,newMappedIdentities:new Set(safeCandidates.map(r=>r.cardIdentityId)).size,newPriceableIdentities:new Set(safeCandidates.filter(r=>{const p=priceByProduct.get(r.sourceRecordId);return p&&hasMeaningfulCardmarketLane(p,PRICE_LANE[r.sourceVariantKey]);}).map(r=>r.cardIdentityId)).size,priceableRows:safeCandidates.filter(r=>{const p=priceByProduct.get(r.sourceRecordId);return p&&hasMeaningfulCardmarketLane(p,PRICE_LANE[r.sourceVariantKey]);}).length,noGuideLane:safeCandidates.filter(r=>{const p=priceByProduct.get(r.sourceRecordId);return !(p&&hasMeaningfulCardmarketLane(p,PRICE_LANE[r.sourceVariantKey]));}).length,conflicts:conflicts.length,unresolvedSets:unresolvedSets.length},
     conflicts,unresolvedSets,
   };
 }
 
 export async function persistExactRecovery(db, report) {
-  if (report.status!=='clean') throw new Error('Exact recovery has unresolved conflicts');
+  if (!['clean','clean_subset_available'].includes(report.status)) throw new Error('Exact recovery has no safe persistence subset');
   await db.query('BEGIN');
   try {
     for (const row of report.candidates) {
