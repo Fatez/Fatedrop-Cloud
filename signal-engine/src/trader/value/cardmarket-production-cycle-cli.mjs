@@ -12,7 +12,7 @@ async function main() {
   const store = { pool: async () => pool };
   let report = { status: 'started', mode, productionWrites: false };
   try {
-    const result = await runCardmarketPokemonMarketCycle({ store, mode });
+    const result = await runCardmarketPokemonMarketCycle({ store, mode, includeReadiness: mode !== 'persist' });
     report = {
       status: 'complete',
       mode,
