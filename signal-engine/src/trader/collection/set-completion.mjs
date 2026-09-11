@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
-import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore } from '../catalogue/store.mjs';
+import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { computeCollectionSetProgress } from './set-progress.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
@@ -105,7 +105,12 @@ function completionToken({ userId, setId, catalogueFingerprint, printingIdsToCon
   return `fdsetcomplete_v1_${digest(state).slice(0, 48)}`;
 }
 
-function canonicalPrintingIdsForSet(setId, canonicalCards) {
+function canonicalPrintingIdsForSet(setId, canonicalCards, canonicalPrintings = null) {
+  if (canonicalPrintings != null) {
+    return frozenPrintingIds(canonicalPrintings
+      .filter((printing) => printing?.verificationStatus === 'verified' && String(printing.setId || '') === setId)
+      .map((printing) => printing.printingId ?? printing.id));
+  }
   return frozenPrintingIds(canonicalCards
     .filter((card) => card?.verificationStatus === 'verified' && String(card.setId || '') === setId)
     .map((card) => card.printingId));
@@ -115,6 +120,7 @@ export function buildSetCompletionPreview({
   userId,
   set,
   canonicalCards,
+  canonicalPrintings = null,
   collectionItems,
   assertion = null,
   preferredLanguageCode = 'en',
@@ -123,9 +129,10 @@ export function buildSetCompletionPreview({
   const ownerId = requireText(userId, 'userId');
   if (!set || typeof set !== 'object') throw new TypeError('set is required');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
+  if (canonicalPrintings != null && !Array.isArray(canonicalPrintings)) throw new TypeError('canonicalPrintings must be an array when provided');
   if (!Array.isArray(collectionItems)) throw new TypeError('collectionItems must be an array');
   const setId = requireText(set.id, 'set.id');
-  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
+  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings });
   if (catalogue.status !== 'complete') {
     throw taggedError(
       'SET_CHECKLIST_UNAVAILABLE',
@@ -134,11 +141,12 @@ export function buildSetCompletionPreview({
     );
   }
 
-  const cataloguePrintingIds = canonicalPrintingIdsForSet(setId, canonicalCards);
+  const cataloguePrintingIds = canonicalPrintingIdsForSet(setId, canonicalCards, canonicalPrintings);
   const assertedPrintingIds = assertion?.active === true ? frozenPrintingIds(assertion.printingIds) : Object.freeze([]);
   const progress = computeCollectionSetProgress({
     set,
     canonicalCards,
+    canonicalPrintings,
     collectionItems,
     assertedPrintingIds,
     preferredLanguageCode,
@@ -213,14 +221,15 @@ export async function listSetCompletionAssertionsFromStore(store, { userId, setI
 }
 
 async function previewInputsFromStore(store, { userId, setId }) {
-  const [set, canonicalCards, collectionItems, assertions] = await Promise.all([
+  const [set, canonicalCards, canonicalPrintings, collectionItems, assertions] = await Promise.all([
     getVerifiedCardSetFromStore(store, setId),
     listVerifiedCardsFromStore(store, { setId, limit: 500 }),
+    listVerifiedPrintingsFromStore(store, { setId, limit: 1000 }),
     listCollectionItemsFromStore(store, { userId, limit: 2000 }),
     listSetCompletionAssertionsFromStore(store, { userId, setIds: [setId] }),
   ]);
   if (!set) throw taggedError('SET_IDENTITY_NOT_VERIFIED', 'Verified set identity is not available.');
-  return { set, canonicalCards, collectionItems, assertion: assertions[0] ?? null };
+  return { set, canonicalCards, canonicalPrintings, collectionItems, assertion: assertions[0] ?? null };
 }
 
 export async function previewSetCompletionFromStore(store, {
@@ -253,6 +262,9 @@ function filePreview(state, { userId, setId, preferredLanguageCode, preferredVar
     printedTotal: rawSet.printedTotal ?? null,
     total: rawSet.total ?? null,
   };
+  const canonicalPrintings = Object.values(catalogue.printings || {})
+    .filter((printing) => printing?.setId === setId && printing.verificationStatus === 'verified')
+    .map((printing) => ({ ...printing, printingId: printing.id, setName: rawSet.name, tcgCode: tcg?.code ?? null }));
   const canonicalCards = Object.values(catalogue.cards || {})
     .filter((card) => card?.setId === setId)
     .map((card) => {
@@ -385,7 +397,7 @@ function dbCard(row) {
 }
 
 async function postgresPreview(client, options) {
-  const [setResult, cardResult, itemResult, assertionResult] = await Promise.all([
+  const [setResult, cardResult, printingResult, itemResult, assertionResult] = await Promise.all([
     client.query(`SELECT s.id,s.name,s.printed_total,s.total,s.verification_status,t.code AS tcg_code
       FROM fatedrop_card_sets s JOIN fatedrop_tcgs t ON t.id=s.tcg_id
       WHERE s.id=$1 AND s.verification_status='verified'`, [options.setId]),
@@ -396,6 +408,12 @@ async function postgresPreview(client, options) {
       JOIN fatedrop_card_sets s ON s.id=c.set_id
       JOIN fatedrop_tcgs t ON t.id=c.tcg_id
       WHERE c.set_id=$1 AND c.verification_status='verified' AND p.verification_status='verified' AND s.verification_status='verified'`, [options.setId]),
+    client.query(`SELECT p.id,p.set_id,p.collector_number,p.printing_code,p.name,p.rarity,p.supertype,p.verification_status,p.verified_at,
+        s.name AS set_name,t.code AS tcg_code
+      FROM fatedrop_card_printings p
+      JOIN fatedrop_card_sets s ON s.id=p.set_id
+      JOIN fatedrop_tcgs t ON t.id=p.tcg_id
+      WHERE p.set_id=$1 AND p.verification_status='verified' AND s.verification_status='verified'`, [options.setId]),
     client.query(`SELECT i.card_identity_id AS fate_card_id,i.quantity,i.copy_state,i.status
       FROM fatedrop_collection_items i
       JOIN fatedrop_collections co ON co.id=i.collection_id
@@ -411,6 +429,7 @@ async function postgresPreview(client, options) {
     userId: options.userId,
     set,
     canonicalCards: cardResult.rows.map(dbCard),
+    canonicalPrintings: printingResult.rows.map((row) => ({ id: row.id, printingId: row.id, setId: row.set_id, setName: row.set_name, tcgCode: row.tcg_code, collectorNumber: row.collector_number, printingCode: row.printing_code, name: row.name, rarity: row.rarity, supertype: row.supertype, verificationStatus: row.verification_status, verifiedAt: row.verified_at == null ? null : Number(row.verified_at) })),
     collectionItems: itemResult.rows.map((row) => ({
       fateCardId: row.fate_card_id,
       quantity: Number(row.quantity),
