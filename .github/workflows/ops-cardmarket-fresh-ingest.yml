@@ -1,0 +1,44 @@
+name: OPS Cardmarket Fresh Ingest
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-fresh-ingest-2026-09-11
+    paths:
+      - '.github/workflows/ops-cardmarket-fresh-ingest.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-fresh-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Persist fresh exact Cardmarket normal+holo observations
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload ingest audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-fresh-ingest-audit
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: warn
+          retention-days: 14
