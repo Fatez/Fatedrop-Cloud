@@ -98,6 +98,7 @@ export async function runCardmarketPokemonMarketCycle({
   futureSkewMs,
   timeoutMs,
   maxBytes,
+  includeReadiness = true,
 } = {}) {
   const selectedMode = modeValue(mode);
   if (!store || (typeof store.read !== 'function' && typeof store.pool !== 'function')) {
@@ -130,7 +131,9 @@ export async function runCardmarketPokemonMarketCycle({
     persistence = await persistMarketEvidenceBatch(store, batch);
   }
 
-  const readiness = await buildMarketDataReadinessReport(store, { sourceName: 'cardmarket' });
+  const readiness = includeReadiness
+    ? await buildMarketDataReadinessReport(store, { sourceName: 'cardmarket' })
+    : null;
 
   return Object.freeze({
     mode: selectedMode,
