@@ -1,5 +1,6 @@
 import { listCollectionItemsFromStore } from './store.mjs';
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
+import { enrichCardsWithPrintingArtwork, enrichPrintingsWithArtwork } from '../catalogue/artwork-store.mjs';
 import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { getOwnedFatePrices, exactCardValuesFromFatePrices } from './collector-summary-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
@@ -45,9 +46,13 @@ export async function getCollectionSetProgressFromStore(store, {
   const set = await getVerifiedCardSetFromStore(store, canonicalSetId);
   if (!set) return unavailable({ reason:'verified_set_not_found', setId:canonicalSetId });
 
-  const [canonicalCards, canonicalPrintings] = await Promise.all([
+  const [rawCanonicalCards, rawCanonicalPrintings] = await Promise.all([
     listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 }),
     listVerifiedPrintingsFromStore(store, { setId: canonicalSetId, limit: 1000 }),
+  ]);
+  const [canonicalCards, canonicalPrintings] = await Promise.all([
+    enrichCardsWithPrintingArtwork(store, rawCanonicalCards),
+    enrichPrintingsWithArtwork(store, rawCanonicalPrintings),
   ]);
   const printingChecklist = canonicalPrintings.length ? canonicalPrintings : null;
   const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: printingChecklist });
