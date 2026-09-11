@@ -20,9 +20,11 @@ async function seed() {
       },
       setSourceMappings:{},
       printings:{
-        p1:{id:'p1',name:'A',verificationStatus:'verified'},p2:{id:'p2',name:'B',verificationStatus:'verified'},
-        p3:{id:'p3',name:'C',verificationStatus:'verified'},p4:{id:'p4',name:'D',verificationStatus:'verified'},
-        p5:{id:'p5',name:'E',verificationStatus:'verified'},
+        p1:{id:'p1',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'ready',collectorNumber:'1',printingCode:'main',name:'A',verificationStatus:'verified'},
+        p2:{id:'p2',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'ready',collectorNumber:'2',printingCode:'main',name:'B',verificationStatus:'verified'},
+        p3:{id:'p3',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'short',collectorNumber:'1',printingCode:'main',name:'C',verificationStatus:'verified'},
+        p4:{id:'p4',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'short',collectorNumber:'2',printingCode:'main',name:'D',verificationStatus:'verified'},
+        p5:{id:'p5',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'unknown',collectorNumber:'1',printingCode:'main',name:'E',verificationStatus:'verified'},
       },
       cards:{
         c1:{id:'c1',tcgId:'fdtcg_pokemon',seriesId:'s1',setId:'ready',printingId:'p1',collectorNumber:'1',variantCode:'standard',languageCode:'en',verificationStatus:'verified'},

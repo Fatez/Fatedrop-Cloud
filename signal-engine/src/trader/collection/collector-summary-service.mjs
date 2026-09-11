@@ -1,4 +1,4 @@
-import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsByIdsFromStore } from '../catalogue/store.mjs';
+import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsByIdsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 import { getFatePricesFromStore, getPresentedFatePricesFromStore } from '../value/fate-price-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
@@ -84,8 +84,14 @@ export async function getFateCollectorSummaryFromStore(store, {
   const binderSetIds=[...new Set([...ownedSetIds,...explicitlyTrackedSetIds,...userConfirmedSetIds])];
   const sets=await listVerifiedCardSetsByIdsFromStore(store,binderSetIds,{limit:2000});
   const canonicalCards=[];
+  const canonicalPrintings=[];
   for(const set of sets){
-    canonicalCards.push(...await listVerifiedCardsFromStore(store,{setId:set.id,limit:500}));
+    const [cards,printings]=await Promise.all([
+      listVerifiedCardsFromStore(store,{setId:set.id,limit:500}),
+      listVerifiedPrintingsFromStore(store,{setId:set.id,limit:1000}),
+    ]);
+    canonicalCards.push(...cards);
+    canonicalPrintings.push(...printings);
   }
 
   const fatePriceRead = await getOwnedFatePrices(store, ownedCards.map((card) => card.fateCardId), {
@@ -98,6 +104,7 @@ export async function getFateCollectorSummaryFromStore(store, {
   const computedSummary=computeFateCollectorSummary({
     sets,
     canonicalCards,
+    canonicalPrintings: canonicalPrintings.length ? canonicalPrintings : null,
     collectionItems,
     exactCardValues,
     gradedCardValues:[],

@@ -1,6 +1,7 @@
 import { listCollectionItemsFromStore } from './store.mjs';
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
-import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore } from '../catalogue/store.mjs';
+import { enrichCardsWithPrintingArtwork, enrichPrintingsWithArtwork } from '../catalogue/artwork-store.mjs';
+import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { getOwnedFatePrices, exactCardValuesFromFatePrices } from './collector-summary-service.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
@@ -45,8 +46,16 @@ export async function getCollectionSetProgressFromStore(store, {
   const set = await getVerifiedCardSetFromStore(store, canonicalSetId);
   if (!set) return unavailable({ reason:'verified_set_not_found', setId:canonicalSetId });
 
-  const canonicalCards = await listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 });
-  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
+  const [rawCanonicalCards, rawCanonicalPrintings] = await Promise.all([
+    listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 }),
+    listVerifiedPrintingsFromStore(store, { setId: canonicalSetId, limit: 1000 }),
+  ]);
+  const [canonicalCards, canonicalPrintings] = await Promise.all([
+    enrichCardsWithPrintingArtwork(store, rawCanonicalCards),
+    enrichPrintingsWithArtwork(store, rawCanonicalPrintings),
+  ]);
+  const printingChecklist = canonicalPrintings.length ? canonicalPrintings : null;
+  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: printingChecklist });
   if (catalogue.status !== 'complete') {
     return unavailable({
       reason: catalogue.reason,
@@ -81,6 +90,7 @@ export async function getCollectionSetProgressFromStore(store, {
   const summary = computeFateCollectorSummary({
     sets: [set],
     canonicalCards,
+    canonicalPrintings: printingChecklist,
     collectionItems,
     exactCardValues,
     printingValues,

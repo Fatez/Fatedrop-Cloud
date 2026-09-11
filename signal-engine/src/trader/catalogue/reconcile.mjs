@@ -43,6 +43,110 @@ function compactSetEvidence(evidence) {
   });
 }
 
+function sourceSetPair(setMatch, left, right, leftSetId, rightSetId) {
+  return left.sourceName === 'tcgdex'
+    && right.sourceName === 'pokemontcg-api'
+    && left.sourceSetCode === leftSetId
+    && right.sourceSetCode === rightSetId
+    && setEvidenceContains(setMatch, left)
+    && setEvidenceContains(setMatch, right);
+}
+
+function reviewedCardEvidenceDifferences(setMatch, left, right) {
+  const differences = [];
+  const leftNumber = normaliseCollectorNumber(left.collectorNumber);
+  const rightNumber = normaliseCollectorNumber(right.collectorNumber);
+  const leftName = normaliseComparableName(left.name);
+  const rightName = normaliseComparableName(right.name);
+
+  if (leftNumber === rightNumber && rightName === `${leftName} lv x`) {
+    differences.push(Object.freeze({
+      field: 'cardName',
+      left: left.name,
+      right: right.name,
+      reason: 'reviewed_pokemontcg_lv_x_suffix_convention',
+    }));
+  }
+
+  const exactNameConventions = [
+    ['swsh2', 'swsh2', "Boss's Orders (Giovanni)", "Boss's Orders"],
+    ['sv02', 'sv2', "Boss's Orders", "Boss's Orders (Ghetsis)"],
+    ['swsh4.5', 'swsh45', "Boss's Orders (Lysandre)", "Boss's Orders"],
+    ['swsh4.5', 'swsh45', "Professor's Research (Professor Juniper)", "Professor's Research"],
+    ['sv01', 'sv1', "Professor's Research", "Professor's Research (Professor Sada)"],
+    ['sv01', 'sv1', "Professor's Research", "Professor's Research (Professor Turo)"],
+    ['ex11', 'ex11', 'Groudon Star', 'Groudon ★'],
+    ['ex11', 'ex11', 'Kyogre Star', 'Kyogre ★'],
+    ['ex11', 'ex11', 'Metagross Star', 'Metagross ★'],
+    ['ex13', 'ex13', 'Mewtwo Star', 'Mewtwo ★'],
+    ['ex13', 'ex13', 'Pikachu Star', 'Pikachu ★'],
+    ['bw6', 'bw6', 'Blend Energy Grass Fire Psychic Darkness', 'Blend Energy GrassFirePsychicDarkness'],
+    ['bw6', 'bw6', 'Blend Energy Water Lightning Fighting Metal', 'Blend Energy WaterLightningFightingMetal'],
+    ['base4', 'base4', 'Impostor Professor Oak', 'Imposter Professor Oak'],
+  ];
+  for (const [leftSetId, rightSetId, expectedLeftName, expectedRightName] of exactNameConventions) {
+    if (leftNumber === rightNumber
+      && sourceSetPair(setMatch, left, right, leftSetId, rightSetId)
+      && left.name === expectedLeftName
+      && right.name === expectedRightName) {
+      differences.push(Object.freeze({
+        field: 'cardName',
+        left: left.name,
+        right: right.name,
+        reason: 'reviewed_exact_source_card_name_convention',
+      }));
+    }
+  }
+
+  if (sourceSetPair(setMatch, left, right, 'bwp', 'bwp')
+    && leftName === rightName) {
+    const leftPromo = leftNumber.match(/^bw0([45])$/);
+    const rightPromo = rightNumber.match(/^bw00([45])$/);
+    if (leftPromo && rightPromo && leftPromo[1] === rightPromo[1]) {
+      differences.push(Object.freeze({
+        field: 'collectorNumber',
+        left: left.collectorNumber,
+        right: right.collectorNumber,
+        reason: 'reviewed_bw_promo_zero_padding_convention',
+      }));
+    }
+  }
+
+  const ecardHoloPair = (
+    sourceSetPair(setMatch, left, right, 'ecard2', 'ecard2')
+    || sourceSetPair(setMatch, left, right, 'ecard3', 'ecard3')
+  );
+  if (ecardHoloPair && leftName === rightName) {
+    const leftMatch = leftNumber.match(/^h0([1-9])$/);
+    const rightMatch = rightNumber.match(/^h([1-9])$/);
+    if (leftMatch && rightMatch && leftMatch[1] === rightMatch[1]) {
+      differences.push(Object.freeze({
+        field: 'collectorNumber',
+        left: left.collectorNumber,
+        right: right.collectorNumber,
+        reason: 'reviewed_ecard_holo_zero_padding_convention',
+      }));
+    }
+  }
+
+  return Object.freeze(differences);
+}
+
+export function allowsReviewedCardEvidenceAlias(setMatch, left, right) {
+  if (!setMatch || setMatch.status !== 'matched' || !left || !right) return false;
+  if (!setEvidenceContains(setMatch, left) || !setEvidenceContains(setMatch, right)) return false;
+  const differences = reviewedCardEvidenceDifferences(setMatch, left, right);
+  if (!differences.length) return false;
+
+  const leftNumber = normaliseCollectorNumber(left.collectorNumber);
+  const rightNumber = normaliseCollectorNumber(right.collectorNumber);
+  const leftName = normaliseComparableName(left.name);
+  const rightName = normaliseComparableName(right.name);
+  const numberAccepted = leftNumber === rightNumber || differences.some((entry) => entry.field === 'collectorNumber');
+  const nameAccepted = leftName === rightName || differences.some((entry) => entry.field === 'cardName');
+  return numberAccepted && nameAccepted && left.printingCode === right.printingCode;
+}
+
 function allowsCelebrationsClassicCollectorAlias(setMatch, variantEvidence, corroboratingEvidence) {
   return variantEvidence.sourceName === 'tcgdex'
     && variantEvidence.sourceSetCode === 'cel25cc'
@@ -220,6 +324,58 @@ export function reconcileSetEvidence(left, right) {
   });
 }
 
+export function reconcileChecklistPrintingEvidence(baseEvidence, corroboratingEvidence, setMatch) {
+  if (!baseEvidence || !corroboratingEvidence) throw new TypeError('two base card evidence records are required');
+  if (!setMatch || setMatch.status !== 'matched') {
+    return Object.freeze({ status: 'insufficient', reason: 'verified_set_crosswalk_required' });
+  }
+  if (baseEvidence.sourceName === corroboratingEvidence.sourceName) {
+    return Object.freeze({ status: 'insufficient', reason: 'independent_sources_required' });
+  }
+  if (!setEvidenceContains(setMatch, baseEvidence) || !setEvidenceContains(setMatch, corroboratingEvidence)) {
+    return Object.freeze({ status: 'conflict', field: 'sourceSet', left: baseEvidence.sourceSetCode, right: corroboratingEvidence.sourceSetCode });
+  }
+  if (baseEvidence.tcgCode !== corroboratingEvidence.tcgCode || baseEvidence.tcgCode !== setMatch.tcgCode) {
+    return conflict('tcgCode', baseEvidence.tcgCode, corroboratingEvidence.tcgCode);
+  }
+  if (baseEvidence.languageCode !== corroboratingEvidence.languageCode || baseEvidence.languageCode !== 'en') {
+    return conflict('languageCode', baseEvidence.languageCode, corroboratingEvidence.languageCode);
+  }
+  const reviewedDifferences = reviewedCardEvidenceDifferences(setMatch, baseEvidence, corroboratingEvidence);
+  if (normaliseComparableName(baseEvidence.name) !== normaliseComparableName(corroboratingEvidence.name)
+    && !reviewedDifferences.some((entry) => entry.field === 'cardName')) {
+    return conflict('cardName', baseEvidence.name, corroboratingEvidence.name);
+  }
+  if (normaliseCollectorNumber(baseEvidence.collectorNumber) !== normaliseCollectorNumber(corroboratingEvidence.collectorNumber)
+    && !reviewedDifferences.some((entry) => entry.field === 'collectorNumber')) {
+    return conflict('collectorNumber', baseEvidence.collectorNumber, corroboratingEvidence.collectorNumber);
+  }
+  if (baseEvidence.printingCode !== corroboratingEvidence.printingCode) {
+    return conflict('printingCode', baseEvidence.printingCode, corroboratingEvidence.printingCode);
+  }
+  return Object.freeze({
+    status: 'matched',
+    tcgCode: setMatch.tcgCode,
+    seriesCode: setMatch.canonicalSeriesId,
+    setCode: setMatch.canonicalSetId,
+    collectorNumber: baseEvidence.collectorNumber,
+    printingCode: baseEvidence.printingCode,
+    name: baseEvidence.name,
+    rarity: baseEvidence.rarity ?? corroboratingEvidence.rarity ?? null,
+    supertype: baseEvidence.supertype ?? corroboratingEvidence.supertype ?? null,
+    subtypes: Object.freeze([...(corroboratingEvidence.subtypes || [])]),
+    nationalDexNumbers: Object.freeze([...(corroboratingEvidence.nationalDexNumbers || [])]),
+    acceptedDifferences: reviewedDifferences,
+    verificationBasis: Object.freeze({
+      kind: 'base_printing_cross_source',
+      sources: Object.freeze([
+        compactSetEvidence({ ...baseEvidence, sourceRecordId: baseEvidence.sourceRecordId }),
+        compactSetEvidence({ ...corroboratingEvidence, sourceRecordId: corroboratingEvidence.sourceRecordId }),
+      ]),
+    }),
+  });
+}
+
 export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setMatch) {
   if (!variantRecord || !corroboratingEvidence) {
     throw new TypeError('variant and corroborating card evidence are required');
@@ -269,14 +425,16 @@ export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setM
 
   const variantName = normaliseComparableName(variantEvidence.name);
   const corroboratingName = normaliseComparableName(corroboratingEvidence.name);
-  if (variantName !== corroboratingName) {
+  const reviewedDifferences = reviewedCardEvidenceDifferences(setMatch, variantEvidence, corroboratingEvidence);
+  if (variantName !== corroboratingName && !reviewedDifferences.some((entry) => entry.field === 'cardName')) {
     return conflict('cardName', variantEvidence.name, corroboratingEvidence.name);
   }
 
   const variantNumber = normaliseCollectorNumber(variantEvidence.collectorNumber);
   const corroboratingNumber = normaliseCollectorNumber(corroboratingEvidence.collectorNumber);
   const acceptedCollectorAlias = allowsCelebrationsClassicCollectorAlias(setMatch, variantEvidence, corroboratingEvidence);
-  if (variantNumber !== corroboratingNumber && !acceptedCollectorAlias) {
+  const acceptedReviewedNumber = reviewedDifferences.some((entry) => entry.field === 'collectorNumber');
+  if (variantNumber !== corroboratingNumber && !acceptedCollectorAlias && !acceptedReviewedNumber) {
     return conflict('collectorNumber', variantEvidence.collectorNumber, corroboratingEvidence.collectorNumber);
   }
 
@@ -311,13 +469,14 @@ export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setM
       sourceRecordId: corroboratingEvidence.sourceRecordId,
       sourceUrl: corroboratingEvidence.sourceUrl,
     }),
-    acceptedDifferences: acceptedCollectorAlias && variantNumber !== corroboratingNumber
-      ? Object.freeze([Object.freeze({
+    acceptedDifferences: Object.freeze([
+      ...reviewedDifferences,
+      ...(acceptedCollectorAlias && variantNumber !== corroboratingNumber ? [Object.freeze({
         field: 'collectorNumber',
         left: variantEvidence.collectorNumber,
         right: corroboratingEvidence.collectorNumber,
         reason: 'celebrations_classic_source_numbering_convention',
-      })])
-      : Object.freeze([]),
+      })] : []),
+    ]),
   });
 }

@@ -1,7 +1,10 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
+import { selectChecklistArtworkEvidence } from './artwork.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
-import { normaliseComparableName, reconcileCardEvidence, reconcileSetEvidence } from './reconcile.mjs';
+import { reviewedChecklistCorroboration } from './checklist-reviewed-conventions.mjs';
+import { reviewedOfficialChecklistPrinting } from './official-checklist-supplements.mjs';
+import { allowsReviewedCardEvidenceAlias, normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
 
 function comparableSetKey(evidence) {
   return `${normaliseComparableName(evidence.seriesName)}|${normaliseComparableName(evidence.setName)}`;
@@ -22,16 +25,35 @@ function setMatchHasEvidence(setMatch, sourceName, sourceRecordId) {
   return setMatch.evidence?.some((entry) => entry.sourceName === sourceName && entry.sourceRecordId === sourceRecordId) === true;
 }
 
-// Celebrations Classic Collection is a numbered subset in TCGdex (CC001..CC025),
-// while PokemonTCG/pokemon-tcg-data retains each reprint's original collector number.
-// The two providers therefore cannot share the normal number+name lookup key. Keep
-// this exception narrow: only the already-verified cel25cc <-> cel25c set crosswalk
-// may fall back to an exact, unique normalized card name. Canonical collector IDs
-// remain the TCGdex CC numbers, so cards that share an original vintage number do
-// not collapse into one printing.
+function withChecklistArtwork(printing, ...evidences) {
+  const artwork = selectChecklistArtworkEvidence(...evidences);
+  if (!artwork) return printing;
+  return Object.freeze({
+    ...printing,
+    thumbnailUrl: artwork.thumbnailUrl,
+    artworkEvidence: artwork,
+  });
+}
+
 function allowsCelebrationsClassicNameAlias(setMatch) {
   return setMatchHasEvidence(setMatch, 'tcgdex', 'cel25cc')
     && setMatchHasEvidence(setMatch, 'pokemontcg-api', 'cel25c');
+}
+
+function celebrationsChecklistCandidate(baseEvidence, candidate, enabled) {
+  if (!enabled || !candidate) return null;
+  if (normaliseComparableName(baseEvidence.name) !== normaliseComparableName(candidate.name)) return null;
+  if (normaliseCollectorNumber(baseEvidence.collectorNumber) === normaliseCollectorNumber(candidate.collectorNumber)) return null;
+  return Object.freeze({
+    evidence: Object.freeze({ ...candidate, collectorNumber: baseEvidence.collectorNumber }),
+    artworkEvidence: candidate,
+    acceptedDifferences: Object.freeze([Object.freeze({
+      field: 'collectorNumber',
+      left: baseEvidence.collectorNumber,
+      right: candidate.collectorNumber,
+      reason: 'celebrations_classic_source_numbering_convention',
+    })]),
+  });
 }
 
 export function reconcilePokemonSetCollections(tcgdexSets, pokemonTcgSets) {
@@ -90,8 +112,6 @@ export function reconcilePokemonCardCollections({
     throw new TypeError('matched set crosswalk is required');
   }
 
-  // The pinned publisher includes symbolic Unown numbers absent from TCGdex ex10.
-  // Hold only these exact records: do not normalize symbols or invent a counterpart.
   const unsupportedPublisherEvidence = [];
   const right = pokemonTcgCards.flatMap((card) => {
     const evidence = adaptPokemonTcgCardEvidence(card);
@@ -101,10 +121,7 @@ export function reconcilePokemonCardCollections({
       && card.set.series === 'EX' && card.name === 'Unown'
       && ((card.id === 'ex10-!' && card.number === '!')
         || (card.id === 'ex10-?' && card.number === '?'))) {
-      unsupportedPublisherEvidence.push(Object.freeze({
-        ...evidence,
-        reason: 'symbolic_collector_number_not_supported',
-      }));
+      unsupportedPublisherEvidence.push(Object.freeze({ ...evidence, reason: 'symbolic_collector_number_not_supported' }));
       return [];
     }
     return [evidence];
@@ -117,6 +134,7 @@ export function reconcilePokemonCardCollections({
   }
 
   const matched = [];
+  const checklistPrintings = [];
   const conflicts = [];
   const quarantined = [];
   const unmatched = [];
@@ -124,6 +142,58 @@ export function reconcilePokemonCardCollections({
 
   for (const rawCard of tcgdexCards) {
     const variantRecord = adaptTcgdexCard(rawCard, { sourceSeriesCode, languageCode });
+    let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
+    if (candidates.length === 0) {
+      const reviewedCandidates = right.filter((evidence) => allowsReviewedCardEvidenceAlias(setMatch, variantRecord.baseEvidence, evidence));
+      if (reviewedCandidates.length) candidates = reviewedCandidates;
+    }
+    if (candidates.length === 0 && celebrationsClassicAlias) {
+      candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
+    }
+
+    let checklistCandidate = candidates.length === 1
+      ? Object.freeze({ evidence: candidates[0], artworkEvidence: candidates[0], acceptedDifferences: Object.freeze([]) })
+      : null;
+    if (checklistCandidate && celebrationsClassicAlias) {
+      checklistCandidate = celebrationsChecklistCandidate(variantRecord.baseEvidence, candidates[0], true) || checklistCandidate;
+    }
+    if (!checklistCandidate) {
+      const reviewedChecklistCandidates = right
+        .map((evidence) => reviewedChecklistCorroboration(setMatch, variantRecord.baseEvidence, evidence))
+        .filter(Boolean);
+      if (reviewedChecklistCandidates.length === 1) {
+        checklistCandidate = Object.freeze({
+          ...reviewedChecklistCandidates[0],
+          artworkEvidence: reviewedChecklistCandidates[0].evidence,
+        });
+      }
+    }
+
+    const officialChecklist = checklistCandidate
+      ? null
+      : reviewedOfficialChecklistPrinting(setMatch, variantRecord.baseEvidence);
+    if (officialChecklist) {
+      checklistPrintings.push(withChecklistArtwork(officialChecklist, officialChecklist, variantRecord.baseEvidence));
+    } else if (checklistCandidate) {
+      const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, checklistCandidate.evidence, setMatch);
+      if (checklist.status === 'matched') {
+        const reconciled = checklistCandidate.acceptedDifferences.length
+          ? Object.freeze({
+            ...checklist,
+            acceptedDifferences: Object.freeze([
+              ...(checklist.acceptedDifferences || []),
+              ...checklistCandidate.acceptedDifferences,
+            ]),
+          })
+          : checklist;
+        checklistPrintings.push(withChecklistArtwork(
+          reconciled,
+          variantRecord.baseEvidence,
+          checklistCandidate.artworkEvidence,
+        ));
+      }
+    }
+
     if (variantRecord.status === 'quarantined') {
       quarantined.push(Object.freeze({
         sourceName: variantRecord.baseEvidence.sourceName,
@@ -133,10 +203,6 @@ export function reconcilePokemonCardCollections({
       continue;
     }
 
-    let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
-    if (candidates.length === 0 && celebrationsClassicAlias) {
-      candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
-    }
     if (candidates.length !== 1) {
       unmatched.push(Object.freeze({
         sourceName: variantRecord.baseEvidence.sourceName,
@@ -164,6 +230,7 @@ export function reconcilePokemonCardCollections({
   return Object.freeze({
     ...(unsupportedPublisherEvidence.length ? { unsupportedPublisherEvidence: Object.freeze(unsupportedPublisherEvidence) } : {}),
     matched: Object.freeze(matched),
+    checklistPrintings: Object.freeze(checklistPrintings),
     conflicts: Object.freeze(conflicts),
     quarantined: Object.freeze(quarantined),
     unmatched: Object.freeze(unmatched),

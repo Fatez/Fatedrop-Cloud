@@ -1,5 +1,5 @@
 import { assessCanonicalSetCompleteness } from './completeness.mjs';
-import { listVerifiedCardsFromStore, listVerifiedCardSetsFromStore } from './store.mjs';
+import { listVerifiedCardsFromStore, listVerifiedCardSetsFromStore, listVerifiedPrintingsFromStore } from './store.mjs';
 import { requireKnownTcg } from '../tcg-registry.mjs';
 
 export async function auditCollectorCatalogueFromStore(store, {
@@ -11,8 +11,11 @@ export async function auditCollectorCatalogueFromStore(store, {
   const results = [];
 
   for (const set of sets) {
-    const canonicalCards = await listVerifiedCardsFromStore(store, { setId:set.id, limit:500 });
-    const completeness = assessCanonicalSetCompleteness({ set, canonicalCards });
+    const [canonicalCards, canonicalPrintings] = await Promise.all([
+      listVerifiedCardsFromStore(store, { setId:set.id, limit:500 }),
+      listVerifiedPrintingsFromStore(store, { setId:set.id, limit:1000 }),
+    ]);
+    const completeness = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: canonicalPrintings.length ? canonicalPrintings : null });
     results.push(Object.freeze({
       tcgCode: capability.code,
       setId: set.id,

@@ -16,10 +16,11 @@ function tcgDisplayName(code) {
   return String(code || '').trim().toUpperCase();
 }
 
-export function buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt = Date.now() }) {
+export function buildVerifiedCatalogueBatch({ setMatch, promotions = [], checklistPrintings = [], verifiedAt = Date.now() }) {
   const now = requireVerifiedAt(verifiedAt);
   if (!setMatch || setMatch.status !== 'matched') throw new TypeError('matched set evidence is required');
-  if (!Array.isArray(promotions) || promotions.length === 0) throw new TypeError('verified card promotions are required');
+  if (!Array.isArray(promotions) || !Array.isArray(checklistPrintings)) throw new TypeError('catalogue evidence arrays are required');
+  if (promotions.length === 0 && checklistPrintings.length === 0) throw new TypeError('verified card or checklist-printing evidence is required');
 
   const identities = promotions.flatMap((promotion) => {
     if (promotion?.status !== 'verified' || !Array.isArray(promotion.identities)) {
@@ -27,7 +28,6 @@ export function buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt =
     }
     return promotion.identities;
   });
-  if (!identities.length) throw new TypeError('verified card identities are required');
 
   const tcgId = makeFateTcgId(setMatch.tcgCode);
   const tcg = Object.freeze({
@@ -76,6 +76,51 @@ export function buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt =
   })));
 
   const printingsById = new Map();
+  for (const printing of checklistPrintings) {
+    if (printing?.status !== 'matched'
+      || printing.tcgCode !== setMatch.tcgCode
+      || printing.seriesCode !== setMatch.canonicalSeriesId
+      || printing.setCode !== setMatch.canonicalSetId) {
+      throw new TypeError('checklist printing does not belong to matched canonical set');
+    }
+    const printingId = makeFatePrintingId({
+      tcgCode: printing.tcgCode,
+      seriesCode: printing.seriesCode,
+      setCode: printing.setCode,
+      collectorNumber: printing.collectorNumber,
+      printingCode: printing.printingCode,
+    });
+    const artwork = printing.thumbnailUrl
+      ? Object.freeze({
+        thumbnailUrl: printing.thumbnailUrl,
+        sourceName: printing.artworkEvidence?.sourceName ?? null,
+        sourceRecordId: printing.artworkEvidence?.sourceRecordId ?? null,
+        sourceUrl: printing.artworkEvidence?.sourceUrl ?? null,
+      })
+      : null;
+    printingsById.set(printingId, Object.freeze({
+      id: printingId,
+      tcgId,
+      seriesId: setMatch.canonicalSeriesId,
+      setId: setMatch.canonicalSetId,
+      printingCode: printing.printingCode,
+      collectorNumber: printing.collectorNumber,
+      name: printing.name,
+      rarity: printing.rarity ?? null,
+      supertype: printing.supertype ?? null,
+      subtypes: Object.freeze([...(printing.subtypes || [])]),
+      nationalDexNumbers: Object.freeze([...(printing.nationalDexNumbers || [])]),
+      attributes: Object.freeze({
+        checklistEvidence: printing.verificationBasis ?? null,
+        identityReleaseStatus: 'finish_or_edition_evidence_required',
+        artwork,
+      }),
+      verificationStatus: 'verified',
+      verifiedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    }));
+  }
   const cardIdentities = [];
   const cardSourceMappings = [];
   const cardProvenance = [];

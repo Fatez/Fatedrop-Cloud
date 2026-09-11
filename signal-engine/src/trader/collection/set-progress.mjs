@@ -40,9 +40,10 @@ export function selectPreferredPrintingRepresentative(cards, {
 
 function publicMissingCard(card) {
   if (!card) return null;
+  const fateCardId = text(card.fateCardId);
   return Object.freeze({
-    fateCardId: card.fateCardId ?? card.id,
-    printingId: card.printingId,
+    fateCardId: fateCardId || null,
+    printingId: card.printingId ?? card.id,
     setId: card.setId,
     setName: card.setName ?? null,
     tcgCode: card.tcgCode ?? null,
@@ -51,6 +52,8 @@ function publicMissingCard(card) {
     rarity: card.rarity ?? null,
     variantCode: card.variantCode ?? null,
     languageCode: card.languageCode ?? null,
+    thumbnailUrl: card.thumbnailUrl ?? null,
+    identityStatus: fateCardId ? 'verified_exact_identity' : 'printing_only_finish_or_edition_unresolved',
   });
 }
 
@@ -64,6 +67,7 @@ function publicMissingCard(card) {
 export function computeCollectionSetProgress({
   set,
   canonicalCards,
+  canonicalPrintings = null,
   collectionItems,
   assertedPrintingIds = [],
   preferredLanguageCode = null,
@@ -73,6 +77,7 @@ export function computeCollectionSetProgress({
   const setId = text(set.id);
   if (!setId) throw new TypeError('set.id is required');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
+  if (canonicalPrintings != null && !Array.isArray(canonicalPrintings)) throw new TypeError('canonicalPrintings must be an array when provided');
   if (!Array.isArray(collectionItems)) throw new TypeError('collectionItems must be an array');
   if (!Array.isArray(assertedPrintingIds)) throw new TypeError('assertedPrintingIds must be an array');
 
@@ -84,13 +89,27 @@ export function computeCollectionSetProgress({
     .filter((card) => text(card.printingId) && text(card.fateCardId ?? card.id));
 
   const printings = new Map();
+  const identitiesByPrinting = new Map();
   const cardToPrinting = new Map();
   for (const card of verifiedCards) {
     const printingId = text(card.printingId);
     const fateCardId = text(card.fateCardId ?? card.id);
-    if (!printings.has(printingId)) printings.set(printingId, []);
-    printings.get(printingId).push(card);
+    if (!identitiesByPrinting.has(printingId)) identitiesByPrinting.set(printingId, []);
+    identitiesByPrinting.get(printingId).push(card);
     cardToPrinting.set(fateCardId, printingId);
+  }
+  if (canonicalPrintings != null) {
+    for (const printing of canonicalPrintings) {
+      if (!printing || printing.verificationStatus !== VERIFIED || text(printing.setId) !== setId) continue;
+      const printingId = text(printing.printingId ?? printing.id);
+      if (!printingId) continue;
+      printings.set(printingId, { ...printing, printingId });
+    }
+  } else {
+    for (const [printingId, identities] of identitiesByPrinting) {
+      const representative = selectPreferredPrintingRepresentative(identities, { preferredLanguageCode, preferredVariantCode });
+      if (representative) printings.set(printingId, representative);
+    }
   }
 
   if (printings.size === 0) {
@@ -132,7 +151,10 @@ export function computeCollectionSetProgress({
 
   const missingCards = [...printings.entries()]
     .filter(([printingId]) => !completedPrintingIds.has(printingId))
-    .map(([, identities]) => selectPreferredPrintingRepresentative(identities, { preferredLanguageCode, preferredVariantCode }))
+    .map(([printingId, printing]) => (
+      selectPreferredPrintingRepresentative(identitiesByPrinting.get(printingId) || [], { preferredLanguageCode, preferredVariantCode })
+      || printing
+    ))
     .filter(Boolean)
     .sort(compareCards)
     .map(publicMissingCard);

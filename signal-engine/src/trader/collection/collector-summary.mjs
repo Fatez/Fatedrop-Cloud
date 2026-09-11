@@ -71,6 +71,7 @@ function closestSet(summaries) {
 export function computeFateCollectorSummary({
   sets,
   canonicalCards,
+  canonicalPrintings = null,
   collectionItems,
   exactCardValues = [],
   gradedCardValues = [],
@@ -82,6 +83,7 @@ export function computeFateCollectorSummary({
 } = {}) {
   if (!Array.isArray(sets)) throw new TypeError('sets must be an array');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
+  if (canonicalPrintings != null && !Array.isArray(canonicalPrintings)) throw new TypeError('canonicalPrintings must be an array when provided');
   if (!Array.isArray(collectionItems)) throw new TypeError('collectionItems must be an array');
   if (!Array.isArray(setCompletionAssertions)) throw new TypeError('setCompletionAssertions must be an array');
 
@@ -123,12 +125,14 @@ export function computeFateCollectorSummary({
   );
 
   const setSummaries = sets.map((set) => {
-    const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards });
+    const setPrintings = canonicalPrintings == null ? null : canonicalPrintings.filter((printing) => text(printing.setId) === set.id);
+    const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: setPrintings });
     if (catalogue.status !== 'complete') return setSummaryUnavailable(set, catalogue);
 
     const progress = computeCollectionSetProgress({
       set,
       canonicalCards,
+      canonicalPrintings: setPrintings,
       collectionItems: rawHoldings,
       assertedPrintingIds: assertionsBySet.get(set.id)?.printingIds ?? [],
       preferredLanguageCode,

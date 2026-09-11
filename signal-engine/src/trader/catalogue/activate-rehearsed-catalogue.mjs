@@ -22,10 +22,10 @@ export function validateEvidence(report) {
   assert.equal(report.status, 'passed');
   assert.equal(report.productionWrites, false);
   assert.equal(report.sourceRevision, REVISION);
-  assert.equal(report.saved.verified_sets, 157);
-  assert.equal(report.saved.printings, 19087);
-  assert.equal(report.saved.verified_identities, 27624);
-  assert.equal(report.saved.source_mappings, 27624);
+  assert.equal(report.saved.verified_sets, 165);
+  assert.equal(report.saved.printings, 20023);
+  assert.equal(report.saved.verified_identities, 27720);
+  assert.equal(report.saved.source_mappings, 27720);
   assert.equal(report.saved.orphan_sets, 0);
   assert.equal(report.saved.orphan_printings, 0);
   assert.equal(report.saved.orphan_mappings, 0);
@@ -88,8 +88,21 @@ export async function recount(db) {
     (SELECT count(*)::int FROM fatedrop_card_source_mappings m LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id WHERE c.id IS NULL) orphan_mappings,
     (SELECT count(*)::int FROM (SELECT printing_id,variant_code,language_code FROM fatedrop_card_identities GROUP BY 1,2,3 HAVING count(*)>1) d) duplicate_identities`)).rows[0];
 }
+export async function recountMarketEvidence(db) {
+  return (await db.query(`SELECT
+    count(*)::int observations,
+    count(DISTINCT o.card_identity_id)::int distinct_priced_identities,
+    count(*) FILTER (WHERE c.id IS NULL)::int orphan_price_identities,
+    max(o.market_day)::text latest_market_day
+    FROM fatedrop_market_observations o
+    LEFT JOIN fatedrop_card_identities c ON c.id=o.card_identity_id
+    WHERE o.source_name='cardmarket'`)).rows[0];
+}
 function integrity(counts) {
   for (const key of ['orphan_sets','orphan_printings','orphan_mappings','duplicate_identities']) assert.equal(counts[key], 0, key);
+}
+function marketEvidenceIntegrity(counts) {
+  assert.equal(counts.orphan_price_identities, 0, 'orphan_price_identities');
 }
 
 export async function activate({production, local, evidence, activate = false, report}) {
@@ -107,7 +120,9 @@ export async function activate({production, local, evidence, activate = false, r
   try {
     baseline = await snapshot(production);
     report.before = await recount(production);
+    report.marketEvidenceBefore = await recountMarketEvidence(production);
     integrity(report.before);
+    marketEvidenceIntegrity(report.marketEvidenceBefore);
     assert.ok(report.before.verified_sets >= 91 && report.before.verified_identities >= 17312, 'Production baseline regressed');
   } finally { await production.query('ROLLBACK'); }
   const plan = planUnion(baseline, candidate);
@@ -159,7 +174,12 @@ export async function activate({production, local, evidence, activate = false, r
     throw error;
   }
   report.after = await recount(production);
+  report.marketEvidenceAfter = await recountMarketEvidence(production);
   assert.deepEqual(report.after, report.expected, 'Post-commit recount differs; investigate concurrent activity');
+  integrity(report.after);
+  marketEvidenceIntegrity(report.marketEvidenceAfter);
+  assert.ok(report.marketEvidenceAfter.observations >= report.marketEvidenceBefore.observations, 'Existing Cardmarket observations were lost during catalogue activation');
+  assert.ok(report.marketEvidenceAfter.distinct_priced_identities >= report.marketEvidenceBefore.distinct_priced_identities, 'Existing priced identities were lost during catalogue activation');
   report.status = 'activated_and_verified';
 }
 
@@ -182,7 +202,7 @@ async function main() {
     production?.release(); local?.release();
     await Promise.all(pools.map(pool => pool.end()));
     await writeFile(`${output}/catalogue-activation.json`, JSON.stringify(report, null, 2));
-    console.log(JSON.stringify({status:report.status,productionWrites:report.productionWrites,before:report.before,expected:report.expected,after:report.after,error:report.error}));
+    console.log(JSON.stringify({status:report.status,productionWrites:report.productionWrites,before:report.before,expected:report.expected,after:report.after,marketEvidenceBefore:report.marketEvidenceBefore,marketEvidenceAfter:report.marketEvidenceAfter,error:report.error}));
   }
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

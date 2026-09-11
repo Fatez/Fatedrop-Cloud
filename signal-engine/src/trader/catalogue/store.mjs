@@ -52,6 +52,25 @@ function publicCard(card, printing, set, series, tcg) {
   };
 }
 
+function publicPrinting(printing, set, series, tcg) {
+  return {
+    id: printing.id,
+    printingId: printing.id,
+    tcgCode: tcg?.code ?? null,
+    seriesId: printing.seriesId,
+    seriesName: series?.name ?? null,
+    setId: printing.setId,
+    setName: set?.name ?? null,
+    name: printing.name,
+    collectorNumber: printing.collectorNumber,
+    rarity: printing.rarity ?? null,
+    supertype: printing.supertype ?? null,
+    printingCode: printing.printingCode,
+    verificationStatus: printing.verificationStatus,
+    verifiedAt: printing.verifiedAt ?? null,
+  };
+}
+
 function dbSet(row) {
   return {
     id: row.id,
@@ -83,6 +102,25 @@ function dbCard(row) {
     supertype: row.supertype,
     variantCode: row.variant_code,
     languageCode: row.language_code,
+    verificationStatus: row.verification_status,
+    verifiedAt: row.verified_at == null ? null : Number(row.verified_at),
+  };
+}
+
+function dbPrinting(row) {
+  return {
+    id: row.id,
+    printingId: row.id,
+    tcgCode: row.tcg_code,
+    seriesId: row.series_id,
+    seriesName: row.series_name,
+    setId: row.set_id,
+    setName: row.set_name,
+    name: row.name,
+    collectorNumber: row.collector_number,
+    rarity: row.rarity,
+    supertype: row.supertype,
+    printingCode: row.printing_code,
     verificationStatus: row.verification_status,
     verifiedAt: row.verified_at == null ? null : Number(row.verified_at),
   };
@@ -281,6 +319,53 @@ export async function listVerifiedCardSetsByIdsFromStore(store, setIds, { limit 
 export async function getVerifiedCardSetFromStore(store, setId) {
   const [set] = await listVerifiedCardSetsByIdsFromStore(store, [setId], { limit: 1 });
   return set ?? null;
+}
+
+export async function listVerifiedPrintingsFromStore(store, {
+  setId = null,
+  query = null,
+  limit = 500,
+} = {}) {
+  const safeLimit = Math.min(1000, Math.max(1, Number(limit) || 500));
+  const search = String(query || '').trim().toLowerCase();
+  if (typeof store?.read === 'function') {
+    const catalogue = fileCatalogue(await store.read());
+    return Object.values(catalogue.printings)
+      .filter((printing) => printing.verificationStatus === 'verified')
+      .filter((printing) => !setId || printing.setId === setId)
+      .filter((printing) => {
+        if (!search) return true;
+        return String(printing.name || '').toLowerCase().includes(search)
+          || String(printing.collectorNumber || '').toLowerCase().includes(search);
+      })
+      .sort((a, b) => String(a.collectorNumber).localeCompare(String(b.collectorNumber), undefined, { numeric: true }))
+      .slice(0, safeLimit)
+      .map((printing) => publicPrinting(
+        printing,
+        catalogue.sets[printing.setId],
+        catalogue.series[printing.seriesId],
+        catalogue.tcgs[printing.tcgId],
+      ));
+  }
+  if (typeof store?.pool !== 'function') return [];
+  const pool = await store.pool();
+  const values = [];
+  const conditions = ["p.verification_status='verified'", "s.verification_status='verified'"];
+  if (setId) { values.push(setId); conditions.push(`p.set_id=$${values.length}`); }
+  if (search) { values.push(`%${search}%`); conditions.push(`(LOWER(p.name) LIKE $${values.length} OR LOWER(p.collector_number) LIKE $${values.length})`); }
+  values.push(safeLimit);
+  const { rows } = await pool.query(`SELECT p.*,s.name AS set_name,ser.name AS series_name,t.code AS tcg_code
+    FROM fatedrop_card_printings p
+    JOIN fatedrop_card_sets s ON s.id=p.set_id
+    JOIN fatedrop_card_series ser ON ser.id=p.series_id
+    JOIN fatedrop_tcgs t ON t.id=p.tcg_id
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY
+      CASE WHEN p.collector_number ~ '^[0-9]+$' THEN 0 ELSE 1 END,
+      CASE WHEN p.collector_number ~ '^[0-9]+$' THEN p.collector_number::numeric END NULLS LAST,
+      LOWER(p.collector_number)
+    LIMIT $${values.length}`, values);
+  return rows.map(dbPrinting);
 }
 
 export async function listVerifiedCardsFromStore(store, {

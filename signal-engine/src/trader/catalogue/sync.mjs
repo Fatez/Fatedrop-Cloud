@@ -5,6 +5,7 @@ import { reconcilePokemonCardCollections } from './pipeline.mjs';
 import { promoteMatchedCardEvidence } from './verification.mjs';
 import { buildVerifiedCatalogueBatch } from './persistence.mjs';
 import { persistVerifiedCatalogueBatch } from './store.mjs';
+import { persistVerifiedPrintingArtwork } from './artwork-store.mjs';
 
 function requireClient(client, name) {
   if (!client || typeof client.getSet !== 'function') throw new TypeError(`${name} is required`);
@@ -108,19 +109,26 @@ export async function syncVerifiedPokemonSet({
   if (rejectedPromotion) throw new Error(`Catalogue verification promotion failed: ${rejectedPromotion.reason || 'unknown'}`);
 
   let persistence = { savedSets: 0, savedPrintings: 0, savedCards: 0 };
-  if (promotions.length) {
-    const batch = buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt });
+  if (promotions.length || cardResults.checklistPrintings?.length) {
+    const batch = buildVerifiedCatalogueBatch({
+      setMatch,
+      promotions,
+      checklistPrintings: cardResults.checklistPrintings || [],
+      verifiedAt,
+    });
     persistence = await persistVerifiedCatalogueBatch(store, batch);
+    await persistVerifiedPrintingArtwork(store, batch.printings, { observedAt: verifiedAt });
   }
 
   const lastProcessed = selectedRefs[selectedRefs.length - 1];
   const hasMore = startIndex + selectedRefs.length < refs.length;
   return Object.freeze({
     status: hasMore ? 'partial' : 'complete',
-    persisted: promotions.length > 0,
+    persisted: promotions.length > 0 || cardResults.checklistPrintings?.length > 0,
     canonicalSetId: setMatch.canonicalSetId,
     processedSourceCards: selectedRefs.length,
     matchedCardRecords: cardResults.matched.length,
+    verifiedChecklistPrintings: cardResults.checklistPrintings?.length || 0,
     verifiedCardIdentities: promotions.reduce((sum, promotion) => sum + promotion.identities.length, 0),
     conflicts: cardResults.conflicts.length,
     quarantined: cardResults.quarantined.length,
