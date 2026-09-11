@@ -5,6 +5,7 @@ import { reconcilePokemonCardCollections } from './pipeline.mjs';
 import { promoteMatchedCardEvidence } from './verification.mjs';
 import { buildVerifiedCatalogueBatch } from './persistence.mjs';
 import { persistVerifiedCatalogueBatch } from './store.mjs';
+import { persistVerifiedPrintingArtwork } from './artwork-store.mjs';
 
 function requireClient(client, name) {
   if (!client || typeof client.getSet !== 'function') throw new TypeError(`${name} is required`);
@@ -116,6 +117,7 @@ export async function syncVerifiedPokemonSet({
       verifiedAt,
     });
     persistence = await persistVerifiedCatalogueBatch(store, batch);
+    await persistVerifiedPrintingArtwork(store, batch.printings, { observedAt: verifiedAt });
   }
 
   const lastProcessed = selectedRefs[selectedRefs.length - 1];
