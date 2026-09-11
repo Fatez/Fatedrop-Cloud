@@ -113,26 +113,202 @@ async function persistFile(store, batch) {
   });
 }
 
-async function assertPostgresMapping(client, observation) {
-  const { rows } = await client.query(
-    `SELECT m.card_identity_id,m.source_name,m.source_record_id,m.source_variant_key,
-            c.verification_status
-       FROM fatedrop_card_source_mappings m
-       JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
-      WHERE m.id=$1`,
-    [observation.cardSourceMappingId],
-  );
-  const mapping = rows[0];
-  if (!mapping) throw new Error('Market observation requires a canonical card source mapping');
-  if (mapping.verification_status !== 'verified') {
+function observationPayload(observation) {
+  return {
+    id: observation.id,
+    ingest_run_id: observation.ingestRunId,
+    card_identity_id: observation.cardIdentityId,
+    card_source_mapping_id: observation.cardSourceMappingId,
+    source_name: observation.sourceName,
+    source_snapshot_id: observation.sourceSnapshotId,
+    source_record_id: observation.sourceRecordId,
+    source_variant_key: observation.sourceVariantKey,
+    market_segment_key: observation.marketSegmentKey,
+    condition_code: observation.conditionCode,
+    currency_code: observation.currencyCode,
+    observed_at: observation.observedAt,
+    source_effective_at: observation.sourceEffectiveAt,
+    market_day: observation.marketDay,
+    market_price: observation.marketPrice,
+    low_price: observation.lowPrice,
+    trend_price: observation.trendPrice,
+    avg_1d: observation.avg1d,
+    avg_7d: observation.avg7d,
+    avg_30d: observation.avg30d,
+    avg_lifetime: observation.avgLifetime,
+    excellent_plus_low: observation.excellentPlusLow,
+    metrics_json: observation.metricsJson,
+    raw_payload: observation.rawPayload,
+    content_fingerprint: observation.contentFingerprint,
+    created_at: observation.createdAt,
+  };
+}
+
+function rejectionPayload(rejection) {
+  return {
+    id: rejection.id,
+    ingest_run_id: rejection.ingestRunId,
+    source_name: rejection.sourceName,
+    source_snapshot_id: rejection.sourceSnapshotId,
+    source_record_id: rejection.sourceRecordId,
+    source_variant_key: rejection.sourceVariantKey,
+    rejection_code: rejection.rejectionCode,
+    rejection_detail: rejection.rejectionDetail,
+    raw_payload: rejection.rawPayload,
+    created_at: rejection.createdAt,
+  };
+}
+
+function assertUniqueObservationFingerprints(observations) {
+  const seen = new Map();
+  for (const observation of observations) {
+    const prior = seen.get(observation.id);
+    if (prior && prior !== observation.contentFingerprint) {
+      throw new Error('Immutable market observation conflict');
+    }
+    seen.set(observation.id, observation.contentFingerprint);
+  }
+}
+
+async function assertPostgresMappingsBulk(client, observations) {
+  if (!observations.length) return;
+  const payload = observations.map(observationPayload);
+  const { rows } = await client.query(`
+    WITH incoming AS (
+      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
+        card_source_mapping_id text,
+        card_identity_id text,
+        source_name text,
+        source_record_id text,
+        source_variant_key text
+      )
+    )
+    SELECT i.card_source_mapping_id,
+           i.card_identity_id AS incoming_card_identity_id,
+           i.source_name AS incoming_source_name,
+           i.source_record_id AS incoming_source_record_id,
+           i.source_variant_key AS incoming_source_variant_key,
+           m.card_identity_id,
+           m.source_name,
+           m.source_record_id,
+           m.source_variant_key,
+           c.verification_status
+      FROM incoming i
+      LEFT JOIN fatedrop_card_source_mappings m ON m.id=i.card_source_mapping_id
+      LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
+     WHERE m.id IS NULL
+        OR c.verification_status IS DISTINCT FROM 'verified'
+        OR m.card_identity_id IS DISTINCT FROM i.card_identity_id
+        OR m.source_name IS DISTINCT FROM i.source_name
+        OR m.source_record_id IS DISTINCT FROM i.source_record_id
+        OR m.source_variant_key IS DISTINCT FROM i.source_variant_key
+     LIMIT 1`, [JSON.stringify(payload)]);
+  const invalid = rows[0];
+  if (!invalid) return;
+  if (invalid.card_identity_id == null) {
+    throw new Error('Market observation requires a canonical card source mapping');
+  }
+  if (invalid.verification_status !== 'verified') {
     throw new Error('Market observation requires a verified canonical card identity');
   }
-  if (mapping.card_identity_id !== observation.cardIdentityId
-    || mapping.source_name !== observation.sourceName
-    || mapping.source_record_id !== observation.sourceRecordId
-    || mapping.source_variant_key !== observation.sourceVariantKey) {
-    throw new Error('Market observation card source mapping mismatch');
+  throw new Error('Market observation card source mapping mismatch');
+}
+
+async function existingObservationState(client, observations) {
+  if (!observations.length) return { duplicateObservations: 0 };
+  const payload = observations.map(observationPayload);
+  const { rows } = await client.query(`
+    WITH incoming AS (
+      SELECT * FROM jsonb_to_recordset($1::jsonb) AS x(
+        id text,
+        content_fingerprint text
+      )
+    )
+    SELECT i.id,
+           i.content_fingerprint AS incoming_fingerprint,
+           o.content_fingerprint AS existing_fingerprint
+      FROM incoming i
+      JOIN fatedrop_market_observations o ON o.id=i.id`, [JSON.stringify(payload)]);
+  for (const row of rows) {
+    if (row.existing_fingerprint !== row.incoming_fingerprint) {
+      throw new Error('Immutable market observation conflict');
+    }
   }
+  return { duplicateObservations: rows.length };
+}
+
+async function insertObservationsBulk(client, observations) {
+  if (!observations.length) return 0;
+  const payload = observations.map(observationPayload);
+  const result = await client.query(`
+    INSERT INTO fatedrop_market_observations (
+      id,ingest_run_id,card_identity_id,card_source_mapping_id,source_name,
+      source_snapshot_id,source_record_id,source_variant_key,market_segment_key,
+      condition_code,currency_code,observed_at,source_effective_at,market_day,
+      market_price,low_price,trend_price,avg_1d,avg_7d,avg_30d,avg_lifetime,
+      excellent_plus_low,metrics_json,raw_payload,content_fingerprint,created_at
+    )
+    SELECT id,ingest_run_id,card_identity_id,card_source_mapping_id,source_name,
+      source_snapshot_id,source_record_id,source_variant_key,market_segment_key,
+      condition_code,currency_code,observed_at,source_effective_at,market_day::date,
+      market_price,low_price,trend_price,avg_1d,avg_7d,avg_30d,avg_lifetime,
+      excellent_plus_low,metrics_json,raw_payload,content_fingerprint,created_at
+    FROM jsonb_to_recordset($1::jsonb) AS x(
+      id text,
+      ingest_run_id text,
+      card_identity_id text,
+      card_source_mapping_id text,
+      source_name text,
+      source_snapshot_id text,
+      source_record_id text,
+      source_variant_key text,
+      market_segment_key text,
+      condition_code text,
+      currency_code text,
+      observed_at bigint,
+      source_effective_at bigint,
+      market_day text,
+      market_price numeric,
+      low_price numeric,
+      trend_price numeric,
+      avg_1d numeric,
+      avg_7d numeric,
+      avg_30d numeric,
+      avg_lifetime numeric,
+      excellent_plus_low numeric,
+      metrics_json jsonb,
+      raw_payload jsonb,
+      content_fingerprint text,
+      created_at bigint
+    )
+    ON CONFLICT (id) DO NOTHING`, [JSON.stringify(payload)]);
+  return result.rowCount || 0;
+}
+
+async function insertRejectionsBulk(client, rejections) {
+  if (!rejections.length) return 0;
+  const payload = rejections.map(rejectionPayload);
+  const result = await client.query(`
+    INSERT INTO fatedrop_market_ingest_rejections (
+      id,ingest_run_id,source_name,source_snapshot_id,source_record_id,
+      source_variant_key,rejection_code,rejection_detail,raw_payload,created_at
+    )
+    SELECT id,ingest_run_id,source_name,source_snapshot_id,source_record_id,
+      source_variant_key,rejection_code,rejection_detail,raw_payload,created_at
+    FROM jsonb_to_recordset($1::jsonb) AS x(
+      id text,
+      ingest_run_id text,
+      source_name text,
+      source_snapshot_id text,
+      source_record_id text,
+      source_variant_key text,
+      rejection_code text,
+      rejection_detail text,
+      raw_payload jsonb,
+      created_at bigint
+    )
+    ON CONFLICT (id) DO NOTHING`, [JSON.stringify(payload)]);
+  return result.rowCount || 0;
 }
 
 async function persistPostgres(store, batch) {
@@ -140,8 +316,16 @@ async function persistPostgres(store, batch) {
   const client = await pool.connect();
   const { run, observations, rejections } = batch;
 
+  assertUniqueObservationFingerprints(observations);
+
   try {
     await client.query('BEGIN');
+
+    // Validate the entire observation batch against canonical mappings in one
+    // set-based query before any market observation is inserted. This preserves
+    // the fail-closed semantics while avoiding thousands of network round trips.
+    await assertPostgresMappingsBulk(client, observations);
+    const existing = await existingObservationState(client, observations);
 
     await client.query(`INSERT INTO fatedrop_market_ingest_runs (
         id,source_name,source_snapshot_id,source_version,started_at,completed_at,status,
@@ -169,87 +353,13 @@ async function persistPostgres(store, batch) {
       run.createdAt,
     ]);
 
-    let insertedObservations = 0;
-    let duplicateObservations = 0;
-    for (const observation of observations) {
-      await assertPostgresMapping(client, observation);
-      const existing = await client.query(
-        'SELECT content_fingerprint FROM fatedrop_market_observations WHERE id=$1',
-        [observation.id],
-      );
-      if (existing.rows[0]) {
-        if (existing.rows[0].content_fingerprint !== observation.contentFingerprint) {
-          throw new Error('Immutable market observation conflict');
-        }
-        duplicateObservations += 1;
-        continue;
-      }
-
-      await client.query(`INSERT INTO fatedrop_market_observations (
-          id,ingest_run_id,card_identity_id,card_source_mapping_id,source_name,
-          source_snapshot_id,source_record_id,source_variant_key,market_segment_key,
-          condition_code,currency_code,observed_at,source_effective_at,market_day,
-          market_price,low_price,trend_price,avg_1d,avg_7d,avg_30d,avg_lifetime,
-          excellent_plus_low,metrics_json,raw_payload,content_fingerprint,created_at
-        ) VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::date,
-          $15,$16,$17,$18,$19,$20,$21,$22,$23::jsonb,$24::jsonb,$25,$26
-        )`, [
-        observation.id,
-        observation.ingestRunId,
-        observation.cardIdentityId,
-        observation.cardSourceMappingId,
-        observation.sourceName,
-        observation.sourceSnapshotId,
-        observation.sourceRecordId,
-        observation.sourceVariantKey,
-        observation.marketSegmentKey,
-        observation.conditionCode,
-        observation.currencyCode,
-        observation.observedAt,
-        observation.sourceEffectiveAt,
-        observation.marketDay,
-        observation.marketPrice,
-        observation.lowPrice,
-        observation.trendPrice,
-        observation.avg1d,
-        observation.avg7d,
-        observation.avg30d,
-        observation.avgLifetime,
-        observation.excellentPlusLow,
-        JSON.stringify(observation.metricsJson),
-        JSON.stringify(observation.rawPayload),
-        observation.contentFingerprint,
-        observation.createdAt,
-      ]);
-      insertedObservations += 1;
-    }
-
-    let insertedRejections = 0;
-    for (const rejection of rejections) {
-      const result = await client.query(`INSERT INTO fatedrop_market_ingest_rejections (
-          id,ingest_run_id,source_name,source_snapshot_id,source_record_id,
-          source_variant_key,rejection_code,rejection_detail,raw_payload,created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10)
-        ON CONFLICT (id) DO NOTHING`, [
-        rejection.id,
-        rejection.ingestRunId,
-        rejection.sourceName,
-        rejection.sourceSnapshotId,
-        rejection.sourceRecordId,
-        rejection.sourceVariantKey,
-        rejection.rejectionCode,
-        rejection.rejectionDetail,
-        JSON.stringify(rejection.rawPayload),
-        rejection.createdAt,
-      ]);
-      insertedRejections += result.rowCount || 0;
-    }
+    const insertedObservations = await insertObservationsBulk(client, observations);
+    const insertedRejections = await insertRejectionsBulk(client, rejections);
 
     await client.query('COMMIT');
     return {
       insertedObservations,
-      duplicateObservations,
+      duplicateObservations: existing.duplicateObservations,
       insertedRejections,
     };
   } catch (error) {
