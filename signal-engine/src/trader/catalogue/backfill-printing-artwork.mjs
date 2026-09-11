@@ -46,13 +46,6 @@ export async function planArtworkBackfill({ production, rehearsal }) {
   const rows = candidateRows.filter((row) => missingSet.has(row.id));
   assert.equal(rows.length, missingIds.length, 'Some production artwork gaps are absent from rehearsal evidence');
 
-  const { rows: unmatched } = await production.query(`
-    SELECT p.id
-    FROM fatedrop_card_printings p
-    LEFT JOIN fatedrop_card_printings r ON false
-    WHERE false`);
-  void unmatched;
-
   return Object.freeze({
     before,
     candidateCoverage,
