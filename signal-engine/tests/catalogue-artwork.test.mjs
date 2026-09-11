@@ -7,6 +7,7 @@ import { buildVerifiedCatalogueBatch } from '../src/trader/catalogue/persistence
 import { enrichPrintingsWithArtwork, getPrintingArtworkCoverageFromStore, persistVerifiedPrintingArtwork } from '../src/trader/catalogue/artwork-store.mjs';
 
 const tcgdexImage = 'https://assets.tcgdex.net/en/base/base1/1';
+const tcgdexThumbnail = 'https://assets.tcgdex.net/en/base/base1/1/low.webp';
 const pokemonImage = 'https://images.pokemontcg.io/base1/1.png';
 
 test('artwork URLs are HTTPS-only and exact source evidence prefers the first usable image', () => {
@@ -27,7 +28,7 @@ test('Pokemon source adapters retain artwork evidence without changing card iden
     set: { id: 'base1', name: 'Base Set' },
     variants: { normal: false, reverse: false, holo: true, firstEdition: false },
   }, { sourceSeriesCode: 'base', languageCode: 'en' });
-  assert.equal(tcgdex.baseEvidence.thumbnailUrl, tcgdexImage);
+  assert.equal(tcgdex.baseEvidence.thumbnailUrl, tcgdexThumbnail);
   assert.equal(tcgdex.baseEvidence.collectorNumber, '1');
 
   const pokemon = adaptPokemonTcgCardEvidence({
