@@ -351,8 +351,8 @@ export async function listVerifiedPrintingsFromStore(store, {
   const pool = await store.pool();
   const values = [];
   const conditions = ["p.verification_status='verified'", "s.verification_status='verified'"];
-  if (setId) { values.push(setId); conditions.push(`p.set_id=${values.length}`); }
-  if (search) { values.push(`%${search}%`); conditions.push(`(LOWER(p.name) LIKE ${values.length} OR LOWER(p.collector_number) LIKE ${values.length})`); }
+  if (setId) { values.push(setId); conditions.push(`p.set_id=$${values.length}`); }
+  if (search) { values.push(`%${search}%`); conditions.push(`(LOWER(p.name) LIKE $${values.length} OR LOWER(p.collector_number) LIKE $${values.length})`); }
   values.push(safeLimit);
   const { rows } = await pool.query(`SELECT p.*,s.name AS set_name,ser.name AS series_name,t.code AS tcg_code
     FROM fatedrop_card_printings p
@@ -361,7 +361,13 @@ export async function listVerifiedPrintingsFromStore(store, {
     JOIN fatedrop_tcgs t ON t.id=p.tcg_id
     WHERE ${conditions.join(' AND ')}
     ORDER BY
-      CASE WHEN p.collector_number ~ '^[0-9]+
+      CASE WHEN p.collector_number ~ '^[0-9]+$' THEN 0 ELSE 1 END,
+      CASE WHEN p.collector_number ~ '^[0-9]+$' THEN p.collector_number::numeric END NULLS LAST,
+      LOWER(p.collector_number)
+    LIMIT $${values.length}`, values);
+  return rows.map(dbPrinting);
+}
+export async function listVerifiedCardsFromStore(store, {
   setId = null,
   query = null,
   languageCode = null,
