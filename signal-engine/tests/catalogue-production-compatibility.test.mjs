@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TABLES, planUnion, validateEvidence } from '../src/trader/catalogue/activate-rehearsed-catalogue.mjs';
 const empty = () => Object.fromEntries(Object.keys(TABLES).map(table => [table, []]));
-const saved = () => ({verified_sets:165,printings:20023,verified_identities:27720,source_mappings:27720,orphan_sets:0,orphan_printings:0,orphan_mappings:0,duplicate_identities:0});
+const saved = () => ({verified_sets:165,printings:20023,verified_identities:27725,source_mappings:27725,orphan_sets:0,orphan_printings:0,orphan_mappings:0,duplicate_identities:0});
 const evidence = () => ({status:'passed',productionWrites:false,sourceRevision:'8b4e387930ead7be6595b4d4c59b7ba7a3a79f08',saved:saved(),replayed:saved(),intentionalQuarantineSetIds:['base2','base3','base5','gym1','neo1','neo2','neo3','neo4'],unexplainedZeroSavedSetIds:[],sourceFailures:[],setBlockers:[],crosswalk:{matched:165},sets:Array(165).fill({})});
 test('accepts only the complete 165-set binder rehearsal and all eight identity quarantines', () => {
   validateEvidence(evidence());
