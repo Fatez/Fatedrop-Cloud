@@ -1,4 +1,4 @@
-import { normaliseArtworkUrl } from './artwork.mjs';
+import { tcgdexThumbnailUrl } from './artwork.mjs';
 
 function requireObject(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -51,9 +51,6 @@ export function extractTcgdexVariants(variants) {
     }
   }
 
-  // First edition is an edition dimension that can combine with a finish.
-  // Until that composition is modelled explicitly, quarantine the record rather
-  // than flattening it into a misleading finish-only identity.
   if (variants.firstEdition) {
     return Object.freeze({
       status: 'quarantined',
@@ -88,8 +85,6 @@ export function adaptTcgdexCard(card, { sourceSeriesCode, languageCode = 'en' } 
   const set = requireObject(card.set, 'card.set');
   const variants = extractTcgdexVariants(card.variants);
 
-  // Source adapters emit evidence only. They must never create FateDrop-owned
-  // canonical IDs from upstream set/series identifiers.
   const baseEvidence = Object.freeze({
     sourceName: 'tcgdex',
     sourceRecordId: requireText(card.id, 'card.id'),
@@ -104,7 +99,7 @@ export function adaptTcgdexCard(card, { sourceSeriesCode, languageCode = 'en' } 
     supertype: card.category ? String(card.category).trim() : null,
     languageCode: requireText(languageCode, 'languageCode').toLowerCase(),
     variantEvidenceAvailable: variants.status === 'staged',
-    thumbnailUrl: normaliseArtworkUrl(card.image),
+    thumbnailUrl: tcgdexThumbnailUrl(card.image),
     sourceUrl: `https://api.tcgdex.net/v2/${encodeURIComponent(languageCode)}/cards/${encodeURIComponent(card.id)}`,
   });
 
