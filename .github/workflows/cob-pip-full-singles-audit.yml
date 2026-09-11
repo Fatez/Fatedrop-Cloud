@@ -1,0 +1,85 @@
+name: Audit Cob & Pip Full Singles Coverage
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/cob-pip-full-singles-audit.yml'
+      - 'signal-engine/src/trader/value/cob-pip-full-singles-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/cob-pip-singles-pilot.mjs'
+      - 'signal-engine/src/trader/value/cob-pip-reviewed-card-name-aliases.mjs'
+      - 'signal-engine/src/trader/value/retail-single-offers.mjs'
+      - 'signal-engine/src/trader/value/cob-pip-exact-card-offers.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-cob-pip-full-singles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out exact connector
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run zero-write live coverage audit
+        env:
+          FATEDROP_PRODUCTION_BASE_URL: https://fatedrop-cloud-production.up.railway.app
+          OUTPUT_PATH: ${{ runner.temp }}/cob-pip-full-singles-audit.json
+        run: node src/trader/value/cob-pip-full-singles-audit-cli.mjs
+
+      - name: Summarise exact coverage
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f "$RUNNER_TEMP/cob-pip-full-singles-audit.json" ]; then
+            echo 'Audit report was not produced.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/cob-pip-full-singles-audit.json', 'utf8'));
+          console.log('# Cob & Pip full Pokémon singles audit');
+          console.log('');
+          console.log(`- Mode: **${report.mode}**`);
+          console.log(`- Writes performed: **${report.writesPerformed}**`);
+          console.log(`- Reviewed collections: **${report.reviewedCollectionCount}**`);
+          console.log(`- Completed: **${report.completedCollectionCount}**`);
+          console.log(`- Held: **${report.heldCollectionCount}**`);
+          console.log(`- Failed: **${report.failedCollectionCount}**`);
+          console.log(`- Retail variants inspected: **${report.totals.candidates}**`);
+          console.log(`- Exact verified: **${report.totals.verified}**`);
+          console.log(`- Currently buyable: **${report.totals.buyableVerified}**`);
+          console.log(`- Quarantined: **${report.totals.quarantined}**`);
+          console.log('');
+          console.log('| Collection | Status | Candidates | Exact | Buyable | Quarantined | Reasons |');
+          console.log('|---|---:|---:|---:|---:|---:|---|');
+          for (const row of report.collections) {
+            const reasons = Object.entries(row.quarantineReasons || {}).map(([reason, count]) => `${reason}:${count}`).join(', ') || '—';
+            console.log(`| ${row.canonicalSetName} | ${row.status} | ${row.candidates} | ${row.verified} | ${row.buyableVerified} | ${row.quarantined} | ${reasons} |`);
+          }
+          NODE
+
+      - name: Upload exact audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cob-pip-full-singles-audit
+          path: ${{ runner.temp }}/cob-pip-full-singles-audit.json
+          if-no-files-found: warn
+          retention-days: 7
