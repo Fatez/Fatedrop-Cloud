@@ -1,3 +1,5 @@
+import { normaliseArtworkUrl } from './artwork.mjs';
+
 function requireObject(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(`${field} is required`);
@@ -59,6 +61,7 @@ export function adaptPokemonTcgCardEvidence(card) {
       ? Object.freeze([...card.nationalPokedexNumbers])
       : Object.freeze([]),
     variantEvidenceAvailable: false,
+    thumbnailUrl: normaliseArtworkUrl(card.images?.small),
     sourceUrl: `https://api.pokemontcg.io/v2/cards/${encodeURIComponent(card.id)}`,
   });
 }
