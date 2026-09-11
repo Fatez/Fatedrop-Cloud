@@ -1,6 +1,7 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
+import { reviewedChecklistCorroboration } from './checklist-reviewed-conventions.mjs';
 import { allowsReviewedCardEvidenceAlias, normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
 
 function comparableSetKey(evidence) {
@@ -134,9 +135,29 @@ export function reconcilePokemonCardCollections({
       candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
     }
 
-    if (candidates.length === 1) {
-      const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, candidates[0], setMatch);
-      if (checklist.status === 'matched') checklistPrintings.push(checklist);
+    let checklistCandidate = candidates.length === 1
+      ? Object.freeze({ evidence: candidates[0], acceptedDifferences: Object.freeze([]) })
+      : null;
+    if (!checklistCandidate) {
+      const reviewedChecklistCandidates = right
+        .map((evidence) => reviewedChecklistCorroboration(setMatch, variantRecord.baseEvidence, evidence))
+        .filter(Boolean);
+      if (reviewedChecklistCandidates.length === 1) checklistCandidate = reviewedChecklistCandidates[0];
+    }
+
+    if (checklistCandidate) {
+      const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, checklistCandidate.evidence, setMatch);
+      if (checklist.status === 'matched') {
+        checklistPrintings.push(checklistCandidate.acceptedDifferences.length
+          ? Object.freeze({
+            ...checklist,
+            acceptedDifferences: Object.freeze([
+              ...(checklist.acceptedDifferences || []),
+              ...checklistCandidate.acceptedDifferences,
+            ]),
+          })
+          : checklist);
+      }
     }
 
     if (variantRecord.status === 'quarantined') {
