@@ -156,7 +156,12 @@ async function validatePostgresObservations(client, payload) {
          id text, card_identity_id text, card_source_mapping_id text, source_name text,
          source_record_id text, source_variant_key text)
      )
-     SELECT i.id
+     SELECT i.id,
+       CASE
+         WHEN m.id IS NULL THEN 'missing_mapping'
+         WHEN c.verification_status IS DISTINCT FROM 'verified' THEN 'unverified_identity'
+         ELSE 'mapping_mismatch'
+       END AS reason
      FROM incoming i
      LEFT JOIN fatedrop_card_source_mappings m ON m.id=i.card_source_mapping_id
      LEFT JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
@@ -166,8 +171,21 @@ async function validatePostgresObservations(client, payload) {
         OR m.source_name IS DISTINCT FROM i.source_name
         OR m.source_record_id IS DISTINCT FROM i.source_record_id
         OR m.source_variant_key IS DISTINCT FROM i.source_variant_key
+     ORDER BY CASE
+       WHEN m.id IS NULL THEN 1
+       WHEN c.verification_status IS DISTINCT FROM 'verified' THEN 2
+       ELSE 3
+     END
      LIMIT 1`, [json]);
-  if (mappingConflicts.length) throw new Error('Market observation card source mapping mismatch');
+  if (mappingConflicts.length) {
+    if (mappingConflicts[0].reason === 'missing_mapping') {
+      throw new Error('Market observation requires a canonical card source mapping');
+    }
+    if (mappingConflicts[0].reason === 'unverified_identity') {
+      throw new Error('Market observation requires a verified canonical card identity');
+    }
+    throw new Error('Market observation card source mapping mismatch');
+  }
 
   const { rows: fingerprintConflicts } = await client.query(
     `WITH incoming AS (
