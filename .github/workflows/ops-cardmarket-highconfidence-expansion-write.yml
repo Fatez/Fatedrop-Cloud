@@ -1,0 +1,50 @@
+name: OPS Cardmarket High-Confidence Expansion Write
+
+on:
+  push:
+    branches:
+      - feat/cardmarket-highconfidence-expansion-crosswalk-write-2026-09-11
+    paths:
+      - '.github/workflows/ops-cardmarket-highconfidence-expansion-write.yml'
+      - 'signal-engine/src/trader/value/cardmarket-highconfidence-expansion-write-cli.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cardmarket-highconfidence-expansion-write
+  cancel-in-progress: false
+
+jobs:
+  write:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Validate high-confidence set crosswalk delta
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          SET_MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-highconfidence-expansion-write-cli.mjs
+      - name: Persist high-confidence set crosswalks
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          SET_MAPPING_WRITE: 'true'
+        run: node src/trader/value/cardmarket-highconfidence-expansion-write-cli.mjs
+      - name: Upload set-crosswalk audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-highconfidence-expansion-write
+          path: ${{ runner.temp }}/cardmarket-highconfidence-expansion-write.json
+          if-no-files-found: error
+          retention-days: 14
