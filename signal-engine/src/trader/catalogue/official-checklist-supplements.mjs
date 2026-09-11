@@ -1,4 +1,5 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
+import { pokemonTcgThumbnailUrl } from './artwork.mjs';
 import { normaliseComparableName } from './reconcile.mjs';
 
 function setMatchHasEvidence(setMatch, sourceName, sourceRecordId) {
@@ -57,6 +58,13 @@ export function reviewedOfficialChecklistPrinting(setMatch, baseEvidence) {
     supertype: baseEvidence.supertype ?? null,
     subtypes: Object.freeze([]),
     nationalDexNumbers: Object.freeze([]),
+    thumbnailUrl: pokemonTcgThumbnailUrl('swshp', supplement.collectorNumber),
+    artworkEvidence: Object.freeze({
+      thumbnailUrl: pokemonTcgThumbnailUrl('swshp', supplement.collectorNumber),
+      sourceName: 'pokemontcg-image-cdn',
+      sourceRecordId: supplement.officialRecordId,
+      sourceUrl: supplement.officialUrl,
+    }),
     acceptedDifferences: Object.freeze([Object.freeze({
       field: 'cardMembership',
       left: baseEvidence.sourceRecordId,
