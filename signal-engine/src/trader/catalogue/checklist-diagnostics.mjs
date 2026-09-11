@@ -32,6 +32,19 @@ function compactCandidate(evidence) {
   };
 }
 
+function nearbyCandidates(right, baseEvidence) {
+  const wantedName = normaliseComparableName(baseEvidence.name);
+  const wantedNumber = normaliseCollectorNumber(baseEvidence.collectorNumber);
+  return {
+    sameNameCandidates: right
+      .filter((evidence) => normaliseComparableName(evidence.name) === wantedName)
+      .map(compactCandidate),
+    sameNumberCandidates: right
+      .filter((evidence) => normaliseCollectorNumber(evidence.collectorNumber) === wantedNumber)
+      .map(compactCandidate),
+  };
+}
+
 // Diagnostic only. This mirrors the production candidate-selection rules closely
 // enough to name checklist gaps without changing verification or persistence.
 export async function diagnoseChecklistPrintingTail({
@@ -84,6 +97,7 @@ export async function diagnoseChecklistPrintingTail({
         collectorNumber: variantRecord.baseEvidence.collectorNumber,
         reason: candidates.length === 0 ? 'no_independent_card_candidate' : 'ambiguous_independent_card_candidates',
         candidates: candidates.map(compactCandidate),
+        ...nearbyCandidates(right, variantRecord.baseEvidence),
       });
       continue;
     }
@@ -103,6 +117,7 @@ export async function diagnoseChecklistPrintingTail({
         left: checklist.left ?? null,
         right: checklist.right ?? null,
         candidates: candidates.map(compactCandidate),
+        ...nearbyCandidates(right, variantRecord.baseEvidence),
       });
     }
   }
