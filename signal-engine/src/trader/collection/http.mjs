@@ -1,5 +1,6 @@
 import { resolveFateTraderFlags } from '../feature-flags.mjs';
 import { resolveFateTraderSessionUser } from '../auth.mjs';
+import { enrichCardsWithPrintingArtwork } from '../catalogue/artwork-store.mjs';
 import { listVerifiedCardsByIdsFromStore } from '../catalogue/store.mjs';
 import {
   addCollectionMediaReference,
@@ -56,7 +57,8 @@ export async function handleFateTraderCollection(req,res,{
         listCollectionItemsFromStore(store,{userId:user.id,limit:Math.min(2000,Math.max(1,Number.parseInt(url.searchParams.get('limit')||'500',10)||500))}),
         listExactWantsFromStore(store,{userId:user.id,limit:1000}),
       ]);
-      const cards=await listVerifiedCardsByIdsFromStore(store,items.map((item)=>item.fateCardId),{limit:2000});
+      const rawCards=await listVerifiedCardsByIdsFromStore(store,items.map((item)=>item.fateCardId),{limit:2000});
+      const cards=await enrichCardsWithPrintingArtwork(store,rawCards);
       const cardsById=new Map(cards.map((card)=>[card.fateCardId,card]));
       const enrichedItems=items.map((item)=>({
         ...item,
