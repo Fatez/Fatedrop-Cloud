@@ -1,4 +1,5 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
+import { selectChecklistArtworkEvidence } from './artwork.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
 import { reviewedChecklistCorroboration } from './checklist-reviewed-conventions.mjs';
@@ -22,6 +23,16 @@ function pushMap(map, key, value) {
 
 function setMatchHasEvidence(setMatch, sourceName, sourceRecordId) {
   return setMatch.evidence?.some((entry) => entry.sourceName === sourceName && entry.sourceRecordId === sourceRecordId) === true;
+}
+
+function withChecklistArtwork(printing, ...evidences) {
+  const artwork = selectChecklistArtworkEvidence(...evidences);
+  if (!artwork) return printing;
+  return Object.freeze({
+    ...printing,
+    thumbnailUrl: artwork.thumbnailUrl,
+    artworkEvidence: artwork,
+  });
 }
 
 // Celebrations Classic Collection is a numbered subset in TCGdex (CC001..CC025),
@@ -150,11 +161,11 @@ export function reconcilePokemonCardCollections({
       ? null
       : reviewedOfficialChecklistPrinting(setMatch, variantRecord.baseEvidence);
     if (officialChecklist) {
-      checklistPrintings.push(officialChecklist);
+      checklistPrintings.push(withChecklistArtwork(officialChecklist, variantRecord.baseEvidence));
     } else if (checklistCandidate) {
       const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, checklistCandidate.evidence, setMatch);
       if (checklist.status === 'matched') {
-        checklistPrintings.push(checklistCandidate.acceptedDifferences.length
+        const reconciled = checklistCandidate.acceptedDifferences.length
           ? Object.freeze({
             ...checklist,
             acceptedDifferences: Object.freeze([
@@ -162,7 +173,12 @@ export function reconcilePokemonCardCollections({
               ...checklistCandidate.acceptedDifferences,
             ]),
           })
-          : checklist);
+          : checklist;
+        checklistPrintings.push(withChecklistArtwork(
+          reconciled,
+          variantRecord.baseEvidence,
+          checklistCandidate.evidence,
+        ));
       }
     }
 
