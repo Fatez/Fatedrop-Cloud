@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
+import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { validateProductionTarget } from './production-target-check.mjs';
 import { validateRehearsalTarget } from './rehearsal-guard.mjs';
 
@@ -54,8 +55,18 @@ export function planUnion(existing, candidate) {
       seen.add(row.id);
       const prior = old.get(row.id);
       if (!prior) { additions[table].push(row); continue; }
-      for (const field of identityFields)
-        assert.deepEqual(row[field], prior[field], `${table}:${row.id}: incompatible ${field}`);
+      for (const field of identityFields) {
+        // Same row ID and all structural anchors must still agree. Accept only
+        // ASCII numeric zero-padding already equivalent in canonical identity.
+        const numericPadding = field === 'collector_number'
+          && typeof row[field] === 'string' && typeof prior[field] === 'string'
+          && /^\d+$/.test(row[field]) && /^\d+$/.test(prior[field]);
+        assert.deepEqual(
+          numericPadding ? normaliseCollectorNumber(row[field]) : row[field],
+          numericPadding ? normaliseCollectorNumber(prior[field]) : prior[field],
+          `${table}:${row.id}: incompatible ${field}`,
+        );
+      }
       const changed = Object.keys(row).filter(field => JSON.stringify(row[field]) !== JSON.stringify(prior[field]));
       if (changed.length) differences[table].push({id: row.id, fields: changed, action: 'preserved_existing'});
     }
