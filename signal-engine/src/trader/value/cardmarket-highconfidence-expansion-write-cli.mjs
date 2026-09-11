@@ -16,8 +16,6 @@ const SET_CROSSWALKS = Object.freeze([
   ["McDonald's Collection 2014",'1652'],
   ["McDonald's Collection 2015",'1653'],
   ["McDonald's Collection 2022",'5128'],
-  ['EX trainer Kit 2 (Plusle)','1627'],
-  ['EX trainer Kit 2 (Minun)','1627'],
   ['SWSH Black Star Promos','4309'],
 ]);
 
@@ -74,6 +72,7 @@ async function main(){
   const db=await pool.connect();let report;
   try{
     report=await build(db);
+    report.heldSharedExpansionSets=['EX trainer Kit 2 (Plusle)','EX trainer Kit 2 (Minun)'];
     if(process.env.SET_MAPPING_WRITE==='true'){
       await persist(db,report);
       report={...report,status:'write_complete',productionWrites:true};
