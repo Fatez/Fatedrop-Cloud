@@ -1,9 +1,16 @@
 name: OPS Live Exact Cardmarket Mapping Recovery
 
 on:
+  workflow_dispatch:
+    inputs:
+      write:
+        description: 'Persist only conflict-free exact Cardmarket mappings'
+        required: true
+        type: boolean
+        default: false
   push:
     branches:
-      - feat/cardmarket-live-exact-mapping-recovery-2026-09-11
+      - fix/cardmarket-exact-recovery-conflict-partition-2026-09-11
     paths:
       - '.github/workflows/ops-live-exact-cardmarket-mapping-recovery.yml'
       - 'signal-engine/src/trader/value/cardmarket-live-exact-recovery-cli.mjs'
@@ -38,7 +45,7 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
-          MAPPING_WRITE: 'false'
+          MAPPING_WRITE: ${{ inputs.write || 'false' }}
         run: node src/trader/value/cardmarket-live-exact-recovery-cli.mjs
       - name: Upload recovery audit
         if: always()
