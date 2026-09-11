@@ -1,7 +1,7 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
-import { normaliseComparableName, reconcileCardEvidence, reconcileSetEvidence } from './reconcile.mjs';
+import { normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
 
 function comparableSetKey(evidence) {
   return `${normaliseComparableName(evidence.seriesName)}|${normaliseComparableName(evidence.setName)}`;
@@ -71,6 +71,7 @@ export function reconcilePokemonSetCollections(tcgdexSets, pokemonTcgSets) {
 
   return Object.freeze({
     matched: Object.freeze(matched),
+    checklistPrintings: Object.freeze(checklistPrintings),
     conflicts: Object.freeze(conflicts),
     unmatched: Object.freeze(unmatched),
   });
@@ -117,6 +118,7 @@ export function reconcilePokemonCardCollections({
   }
 
   const matched = [];
+  const checklistPrintings = [];
   const conflicts = [];
   const quarantined = [];
   const unmatched = [];
@@ -124,6 +126,16 @@ export function reconcilePokemonCardCollections({
 
   for (const rawCard of tcgdexCards) {
     const variantRecord = adaptTcgdexCard(rawCard, { sourceSeriesCode, languageCode });
+    let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
+    if (candidates.length === 0 && celebrationsClassicAlias) {
+      candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
+    }
+
+    if (candidates.length === 1) {
+      const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, candidates[0], setMatch);
+      if (checklist.status === 'matched') checklistPrintings.push(checklist);
+    }
+
     if (variantRecord.status === 'quarantined') {
       quarantined.push(Object.freeze({
         sourceName: variantRecord.baseEvidence.sourceName,
@@ -133,10 +145,6 @@ export function reconcilePokemonCardCollections({
       continue;
     }
 
-    let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
-    if (candidates.length === 0 && celebrationsClassicAlias) {
-      candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
-    }
     if (candidates.length !== 1) {
       unmatched.push(Object.freeze({
         sourceName: variantRecord.baseEvidence.sourceName,
