@@ -44,8 +44,8 @@ function store({ declaredTotal = 2 } = {}) {
         },
       },
       printings: {
-        p1: { id: 'p1', name: 'One', rarity: 'Common', verificationStatus: 'verified' },
-        p2: { id: 'p2', name: 'Two', rarity: 'Rare', verificationStatus: 'verified' },
+        p1: { id: 'p1', tcgId:'pokemon', seriesId:'sv', setId:'complete', collectorNumber:'1', printingCode:'main', name: 'One', rarity: 'Common', verificationStatus: 'verified' },
+        p2: { id: 'p2', tcgId:'pokemon', seriesId:'sv', setId:'complete', collectorNumber:'2', printingCode:'main', name: 'Two', rarity: 'Rare', verificationStatus: 'verified' },
       },
       cards: {
         c1: { id: 'c1', tcgId: 'pokemon', seriesId: 'sv', setId: 'complete', printingId: 'p1', collectorNumber: '1', variantCode: 'standard', languageCode: 'en', verificationStatus: 'verified' },
@@ -143,6 +143,37 @@ test('preview and confirm complete a binder without creating exact cards or valu
   assert.equal(remove.status, 200);
   assert.equal(remove.body.data.removed, true);
   assert.equal(remove.body.data.progress.completionPercent, 0);
+});
+
+test('printing-only checklist slots are visible without inventing an exact identity', async () => {
+  const subject = store({ declaredTotal: 3 });
+  const state = await subject.read();
+  state.traderCatalogue.printings.p3 = {
+    id:'p3',tcgId:'pokemon',seriesId:'sv',setId:'complete',collectorNumber:'3',printingCode:'main',
+    name:'Three',rarity:'Rare',verificationStatus:'verified',
+  };
+
+  const progress = response();
+  await handleFateCollectors(
+    request('GET', '/v1/collectors/sets/complete/progress?currency=GBP'),
+    progress,
+    { store: subject, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(progress.status, 200);
+  assert.equal(progress.body.data.progress.totalCount, 3);
+  const printingOnly = progress.body.data.progress.missingCards.find((card) => card.printingId === 'p3');
+  assert.equal(printingOnly.fateCardId, null);
+  assert.equal(printingOnly.identityStatus, 'printing_only_finish_or_edition_unresolved');
+
+  const preview = response();
+  await handleFateCollectors(
+    request('POST', '/v1/collectors/sets/complete/complete/preview'),
+    preview,
+    { store: subject, flags: FLAGS, resolveUser: USER },
+  );
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.data.action.printingCount, 3);
+  assert.equal(preview.body.data.action.createsExactCardItems, false);
 });
 
 test('confirmation is stale when exact binder state changes after preview', async () => {
