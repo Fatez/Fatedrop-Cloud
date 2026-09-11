@@ -90,6 +90,14 @@ export function buildVerifiedCatalogueBatch({ setMatch, promotions = [], checkli
       collectorNumber: printing.collectorNumber,
       printingCode: printing.printingCode,
     });
+    const artwork = printing.thumbnailUrl
+      ? Object.freeze({
+        thumbnailUrl: printing.thumbnailUrl,
+        sourceName: printing.artworkEvidence?.sourceName ?? null,
+        sourceRecordId: printing.artworkEvidence?.sourceRecordId ?? null,
+        sourceUrl: printing.artworkEvidence?.sourceUrl ?? null,
+      })
+      : null;
     printingsById.set(printingId, Object.freeze({
       id: printingId,
       tcgId,
@@ -105,6 +113,7 @@ export function buildVerifiedCatalogueBatch({ setMatch, promotions = [], checkli
       attributes: Object.freeze({
         checklistEvidence: printing.verificationBasis ?? null,
         identityReleaseStatus: 'finish_or_edition_evidence_required',
+        artwork,
       }),
       verificationStatus: 'verified',
       verifiedAt: now,
