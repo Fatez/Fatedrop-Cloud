@@ -104,7 +104,7 @@ export async function getFateCollectorSummaryFromStore(store, {
   const computedSummary=computeFateCollectorSummary({
     sets,
     canonicalCards,
-    canonicalPrintings,
+    canonicalPrintings: canonicalPrintings.length ? canonicalPrintings : null,
     collectionItems,
     exactCardValues,
     gradedCardValues:[],
