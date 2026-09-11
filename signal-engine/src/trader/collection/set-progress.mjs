@@ -52,6 +52,7 @@ function publicMissingCard(card) {
     rarity: card.rarity ?? null,
     variantCode: card.variantCode ?? null,
     languageCode: card.languageCode ?? null,
+    thumbnailUrl: card.thumbnailUrl ?? null,
     identityStatus: fateCardId ? 'verified_exact_identity' : 'printing_only_finish_or_edition_unresolved',
   });
 }
