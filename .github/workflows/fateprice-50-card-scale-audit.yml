@@ -1,0 +1,77 @@
+name: Audit FatePrice 50 Card Scale
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fateprice-50-card-scale-audit.yml'
+      - 'signal-engine/src/trader/catalogue/pokemon-card-acquisition-audit-cli.mjs'
+      - 'signal-engine/src/trader/catalogue/source-clients.mjs'
+      - 'signal-engine/src/trader/catalogue/pipeline.mjs'
+      - 'signal-engine/src/trader/catalogue/reconcile.mjs'
+      - 'signal-engine/src/trader/catalogue/verification.mjs'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-chilling-reign:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit exact canonical acquisition for Chilling Reign
+        run: npm --silent run trader:catalogue:card-audit -- --tcgdex-set=swsh6 --pokemon-set=swsh6 --verified-at=2026-09-05T00:00:00Z > "$RUNNER_TEMP/pokemon-swsh6-card-audit.json"
+
+      - name: Validate exact acquisition
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-swsh6-card-audit.json','utf8'));
+          if (report.reconciliation.conflicts !== 0) throw new Error(`conflicts=${report.reconciliation.conflicts}`);
+          if (report.reconciliation.quarantined !== 0) throw new Error(`quarantined=${report.reconciliation.quarantined}`);
+          if (report.reconciliation.unmatched !== 0) throw new Error(`unmatched=${report.reconciliation.unmatched}`);
+          if (report.verification.verifiedIdentityRows < 50) throw new Error(`verifiedIdentityRows=${report.verification.verifiedIdentityRows}`);
+          console.log(`Verified ${report.verification.verifiedIdentityRows} exact identities with zero conflicts/quarantine/unmatched.`);
+          NODE
+
+      - name: Summarise audit
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/pokemon-swsh6-card-audit.json','utf8'));
+          console.log('# Chilling Reign canonical acquisition');
+          console.log(`- TCGdex fetched: **${report.sourceCounts.tcgdexCardsFetched}**`);
+          console.log(`- PokemonTCG fetched: **${report.sourceCounts.pokemonTcgCardsFetched}**`);
+          console.log(`- Matched card records: **${report.reconciliation.matchedCardRecords}**`);
+          console.log(`- Verified exact identities: **${report.verification.verifiedIdentityRows}**`);
+          console.log(`- Conflicts: **${report.reconciliation.conflicts}**`);
+          console.log(`- Quarantined: **${report.reconciliation.quarantined}**`);
+          console.log(`- Unmatched: **${report.reconciliation.unmatched}**`);
+          console.log('- Writes performed: **false**');
+          NODE
+
+      - name: Upload exact canonical audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-50-card-chilling-reign-canonical-audit
+          path: ${{ runner.temp }}/pokemon-swsh6-card-audit.json
+          if-no-files-found: error
+          retention-days: 7
