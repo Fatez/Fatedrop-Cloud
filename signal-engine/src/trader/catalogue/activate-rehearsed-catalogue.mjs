@@ -44,6 +44,7 @@ export function validateEvidence(report) {
 // activation; metadata differences are reported rather than silently overwritten.
 export function planUnion(existing, candidate) {
   const additions = {}, differences = {}, retainedOnly = {};
+  const conflicts = [];
   for (const [table, identityFields] of Object.entries(TABLES)) {
     const old = new Map(existing[table].map(row => [row.id, row]));
     assert.equal(old.size, existing[table].length, 'Duplicate existing IDs');
@@ -57,21 +58,22 @@ export function planUnion(existing, candidate) {
       if (!prior) { additions[table].push(row); continue; }
       for (const field of identityFields) {
         // Same row ID and all structural anchors must still agree. Accept only
-        // ASCII numeric zero-padding already equivalent in canonical identity.
-        const numericPadding = field === 'collector_number'
+        // ASCII case and numeric padding already equivalent in canonical identity.
+        const canonicalNumber = field === 'collector_number'
           && typeof row[field] === 'string' && typeof prior[field] === 'string'
-          && /^\d+$/.test(row[field]) && /^\d+$/.test(prior[field]);
-        assert.deepEqual(
-          numericPadding ? normaliseCollectorNumber(row[field]) : row[field],
-          numericPadding ? normaliseCollectorNumber(prior[field]) : prior[field],
+          && /^[A-Za-z0-9]+$/.test(row[field]) && /^[A-Za-z0-9]+$/.test(prior[field]);
+        try { assert.deepEqual(
+          canonicalNumber ? normaliseCollectorNumber(row[field]) : row[field],
+          canonicalNumber ? normaliseCollectorNumber(prior[field]) : prior[field],
           `${table}:${row.id}: incompatible ${field}`,
-        );
+        ); } catch (error) { conflicts.push(error.message); }
       }
       const changed = Object.keys(row).filter(field => JSON.stringify(row[field]) !== JSON.stringify(prior[field]));
       if (changed.length) differences[table].push({id: row.id, fields: changed, action: 'preserved_existing'});
     }
     retainedOnly[table] = existing[table].filter(row => !seen.has(row.id)).map(row => row.id);
   }
+  assert.equal(conflicts.length, 0, `Production compatibility conflicts (${conflicts.length}):\n${conflicts.join('\n')}`);
   return { additions, differences, retainedOnly };
 }
 

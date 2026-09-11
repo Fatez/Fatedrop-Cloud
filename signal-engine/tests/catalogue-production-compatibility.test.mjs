@@ -51,3 +51,21 @@ test('numeric padding preserves production rows and cannot hide structural chang
     assert.throws(()=>planUnion(old,candidate),/incompatible set_id/);
   }
 });
+
+test('promo number case agrees with canonical identity without losing suffixes or padding', () => {
+  const old=empty(), candidate=empty();
+  old.fatedrop_card_printings=[{id:'promo',collector_number:'xy07'}];
+  candidate.fatedrop_card_printings=[{id:'promo',collector_number:'XY07'}];
+  assert.equal(planUnion(old,candidate).additions.fatedrop_card_printings.length,0);
+  assert.equal(old.fatedrop_card_printings[0].collector_number,'xy07');
+  for (const number of ['XY7','XY08','XY07a',' XY07']) {
+    candidate.fatedrop_card_printings[0].collector_number=number;
+    assert.throws(()=>planUnion(old,candidate),/incompatible collector_number/);
+  }
+});
+test('one compatibility report includes every structural conflict', () => {
+  const old=empty(), candidate=empty();
+  old.fatedrop_card_printings=[{id:'one',collector_number:'1'},{id:'two',collector_number:'2'}];
+  candidate.fatedrop_card_printings=[{id:'one',collector_number:'3'},{id:'two',collector_number:'4'}];
+  assert.throws(()=>planUnion(old,candidate),(error)=>error.message.includes(':one:') && error.message.includes(':two:'));
+});
