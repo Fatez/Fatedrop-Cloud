@@ -1,3 +1,5 @@
+import { normaliseArtworkUrl } from './artwork.mjs';
+
 function requireObject(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(`${field} is required`);
@@ -102,6 +104,7 @@ export function adaptTcgdexCard(card, { sourceSeriesCode, languageCode = 'en' } 
     supertype: card.category ? String(card.category).trim() : null,
     languageCode: requireText(languageCode, 'languageCode').toLowerCase(),
     variantEvidenceAvailable: variants.status === 'staged',
+    thumbnailUrl: normaliseArtworkUrl(card.image),
     sourceUrl: `https://api.tcgdex.net/v2/${encodeURIComponent(languageCode)}/cards/${encodeURIComponent(card.id)}`,
   });
 
