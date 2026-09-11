@@ -49,7 +49,8 @@ export async function getCollectionSetProgressFromStore(store, {
     listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 }),
     listVerifiedPrintingsFromStore(store, { setId: canonicalSetId, limit: 1000 }),
   ]);
-  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings });
+  const printingChecklist = canonicalPrintings.length ? canonicalPrintings : null;
+  const catalogue = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: printingChecklist });
   if (catalogue.status !== 'complete') {
     return unavailable({
       reason: catalogue.reason,
@@ -84,7 +85,7 @@ export async function getCollectionSetProgressFromStore(store, {
   const summary = computeFateCollectorSummary({
     sets: [set],
     canonicalCards,
-    canonicalPrintings,
+    canonicalPrintings: printingChecklist,
     collectionItems,
     exactCardValues,
     printingValues,
