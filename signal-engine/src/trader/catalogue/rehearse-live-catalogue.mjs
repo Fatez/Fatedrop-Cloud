@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
+import { diagnoseChecklistPrintingTail } from './checklist-diagnostics.mjs';
 import { createTcgdexClient } from './source-clients.mjs';
 import { validateRehearsalTarget, assertRehearsalCounts } from './rehearsal-guard.mjs';
 
@@ -129,9 +130,15 @@ try {
       const scoped = {...crosswalk, matched:[pair]};
       const result = await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:scoped,maxSets:1,maxCardsPerChunk:250,verifiedAt});
       assert.equal(result.status,'complete');
-      progress.sets.push(result.sets[0]);
+      const completed = result.sets[0];
+      const needsChecklistDiagnosis = (completed?.savedPrintings || 0) !== (completed?.sourceCardsProcessed || 0);
+      const checklistUnresolved = needsChecklistDiagnosis
+        ? await diagnoseChecklistPrintingTail({tcgdexClient,pokemonTcgClient,pair})
+        : [];
+      const recorded = checklistUnresolved.length ? {...completed, checklistUnresolved} : completed;
+      progress.sets.push(recorded);
       await save();
-      console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...result.sets[0]}));
+      console.log(JSON.stringify({event:'set_rehearsed',completed:progress.sets.length,total:crosswalk.matched.length,...recorded}));
     } catch (error) {
       const sourceFailure = [429, 500, 502, 503, 504, 'network'].includes(error?.status);
       if (!sourceFailure && !collectAllBlockers) throw error;
