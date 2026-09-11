@@ -1,7 +1,7 @@
 import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
-import { normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
+import { allowsReviewedCardEvidenceAlias, normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
 
 function comparableSetKey(evidence) {
   return `${normaliseComparableName(evidence.seriesName)}|${normaliseComparableName(evidence.setName)}`;
@@ -126,6 +126,10 @@ export function reconcilePokemonCardCollections({
   for (const rawCard of tcgdexCards) {
     const variantRecord = adaptTcgdexCard(rawCard, { sourceSeriesCode, languageCode });
     let candidates = rightIndex.get(comparableCardKey(variantRecord.baseEvidence)) || [];
+    if (candidates.length === 0) {
+      const reviewedCandidates = right.filter((evidence) => allowsReviewedCardEvidenceAlias(setMatch, variantRecord.baseEvidence, evidence));
+      if (reviewedCandidates.length) candidates = reviewedCandidates;
+    }
     if (candidates.length === 0 && celebrationsClassicAlias) {
       candidates = rightNameIndex.get(normaliseComparableName(variantRecord.baseEvidence.name)) || [];
     }
