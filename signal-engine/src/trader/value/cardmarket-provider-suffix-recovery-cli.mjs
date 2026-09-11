@@ -98,10 +98,37 @@ async function build(db){
   return {status:'audit_complete',productionWrites:false,source:{tcgdexRevision:process.env.TCGDEX_REVISION,cardmarketCatalogueSha256:cat.sha256,cardmarketPriceGuideSha256:guide.sha256},counts:{eligibleUnmappedNormalHolo:ids.length,safeExactProviderSuffixMappings:safe.length,newPriceableIdentities:new Set(priceable.map(r=>r.cardIdentityId)).size,unresolved:unresolved.length,ambiguous:ambiguous.length,conflicts:conflicts.length+badSource.size+badCanonical.size},candidates:safe,unresolved,ambiguous,conflicts};
 }
 
+async function persist(db,report){
+  await db.query('BEGIN');
+  try{
+    for(const r of report.candidates){
+      const source=await db.query(`SELECT card_identity_id FROM fatedrop_card_source_mappings
+        WHERE source_name='cardmarket' AND source_record_id=$1 AND source_variant_key=$2`,
+        [r.sourceRecordId,r.sourceVariantKey]);
+      if(source.rows[0] && source.rows[0].card_identity_id!==r.cardIdentityId) throw new Error('Cardmarket source ownership changed');
+      const canonical=await db.query(`SELECT source_record_id FROM fatedrop_card_source_mappings
+        WHERE source_name='cardmarket' AND card_identity_id=$1 AND source_variant_key=$2`,
+        [r.cardIdentityId,r.sourceVariantKey]);
+      if(canonical.rows[0] && String(canonical.rows[0].source_record_id)!==r.sourceRecordId) throw new Error('Canonical Cardmarket mapping changed');
+      await db.query(`INSERT INTO fatedrop_card_source_mappings(
+        id,card_identity_id,source_name,source_record_id,source_variant_key,source_version,first_observed_at,last_observed_at
+      ) VALUES($1,$2,'cardmarket',$3,$4,$5,$6,$6) ON CONFLICT(id) DO NOTHING`,
+        [r.id,r.cardIdentityId,r.sourceRecordId,r.sourceVariantKey,r.sourceVersion,Date.now()]);
+    }
+    await db.query('COMMIT');
+  }catch(e){await db.query('ROLLBACK');throw e;}
+}
+
 async function main(){
  validateProductionTarget(process.env.DATABASE_URL);
  const pool=new Pool({connectionString:process.env.DATABASE_URL,max:2});const db=await pool.connect();let report;
- try{report=await build(db);}
+ try{
+   report=await build(db);
+   if(process.env.MAPPING_WRITE==='true'){
+     await persist(db,report);
+     report={...report,productionWrites:true,status:'write_complete'};
+   }
+ }
  catch(e){report={status:'blocked',productionWrites:false,error:e instanceof Error?e.message:String(e)};process.exitCode=1;}
  finally{db.release();await pool.end();await writeFile((process.env.RUNNER_TEMP||'.')+'/cardmarket-provider-suffix-recovery.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report.counts||report,null,2));}
 }
