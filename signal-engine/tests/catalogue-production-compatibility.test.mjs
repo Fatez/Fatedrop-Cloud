@@ -33,3 +33,21 @@ test('duplicate candidate IDs fail and replay is idempotent', () => {
   candidate.fatedrop_tcgs.push(candidate.fatedrop_tcgs[0]);
   assert.throws(()=>planUnion(empty(),candidate),/Duplicate/);
 });
+test('numeric padding preserves production rows and cannot hide structural changes', () => {
+  for (const table of ['fatedrop_card_printings','fatedrop_card_identities']) {
+    const old=empty(), candidate=empty();
+    old[table]=[{id:'same',collector_number:'43',set_id:'set',printing_id:'printing',variant_code:'standard'}];
+    candidate[table]=[{...old[table][0],collector_number:'043'}];
+    const before=structuredClone(old);
+    const plan=planUnion(old,candidate);
+    assert.equal(plan.additions[table].length,0);
+    assert.deepEqual(old,before);
+    assert.deepEqual(plan.differences[table],[{id:'same',fields:['collector_number'],action:'preserved_existing'}]);
+    for (const number of ['44','H043','43a','43/100',' 43']) {
+      candidate[table][0].collector_number=number;
+      assert.throws(()=>planUnion(old,candidate),/incompatible collector_number/);
+    }
+    candidate[table][0]={...old[table][0],collector_number:'043',set_id:'other'};
+    assert.throws(()=>planUnion(old,candidate),/incompatible set_id/);
+  }
+});
