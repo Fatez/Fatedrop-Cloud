@@ -220,6 +220,54 @@ export function reconcileSetEvidence(left, right) {
   });
 }
 
+export function reconcileChecklistPrintingEvidence(baseEvidence, corroboratingEvidence, setMatch) {
+  if (!baseEvidence || !corroboratingEvidence) throw new TypeError('two base card evidence records are required');
+  if (!setMatch || setMatch.status !== 'matched') {
+    return Object.freeze({ status: 'insufficient', reason: 'verified_set_crosswalk_required' });
+  }
+  if (baseEvidence.sourceName === corroboratingEvidence.sourceName) {
+    return Object.freeze({ status: 'insufficient', reason: 'independent_sources_required' });
+  }
+  if (!setEvidenceContains(setMatch, baseEvidence) || !setEvidenceContains(setMatch, corroboratingEvidence)) {
+    return Object.freeze({ status: 'conflict', field: 'sourceSet', left: baseEvidence.sourceSetCode, right: corroboratingEvidence.sourceSetCode });
+  }
+  if (baseEvidence.tcgCode !== corroboratingEvidence.tcgCode || baseEvidence.tcgCode !== setMatch.tcgCode) {
+    return conflict('tcgCode', baseEvidence.tcgCode, corroboratingEvidence.tcgCode);
+  }
+  if (baseEvidence.languageCode !== corroboratingEvidence.languageCode || baseEvidence.languageCode !== 'en') {
+    return conflict('languageCode', baseEvidence.languageCode, corroboratingEvidence.languageCode);
+  }
+  if (normaliseComparableName(baseEvidence.name) !== normaliseComparableName(corroboratingEvidence.name)) {
+    return conflict('cardName', baseEvidence.name, corroboratingEvidence.name);
+  }
+  if (normaliseCollectorNumber(baseEvidence.collectorNumber) !== normaliseCollectorNumber(corroboratingEvidence.collectorNumber)) {
+    return conflict('collectorNumber', baseEvidence.collectorNumber, corroboratingEvidence.collectorNumber);
+  }
+  if (baseEvidence.printingCode !== corroboratingEvidence.printingCode) {
+    return conflict('printingCode', baseEvidence.printingCode, corroboratingEvidence.printingCode);
+  }
+  return Object.freeze({
+    status: 'matched',
+    tcgCode: setMatch.tcgCode,
+    seriesCode: setMatch.canonicalSeriesId,
+    setCode: setMatch.canonicalSetId,
+    collectorNumber: baseEvidence.collectorNumber,
+    printingCode: baseEvidence.printingCode,
+    name: baseEvidence.name,
+    rarity: baseEvidence.rarity ?? corroboratingEvidence.rarity ?? null,
+    supertype: baseEvidence.supertype ?? corroboratingEvidence.supertype ?? null,
+    subtypes: Object.freeze([...(corroboratingEvidence.subtypes || [])]),
+    nationalDexNumbers: Object.freeze([...(corroboratingEvidence.nationalDexNumbers || [])]),
+    verificationBasis: Object.freeze({
+      kind: 'base_printing_cross_source',
+      sources: Object.freeze([
+        compactSetEvidence({ ...baseEvidence, sourceRecordId: baseEvidence.sourceRecordId }),
+        compactSetEvidence({ ...corroboratingEvidence, sourceRecordId: corroboratingEvidence.sourceRecordId }),
+      ]),
+    }),
+  });
+}
+
 export function reconcileCardEvidence(variantRecord, corroboratingEvidence, setMatch) {
   if (!variantRecord || !corroboratingEvidence) {
     throw new TypeError('variant and corroborating card evidence are required');
