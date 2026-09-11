@@ -68,6 +68,50 @@ function reviewedCardEvidenceDifferences(setMatch, left, right) {
     }));
   }
 
+  const exactNameConventions = [
+    ['swsh2', 'swsh2', "Boss's Orders (Giovanni)", "Boss's Orders"],
+    ['sv02', 'sv2', "Boss's Orders", "Boss's Orders (Ghetsis)"],
+    ['swsh4.5', 'swsh45', "Boss's Orders (Lysandre)", "Boss's Orders"],
+    ['swsh4.5', 'swsh45', "Professor's Research (Professor Juniper)", "Professor's Research"],
+    ['sv01', 'sv1', "Professor's Research", "Professor's Research (Professor Sada)"],
+    ['sv01', 'sv1', "Professor's Research", "Professor's Research (Professor Turo)"],
+    ['ex11', 'ex11', 'Groudon Star', 'Groudon ★'],
+    ['ex11', 'ex11', 'Kyogre Star', 'Kyogre ★'],
+    ['ex11', 'ex11', 'Metagross Star', 'Metagross ★'],
+    ['ex13', 'ex13', 'Mewtwo Star', 'Mewtwo ★'],
+    ['ex13', 'ex13', 'Pikachu Star', 'Pikachu ★'],
+    ['bw6', 'bw6', 'Blend Energy Grass Fire Psychic Darkness', 'Blend Energy GrassFirePsychicDarkness'],
+    ['bw6', 'bw6', 'Blend Energy Water Lightning Fighting Metal', 'Blend Energy WaterLightningFightingMetal'],
+    ['base4', 'base4', 'Impostor Professor Oak', 'Imposter Professor Oak'],
+  ];
+  for (const [leftSetId, rightSetId, expectedLeftName, expectedRightName] of exactNameConventions) {
+    if (leftNumber === rightNumber
+      && sourceSetPair(setMatch, left, right, leftSetId, rightSetId)
+      && left.name === expectedLeftName
+      && right.name === expectedRightName) {
+      differences.push(Object.freeze({
+        field: 'cardName',
+        left: left.name,
+        right: right.name,
+        reason: 'reviewed_exact_source_card_name_convention',
+      }));
+    }
+  }
+
+  if (sourceSetPair(setMatch, left, right, 'bwp', 'bwp')
+    && leftName === rightName) {
+    const leftPromo = leftNumber.match(/^bw0([45])$/);
+    const rightPromo = rightNumber.match(/^bw00([45])$/);
+    if (leftPromo && rightPromo && leftPromo[1] === rightPromo[1]) {
+      differences.push(Object.freeze({
+        field: 'collectorNumber',
+        left: left.collectorNumber,
+        right: right.collectorNumber,
+        reason: 'reviewed_bw_promo_zero_padding_convention',
+      }));
+    }
+  }
+
   const ecardHoloPair = (
     sourceSetPair(setMatch, left, right, 'ecard2', 'ecard2')
     || sourceSetPair(setMatch, left, right, 'ecard3', 'ecard3')
