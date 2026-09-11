@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { Pool } from 'pg';
+import { getPrintingArtworkCoverageFromStore } from './artwork-store.mjs';
 import { buildVerifiedPokemonSetCrosswalk, syncVerifiedPokemonCatalogue } from './bulk-sync.mjs';
 import { diagnoseChecklistPrintingTail } from './checklist-diagnostics.mjs';
 import { createTcgdexClient } from './source-clients.mjs';
@@ -150,6 +151,7 @@ try {
     }
   }
   progress.saved = await counts();
+  progress.artwork = await getPrintingArtworkCoverageFromStore(store);
   const zeroSaved = classifyZeroSavedSets(progress.sets);
   progress.intentionalQuarantineSetIds = zeroSaved.intentional;
   progress.unexplainedZeroSavedSetIds = zeroSaved.unexplained;
@@ -162,13 +164,20 @@ try {
     intentionalQuarantineSets: zeroSaved.intentional.length,
     unexplainedZeroSavedSetIds: zeroSaved.unexplained,
   });
+  assert.equal(
+    progress.artwork.withThumbnail,
+    progress.artwork.total,
+    `Thumbnail coverage incomplete: ${progress.artwork.withThumbnail}/${progress.artwork.total}`,
+  );
   // Replay every set: duplicate identities/mappings must not inflate saved totals.
   for (const pair of crosswalk.matched)
     await syncVerifiedPokemonCatalogue({store,tcgdexClient,pokemonTcgClient,crosswalk:{...crosswalk,matched:[pair]},maxSets:1,maxCardsPerChunk:250,verifiedAt});
   progress.replayed = await counts();
+  progress.replayedArtwork = await getPrintingArtworkCoverageFromStore(store);
   assert.deepEqual(progress.replayed,progress.saved);
+  assert.deepEqual(progress.replayedArtwork,progress.artwork);
   progress.status = 'passed';
-  console.log(JSON.stringify({event:'rehearsal_passed',...progress.saved,replayCountsUnchanged:true,productionWrites:false}));
+  console.log(JSON.stringify({event:'rehearsal_passed',...progress.saved,thumbnailPrintings:progress.artwork.withThumbnail,thumbnailCoverageComplete:true,replayCountsUnchanged:true,productionWrites:false}));
 } catch (error) {
   progress.status = 'failed';
   progress.error = error.message;
