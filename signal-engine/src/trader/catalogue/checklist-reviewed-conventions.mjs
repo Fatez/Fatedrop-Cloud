@@ -40,36 +40,6 @@ const CHECKLIST_ONLY_CONVENTIONS = Object.freeze([
   }),
 ]);
 
-// These three promos are present in TCGdex and in Pokemon's official card database,
-// but absent from the pinned PokemonTCG/pokemon-tcg-data card payload. Keep this as
-// checklist-only evidence so it cannot manufacture a finish-specific identity.
-const OFFICIAL_PROMO_CHECKLIST_EVIDENCE = Object.freeze([
-  Object.freeze({
-    sourceSetCode: 'swshp',
-    sourceRecordId: 'swshp-SWSH299',
-    name: 'Jirachi V',
-    collectorNumber: 'SWSH299',
-    officialRecordId: 'swshp/SWSH299',
-    officialUrl: 'https://www.pokemon.com/uk/pokemon-tcg/pokemon-cards/series/swshp/SWSH299/',
-  }),
-  Object.freeze({
-    sourceSetCode: 'swshp',
-    sourceRecordId: 'swshp-SWSH300',
-    name: 'Unown V',
-    collectorNumber: 'SWSH300',
-    officialRecordId: 'swshp/SWSH300',
-    officialUrl: 'https://www.pokemon.com/uk/pokemon-tcg/pokemon-cards/series/swshp/SWSH300/',
-  }),
-  Object.freeze({
-    sourceSetCode: 'swshp',
-    sourceRecordId: 'swshp-SWSH301',
-    name: 'Lugia V',
-    collectorNumber: 'SWSH301',
-    officialRecordId: 'swshp/SWSH301',
-    officialUrl: 'https://www.pokemon.com/uk/pokemon-tcg/pokemon-cards/series/swshp/SWSH301/',
-  }),
-]);
-
 // Binder membership has a deliberately narrower evidence lane than exact identity
 // matching. These reviewed conventions may corroborate a base printing only; they
 // must never be fed into reconcileCardEvidence or used to manufacture a finish.
@@ -98,49 +68,5 @@ export function reviewedChecklistCorroboration(setMatch, left, right) {
   return Object.freeze({
     evidence: Object.freeze(adjusted),
     acceptedDifferences: Object.freeze([Object.freeze(acceptedDifference)]),
-  });
-}
-
-export function reviewedOfficialChecklistPrinting(setMatch, left) {
-  if (!left || left.sourceName !== 'tcgdex' || left.tcgCode !== 'pokemon' || left.languageCode !== 'en') return null;
-  if (!setMatchHasEvidence(setMatch, 'tcgdex', 'swshp') || !setMatchHasEvidence(setMatch, 'pokemontcg-api', 'swshp')) return null;
-
-  const reviewed = OFFICIAL_PROMO_CHECKLIST_EVIDENCE.find((entry) => (
-    left.sourceSetCode === entry.sourceSetCode
-      && left.sourceRecordId === entry.sourceRecordId
-      && left.name === entry.name
-      && normaliseCollectorNumber(left.collectorNumber) === normaliseCollectorNumber(entry.collectorNumber)
-  ));
-  if (!reviewed) return null;
-
-  return Object.freeze({
-    status: 'matched',
-    tcgCode: setMatch.tcgCode,
-    seriesCode: setMatch.canonicalSeriesId,
-    setCode: setMatch.canonicalSetId,
-    collectorNumber: left.collectorNumber,
-    printingCode: left.printingCode,
-    name: left.name,
-    rarity: left.rarity ?? null,
-    supertype: left.supertype ?? null,
-    subtypes: Object.freeze([...(left.subtypes || [])]),
-    nationalDexNumbers: Object.freeze([...(left.nationalDexNumbers || [])]),
-    acceptedDifferences: Object.freeze([]),
-    verificationBasis: Object.freeze({
-      kind: 'base_printing_official_card_database',
-      scope: 'checklist_only_no_finish_identity',
-      sources: Object.freeze([
-        Object.freeze({
-          sourceName: left.sourceName,
-          sourceRecordId: left.sourceRecordId,
-          sourceUrl: left.sourceUrl ?? null,
-        }),
-        Object.freeze({
-          sourceName: 'pokemon-official-card-database',
-          sourceRecordId: reviewed.officialRecordId,
-          sourceUrl: reviewed.officialUrl,
-        }),
-      ]),
-    }),
   });
 }
