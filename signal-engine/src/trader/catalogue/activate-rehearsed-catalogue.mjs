@@ -24,8 +24,8 @@ export function validateEvidence(report) {
   assert.equal(report.sourceRevision, REVISION);
   assert.equal(report.saved.verified_sets, 165);
   assert.equal(report.saved.printings, 20023);
-  assert.equal(report.saved.verified_identities, 27720);
-  assert.equal(report.saved.source_mappings, 27720);
+  assert.equal(report.saved.verified_identities, 27725);
+  assert.equal(report.saved.source_mappings, 27725);
   assert.equal(report.saved.orphan_sets, 0);
   assert.equal(report.saved.orphan_printings, 0);
   assert.equal(report.saved.orphan_mappings, 0);
