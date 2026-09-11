@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { FileStore } from '../src/stores/file-store.mjs';
 import { syncVerifiedPokemonSet } from '../src/trader/catalogue/sync.mjs';
-import { listVerifiedCardsFromStore } from '../src/trader/catalogue/store.mjs';
+import { listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../src/trader/catalogue/store.mjs';
 
 async function store() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'fatedrop-trader-sync-'));
@@ -92,6 +92,35 @@ test('controlled sync can resume through one source set without duplicating cano
   const cards = await listVerifiedCardsFromStore(target);
   assert.equal(cards.length, 3);
   assert.deepEqual(new Set(cards.map((card) => card.name)), new Set(['Alpha', 'Beta']));
+});
+
+test('first-edition finish holds still persist exact base printing for binder membership', async () => {
+  const target = await store();
+  const source = clients();
+  const held = structuredClone(tcgdexCards['svx-a-1']);
+  held.variants = { firstEdition:true, normal:true, reverse:false, holo:false, wPromo:false };
+
+  const result = await syncVerifiedPokemonSet({
+    store: target,
+    tcgdexClient: {
+      ...source.tcgdexClient,
+      async getCard(id) { return id === 'svx-a-1' ? held : tcgdexCards[id]; },
+    },
+    pokemonTcgClient: source.pokemonTcgClient,
+    tcgdexSetId: 'svx-a',
+    pokemonTcgSetId: 'svx-b',
+    maxCards: 1,
+    verifiedAt: 1_777_000_000_010,
+  });
+
+  assert.equal(result.verifiedCardIdentities, 0);
+  assert.equal(result.verifiedChecklistPrintings, 1);
+  assert.equal(result.quarantined, 1);
+  assert.equal((await listVerifiedCardsFromStore(target)).length, 0);
+  const printings = await listVerifiedPrintingsFromStore(target);
+  assert.equal(printings.length, 1);
+  assert.equal(printings[0].collectorNumber, '1');
+  assert.equal(printings[0].name, 'Alpha');
 });
 
 test('sync does not persist a set when independent set evidence conflicts', async () => {
