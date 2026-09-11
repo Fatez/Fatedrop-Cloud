@@ -15,7 +15,7 @@ export async function auditCollectorCatalogueFromStore(store, {
       listVerifiedCardsFromStore(store, { setId:set.id, limit:500 }),
       listVerifiedPrintingsFromStore(store, { setId:set.id, limit:1000 }),
     ]);
-    const completeness = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings });
+    const completeness = assessCanonicalSetCompleteness({ set, canonicalCards, canonicalPrintings: canonicalPrintings.length ? canonicalPrintings : null });
     results.push(Object.freeze({
       tcgCode: capability.code,
       setId: set.id,
