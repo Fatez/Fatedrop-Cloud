@@ -1,0 +1,46 @@
+name: OPS Cardmarket Production Cycle
+
+on:
+  workflow_dispatch:
+    inputs:
+      persist:
+        description: 'Persist exact normal+holo Cardmarket observations'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-production-cycle
+  cancel-in-progress: false
+
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run exact Cardmarket normal+holo cycle
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: ${{ inputs.persist && 'persist' || 'dry-run' }}
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload cycle audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-production-cycle-audit
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: error
+          retention-days: 14
