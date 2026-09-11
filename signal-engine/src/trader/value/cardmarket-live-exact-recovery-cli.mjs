@@ -26,10 +26,16 @@ export async function buildExactRecovery({ db, tcgdexRepo }) {
   const priceByProduct = new Map(snapshot.priceGuides.map(r => [String(r.idProduct), r]));
 
   const { rows:setRows } = await db.query(`
-    SELECT m.source_record_id AS tcgdex_set_id, s.id AS set_id, s.name AS set_name
-    FROM fatedrop_card_set_source_mappings m
-    JOIN fatedrop_card_sets s ON s.id=m.set_id
-    WHERE m.source_name='tcgdex' AND s.verification_status='verified'`);
+    SELECT
+      t.source_record_id AS tcgdex_set_id,
+      s.id AS set_id,
+      s.name AS set_name,
+      cm.source_record_id AS cardmarket_expansion_override
+    FROM fatedrop_card_set_source_mappings t
+    JOIN fatedrop_card_sets s ON s.id=t.set_id
+    LEFT JOIN fatedrop_card_set_source_mappings cm
+      ON cm.set_id=s.id AND cm.source_name='cardmarket'
+    WHERE t.source_name='tcgdex' AND s.verification_status='verified'`);
   const { rows:tcgRows } = await db.query(`
     SELECT m.source_record_id,m.source_variant_key,m.card_identity_id,c.variant_code,c.set_id
     FROM fatedrop_card_source_mappings m
@@ -56,7 +62,11 @@ export async function buildExactRecovery({ db, tcgdexRepo }) {
   for (const setRow of setRows) {
     const sourceSet=repo.bySetId.get(setRow.tcgdex_set_id);
     if (!sourceSet) { unresolvedSets.push({setId:setRow.set_id,tcgdexSetId:setRow.tcgdex_set_id,reason:'missing_from_pinned_tcgdex_repo'}); continue; }
-    const audit=auditExplicitCardmarketMappings(sourceSet,productsIndex.byId,productsIndex.byExpansion);
+    const override=Number(setRow.cardmarket_expansion_override);
+    const evidenceSet=(Number.isSafeInteger(override)&&override>0)
+      ? {...sourceSet,cardmarketExpansionId:override}
+      : sourceSet;
+    const audit=auditExplicitCardmarketMappings(evidenceSet,productsIndex.byId,productsIndex.byExpansion);
     if (audit.status!=='proven') { unresolvedSets.push({setId:setRow.set_id,tcgdexSetId:setRow.tcgdex_set_id,reason:audit.reason}); continue; }
     for (const ev of audit.mappings || []) {
       if (ev.status!=='proven') continue;
