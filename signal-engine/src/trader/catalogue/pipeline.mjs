@@ -2,6 +2,7 @@ import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { adaptTcgdexCard, adaptTcgdexSet } from './tcgdex-adapter.mjs';
 import { adaptPokemonTcgCardEvidence, adaptPokemonTcgSet } from './pokemontcg-adapter.mjs';
 import { reviewedChecklistCorroboration } from './checklist-reviewed-conventions.mjs';
+import { reviewedOfficialChecklistPrinting } from './official-checklist-supplements.mjs';
 import { allowsReviewedCardEvidenceAlias, normaliseComparableName, reconcileCardEvidence, reconcileChecklistPrintingEvidence, reconcileSetEvidence } from './reconcile.mjs';
 
 function comparableSetKey(evidence) {
@@ -145,7 +146,12 @@ export function reconcilePokemonCardCollections({
       if (reviewedChecklistCandidates.length === 1) checklistCandidate = reviewedChecklistCandidates[0];
     }
 
-    if (checklistCandidate) {
+    const officialChecklist = checklistCandidate
+      ? null
+      : reviewedOfficialChecklistPrinting(setMatch, variantRecord.baseEvidence);
+    if (officialChecklist) {
+      checklistPrintings.push(officialChecklist);
+    } else if (checklistCandidate) {
       const checklist = reconcileChecklistPrintingEvidence(variantRecord.baseEvidence, checklistCandidate.evidence, setMatch);
       if (checklist.status === 'matched') {
         checklistPrintings.push(checklistCandidate.acceptedDifferences.length
