@@ -71,7 +71,6 @@ export function reconcilePokemonSetCollections(tcgdexSets, pokemonTcgSets) {
 
   return Object.freeze({
     matched: Object.freeze(matched),
-    checklistPrintings: Object.freeze(checklistPrintings),
     conflicts: Object.freeze(conflicts),
     unmatched: Object.freeze(unmatched),
   });
@@ -172,6 +171,7 @@ export function reconcilePokemonCardCollections({
   return Object.freeze({
     ...(unsupportedPublisherEvidence.length ? { unsupportedPublisherEvidence: Object.freeze(unsupportedPublisherEvidence) } : {}),
     matched: Object.freeze(matched),
+    checklistPrintings: Object.freeze(checklistPrintings),
     conflicts: Object.freeze(conflicts),
     quarantined: Object.freeze(quarantined),
     unmatched: Object.freeze(unmatched),
