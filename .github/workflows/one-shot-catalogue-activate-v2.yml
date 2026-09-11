@@ -1,0 +1,78 @@
+name: One-shot catalogue production activation v2
+
+on:
+  push:
+    branches:
+      - ops/catalogue-production-activate-2026-09-11-v2
+    paths:
+      - '.github/workflows/one-shot-catalogue-activate-v2.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-production-catalogue
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fatedrop_catalogue_rehearsal
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fatedrop_catalogue_rehearsal"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate production target before source work
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/catalogue/production-target-check.mjs
+      - name: Check out pinned Pokemon TCG publisher data
+        uses: actions/checkout@v4
+        with:
+          repository: PokemonTCG/pokemon-tcg-data
+          ref: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
+          path: _evidence/pokemon-tcg-data
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Import and replay exact catalogue in disposable PostgreSQL
+        env:
+          POKEMON_TCG_DATA_ROOT: ${{ github.workspace }}/_evidence/pokemon-tcg-data
+          POKEMON_TCG_DATA_REVISION: 8b4e387930ead7be6595b4d4c59b7ba7a3a79f08
+          CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
+        run: node src/trader/catalogue/rehearse-live-catalogue.mjs
+      - name: Verify production compatibility and activate atomically
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CATALOGUE_REHEARSAL_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fatedrop_catalogue_rehearsal
+          CATALOGUE_ACTIVATE: 'true'
+        run: node src/trader/catalogue/activate-rehearsed-catalogue.mjs
+      - name: Retain activation audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-shot-catalogue-production-activation-audit-v2
+          path: |
+            ${{ runner.temp }}/catalogue-rehearsal.json
+            ${{ runner.temp }}/catalogue-activation.json
+          if-no-files-found: warn
+          retention-days: 14
