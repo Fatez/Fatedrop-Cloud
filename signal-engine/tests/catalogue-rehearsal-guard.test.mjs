@@ -11,10 +11,12 @@ test('rehearsal accepts only its disposable localhost database', () => {
 });
 
 test('saved counts reconcile with deliberate first-edition quarantine and integrity gates', () => {
-  const good = { verified_sets: 124, verified_identities: 24059, orphan_sets: 0, orphan_printings: 0, orphan_mappings: 0, duplicate_identities: 0 };
+  const good = { verified_sets: 132, printings: 16000, verified_identities: 24059, source_mappings: 24059, orphan_sets: 0, orphan_printings: 0, orphan_mappings: 0, duplicate_identities: 0 };
   assertRehearsalCounts(good, evidence);
   for (const [counts, changedEvidence] of [
-    [{...good, verified_sets:123}, evidence],
+    [{...good, verified_sets:131}, evidence],
+    [{...good, printings:0}, evidence],
+    [{...good, source_mappings:24058}, evidence],
     [{...good, verified_identities:17312}, evidence],
     [{...good, orphan_sets:1}, evidence],
     [{...good, orphan_printings:1}, evidence],
