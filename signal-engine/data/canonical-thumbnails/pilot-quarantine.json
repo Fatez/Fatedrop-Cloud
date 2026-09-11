@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "canonical-thumbnail-quarantine:1",
+  "auditedAtUtc": "2026-09-07T02:29:10.739Z",
+  "targetSetCount": 25,
+  "verifiedSetCount": 4,
+  "quarantinedSetCount": 21,
+  "rejectedSetCount": 0,
+  "entries": [
+    {
+      "kind": "set-scope",
+      "status": "quarantined",
+      "count": 21,
+      "reason": "pilot_capacity_not_filled_because_only_four live verified Pokemon sets currently have an exact TCGdex set mapping; no unpersisted/audit-only sets were promoted or guessed"
+    }
+  ],
+  "rejectionPolicy": [
+    "reject malformed or conflicting source record IDs",
+    "quarantine any set outside the explicit canonical pilot allowlist",
+    "quarantine cards without an exact persisted TCGdex source mapping",
+    "never use card name similarity, artwork similarity, retailer photos, marketplace photos or Google Images as identity evidence",
+    "remote load failure falls back to FateDrop artwork and never blocks rankings, binder progress or collection intelligence"
+  ]
+}

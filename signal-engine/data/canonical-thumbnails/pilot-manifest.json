@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "canonical-thumbnail-manifest:1",
+  "policyVersion": "canonical-thumbnails:pilot-1",
+  "auditedAtUtc": "2026-09-07T02:29:10.739Z",
+  "targetSetCount": 25,
+  "eligibleSetCount": 4,
+  "heldSetSlots": 21,
+  "provider": "tcgdex",
+  "deliveryMode": "remote_provider_assets_only",
+  "usageBasis": "TCGdex documents remote card/logo asset URLs and recommends WebP display; FateDrop does not bundle or redistribute derivatives in this pilot.",
+  "copyrightBoundary": "Provider/database licensing does not transfer ownership of underlying Pokemon artwork. Assets remain remote references; no local derivatives are published.",
+  "cardAssetProfile": { "thumbnail": "low.webp", "reportedDimensions": { "width": 245, "height": 337 }, "full": "high.webp", "reportedFullDimensions": { "width": 600, "height": 825 } },
+  "setAssetProfile": { "thumbnail": "logo.webp", "reportedDimensions": null },
+  "validation": {
+    "identityRule": "exact canonical set plus exact persisted TCGdex source mapping; no fuzzy names",
+    "appPilotFormattingAudit": "numeric canonical collector numbers are left-padded to width 3 only in the four allowlisted sets; checked against all persisted exact TCGdex source mappings",
+    "appPilotFormattingMappingsChecked": 1024,
+    "appPilotFormattingMismatches": 0,
+    "binaryHashing": "not_applicable_remote_reference_no_local_derivative",
+    "exifStripping": "not_applicable_remote_reference_no_local_derivative"
+  },
+  "coverage": { "verifiedCardIdentities": 1024, "verifiedPrintings": 606, "quarantinedSets": 0, "rejectedSets": 0, "duplicateHashes": null },
+  "sets": [
+    {
+      "canonicalIdentityId": "fdset_20b6a6dcfa52bbe0cc54b919", "kind": "set", "tcg": "pokemon", "setId": "fdset_20b6a6dcfa52bbe0cc54b919", "setCode": "fdset_20b6a6dcfa52bbe0cc54b919", "cardPrintingId": null, "collectorNumber": null, "language": "en", "sourceUrl": "https://api.tcgdex.net/v2/en/sets/sv08.5", "provider": "tcgdex", "usageLicenceTermsBasis": "provider_documented_remote_asset_display_no_local_redistribution", "attributionRequirement": "retain provider/source provenance in manifest", "retrievalTimestamp": "2026-09-07T02:29:10.739Z", "reportedContentType": "image/webp", "detectedContentType": null, "originalDimensions": null, "sha256": null, "proposedRemoteUrl": "https://assets.tcgdex.net/en/sv/sv08.5/logo.webp", "status": "verified", "reason": "exact reviewed canonical set to TCGdex set mapping; remote reference only", "verifiedCardIdentities": 281, "verifiedPrintings": 180
+    },
+    {
+      "canonicalIdentityId": "fdset_15b58d7fe24f94690c51184b", "kind": "set", "tcg": "pokemon", "setId": "fdset_15b58d7fe24f94690c51184b", "setCode": "fdset_15b58d7fe24f94690c51184b", "cardPrintingId": null, "collectorNumber": null, "language": "en", "sourceUrl": "https://api.tcgdex.net/v2/en/sets/sv05", "provider": "tcgdex", "usageLicenceTermsBasis": "provider_documented_remote_asset_display_no_local_redistribution", "attributionRequirement": "retain provider/source provenance in manifest", "retrievalTimestamp": "2026-09-07T02:29:10.739Z", "reportedContentType": "image/webp", "detectedContentType": null, "originalDimensions": null, "sha256": null, "proposedRemoteUrl": "https://assets.tcgdex.net/en/sv/sv05/logo.webp", "status": "verified", "reason": "exact reviewed canonical set to TCGdex set mapping; remote reference only", "verifiedCardIdentities": 379, "verifiedPrintings": 218
+    },
+    {
+      "canonicalIdentityId": "fdset_067d68020460e775d43ff0cb", "kind": "set", "tcg": "pokemon", "setId": "fdset_067d68020460e775d43ff0cb", "setCode": "fdset_067d68020460e775d43ff0cb", "cardPrintingId": null, "collectorNumber": null, "language": "en", "sourceUrl": "https://api.tcgdex.net/v2/en/sets/sv03.5", "provider": "tcgdex", "usageLicenceTermsBasis": "provider_documented_remote_asset_display_no_local_redistribution", "attributionRequirement": "retain provider/source provenance in manifest", "retrievalTimestamp": "2026-09-07T02:29:10.739Z", "reportedContentType": "image/webp", "detectedContentType": null, "originalDimensions": null, "sha256": null, "proposedRemoteUrl": "https://assets.tcgdex.net/en/sv/sv03.5/logo.webp", "status": "verified", "reason": "exact reviewed canonical set to TCGdex set mapping; remote reference only", "verifiedCardIdentities": 362, "verifiedPrintings": 207
+    },
+    {
+      "canonicalIdentityId": "fdset_373e293fbb2882e43122afde", "kind": "set", "tcg": "pokemon", "setId": "fdset_373e293fbb2882e43122afde", "setCode": "fdset_373e293fbb2882e43122afde", "cardPrintingId": null, "collectorNumber": null, "language": "en", "sourceUrl": "https://api.tcgdex.net/v2/en/sets/swsh3", "provider": "tcgdex", "usageLicenceTermsBasis": "provider_documented_remote_asset_display_no_local_redistribution", "attributionRequirement": "retain provider/source provenance in manifest", "retrievalTimestamp": "2026-09-07T02:29:10.739Z", "reportedContentType": "image/webp", "detectedContentType": null, "originalDimensions": null, "sha256": null, "proposedRemoteUrl": "https://assets.tcgdex.net/en/swsh/swsh3/logo.webp", "status": "verified", "reason": "exact reviewed canonical set to TCGdex set mapping; remote reference only", "verifiedCardIdentities": 2, "verifiedPrintings": 1
+    }
+  ]
+}
