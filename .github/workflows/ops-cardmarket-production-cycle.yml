@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: fateprice-cardmarket-production-cycle
+  group: fateprice-cardmarket-daily-ingest
   cancel-in-progress: false
 
 jobs:
