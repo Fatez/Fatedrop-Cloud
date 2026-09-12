@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/ops-pokemontcg-finish-evidence-audit.yml'
       - 'signal-engine/src/trader/value/pokemontcg-finish-evidence-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/pokemontcg-finish-evidence-audit-resilient-cli.mjs'
       - 'signal-engine/tests/pokemontcg-finish-evidence-audit.test.mjs'
 
 permissions:
@@ -42,7 +43,7 @@ jobs:
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
           MAPPING_WRITE: 'false'
           PRICE_WRITE: 'false'
-        run: node src/trader/value/pokemontcg-finish-evidence-audit-cli.mjs
+        run: node src/trader/value/pokemontcg-finish-evidence-audit-resilient-cli.mjs
       - name: Upload finish evidence audit
         if: always()
         uses: actions/upload-artifact@v4
