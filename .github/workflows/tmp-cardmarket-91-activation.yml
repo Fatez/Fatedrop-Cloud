@@ -36,7 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Diagnose frozen 91-card cohort against production and current guide
+      - name: Confirm holo-only frozen digest and competing owners
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         shell: bash
@@ -45,83 +45,53 @@ jobs:
           import { createHash } from 'node:crypto';
           import { writeFile } from 'node:fs/promises';
           import { Pool } from 'pg';
-          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
-          import { listVerifiedPriceCapableCardmarketProductIds, scopeCardmarketPriceGuideToMappedProducts } from './src/trader/value/cardmarket-market-cycle.mjs';
-          import { collectCurrentGuideInherentHoloBaseLaneEligibleProductIds, createCardmarketBatchExactMappingResolution } from './src/trader/value/cardmarket-daily-ingest.mjs';
-          import { hasMeaningfulCardmarketLane } from './src/trader/value/cardmarket-adapter.mjs';
           import {
             REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
             REVIEWED_EXPLICIT_HOLO_BASE_LANE_MAPPING_DIGEST,
-            validateReviewedExplicitHoloBaseLaneMappings,
           } from './src/trader/value/cardmarket-reviewed-explicit-holo-base-lane.mjs';
 
-          const policy = new Set(REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.map(String));
           const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
-          const store = { pool: async () => pool };
-          const mappingLine = (row) => [row.id,row.card_identity_id,String(row.source_record_id),row.source_variant_key,row.canonical_variant_code,row.language_code,row.verification_status].join('|');
+          const line = (row) => [row.id,row.card_identity_id,String(row.source_record_id),row.source_variant_key,row.canonical_variant_code,row.language_code,row.verification_status].join('|');
           try {
-            const source = await fetchCardmarketPokemonPriceGuide();
-            const mapped = await listVerifiedPriceCapableCardmarketProductIds(store);
-            const scoped = scopeCardmarketPriceGuideToMappedProducts(source.artifact.payload, mapped);
-            const guidePolicyRows = scoped.priceGuides.filter((row) => policy.has(String(row?.idProduct ?? '')));
-            const baseMeaningful = guidePolicyRows.filter((row) => hasMeaningfulCardmarketLane(row, 'standard'));
-            const holoMeaningful = guidePolicyRows.filter((row) => hasMeaningfulCardmarketLane(row, 'holo'));
-            const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(scoped);
-            const eligiblePolicy = [...eligible].filter((id) => policy.has(String(id)));
-
             const { rows } = await pool.query(`SELECT m.id,m.card_identity_id,m.source_name,
-                m.source_record_id,m.source_variant_key,c.variant_code AS canonical_variant_code,c.language_code,c.verification_status
+                m.source_record_id,m.source_variant_key,c.variant_code AS canonical_variant_code,c.language_code,c.verification_status,
+                p.name,p.collector_number,s.name AS set_name
               FROM fatedrop_card_source_mappings m
               JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
+              JOIN fatedrop_card_printings p ON p.id=c.printing_id
+              JOIN fatedrop_card_sets s ON s.id=c.set_id
               WHERE m.source_name='cardmarket'
                 AND m.source_record_id=ANY($1::text[])
-                AND c.verification_status='verified'`, [REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS]);
-            const policyRows = rows.filter((row) => policy.has(String(row.source_record_id)));
-            const canonical = [...policyRows]
+                AND c.verification_status='verified'
+              ORDER BY m.source_record_id,m.source_variant_key,m.id`, [REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS]);
+            const holoRows = rows.filter((row) => row.source_variant_key === 'holo');
+            const canonical = [...holoRows]
               .sort((a,b) => String(a.source_record_id).localeCompare(String(b.source_record_id)))
-              .map(mappingLine).join('\n');
-            const actualDigest = createHash('sha256').update(canonical).digest('hex');
-            const validated = validateReviewedExplicitHoloBaseLaneMappings(rows);
-            const resolution = await createCardmarketBatchExactMappingResolution(store, new Set(scoped.priceGuides.map((row) => String(row?.idProduct ?? ''))), {
-              inherentHoloBaseLaneEligibleProductIds: eligible,
-            });
-            const admittedPolicy = [...resolution.inherentHoloBaseLaneProductIds].filter((id) => policy.has(String(id)));
-            const byProduct = new Map();
-            for (const row of policyRows) {
-              const id = String(row.source_record_id);
-              if (!byProduct.has(id)) byProduct.set(id, []);
-              byProduct.get(id).push(row);
-            }
-            const duplicateProductRows = [...byProduct.entries()].filter(([, rs]) => rs.length !== 1).map(([id, rs]) => ({ id, rows: rs.length }));
-            const badShape = policyRows.filter((row) => row.source_variant_key !== 'holo' || row.canonical_variant_code !== 'holo' || row.language_code !== 'en' || row.verification_status !== 'verified').map((row) => ({
-              id: String(row.source_record_id), sourceVariantKey: row.source_variant_key, canonicalVariantCode: row.canonical_variant_code, languageCode: row.language_code, verificationStatus: row.verification_status,
+              .map(line).join('\n');
+            const holoOnlyDigest = createHash('sha256').update(canonical).digest('hex');
+            const conflictIds = new Set(rows.filter((row) => row.source_variant_key === 'normal').map((row) => String(row.source_record_id)));
+            const conflicts = rows.filter((row) => conflictIds.has(String(row.source_record_id))).map((row) => ({
+              mappingId: row.id,
+              cardIdentityId: row.card_identity_id,
+              sourceRecordId: String(row.source_record_id),
+              sourceVariantKey: row.source_variant_key,
+              canonicalVariantCode: row.canonical_variant_code,
+              setName: row.set_name,
+              name: row.name,
+              collectorNumber: row.collector_number,
             }));
-            const normalConflicts = policyRows.filter((row) => row.source_variant_key === 'normal').map((row) => String(row.source_record_id));
-            const missingMappings = [...policy].filter((id) => !byProduct.has(id));
-            const missingGuideRows = [...policy].filter((id) => !guidePolicyRows.some((row) => String(row?.idProduct ?? '') === id));
             const report = {
-              policyCount: policy.size,
-              guidePolicyRows: guidePolicyRows.length,
-              guideBaseMeaningful: baseMeaningful.length,
-              guideHoloMeaningful: holoMeaningful.length,
-              eligiblePolicyCount: eligiblePolicy.length,
-              mappedPolicyRows: policyRows.length,
-              uniqueMappedPolicyProducts: byProduct.size,
-              duplicateProductRows,
-              badShape,
-              normalConflicts,
-              missingMappings,
-              missingGuideRows,
+              policyCount: REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.length,
+              allRows: rows.length,
+              holoRows: holoRows.length,
+              uniqueHoloProducts: new Set(holoRows.map((row) => String(row.source_record_id))).size,
               expectedDigest: REVIEWED_EXPLICIT_HOLO_BASE_LANE_MAPPING_DIGEST,
-              actualDigest,
-              digestMatches: actualDigest === REVIEWED_EXPLICIT_HOLO_BASE_LANE_MAPPING_DIGEST,
-              validatorProductCount: validated.size,
-              admittedPolicyCount: admittedPolicy.length,
-              admittedPolicyIds: admittedPolicy,
-              eligibleButNotAdmitted: eligiblePolicy.filter((id) => !admittedPolicy.includes(id)),
-              guideSha256: source.artifact.sha256,
+              holoOnlyDigest,
+              holoDigestMatches: holoOnlyDigest === REVIEWED_EXPLICIT_HOLO_BASE_LANE_MAPPING_DIGEST,
+              competingNormalProductIds: [...conflictIds],
+              conflicts,
             };
-            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-91-activation-diagnostic.json`, JSON.stringify(report, null, 2));
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-91-holo-digest-diagnostic.json`, JSON.stringify(report, null, 2));
             console.log(JSON.stringify(report));
           } finally {
             await pool.end();
@@ -131,7 +101,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-91-activation-diagnostic
-          path: ${{ runner.temp }}/cardmarket-91-activation-diagnostic.json
+          name: cardmarket-91-holo-digest-diagnostic
+          path: ${{ runner.temp }}/cardmarket-91-holo-digest-diagnostic.json
           if-no-files-found: error
           retention-days: 14
