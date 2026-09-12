@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildCardmarketPriceGuideBatch,
+} from '../src/trader/value/cardmarket-adapter.mjs';
+import {
   CARDMARKET_INHERENT_HOLO_BASE_LANE_AUDIT,
   CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS,
   CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_ID_SET,
@@ -30,6 +33,14 @@ function mappingMap(entries) {
   ]));
 }
 
+function priceGuidePayload(rows) {
+  return {
+    version: 6,
+    createdAt: '2026-09-12T00:49:54Z',
+    priceGuides: rows,
+  };
+}
+
 test('audited inherent-holo allowlist remains exactly the frozen 2,051 unique products', () => {
   assert.equal(CARDMARKET_INHERENT_HOLO_BASE_LANE_AUDIT.candidateCount, 2051);
   assert.equal(CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS.length, 2051);
@@ -37,18 +48,20 @@ test('audited inherent-holo allowlist remains exactly the frozen 2,051 unique pr
 });
 
 test('current guide eligibility requires meaningful base lane and empty holo lane', () => {
-  const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds({
-    priceGuides: [
-      { idProduct: Number(AUDITED_PRODUCT_ID), trend: 12.5, 'trend-holo': 0 },
-      { idProduct: Number(CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS[1]), trend: 8.2, 'trend-holo': 8.3 },
-      { idProduct: 123456789, trend: 4.2, 'trend-holo': 0 },
-    ],
-  });
+  const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceGuidePayload([
+    { idProduct: Number(AUDITED_PRODUCT_ID), trend: 12.5, 'trend-holo': 0 },
+    {
+      idProduct: Number(CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS[1]),
+      trend: 8.2,
+      'trend-holo': 8.3,
+    },
+    { idProduct: 123456789, trend: 4.2, 'trend-holo': 0 },
+  ]));
 
   assert.deepEqual([...eligible], [AUDITED_PRODUCT_ID]);
 });
 
-test('exact normal ownership wins over inherent-holo base-lane fallback', () => {
+test('exact normal ownership remains exact standard resolution', () => {
   const normal = mapping(AUDITED_PRODUCT_ID, 'normal', 'normal');
   const holo = mapping(AUDITED_PRODUCT_ID, 'holo', 'holo');
   const resolved = resolveCardmarketBatchMapping({
@@ -56,8 +69,6 @@ test('exact normal ownership wins over inherent-holo base-lane fallback', () => 
       [AUDITED_PRODUCT_ID, 'normal', normal],
       [AUDITED_PRODUCT_ID, 'holo', holo],
     ]),
-    validInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
-    eligibleInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
     sourceName: 'cardmarket',
     sourceRecordId: AUDITED_PRODUCT_ID,
     priceGuideLane: 'standard',
@@ -67,20 +78,48 @@ test('exact normal ownership wins over inherent-holo base-lane fallback', () => 
   assert.equal(resolved.sourceVariantKey, 'normal');
 });
 
-test('audited inherent-holo product may use provider base lane while remaining canonical holo', () => {
+test('audited provider base values remain canonical holo observations', async () => {
   const holo = mapping(AUDITED_PRODUCT_ID, 'holo', 'holo');
-  const resolved = resolveCardmarketBatchMapping({
-    mappings: mappingMap([[AUDITED_PRODUCT_ID, 'holo', holo]]),
-    validInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
-    eligibleInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
-    sourceName: 'cardmarket',
-    sourceRecordId: AUDITED_PRODUCT_ID,
-    priceGuideLane: 'standard',
+  const resolverRequests = [];
+  const batch = await buildCardmarketPriceGuideBatch(priceGuidePayload([
+    {
+      idProduct: Number(AUDITED_PRODUCT_ID),
+      idCategory: 1,
+      avg: 12,
+      low: 9.5,
+      trend: 12.5,
+      avg1: 12.1,
+      avg7: 11.9,
+      avg30: 11.4,
+      'avg-holo': 0,
+      'low-holo': 0,
+      'trend-holo': 0,
+      'avg1-holo': 0,
+      'avg7-holo': 0,
+      'avg30-holo': 0,
+    },
+  ]), {
+    observedAt: Date.parse('2026-09-12T01:00:00Z'),
+    inherentHoloBaseLaneProductIds: new Set([AUDITED_PRODUCT_ID]),
+    resolveMapping: async (request) => {
+      resolverRequests.push(request);
+      return request.priceGuideLane === 'holo' ? holo : null;
+    },
   });
 
-  assert.equal(resolved, holo);
-  assert.equal(resolved.sourceVariantKey, 'holo');
-  assert.equal(resolved.cardIdentityId, 'identity-holo');
+  assert.equal(batch.observations.length, 1);
+  assert.equal(batch.rejections.length, 0);
+  assert.equal(resolverRequests.length, 1);
+  assert.equal(resolverRequests[0].priceGuideLane, 'holo');
+  assert.equal(resolverRequests[0].providerPriceGuideLane, 'standard');
+
+  const [observation] = batch.observations;
+  assert.equal(observation.cardIdentityId, 'identity-holo');
+  assert.equal(observation.sourceVariantKey, 'holo');
+  assert.equal(observation.marketSegmentKey, 'holo');
+  assert.equal(observation.trendPrice, 12.5);
+  assert.equal(observation.metricsJson.priceGuideLane, 'holo');
+  assert.equal(observation.metricsJson.providerPriceGuideLane, 'standard');
 });
 
 test('non-allowlisted holo can never satisfy the provider base lane', () => {
@@ -88,8 +127,6 @@ test('non-allowlisted holo can never satisfy the provider base lane', () => {
   const holo = mapping(productId, 'holo', 'holo');
   const resolved = resolveCardmarketBatchMapping({
     mappings: mappingMap([[productId, 'holo', holo]]),
-    validInherentHoloProductIds: new Set([productId]),
-    eligibleInherentHoloProductIds: new Set([productId]),
     sourceName: 'cardmarket',
     sourceRecordId: productId,
     priceGuideLane: 'standard',
@@ -98,15 +135,13 @@ test('non-allowlisted holo can never satisfy the provider base lane', () => {
   assert.equal(resolved, null);
 });
 
-test('ambiguous normal ownership blocks fallback instead of choosing holo', () => {
+test('ambiguous normal ownership remains fail-closed', () => {
   const holo = mapping(AUDITED_PRODUCT_ID, 'holo', 'holo');
   const resolved = resolveCardmarketBatchMapping({
     mappings: mappingMap([
       [AUDITED_PRODUCT_ID, 'normal', null],
       [AUDITED_PRODUCT_ID, 'holo', holo],
     ]),
-    validInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
-    eligibleInherentHoloProductIds: new Set([AUDITED_PRODUCT_ID]),
     sourceName: 'cardmarket',
     sourceRecordId: AUDITED_PRODUCT_ID,
     priceGuideLane: 'standard',
@@ -119,8 +154,6 @@ test('holo provider lane still resolves only the exact holo mapping', () => {
   const holo = mapping(AUDITED_PRODUCT_ID, 'holo', 'holo');
   const resolved = resolveCardmarketBatchMapping({
     mappings: mappingMap([[AUDITED_PRODUCT_ID, 'holo', holo]]),
-    validInherentHoloProductIds: new Set(),
-    eligibleInherentHoloProductIds: new Set(),
     sourceName: 'cardmarket',
     sourceRecordId: AUDITED_PRODUCT_ID,
     priceGuideLane: 'holo',
