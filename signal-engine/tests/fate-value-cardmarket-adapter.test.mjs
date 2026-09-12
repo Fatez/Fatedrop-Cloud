@@ -178,6 +178,7 @@ test('batch only asks resolver for meaningful lanes', async () => {
     sourceName: 'cardmarket',
     sourceRecordId: '668227',
     priceGuideLane: 'standard',
+    providerPriceGuideLane: 'standard',
     tcgCode: 'pokemon',
   }]);
   assert.equal(result.observations.length, 1);
@@ -222,4 +223,13 @@ test('malformed Cardmarket snapshots and negative prices are rejected', () => {
     lane: 'standard',
     observedAt: OBSERVED_AT,
   }), /row.low/);
+});
+
+test('ordinary observations retain legacy fingerprint metadata', () => {
+  const row = standardRow();
+  const observation = adaptCardmarketPriceGuideRow(row, {
+    snapshot: adaptCardmarketPriceGuideSnapshot(payload([row])),
+    mapping: mapping(668227), lane: 'standard', observedAt: OBSERVED_AT,
+  });
+  assert.equal(Object.hasOwn(observation.metricsJson, 'providerPriceGuideLane'), false);
 });
