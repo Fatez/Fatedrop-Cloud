@@ -1,4 +1,4 @@
-name: TEMP Cardmarket Stale Retirement Diagnostic
+name: TEMP Cardmarket Stale Retirement Persist
 
 on:
   push:
@@ -13,81 +13,95 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  inspect:
+  persist:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 4
+          fetch-depth: 8
       - name: Verify exact merged base and workflow-only diff
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "bd391bc90185dfd1f417dc443428e6ca397ab576"
+          git merge-base --is-ancestor bd391bc90185dfd1f417dc443428e6ca397ab576 HEAD
           test -z "$(git diff --name-only bd391bc90185dfd1f417dc443428e6ca397ab576..HEAD | grep -v '^.github/workflows/tmp-cardmarket-stale-retirement.yml$' || true)"
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Inspect exact positive observations on reviewed stale mappings
+      - name: Execute transactional reviewed retirement
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          CORRECTION_WRITE: 'true'
+        run: node src/trader/value/cardmarket-reviewed-stale-variant-retirement-cli.mjs
+      - name: Verify exact correction outcome
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { writeFile } from 'node:fs/promises';
+          import { readFile, writeFile } from 'node:fs/promises';
           import { Pool } from 'pg';
-          import { REVIEWED_STALE_VARIANT_RETIREMENTS } from './src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs';
+          import { REVIEWED_BASELINE_HOLO_PRODUCT_IDS, REVIEWED_STALE_VARIANT_RETIREMENTS } from './src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs';
+          const audit = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-reviewed-stale-variant-retirement.json`, 'utf8'));
+          if (audit.status !== 'write_complete' || audit.productionWrites !== true) throw new Error('retirement did not persist');
+          if (audit.persistence?.retiredMappings !== 58) throw new Error(`expected 58 retired mappings, got ${audit.persistence?.retiredMappings}`);
+          if (audit.persistence?.deletedObservations !== 4) throw new Error(`expected 4 deleted stale observations, got ${audit.persistence?.deletedObservations}`);
           const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
           try {
-            const keys = REVIEWED_STALE_VARIANT_RETIREMENTS.map((row) => ({
-              mapping_id: row.mappingId,
-              card_identity_id: row.cardIdentityId,
-              source_record_id: row.sourceRecordId,
-              source_variant_key: row.sourceVariantKey,
-              kind: row.kind,
-              tcgdex_card_id: row.tcgdexCardId,
-              stamp: row.stamp,
-              retained_product_id: row.retainedProductId,
-            }));
-            const { rows } = await pool.query(`
-              WITH c AS (
-                SELECT * FROM jsonb_to_recordset($1::jsonb)
-                AS x(mapping_id text,card_identity_id text,source_record_id text,source_variant_key text,kind text,tcgdex_card_id text,stamp text,retained_product_id text)
-              )
-              SELECT c.*, p.name, p.collector_number, s.name AS set_name,
-                     o.id AS observation_id,o.market_price,o.trend_price,o.avg_1d,o.avg_7d,o.avg_30d,o.observed_at,o.source_snapshot_id
-              FROM c
-              JOIN fatedrop_card_identities i ON i.id=c.card_identity_id
-              JOIN fatedrop_card_printings p ON p.id=i.printing_id
-              JOIN fatedrop_card_sets s ON s.id=i.set_id
-              JOIN fatedrop_market_observations o
-                ON o.card_identity_id=c.card_identity_id
-               AND o.source_name='cardmarket'
-               AND o.source_record_id=c.source_record_id
-               AND o.source_variant_key=c.source_variant_key
-              WHERE GREATEST(COALESCE(o.market_price,0),COALESCE(o.trend_price,0),COALESCE(o.avg_1d,0),COALESCE(o.avg_7d,0),COALESCE(o.avg_30d,0)) > 0
-              ORDER BY c.kind,c.source_record_id,o.observed_at`, [JSON.stringify(keys)]);
-            const report = { count: rows.length, rows };
+            const ids = REVIEWED_STALE_VARIANT_RETIREMENTS.map((row) => row.mappingId);
+            const gone = await pool.query(`SELECT COUNT(*)::int AS count FROM fatedrop_card_source_mappings WHERE id=ANY($1::text[])`, [ids]);
+            if (gone.rows[0].count !== 0) throw new Error(`${gone.rows[0].count} reviewed stale mappings remain`);
+            const base = await pool.query(`SELECT source_record_id,COUNT(*)::int AS owners,
+                COUNT(*) FILTER (WHERE source_variant_key='holo')::int AS holo_owners,
+                COUNT(*) FILTER (WHERE source_variant_key='normal')::int AS normal_owners
+              FROM fatedrop_card_source_mappings
+              WHERE source_name='cardmarket' AND source_record_id=ANY($1::text[])
+              GROUP BY source_record_id ORDER BY source_record_id`, [REVIEWED_BASELINE_HOLO_PRODUCT_IDS]);
+            if (base.rows.length !== 42 || base.rows.some((r) => r.owners !== 1 || r.holo_owners !== 1 || r.normal_owners !== 0)) throw new Error('reviewed baseline ownership is not exactly one holo owner per product');
+            const conflicts = await pool.query(`SELECT source_record_id,source_variant_key,card_identity_id FROM fatedrop_card_source_mappings WHERE source_name='cardmarket' AND source_record_id=ANY($1::text[]) ORDER BY source_record_id,source_variant_key`, [['568801','760792']]);
+            if (conflicts.rows.length !== 2 || conflicts.rows.some((r) => r.source_variant_key !== 'holo')) throw new Error('568801/760792 were not reduced to their exact holo owners');
+            const report = { retiredMappings: 58, deletedObservations: 4, baselineProductsVerified: 42, heldPolicyProductsNowHoloOnly: conflicts.rows };
             console.log(JSON.stringify(report));
-            if (rows.length !== 4) throw new Error(`expected exactly 4 positive stale observations, got ${rows.length}`);
-            if (rows.some((row) => !REVIEWED_STALE_VARIANT_RETIREMENTS.some((planned) => planned.mappingId === row.mapping_id))) throw new Error('positive observation escaped frozen retirement plan');
-            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-stale-positive-observations.json`, JSON.stringify(report, null, 2));
-          } finally {
-            await pool.end();
-          }
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-stale-retirement-production-verification.json`, JSON.stringify(report, null, 2));
+          } finally { await pool.end(); }
           NODE
-      - name: Upload diagnostic
+      - name: Run canonical residual audit after correction
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-residual-price-audit-cli.mjs
+      - name: Print canonical residual counts
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const r = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-residual-price-audit.json`, 'utf8'));
+          console.log(JSON.stringify({ counts:r.counts, classes:r.classes }));
+          NODE
+      - name: Upload production verification
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-stale-positive-observations
-          path: ${{ runner.temp }}/cardmarket-stale-positive-observations.json
+          name: cardmarket-stale-retirement-production-verification
+          path: |
+            ${{ runner.temp }}/cardmarket-reviewed-stale-variant-retirement.json
+            ${{ runner.temp }}/cardmarket-stale-retirement-production-verification.json
+            ${{ runner.temp }}/cardmarket-residual-price-audit.json
           if-no-files-found: error
           retention-days: 14
