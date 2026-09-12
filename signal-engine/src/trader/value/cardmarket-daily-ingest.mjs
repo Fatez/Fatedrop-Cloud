@@ -150,7 +150,14 @@ export async function createCardmarketBatchExactMappingResolution(store, product
 
   const integrity = validateAuditedInherentHoloMappingChunks(rows);
   const reviewedFoilIds = validateReviewedSingleFoilMappings(rows);
-  const reviewedExplicitHoloIds = validateReviewedExplicitHoloBaseLaneMappings(rows);
+  const hasEligibleReviewedExplicitHolo = [...eligibleInherentHoloProductIds]
+    .some((productId) => isReviewedExplicitHoloBaseLaneProduct(productId));
+  // The 91-card frozen cohort is an all-or-nothing integrity proof. Validate
+  // the complete cohort whenever any member is eligible in the current guide,
+  // but do not make unrelated legacy policy batches depend on that cohort.
+  const reviewedExplicitHoloIds = hasEligibleReviewedExplicitHolo
+    ? validateReviewedExplicitHoloBaseLaneMappings(rows)
+    : new Set();
   const inherentHoloBaseLaneProductIds = new Set(
     [...eligibleInherentHoloProductIds].filter((productId) => (
       (
