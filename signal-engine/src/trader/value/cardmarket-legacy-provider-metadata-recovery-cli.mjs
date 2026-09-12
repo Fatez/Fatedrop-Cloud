@@ -48,10 +48,10 @@ function parseProvider(name){
 }
 function sameSet(a,b){return a.length>0&&a.length===b.length&&a.every((v,i)=>v===b[i]);}
 
-async function build(db){
-  const repo=loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
+export async function build(db, { repoEvidence, sources } = {}) {
+  const repo = repoEvidence || loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
   const cardById=new Map();for(const set of repo.sets)for(const card of set.cards)cardById.set(card.tcgdexCardId,card);
-  const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([fetchCardmarketPokemonSinglesCatalogue(),fetchCardmarketPokemonPriceGuide()]);
+  const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([(sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),(sources?.guide ?? fetchCardmarketPokemonPriceGuide())]);
   const priceBy=new Map(snapshot.priceGuides.map(r=>[String(r.idProduct),r]));
 
   const {rows:sets}=await db.query(`SELECT s.id set_id,s.name set_name,t.source_record_id tcgdex_set_id,cm.source_record_id cm_override
