@@ -10,6 +10,14 @@ import { loadReviewedPokemonTcgFinishRecovery } from './pokemontcg-reviewed-fini
 const QUARANTINED_TCGDEX_SET_IDS = new Set(['base2', 'base3', 'base5', 'gym1', 'neo1', 'neo2', 'neo3', 'neo4']);
 const key = (...parts) => parts.join('|');
 
+export function normaliseReviewedCollectorNumber(value) {
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '')
+    .replace(/(^|[^0-9])0+(?=\d)/g, '$1');
+}
+
 function groupBy(rows, field) {
   const out = {};
   for (const row of rows) out[row[field]] = (out[row[field]] || 0) + 1;
@@ -84,6 +92,14 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
     if (!identity) { block(row, 'canonical_identity_missing'); continue; }
     if (identity.verification_status !== 'verified' || identity.language_code !== 'en' || identity.variant_code !== row.variantCode) {
       block(row, 'canonical_identity_state_drift', { currentVariantCode: identity.variant_code, languageCode: identity.language_code, verificationStatus: identity.verification_status });
+      continue;
+    }
+    if (normaliseReviewedCollectorNumber(identity.collector_number) !== normaliseReviewedCollectorNumber(row.collectorNumber)) {
+      block(row, 'canonical_collector_number_drift', { frozenCollectorNumber: row.collectorNumber, currentCollectorNumber: identity.collector_number });
+      continue;
+    }
+    if (!rootProductNameMatches(identity.name, row.name) || !rootProductNameMatches(row.name, identity.name)) {
+      block(row, 'canonical_name_drift', { frozenName: row.name, currentName: identity.name });
       continue;
     }
     const tcgdexLinks = tcgdexByIdentity.get(row.cardIdentityId) || new Set();
