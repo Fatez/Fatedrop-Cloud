@@ -22,6 +22,9 @@ const baselineHolo = (variant) => variant?.type === 'holo'
   && (variant.foil == null || variant.foil === '')
   && Array.isArray(variant.stamp)
   && variant.stamp.length === 0;
+const unstampedHolo = (variant) => variant?.type === 'holo'
+  && Array.isArray(variant.stamp)
+  && variant.stamp.length === 0;
 
 async function build(db) {
   if (!validateReviewedStaleVariantPlan()) throw new Error('Frozen reviewed stale-variant plan integrity failed');
@@ -74,8 +77,10 @@ async function build(db) {
     const card = cardById.get(planned.tcgdexCardId);
     if (!card) throw new Error(`Pinned TCGdex card missing: ${planned.tcgdexCardId}`);
     const retainedVariants = (card.variants || []).filter((variant) => String(variant.cardmarketProductId || '') === planned.retainedProductId);
-    if (retainedVariants.length !== 1 || !baselineHolo(retainedVariants[0])) {
-      throw new Error(`Retained product is not the single unstamped baseline holo in pinned TCGdex: ${planned.retainedProductId}`);
+    const retainedVariantIsValid = retainedVariants.length === 1
+      && (planned.kind === 'stamped_holo' ? baselineHolo(retainedVariants[0]) : unstampedHolo(retainedVariants[0]));
+    if (!retainedVariantIsValid) {
+      throw new Error(`Retained product is not the reviewed unstamped holo in pinned TCGdex: ${planned.retainedProductId}`);
     }
 
     if (planned.kind === 'stamped_holo') {
