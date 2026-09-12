@@ -1,3 +1,4 @@
+import { REVIEWED_SINGLE_FOIL_PRODUCT_IDS, isReviewedSingleFoilProduct, validateReviewedSingleFoilMappings } from './cardmarket-reviewed-single-foil.mjs';
 import {
   CARDMARKET_PRICE_LANES,
   CARDMARKET_SOURCE_NAME,
@@ -63,7 +64,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
   const eligible = new Set();
   for (const row of priceGuidePayload?.priceGuides || []) {
     const sourceRecordId = String(row?.idProduct ?? '').trim();
-    if (!sourceRecordId || !isAuditedInherentHoloBaseLaneProduct(sourceRecordId)) continue;
+    if (!sourceRecordId || !(isAuditedInherentHoloBaseLaneProduct(sourceRecordId) || isReviewedSingleFoilProduct(sourceRecordId))) continue;
     if (!hasMeaningfulCardmarketLane(row, 'standard')) continue;
     if (hasMeaningfulCardmarketLane(row, 'holo')) continue;
     eligible.add(sourceRecordId);
@@ -108,16 +109,16 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   const queryProductIds = [...new Set([
     ...requestedProductIds,
     ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS,
+    ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
   ])];
 
   const pool = await store.pool();
   const { rows } = await pool.query(`SELECT m.id,m.card_identity_id,m.source_name,
-      m.source_record_id,m.source_variant_key,c.variant_code AS canonical_variant_code
+      m.source_record_id,m.source_variant_key,c.variant_code AS canonical_variant_code,c.language_code,c.verification_status
     FROM fatedrop_card_source_mappings m
     JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
     WHERE m.source_name='cardmarket'
       AND m.source_record_id=ANY($1::text[])
-      AND m.source_variant_key IN ('normal','holo')
       AND c.verification_status='verified'`, [queryProductIds]);
 
   const mappings = new Map();
@@ -138,9 +139,10 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   }
 
   const integrity = validateAuditedInherentHoloMappingChunks(rows);
+  const reviewedFoilIds = validateReviewedSingleFoilMappings(rows);
   const inherentHoloBaseLaneProductIds = new Set(
     [...eligibleInherentHoloProductIds].filter((productId) => (
-      integrity.validProductIds.has(productId)
+      (integrity.validProductIds.has(productId) || reviewedFoilIds.has(productId))
       && mappings.has(mappingKey(productId, 'holo'))
       && mappings.get(mappingKey(productId, 'holo')) != null
       && !mappings.has(mappingKey(productId, 'normal'))
