@@ -45,6 +45,40 @@ export function createCardmarketDailyExactMappingResolver(store) {
   };
 }
 
+
+export async function createCardmarketBatchExactMappingResolver(store, productIds) {
+  requireStore(store);
+  if (typeof store.read === 'function') return createCardmarketDailyExactMappingResolver(store);
+  const pool = await store.pool();
+  const { rows } = await pool.query(`SELECT m.id,m.card_identity_id,m.source_name,
+      m.source_record_id,m.source_variant_key
+    FROM fatedrop_card_source_mappings m
+    JOIN fatedrop_card_identities c ON c.id=m.card_identity_id
+    WHERE m.source_name='cardmarket'
+      AND m.source_record_id=ANY($1::text[])
+      AND m.source_variant_key IN ('normal','holo')
+      AND c.verification_status='verified'`, [productIds]);
+  const mappings = new Map();
+  for (const row of rows) {
+    const key = JSON.stringify([row.source_record_id, row.source_variant_key]);
+    // Never choose the first owner when source evidence is ambiguous.
+    if (mappings.has(key)) {
+      mappings.set(key, null);
+      continue;
+    }
+    mappings.set(key, Object.freeze({
+      id: row.id, cardIdentityId: row.card_identity_id, sourceName: row.source_name,
+      sourceRecordId: row.source_record_id, sourceVariantKey: row.source_variant_key,
+    }));
+  }
+  return async ({ sourceName, sourceRecordId, priceGuideLane }) => {
+    if (String(sourceName || '').trim().toLowerCase() !== CARDMARKET_SOURCE_NAME) return null;
+    return mappings.get(JSON.stringify([
+      String(sourceRecordId).trim(), sourceVariantKeyForCardmarketPriceLane(priceGuideLane),
+    ])) ?? null;
+  };
+}
+
 export async function prepareCardmarketDailyPriceGuideBatch({
   store,
   priceGuidePayload,
@@ -59,7 +93,8 @@ export async function prepareCardmarketDailyPriceGuideBatch({
   return buildCardmarketPriceGuideBatch(priceGuidePayload, {
     observedAt,
     lanes,
-    resolveMapping: createCardmarketDailyExactMappingResolver(store),
+    resolveMapping: await createCardmarketBatchExactMappingResolver(store,
+      [...new Set((priceGuidePayload.priceGuides || []).map(row => String(row?.idProduct ?? '')))]),
   });
 }
 
