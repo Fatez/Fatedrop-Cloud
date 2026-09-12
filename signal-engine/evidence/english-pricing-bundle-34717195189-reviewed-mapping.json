@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "runId": 34717195189,
+    "artifactId": 10304941238,
+    "artifactName": "english-pricing-bundle",
+    "artifactZipSha256": "81c9306b5cb38cf53695fd75d3bfff67b853f168f7876a99856548602eacc59b",
+    "bundleDigest": "7ef2c1d7c159fa33b634867add6357363cb8bdfbef1bd515524bb04348af1d0d",
+    "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+    "cardmarketCatalogueSha256": "3073b2b505f384c5543365ebba11e24ad3e836dfb6dd75465de01ea133472ab3",
+    "cardmarketPriceGuideSha256": "fb81140010665760e01861e3028aa173e9d2b645f06b3feb20a674d1cd426764"
+  },
+  "classification": {
+    "cardIdentityId": "fdcard_043a2f0fc48bc2f9afaf7be5",
+    "name": "Umbreon",
+    "collectorNumber": "swsh129",
+    "variant": "standard",
+    "tcgdexCardIds": ["swshp-SWSH129"],
+    "outcome": "mapping_candidate_with_price"
+  },
+  "candidate": {
+    "id": "fdcardmap_37b5617121cc48a802b034cb",
+    "cardIdentityId": "fdcard_043a2f0fc48bc2f9afaf7be5",
+    "printingId": "fdprinting_1d302a6bd689a9bef9d28df1",
+    "variantCode": "standard",
+    "cardName": "Umbreon",
+    "collectorNumber": "swsh129",
+    "tcgdexCardId": "swshp-SWSH129",
+    "sourceRecordId": "568801",
+    "sourceVariantKey": "normal",
+    "providerPriceGuideLane": "standard",
+    "sourceVersion": "3073b2b505f384c5543365ebba11e24ad3e836dfb6dd75465de01ea133472ab3",
+    "proof": {
+      "method": "same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane",
+      "targetLane": "standard",
+      "cardmarketProductName": "Umbreon [Blindside | Moon Mirage]",
+      "siblingEvidence": [{
+        "cardIdentityId": "fdcard_3c5841311477627da2c18e7d",
+        "variantCode": "holo",
+        "sourceVariantKey": "holo"
+      }]
+    }
+  }
+}
