@@ -1,0 +1,21 @@
+name: OPS Cardmarket Recovery Hold 2026-09-12
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-recovery-hold-2026-09-12
+    paths:
+      - '.github/workflows/ops-cardmarket-recovery-hold-2026-09-12.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo 'Holding Cardmarket production slot while stronger explicit TCGdex root-ID recovery is verified.'
