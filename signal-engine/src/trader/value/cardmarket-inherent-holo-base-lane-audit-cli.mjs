@@ -55,6 +55,12 @@ async function build(db) {
     GROUP BY i.id,p.name,p.collector_number,s.name
     ORDER BY s.name,p.collector_number,i.id`);
 
+  const { rows: normalMappings } = await db.query(`
+    SELECT DISTINCT source_record_id
+    FROM fatedrop_card_source_mappings
+    WHERE source_name='cardmarket' AND source_variant_key='normal'`);
+  const normalMappedProductIds = new Set(normalMappings.map((row) => String(row.source_record_id)));
+
   const counts = {
     mappedUnpricedHolo: rows.length,
     singleTcgdexLink: 0,
@@ -64,6 +70,7 @@ async function build(db) {
     guideRowExists: 0,
     holoLaneEmpty: 0,
     standardLaneMeaningful: 0,
+    baseLaneUnclaimedByNormalMapping: 0,
     baselineHoloPresent: 0,
     noNormalVariantAtAll: 0,
     strongExactProductEvidence: 0,
@@ -115,6 +122,12 @@ async function build(db) {
       continue;
     }
     counts.standardLaneMeaningful += 1;
+
+    if (normalMappedProductIds.has(sourceRecordId)) {
+      reason('provider_base_lane_claimed_by_normal_mapping');
+      continue;
+    }
+    counts.baseLaneUnclaimedByNormalMapping += 1;
 
     const variants = Array.isArray(card.variants) ? card.variants : [];
     const baselineHolo = variants.filter((variant) => isBaseline(variant, 'holo'));
@@ -179,6 +192,7 @@ async function build(db) {
         requestedPriceLane: 'standard',
         holoLaneMeaningful: false,
         standardLaneMeaningful: true,
+        normalMappingClaimsBaseLane: false,
       },
     });
   }
@@ -200,6 +214,7 @@ async function build(db) {
       existingExactHoloMappingRequired: true,
       providerHoloLaneMustBeEmpty: true,
       providerStandardLaneMustBeMeaningful: true,
+      providerBaseLaneMustNotHaveNormalMappingOwner: true,
       baselineHoloRequired: true,
       anyTcgdexNormalVariantDisqualifies: true,
       explicitBaselineHoloOrMatchingRootProductEvidenceRequired: true,
