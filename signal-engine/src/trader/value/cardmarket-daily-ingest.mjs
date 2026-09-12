@@ -1,5 +1,10 @@
 import { REVIEWED_SINGLE_FOIL_PRODUCT_IDS, isReviewedSingleFoilProduct, validateReviewedSingleFoilMappings } from './cardmarket-reviewed-single-foil.mjs';
 import {
+  REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
+  isReviewedExplicitHoloBaseLaneProduct,
+  validateReviewedExplicitHoloBaseLaneMappings,
+} from './cardmarket-reviewed-explicit-holo-base-lane.mjs';
+import {
   CARDMARKET_PRICE_LANES,
   CARDMARKET_SOURCE_NAME,
   buildCardmarketPriceGuideBatch,
@@ -64,7 +69,11 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
   const eligible = new Set();
   for (const row of priceGuidePayload?.priceGuides || []) {
     const sourceRecordId = String(row?.idProduct ?? '').trim();
-    if (!sourceRecordId || !(isAuditedInherentHoloBaseLaneProduct(sourceRecordId) || isReviewedSingleFoilProduct(sourceRecordId))) continue;
+    if (!sourceRecordId || !(
+      isAuditedInherentHoloBaseLaneProduct(sourceRecordId)
+      || isReviewedSingleFoilProduct(sourceRecordId)
+      || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
+    )) continue;
     if (!hasMeaningfulCardmarketLane(row, 'standard')) continue;
     if (hasMeaningfulCardmarketLane(row, 'holo')) continue;
     eligible.add(sourceRecordId);
@@ -110,6 +119,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...requestedProductIds,
     ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
+    ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
   ])];
 
   const pool = await store.pool();
@@ -140,9 +150,14 @@ export async function createCardmarketBatchExactMappingResolution(store, product
 
   const integrity = validateAuditedInherentHoloMappingChunks(rows);
   const reviewedFoilIds = validateReviewedSingleFoilMappings(rows);
+  const reviewedExplicitHoloIds = validateReviewedExplicitHoloBaseLaneMappings(rows);
   const inherentHoloBaseLaneProductIds = new Set(
     [...eligibleInherentHoloProductIds].filter((productId) => (
-      (integrity.validProductIds.has(productId) || reviewedFoilIds.has(productId))
+      (
+        integrity.validProductIds.has(productId)
+        || reviewedFoilIds.has(productId)
+        || reviewedExplicitHoloIds.has(productId)
+      )
       && mappings.has(mappingKey(productId, 'holo'))
       && mappings.get(mappingKey(productId, 'holo')) != null
       && !mappings.has(mappingKey(productId, 'normal'))
