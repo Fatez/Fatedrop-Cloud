@@ -1,0 +1,93 @@
+name: OPS Cardmarket Root Recovery Production 2026-09-12
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-root-recovery-production-2026-09-12
+    paths:
+      - '.github/workflows/ops-cardmarket-root-recovery-production-2026-09-12.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  recover-and-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Correct explicit TCGdex root-ID mapping conflicts
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          CORRECTION_WRITE: 'true'
+        run: node src/trader/value/cardmarket-tcgdex-root-mapping-correction-cli.mjs
+      - name: Persist explicit TCGdex root-ID Cardmarket mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/cardmarket-tcgdex-root-product-recovery-cli.mjs
+      - name: Persist newly unlocked sibling-finish mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/cardmarket-sibling-finish-exact-recovery-cli.mjs
+      - name: Persist fresh exact Cardmarket normal+holo market observations
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload correction audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-root-mapping-corrections-production
+          path: ${{ runner.temp }}/cardmarket-tcgdex-root-mapping-correction.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload root recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-root-product-recovery-production
+          path: ${{ runner.temp }}/cardmarket-tcgdex-root-product-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload sibling recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-sibling-finish-recovery-production
+          path: ${{ runner.temp }}/cardmarket-sibling-finish-exact-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload production-cycle audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-root-recovery-production-cycle
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: warn
+          retention-days: 14
