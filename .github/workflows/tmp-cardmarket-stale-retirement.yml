@@ -1,4 +1,4 @@
-name: TEMP Cardmarket Stale Retirement Persist
+name: TEMP Cardmarket Post-Correction Evidence Freeze
 
 on:
   push:
@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  persist:
+  freeze:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: signal-engine
@@ -30,78 +30,69 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor bd391bc90185dfd1f417dc443428e6ca397ab576 HEAD
           test -z "$(git diff --name-only bd391bc90185dfd1f417dc443428e6ca397ab576..HEAD | grep -v '^.github/workflows/tmp-cardmarket-stale-retirement.yml$' || true)"
-      - name: Check out pinned TCGdex evidence
-        uses: actions/checkout@v4
-        with:
-          repository: tcgdex/cards-database
-          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
-          path: _evidence/tcgdex-cards-database
-          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Execute transactional reviewed retirement
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
-          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
-          CORRECTION_WRITE: 'true'
-        run: node src/trader/value/cardmarket-reviewed-stale-variant-retirement-cli.mjs
-      - name: Verify exact correction outcome
+      - name: Freeze exact 42-card post-correction mapping digest and confirm 91 admission
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         shell: bash
         run: |
           node --input-type=module <<'NODE'
-          import { readFile, writeFile } from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          import { writeFile } from 'node:fs/promises';
           import { Pool } from 'pg';
-          import { REVIEWED_BASELINE_HOLO_PRODUCT_IDS, REVIEWED_STALE_VARIANT_RETIREMENTS } from './src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs';
-          const audit = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-reviewed-stale-variant-retirement.json`, 'utf8'));
-          if (audit.status !== 'write_complete' || audit.productionWrites !== true) throw new Error('retirement did not persist');
-          if (audit.persistence?.retiredMappings !== 58) throw new Error(`expected 58 retired mappings, got ${audit.persistence?.retiredMappings}`);
-          if (audit.persistence?.deletedObservations !== 4) throw new Error(`expected 4 deleted stale observations, got ${audit.persistence?.deletedObservations}`);
+          import { REVIEWED_BASELINE_HOLO_PRODUCT_IDS } from './src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs';
+          import { REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS } from './src/trader/value/cardmarket-reviewed-explicit-holo-base-lane.mjs';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { listVerifiedPriceCapableCardmarketProductIds, scopeCardmarketPriceGuideToMappedProducts } from './src/trader/value/cardmarket-market-cycle.mjs';
+          import { collectCurrentGuideInherentHoloBaseLaneEligibleProductIds, createCardmarketBatchExactMappingResolution } from './src/trader/value/cardmarket-daily-ingest.mjs';
           const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+          const store = { pool: async () => pool };
+          const line = (r) => [r.id,r.card_identity_id,String(r.source_record_id),r.source_variant_key,r.canonical_variant_code,r.language_code,r.verification_status].join('|');
           try {
-            const ids = REVIEWED_STALE_VARIANT_RETIREMENTS.map((row) => row.mappingId);
-            const gone = await pool.query(`SELECT COUNT(*)::int AS count FROM fatedrop_card_source_mappings WHERE id=ANY($1::text[])`, [ids]);
-            if (gone.rows[0].count !== 0) throw new Error(`${gone.rows[0].count} reviewed stale mappings remain`);
-            const base = await pool.query(`SELECT source_record_id,COUNT(*)::int AS owners,
-                COUNT(*) FILTER (WHERE source_variant_key='holo')::int AS holo_owners,
-                COUNT(*) FILTER (WHERE source_variant_key='normal')::int AS normal_owners
-              FROM fatedrop_card_source_mappings
-              WHERE source_name='cardmarket' AND source_record_id=ANY($1::text[])
-              GROUP BY source_record_id ORDER BY source_record_id`, [REVIEWED_BASELINE_HOLO_PRODUCT_IDS]);
-            if (base.rows.length !== 42 || base.rows.some((r) => r.owners !== 1 || r.holo_owners !== 1 || r.normal_owners !== 0)) throw new Error('reviewed baseline ownership is not exactly one holo owner per product');
-            const conflicts = await pool.query(`SELECT source_record_id,source_variant_key,card_identity_id FROM fatedrop_card_source_mappings WHERE source_name='cardmarket' AND source_record_id=ANY($1::text[]) ORDER BY source_record_id,source_variant_key`, [['568801','760792']]);
-            if (conflicts.rows.length !== 2 || conflicts.rows.some((r) => r.source_variant_key !== 'holo')) throw new Error('568801/760792 were not reduced to their exact holo owners');
-            const report = { retiredMappings: 58, deletedObservations: 4, baselineProductsVerified: 42, heldPolicyProductsNowHoloOnly: conflicts.rows };
-            console.log(JSON.stringify(report));
-            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-stale-retirement-production-verification.json`, JSON.stringify(report, null, 2));
+            const { rows } = await pool.query(`SELECT m.id,m.card_identity_id,m.source_record_id,m.source_variant_key,
+                i.variant_code AS canonical_variant_code,i.language_code,i.verification_status
+              FROM fatedrop_card_source_mappings m
+              JOIN fatedrop_card_identities i ON i.id=m.card_identity_id
+              WHERE m.source_name='cardmarket' AND m.source_record_id=ANY($1::text[])
+              ORDER BY m.source_record_id,m.id`, [REVIEWED_BASELINE_HOLO_PRODUCT_IDS]);
+            if (rows.length !== 42) throw new Error(`expected 42 exact mapping rows, got ${rows.length}`);
+            if (new Set(rows.map((r)=>String(r.source_record_id))).size !== 42) throw new Error('42-card source IDs are not unique');
+            if (rows.some((r)=>r.source_variant_key!=='holo'||r.canonical_variant_code!=='holo'||r.language_code!=='en'||r.verification_status!=='verified')) throw new Error('42-card mapping shape drifted');
+            const digest = createHash('sha256').update([...rows].sort((a,b)=>String(a.source_record_id).localeCompare(String(b.source_record_id))).map(line).join('\n')).digest('hex');
+
+            const source = await fetchCardmarketPokemonPriceGuide();
+            const mapped = await listVerifiedPriceCapableCardmarketProductIds(store);
+            const scoped = scopeCardmarketPriceGuideToMappedProducts(source.artifact.payload, mapped);
+            const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(scoped);
+            const resolution = await createCardmarketBatchExactMappingResolution(store, new Set(scoped.priceGuides.map((row)=>String(row?.idProduct??''))), { inherentHoloBaseLaneEligibleProductIds: eligible });
+            const policy91 = new Set(REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.map(String));
+            const admitted91 = [...resolution.inherentHoloBaseLaneProductIds].filter((id)=>policy91.has(String(id))).sort();
+            if (admitted91.length !== 91) throw new Error(`expected all 91 reviewed products admitted after correction, got ${admitted91.length}`);
+
+            const guide42 = scoped.priceGuides.filter((row)=>REVIEWED_BASELINE_HOLO_PRODUCT_IDS.includes(String(row?.idProduct??'')));
+            const report = {
+              mappingCount: rows.length,
+              productCount: REVIEWED_BASELINE_HOLO_PRODUCT_IDS.length,
+              mappingDigest: digest,
+              admittedExisting91: admitted91.length,
+              guide42Rows: guide42.length,
+              guideSha256: source.artifact.sha256,
+              rows,
+            };
+            console.log(JSON.stringify({mappingCount:report.mappingCount,productCount:report.productCount,mappingDigest:report.mappingDigest,admittedExisting91:report.admittedExisting91,guide42Rows:report.guide42Rows,guideSha256:report.guideSha256}));
+            if (guide42.length !== 42) throw new Error(`expected all 42 retained products in scoped guide, got ${guide42.length}`);
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-post-correction-42-evidence.json`, JSON.stringify(report,null,2));
           } finally { await pool.end(); }
           NODE
-      - name: Run canonical residual audit after correction
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-residual-price-audit-cli.mjs
-      - name: Print canonical residual counts
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          import { readFile } from 'node:fs/promises';
-          const r = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-residual-price-audit.json`, 'utf8'));
-          console.log(JSON.stringify({ counts:r.counts, classes:r.classes }));
-          NODE
-      - name: Upload production verification
-        if: always()
+      - name: Upload frozen evidence
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-stale-retirement-production-verification
-          path: |
-            ${{ runner.temp }}/cardmarket-reviewed-stale-variant-retirement.json
-            ${{ runner.temp }}/cardmarket-stale-retirement-production-verification.json
-            ${{ runner.temp }}/cardmarket-residual-price-audit.json
+          name: cardmarket-post-correction-42-evidence
+          path: ${{ runner.temp }}/cardmarket-post-correction-42-evidence.json
           if-no-files-found: error
           retention-days: 14
