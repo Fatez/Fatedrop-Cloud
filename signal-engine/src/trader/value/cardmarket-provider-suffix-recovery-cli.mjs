@@ -29,14 +29,21 @@ async function build(db){
   ]);
 
   const {rows:sets}=await db.query(`
-    SELECT s.id set_id,sm.source_record_id tcgdex_set_id
+    SELECT s.id set_id,
+           t.source_record_id tcgdex_set_id,
+           cm.source_record_id cardmarket_expansion_override
     FROM fatedrop_card_sets s
-    JOIN fatedrop_card_set_source_mappings sm ON sm.set_id=s.id AND sm.source_name='tcgdex'
+    JOIN fatedrop_card_set_source_mappings t
+      ON t.set_id=s.id AND t.source_name='tcgdex'
+    LEFT JOIN fatedrop_card_set_source_mappings cm
+      ON cm.set_id=s.id AND cm.source_name='cardmarket'
     WHERE s.verification_status='verified'`);
   const expansionBySet=new Map();
   for(const s of sets){
     const ev=repo.bySetId.get(s.tcgdex_set_id);
-    const expansionId=Number(ev?.cardmarketExpansionId);
+    const override=Number(s.cardmarket_expansion_override);
+    const sourceExpansionId=Number(ev?.cardmarketExpansionId);
+    const expansionId=Number.isSafeInteger(override)&&override>0?override:sourceExpansionId;
     if(Number.isSafeInteger(expansionId)&&expansionId>0) expansionBySet.set(s.set_id,expansionId);
   }
 
