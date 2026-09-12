@@ -1,0 +1,40 @@
+name: Cardmarket Mapped Unpriced Lane Audit
+
+on:
+  push:
+    branches:
+      - audit/cardmarket-mapped-unpriced-lanes-2026-09-12
+    paths:
+      - 'signal-engine/src/trader/value/cardmarket-mapped-unpriced-lane-audit-cli.mjs'
+      - '.github/workflows/cardmarket-mapped-unpriced-lane-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Classify mapped identities without positive stored prices
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-mapped-unpriced-lane-audit-cli.mjs
+      - name: Upload audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-mapped-unpriced-lane-audit
+          path: ${{ runner.temp }}/cardmarket-mapped-unpriced-lane-audit.json
+          if-no-files-found: error
+          retention-days: 14
