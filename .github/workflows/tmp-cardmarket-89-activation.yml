@@ -1,4 +1,4 @@
-name: TEMP Cardmarket 89 Activation
+name: TEMP Cardmarket 89 Persist
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  dry_run:
+  persist:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -22,13 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 4
-      - name: Verify exact activation base and workflow-only diff
+          fetch-depth: 6
+      - name: Verify exact merged application base and workflow-only diff
         working-directory: .
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "3dabace37977d39b0c3f0091da7801f7608a183f"
+          git merge-base --is-ancestor 3dabace37977d39b0c3f0091da7801f7608a183f HEAD
           test -z "$(git diff --name-only 3dabace37977d39b0c3f0091da7801f7608a183f..HEAD | grep -v '^.github/workflows/tmp-cardmarket-89-activation.yml$' || true)"
       - uses: actions/setup-node@v4
         with:
@@ -36,7 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Require 89 admitted reviewed holo products and 2 held conflicts
+      - name: Reconfirm 89 admitted reviewed products immediately before write
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         shell: bash
@@ -58,24 +58,70 @@ jobs:
             const resolution = await createCardmarketBatchExactMappingResolution(store, new Set(scoped.priceGuides.map((row) => String(row?.idProduct ?? ''))), { inherentHoloBaseLaneEligibleProductIds: eligible });
             const admitted = [...resolution.inherentHoloBaseLaneProductIds].filter((id) => policy.has(String(id))).sort();
             const held = [...policy].filter((id) => !admitted.includes(id)).sort();
-            const report = { admittedCount: admitted.length, held, guideSha256: source.artifact.sha256 };
-            console.log(JSON.stringify(report));
+            console.log(JSON.stringify({ admittedCount: admitted.length, held, guideSha256: source.artifact.sha256 }));
             if (admitted.length !== 89) throw new Error(`expected 89 admitted reviewed products, got ${admitted.length}`);
-            if (JSON.stringify(held) !== JSON.stringify(['568801','760792'])) throw new Error(`unexpected held reviewed products: ${held.join(',')}`);
+            if (JSON.stringify(held) !== JSON.stringify(['568801','760792'])) throw new Error(`unexpected held products: ${held.join(',')}`);
           } finally {
             await pool.end();
           }
           NODE
-      - name: Run production-connected dry cycle
+      - name: Run guarded production persistence
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          CARDMARKET_MODE: dry-run
+          CARDMARKET_MODE: persist
         run: node src/trader/value/cardmarket-production-cycle-cli.mjs
-      - name: Upload dry audit
+      - name: Verify persistence result and production coverage
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          import { Pool } from 'pg';
+          import { REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS } from './src/trader/value/cardmarket-reviewed-explicit-holo-base-lane.mjs';
+          const report = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-production-cycle.json`, 'utf8'));
+          if (report.productionWrites !== true || report.mode !== 'persist') throw new Error('production persistence was not authorized');
+          if (report.persistence?.insertedObservations !== 89) throw new Error(`expected 89 inserted observations, got ${report.persistence?.insertedObservations}`);
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+          const positive = `GREATEST(COALESCE(o.market_price,0),COALESCE(o.trend_price,0),COALESCE(o.avg_1d,0),COALESCE(o.avg_7d,0),COALESCE(o.avg_30d,0)) > 0`;
+          try {
+            const policyResult = await pool.query(`SELECT COUNT(DISTINCT i.id)::int AS count
+              FROM fatedrop_card_identities i
+              JOIN fatedrop_card_source_mappings m ON m.card_identity_id=i.id
+              WHERE m.source_name='cardmarket' AND m.source_variant_key='holo'
+                AND m.source_record_id=ANY($1::text[])
+                AND EXISTS (SELECT 1 FROM fatedrop_market_observations o WHERE o.card_identity_id=i.id AND o.source_name='cardmarket' AND ${positive})`, [REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS]);
+            const coverage = await pool.query(`SELECT
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM fatedrop_market_observations o WHERE o.card_identity_id=i.id AND ${positive}))::int AS uniquely_priced,
+              COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM fatedrop_market_observations o WHERE o.card_identity_id=i.id AND ${positive}))::int AS standard_holo_unpriced,
+              COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM fatedrop_card_source_mappings m WHERE m.card_identity_id=i.id AND m.source_name='cardmarket' AND m.source_variant_key=ANY($1::text[])) AND NOT EXISTS (SELECT 1 FROM fatedrop_market_observations o WHERE o.card_identity_id=i.id AND ${positive}))::int AS mapped_unpriced,
+              COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM fatedrop_card_source_mappings m WHERE m.card_identity_id=i.id AND m.source_name='cardmarket' AND m.source_variant_key=ANY($1::text[])))::int AS unmapped
+              FROM fatedrop_card_identities i
+              WHERE i.verification_status='verified' AND i.language_code='en' AND i.variant_code=ANY($2::text[])`, [['normal','holo'], ['standard','holo']]);
+            const verification = {
+              policyPositive: policyResult.rows[0].count,
+              ...coverage.rows[0],
+              insertedObservations: report.persistence.insertedObservations,
+              duplicateObservations: report.persistence.duplicateObservations,
+              recordsAccepted: report.recordsAccepted,
+              recordsRejected: report.recordsRejected,
+              sourceSnapshotId: report.sourceSnapshotId,
+              guideSha256: report.artifact?.sha256,
+            };
+            console.log(JSON.stringify(verification));
+            if (verification.policyPositive !== 89) throw new Error(`expected 89 reviewed identities with positive production evidence, got ${verification.policyPositive}`);
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-89-production-verification.json`, JSON.stringify(verification, null, 2));
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Upload production audits
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-89-dry-audit
-          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          name: cardmarket-89-production-audit
+          path: |
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+            ${{ runner.temp }}/cardmarket-89-production-verification.json
           if-no-files-found: error
           retention-days: 14
