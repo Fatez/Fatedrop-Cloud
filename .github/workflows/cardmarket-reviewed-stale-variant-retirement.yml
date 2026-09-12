@@ -1,0 +1,72 @@
+name: Cardmarket Reviewed Stale Variant Retirement
+
+on:
+  push:
+    branches:
+      - fix/cardmarket-reviewed-stamped-mapping-retirement-2026-09-12
+    paths:
+      - 'signal-engine/src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-reviewed-stale-variant-retirement-cli.mjs'
+      - 'signal-engine/tests/fate-value-cardmarket-reviewed-stale-variant-retirement.test.mjs'
+      - '.github/workflows/cardmarket-reviewed-stale-variant-retirement.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  dry_run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run frozen-plan unit tests
+        run: node --test tests/fate-value-cardmarket-reviewed-stale-variant-retirement.test.mjs
+      - name: Run production-connected correction dry run
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          CORRECTION_WRITE: 'false'
+        run: node src/trader/value/cardmarket-reviewed-stale-variant-retirement-cli.mjs
+      - name: Require exact reviewed plan
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const report = JSON.parse(await readFile(`${process.env.RUNNER_TEMP}/cardmarket-reviewed-stale-variant-retirement.json`, 'utf8'));
+          if (report.status !== 'audit_complete' || report.productionWrites !== false) throw new Error('correction dry-run did not remain read-only');
+          if (report.plan?.retirementRows !== 58) throw new Error(`expected 58 retirement rows, got ${report.plan?.retirementRows}`);
+          if (report.plan?.stampedHoloRows !== 56) throw new Error(`expected 56 stamped holo rows, got ${report.plan?.stampedHoloRows}`);
+          if (report.plan?.competingNormalRows !== 2) throw new Error(`expected 2 competing normal rows, got ${report.plan?.competingNormalRows}`);
+          if (report.plan?.baselineProducts !== 42) throw new Error(`expected 42 retained baseline products, got ${report.plan?.baselineProducts}`);
+          console.log(JSON.stringify({ plan: report.plan, observations: report.observations }));
+          NODE
+      - name: Upload correction audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-reviewed-stale-variant-retirement-dry-run
+          path: ${{ runner.temp }}/cardmarket-reviewed-stale-variant-retirement.json
+          if-no-files-found: error
+          retention-days: 14
