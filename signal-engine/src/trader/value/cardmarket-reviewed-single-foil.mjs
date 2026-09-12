@@ -1,9 +1,79 @@
 // Exact, single-foil product evidence reviewed 2026-09-12. No wildcard foil policy.
-// Each source file has exactly one variant: holo + rainbow/gold, with an explicit
+// Each source file has exactly one variant: holo + rainbow/gold/cosmos, with an explicit
 // Cardmarket ID. Collector number distinguishes these from other printings.
 // Frozen identity AND mapping IDs fail closed on ownership changes.
 export const REVIEWED_SINGLE_FOIL_REVISION = '5b6a2859f454972477a9953ffe5cb554d24c45e9';
 export const REVIEWED_SINGLE_FOIL_PRODUCTS = Object.freeze([
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_5933d9a5bd408e7895c2722d",
+    "collector_number": "swsh116",
+    "foil": "cosmos",
+    "id": "fdcardmap_3c7d1846627c076eb7264911",
+    "name": "Morpeko",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "56336ce1f44ced252eee6264e2a543448b89e486",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH116.ts",
+    "source_record_id": "557973",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH116"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_b05b21a4160f004944ea130c",
+    "collector_number": "swsh117",
+    "foil": "cosmos",
+    "id": "fdcardmap_1ebc4b6a0c1c4e862082ec61",
+    "name": "Phanpy",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "6ba2688469bcf18db721e67365d545bb7e020b1d",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH117.ts",
+    "source_record_id": "557974",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH117"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_bf626bcbe447230c7f5826c7",
+    "collector_number": "swsh118",
+    "foil": "cosmos",
+    "id": "fdcardmap_6784423ae3e0eafd3499b61e",
+    "name": "Eevee",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "e15f876cbb27b78072b58904fdd919a39825b49a",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH118.ts",
+    "source_record_id": "557975",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH118"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_480108f57663203bf095601d",
+    "collector_number": "swsh119",
+    "foil": "cosmos",
+    "id": "fdcardmap_89737c139b3135b42f907929",
+    "name": "Snorlax",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "1e87173d30931e8249a2bc7616acdca193af0588",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH119.ts",
+    "source_record_id": "557976",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH119"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_49fc3f1482e86c423b65cc2e",
+    "collector_number": "swsh120",
+    "foil": "cosmos",
+    "id": "fdcardmap_a461f7c0b627de2e57b8c329",
+    "name": "Marnie",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "8156421058dacf774ee9beca165f94f1053d0f9c",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH120.ts",
+    "source_record_id": "566764",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH120"
+  },
   {
     "canonical_variant_code": "holo",
     "card_identity_id": "fdcard_4d1dadff182965022b7ddd84",
@@ -451,6 +521,62 @@ export const REVIEWED_SINGLE_FOIL_PRODUCTS = Object.freeze([
     "source_record_id": "567341",
     "source_variant_key": "holo",
     "tcgdex_id": "swsh6-233"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_430210d25b77e47550396f6d",
+    "collector_number": "swsh126",
+    "foil": "cosmos",
+    "id": "fdcardmap_0169b7c8283a5ed78a6d9861",
+    "name": "Galarian Slowpoke",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "4f611965da020de475f9b12659c84568d73b0c25",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH126.ts",
+    "source_record_id": "568798",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH126"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_0ce0b01ed012761d2c23be72",
+    "collector_number": "swsh127",
+    "foil": "cosmos",
+    "id": "fdcardmap_bab60405c1bc198ba019cab9",
+    "name": "Eevee",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "58f8a97b783a9a72cc5afa8f8f09c614ea0e4ad3",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH127.ts",
+    "source_record_id": "568799",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH127"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_58ff8959dd25cef59c910422",
+    "collector_number": "swsh128",
+    "foil": "cosmos",
+    "id": "fdcardmap_9a161ceb96a16967b157ffc7",
+    "name": "Eiscue",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "0178bc1b70bafdfe158d2958f83c73b577c6c150",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH128.ts",
+    "source_record_id": "568800",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH128"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_0a3e097126836f7f623e8727",
+    "collector_number": "swsh177",
+    "foil": "cosmos",
+    "id": "fdcardmap_71fb5145bdba091b662c0638",
+    "name": "Special Delivery Bidoof",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "bfcf55cd29c329398241663cad5a9d7ddf9fb3b5",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH177.ts",
+    "source_record_id": "571388",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH177"
   },
   {
     "canonical_variant_code": "holo",
@@ -1753,6 +1879,20 @@ export const REVIEWED_SINGLE_FOIL_PRODUCTS = Object.freeze([
     "source_record_id": "665699",
     "source_variant_key": "holo",
     "tcgdex_id": "swsh10.5-088"
+  },
+  {
+    "canonical_variant_code": "holo",
+    "card_identity_id": "fdcard_e402bf75c5863a64f7704f47",
+    "collector_number": "swsh075",
+    "foil": "cosmos",
+    "id": "fdcardmap_57dbc396231fce616972c742",
+    "name": "Special Delivery Charizard",
+    "set_name": "SWSH Black Star Promos",
+    "sourceBlobSha": "81cc58830ee8e4b07c9ffe84d6f1c9df59a273e9",
+    "sourcePath": "data/Sword & Shield/SWSH Black Star Promos/SWSH075.ts",
+    "source_record_id": "668172",
+    "source_variant_key": "holo",
+    "tcgdex_id": "swshp-SWSH075"
   },
   {
     "canonical_variant_code": "holo",
