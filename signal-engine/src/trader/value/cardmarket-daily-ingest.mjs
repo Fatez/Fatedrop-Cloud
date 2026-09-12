@@ -12,11 +12,9 @@ import { validateAuditedInherentHoloMappingChunks } from './cardmarket-inherent-
 import { persistMarketEvidenceBatch } from './market-store.mjs';
 import { resolveVerifiedExactCardSourceMapping } from './source-mapping-resolver.mjs';
 
-// These are Cardmarket source-mapping keys, not FateDrop canonical variants.
-// A standard price-guide lane normally resolves the explicit `normal` mapping.
-// The only exception is the frozen, audited inherent-holo cohort whose provider
-// value is carried in Cardmarket's base lane while the canonical FateDrop card
-// remains `holo`.
+// Cardmarket mapping keys stay exact. Provider numeric-lane interpretation is
+// handled separately by the adapter so a holo identity can consume an audited
+// base-lane price without ever becoming a FateDrop `standard` market segment.
 export const CARDMARKET_PRICE_LANE_SOURCE_VARIANTS = Object.freeze({
   standard: 'normal',
   holo: 'holo',
@@ -75,8 +73,6 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
 
 export function resolveCardmarketBatchMapping({
   mappings,
-  validInherentHoloProductIds = new Set(),
-  eligibleInherentHoloProductIds = new Set(),
   sourceName,
   sourceRecordId,
   priceGuideLane,
@@ -87,25 +83,25 @@ export function resolveCardmarketBatchMapping({
   const exactVariant = sourceVariantKeyForCardmarketPriceLane(lane);
   const exactKey = mappingKey(productId, exactVariant);
 
-  // Exact ownership always wins. A present-but-null mapping means duplicate
-  // ownership was detected and must remain fail-closed rather than falling back.
-  if (mappings.has(exactKey)) return mappings.get(exactKey);
-
-  if (lane !== 'standard') return null;
-  if (!isAuditedInherentHoloBaseLaneProduct(productId)) return null;
-  if (!eligibleInherentHoloProductIds.has(productId)) return null;
-  if (!validInherentHoloProductIds.has(productId)) return null;
-
-  // This is provider-lane interpretation only. Returning the existing `holo`
-  // source mapping preserves the canonical holo identity and sourceVariantKey.
-  return mappings.get(mappingKey(productId, 'holo')) ?? null;
+  // Exact ownership only. A present-but-null entry means duplicate ownership
+  // was detected and deliberately remains fail-closed.
+  return mappings.has(exactKey) ? mappings.get(exactKey) : null;
 }
 
-export async function createCardmarketBatchExactMappingResolver(store, productIds, {
+export async function createCardmarketBatchExactMappingResolution(store, productIds, {
   inherentHoloBaseLaneEligibleProductIds = new Set(),
 } = {}) {
   requireStore(store);
-  if (typeof store.read === 'function') return createCardmarketDailyExactMappingResolver(store);
+
+  // File-backed/test stores do not expose the production-wide mapping rows
+  // required to prove the frozen audit digests. Keep exact matching available,
+  // but disable the exceptional provider-lane interpretation fail-closed.
+  if (typeof store.read === 'function') {
+    return Object.freeze({
+      resolveMapping: createCardmarketDailyExactMappingResolver(store),
+      inherentHoloBaseLaneProductIds: new Set(),
+    });
+  }
 
   const requestedProductIds = normaliseProductIdSet(productIds);
   const eligibleInherentHoloProductIds = normaliseProductIdSet(inherentHoloBaseLaneEligibleProductIds);
@@ -142,14 +138,33 @@ export async function createCardmarketBatchExactMappingResolver(store, productId
   }
 
   const integrity = validateAuditedInherentHoloMappingChunks(rows);
-  return async ({ sourceName, sourceRecordId, priceGuideLane }) => resolveCardmarketBatchMapping({
-    mappings,
-    validInherentHoloProductIds: integrity.validProductIds,
-    eligibleInherentHoloProductIds,
-    sourceName,
-    sourceRecordId,
-    priceGuideLane,
+  const inherentHoloBaseLaneProductIds = new Set(
+    [...eligibleInherentHoloProductIds].filter((productId) => (
+      integrity.validProductIds.has(productId)
+      && mappings.has(mappingKey(productId, 'holo'))
+      && mappings.get(mappingKey(productId, 'holo')) != null
+      && !mappings.has(mappingKey(productId, 'normal'))
+    )),
+  );
+
+  const resolveMapping = async ({ sourceName, sourceRecordId, priceGuideLane }) => (
+    resolveCardmarketBatchMapping({
+      mappings,
+      sourceName,
+      sourceRecordId,
+      priceGuideLane,
+    })
+  );
+
+  return Object.freeze({
+    resolveMapping,
+    inherentHoloBaseLaneProductIds,
   });
+}
+
+export async function createCardmarketBatchExactMappingResolver(store, productIds, options = {}) {
+  const resolution = await createCardmarketBatchExactMappingResolution(store, productIds, options);
+  return resolution.resolveMapping;
 }
 
 export async function prepareCardmarketDailyPriceGuideBatch({
@@ -169,13 +184,15 @@ export async function prepareCardmarketDailyPriceGuideBatch({
   const inherentHoloBaseLaneEligibleProductIds = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(
     priceGuidePayload,
   );
+  const resolution = await createCardmarketBatchExactMappingResolution(store, productIds, {
+    inherentHoloBaseLaneEligibleProductIds,
+  });
 
   return buildCardmarketPriceGuideBatch(priceGuidePayload, {
     observedAt,
     lanes,
-    resolveMapping: await createCardmarketBatchExactMappingResolver(store, productIds, {
-      inherentHoloBaseLaneEligibleProductIds,
-    }),
+    resolveMapping: resolution.resolveMapping,
+    inherentHoloBaseLaneProductIds: resolution.inherentHoloBaseLaneProductIds,
   });
 }
 
