@@ -11,13 +11,28 @@ const PRICE_LANE = Object.freeze({ standard: 'standard', holo: 'holo' });
 const MIN_PROVEN_PRODUCTS = 5;
 const key = (...parts) => parts.join('|');
 
+// Intentionally identical to the already-shipped provider-suffix recovery rule.
+// This audit does not introduce any new naming relaxation.
+function stripProviderDescriptors(name) {
+  let value = String(name || '').trim()
+    .replace(/^Nidoran\s+\[F\](?=\s|$)/i, 'Nidoran female')
+    .replace(/^Nidoran\s+\[M\](?=\s|$)/i, 'Nidoran male');
+  const suffix = /\s+\[[^[\]]+\]\s*$/;
+  while (suffix.test(value)) value = value.replace(suffix, '').trim();
+  return value;
+}
+
 function positiveExpansionId(product) {
   const value = Number(product?.sourceExpansionId);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-function comparableName(value) {
+function canonicalName(value) {
   return normaliseComparableName(typeof value === 'string' ? value : '');
+}
+
+function providerBaseName(value) {
+  return normaliseComparableName(stripProviderDescriptors(value));
 }
 
 async function buildAudit(db) {
@@ -50,20 +65,18 @@ async function buildAudit(db) {
   const sourceOwner = new Map(mappings.map((row) => [key(row.source_record_id, row.source_variant_key), row.card_identity_id]));
   const canonicalOwner = new Map(mappings.map((row) => [key(row.card_identity_id, row.source_variant_key), String(row.source_record_id)]));
 
-  // A canonical name is eligible only if it identifies exactly one printing in the FateDrop set.
-  // Multiple finish identities for that printing are expected and do not make the printing ambiguous.
-  const printingIdsBySetName = new Map();
+  // Exact provider-base name must identify one and only one canonical printing in the set.
+  const printingsBySetName = new Map();
   for (const identity of identities) {
-    const name = comparableName(identity.name);
+    const name = canonicalName(identity.name);
     if (!name) continue;
     const k = key(identity.set_id, name);
-    const ids = printingIdsBySetName.get(k) || new Set();
+    const ids = printingsBySetName.get(k) || new Set();
     ids.add(identity.printing_id);
-    printingIdsBySetName.set(k, ids);
+    printingsBySetName.set(k, ids);
   }
 
-  // Derive a set's Cardmarket expansion only from its already-accepted exact production mappings.
-  // Fail closed if any mapped product disappeared, there is too little evidence, or the set spans expansions.
+  // Prove expansion scope only from already accepted production mappings.
   const mappedProductsBySet = new Map();
   for (const row of mappings) {
     const ids = mappedProductsBySet.get(row.set_id) || new Set();
@@ -94,17 +107,16 @@ async function buildAudit(db) {
     });
   }
 
-  // The official bulk catalogue often exposes only product name + expansion id.
-  // Therefore a candidate must be an exact normalized name that is unique inside the proven expansion.
-  const productsByExpansionName = new Map();
+  // Reuse the shipped provider-suffix normalization, but only inside a derived expansion proven above.
+  const productsByExpansionBase = new Map();
   for (const product of products) {
     const expansionId = positiveExpansionId(product);
-    const name = comparableName(product.name);
-    if (!expansionId || !name) continue;
-    const k = key(expansionId, name);
-    const bucket = productsByExpansionName.get(k) || [];
+    const base = providerBaseName(product.name);
+    if (!expansionId || !base) continue;
+    const k = key(expansionId, base);
+    const bucket = productsByExpansionBase.get(k) || [];
     bucket.push(product);
-    productsByExpansionName.set(k, bucket);
+    productsByExpansionBase.set(k, bucket);
   }
 
   const rawCandidates = [];
@@ -113,12 +125,12 @@ async function buildAudit(db) {
   let eligibleUnmapped = 0;
   let inProvenDerivedExpansion = 0;
   let canonicalNameUniquePrinting = 0;
-  let exactUniqueProduct = 0;
+  let exactUniqueProviderBaseProduct = 0;
   let targetLanePriceable = 0;
 
   const addReason = (reason, identity, extra = {}) => {
     reasons[reason] = (reasons[reason] || 0) + 1;
-    if (unresolvedDiagnostics.length < 2500) unresolvedDiagnostics.push({
+    if (unresolvedDiagnostics.length < 3000) unresolvedDiagnostics.push({
       id: identity.id,
       setId: identity.set_id,
       setName: identity.set_name,
@@ -140,23 +152,23 @@ async function buildAudit(db) {
     }
     inProvenDerivedExpansion++;
 
-    const name = comparableName(identity.name);
-    const canonicalPrintings = printingIdsBySetName.get(key(identity.set_id, name)) || new Set();
+    const name = canonicalName(identity.name);
+    const canonicalPrintings = printingsBySetName.get(key(identity.set_id, name)) || new Set();
     if (!name || canonicalPrintings.size !== 1 || !canonicalPrintings.has(identity.printing_id)) {
       addReason('canonical_name_not_unique_to_one_printing_in_set', identity, { canonicalPrintingCount: canonicalPrintings.size });
       continue;
     }
     canonicalNameUniquePrinting++;
 
-    const productMatches = productsByExpansionName.get(key(evidence.sourceExpansionId, name)) || [];
+    const productMatches = productsByExpansionBase.get(key(evidence.sourceExpansionId, name)) || [];
     if (productMatches.length !== 1) {
-      addReason(productMatches.length === 0 ? 'no_exact_name_product_in_derived_expansion' : 'multiple_exact_name_products_in_derived_expansion', identity, {
+      addReason(productMatches.length === 0 ? 'no_exact_provider_base_name_in_derived_expansion' : 'multiple_provider_base_name_products_in_derived_expansion', identity, {
         sourceExpansionId: evidence.sourceExpansionId,
         matchCount: productMatches.length,
       });
       continue;
     }
-    exactUniqueProduct++;
+    exactUniqueProviderBaseProduct++;
 
     const product = productMatches[0];
     const sourceRecordId = String(product.sourceRecordId);
@@ -164,7 +176,7 @@ async function buildAudit(db) {
     const priceLane = PRICE_LANE[identity.variant_code];
     const priceRow = priceById.get(sourceRecordId);
     if (!priceRow || !hasMeaningfulCardmarketLane(priceRow, priceLane)) {
-      addReason('exact_product_has_no_meaningful_target_finish_lane', identity, { sourceRecordId, sourceVariantKey, sourceExpansionId: evidence.sourceExpansionId });
+      addReason('exact_product_has_no_meaningful_target_finish_lane', identity, { sourceRecordId, sourceVariantKey, sourceExpansionId: evidence.sourceExpansionId, cardmarketProductName: product.name });
       continue;
     }
     targetLanePriceable++;
@@ -191,13 +203,14 @@ async function buildAudit(db) {
       sourceRecordId,
       sourceVariantKey,
       sourceExpansionId: evidence.sourceExpansionId,
+      cardmarketProductName: product.name,
       priceLane,
       proof: {
-        method: 'existing_exact_mappings_prove_single_expansion_then_exact_name_unique_on_both_sides',
+        method: 'existing_exact_mappings_prove_single_expansion_then_shipped_provider_suffix_rule_unique_on_both_sides',
         existingMappedProductsInSet: evidence.mappedProducts,
         minimumRequiredMappedProducts: MIN_PROVEN_PRODUCTS,
-        canonicalPrintingCountForName: canonicalPrintings.size,
-        cardmarketProductCountForNameInExpansion: productMatches.length,
+        canonicalPrintingCountForBaseName: canonicalPrintings.size,
+        cardmarketProductCountForBaseNameInExpansion: productMatches.length,
       },
     });
   }
@@ -234,9 +247,9 @@ async function buildAudit(db) {
     policy: {
       minExistingMappedProductsForDerivedExpansion: MIN_PROVEN_PRODUCTS,
       singleExpansionRequired: true,
-      exactNormalizedNameRequired: true,
-      canonicalNameMustIdentifyOnePrinting: true,
-      cardmarketNameMustIdentifyOneProductInsideExpansion: true,
+      shippedProviderSuffixRuleOnly: true,
+      canonicalBaseNameMustIdentifyOnePrinting: true,
+      cardmarketBaseNameMustIdentifyOneProductInsideExpansion: true,
       meaningfulTargetFinishPriceLaneRequired: true,
     },
     counts: {
@@ -245,7 +258,7 @@ async function buildAudit(db) {
       rejectedSetEvidence: rejectedSetEvidence.length,
       inProvenDerivedExpansion,
       canonicalNameUniquePrinting,
-      exactUniqueProduct,
+      exactUniqueProviderBaseProduct,
       targetLanePriceable,
       safeExactMappings: safeCandidates.length,
       batchSourceConflicts: conflictedSourceKeys.size,
