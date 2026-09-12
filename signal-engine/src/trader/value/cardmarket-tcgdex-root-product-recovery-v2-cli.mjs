@@ -16,14 +16,14 @@ import {
 const key = (...parts) => parts.join('|');
 const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}`;
 
-async function build(db) {
-  const repo = loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO, { includeCards: true });
+export async function build(db, { repoEvidence, sources } = {}) {
+  const repo = repoEvidence || loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO, { includeCards: true });
   const cardById = new Map();
   for (const set of repo.sets) for (const card of set.cards) cardById.set(card.tcgdexCardId, card);
 
   const [{ artifact: catalogue, products }, { artifact: guide, snapshot }] = await Promise.all([
-    fetchCardmarketPokemonSinglesCatalogue(),
-    fetchCardmarketPokemonPriceGuide(),
+    (sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),
+    (sources?.guide ?? fetchCardmarketPokemonPriceGuide()),
   ]);
   const productById = new Map(products.map((product) => [String(product.sourceRecordId), product]));
   const priceById = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
