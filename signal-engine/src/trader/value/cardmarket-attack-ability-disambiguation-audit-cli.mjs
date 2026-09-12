@@ -60,7 +60,7 @@ function providerDescriptorTerms(name){
   return [...new Set(terms)];
 }
 
-async function audit(db){
+export async function auditCardmarketAttackAbilityDisambiguation(db){
   const repo=loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
   const tcgdexCards=new Map();for(const set of repo.sets)for(const card of set.cards)tcgdexCards.set(card.tcgdexCardId,card);
   const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([fetchCardmarketPokemonSinglesCatalogue(),fetchCardmarketPokemonPriceGuide()]);
@@ -114,7 +114,7 @@ async function audit(db){
 async function main(){
   validateProductionTarget(process.env.DATABASE_URL);
   const pool=new Pool({connectionString:process.env.DATABASE_URL,max:2});const db=await pool.connect();let report;
-  try{report=await audit(db);}catch(e){report={status:'blocked',productionWrites:false,error:e instanceof Error?e.message:String(e)};process.exitCode=1;}
+  try{report=await auditCardmarketAttackAbilityDisambiguation(db);}catch(e){report={status:'blocked',productionWrites:false,error:e instanceof Error?e.message:String(e)};process.exitCode=1;}
   finally{db.release();await pool.end();await writeFile((process.env.RUNNER_TEMP||'.')+'/cardmarket-attack-ability-disambiguation-audit.json',JSON.stringify(report,null,2));console.log(JSON.stringify({status:report.status,counts:report.counts},null,2));}
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)await main();
