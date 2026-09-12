@@ -1,0 +1,93 @@
+name: TEMP Cardmarket Stale Retirement Diagnostic
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-stale-retirement-2026-09-12
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+      - name: Verify exact merged base and workflow-only diff
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "bd391bc90185dfd1f417dc443428e6ca397ab576"
+          test -z "$(git diff --name-only bd391bc90185dfd1f417dc443428e6ca397ab576..HEAD | grep -v '^.github/workflows/tmp-cardmarket-stale-retirement.yml$' || true)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Inspect exact positive observations on reviewed stale mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFile } from 'node:fs/promises';
+          import { Pool } from 'pg';
+          import { REVIEWED_STALE_VARIANT_RETIREMENTS } from './src/trader/value/cardmarket-reviewed-stale-variant-retirement.mjs';
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+          try {
+            const keys = REVIEWED_STALE_VARIANT_RETIREMENTS.map((row) => ({
+              mapping_id: row.mappingId,
+              card_identity_id: row.cardIdentityId,
+              source_record_id: row.sourceRecordId,
+              source_variant_key: row.sourceVariantKey,
+              kind: row.kind,
+              tcgdex_card_id: row.tcgdexCardId,
+              stamp: row.stamp,
+              retained_product_id: row.retainedProductId,
+            }));
+            const { rows } = await pool.query(`
+              WITH c AS (
+                SELECT * FROM jsonb_to_recordset($1::jsonb)
+                AS x(mapping_id text,card_identity_id text,source_record_id text,source_variant_key text,kind text,tcgdex_card_id text,stamp text,retained_product_id text)
+              )
+              SELECT c.*, p.name, p.collector_number, s.name AS set_name,
+                     o.id AS observation_id,o.market_price,o.trend_price,o.avg_1d,o.avg_7d,o.avg_30d,o.observed_at,o.source_snapshot_id
+              FROM c
+              JOIN fatedrop_card_identities i ON i.id=c.card_identity_id
+              JOIN fatedrop_card_printings p ON p.id=i.printing_id
+              JOIN fatedrop_card_sets s ON s.id=i.set_id
+              JOIN fatedrop_market_observations o
+                ON o.card_identity_id=c.card_identity_id
+               AND o.source_name='cardmarket'
+               AND o.source_record_id=c.source_record_id
+               AND o.source_variant_key=c.source_variant_key
+              WHERE GREATEST(COALESCE(o.market_price,0),COALESCE(o.trend_price,0),COALESCE(o.avg_1d,0),COALESCE(o.avg_7d,0),COALESCE(o.avg_30d,0)) > 0
+              ORDER BY c.kind,c.source_record_id,o.observed_at`, [JSON.stringify(keys)]);
+            const report = { count: rows.length, rows };
+            console.log(JSON.stringify(report));
+            if (rows.length !== 4) throw new Error(`expected exactly 4 positive stale observations, got ${rows.length}`);
+            if (rows.some((row) => !REVIEWED_STALE_VARIANT_RETIREMENTS.some((planned) => planned.mappingId === row.mapping_id))) throw new Error('positive observation escaped frozen retirement plan');
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-stale-positive-observations.json`, JSON.stringify(report, null, 2));
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-stale-positive-observations
+          path: ${{ runner.temp }}/cardmarket-stale-positive-observations.json
+          if-no-files-found: error
+          retention-days: 14
