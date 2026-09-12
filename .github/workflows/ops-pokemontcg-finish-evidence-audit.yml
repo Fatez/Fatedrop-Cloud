@@ -1,17 +1,14 @@
 name: OPS PokemonTCG Finish Evidence Audit
 
 on:
-  push:
-    branches:
-      - feat/pokemontcg-finish-evidence-audit-2026-09-12
-    paths:
-      - '.github/workflows/ops-pokemontcg-finish-evidence-audit.yml'
-      - 'signal-engine/src/trader/value/pokemontcg-finish-evidence-audit-cli.mjs'
-      - 'signal-engine/src/trader/value/pokemontcg-finish-evidence-audit-resilient-cli.mjs'
-      - 'signal-engine/tests/pokemontcg-finish-evidence-audit.test.mjs'
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: pokemontcg-finish-evidence-audit
+  cancel-in-progress: false
 
 jobs:
   audit:
