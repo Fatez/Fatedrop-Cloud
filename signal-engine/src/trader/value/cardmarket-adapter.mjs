@@ -78,6 +78,12 @@ function normaliseLane(lane) {
   return value;
 }
 
+function normaliseProductIdSet(values) {
+  return new Set([...(values || [])]
+    .map((value) => String(value ?? '').trim())
+    .filter(Boolean));
+}
+
 function normaliseTcgCode(tcgCode) {
   return requireKnownTcg(tcgCode).code;
 }
@@ -152,19 +158,25 @@ export function adaptCardmarketPriceGuideRow(row, {
   snapshot,
   mapping,
   lane,
+  providerLane = lane,
   observedAt = Date.now(),
 } = {}) {
   requireObject(row, 'row');
   requireObject(snapshot, 'snapshot');
   const normalizedLane = normaliseLane(lane);
+  const normalizedProviderLane = normaliseLane(providerLane);
   if (snapshot.sourceName !== CARDMARKET_SOURCE_NAME) {
     throw new TypeError('snapshot must be a Cardmarket snapshot');
   }
   normaliseTcgCode(snapshot.tcgCode);
-  if (!hasMeaningfulCardmarketLane(row, normalizedLane)) return null;
+  if (!hasMeaningfulCardmarketLane(row, normalizedProviderLane)) return null;
 
+  // `lane` is FateDrop's canonical market segment. `providerLane` selects only
+  // the numeric fields in Cardmarket's guide. They intentionally differ for the
+  // frozen inherent-holo cohort, where Cardmarket carries holo-only value data
+  // in its base fields. The canonical identity and segment remain holo.
   const resolvedMapping = requireMapping(mapping, row, normalizedLane);
-  const prices = lanePrices(row, normalizedLane);
+  const prices = lanePrices(row, normalizedProviderLane);
   const idCategory = row.idCategory == null
     ? null
     : requirePositiveInteger(row.idCategory, 'row.idCategory');
@@ -187,6 +199,7 @@ export function adaptCardmarketPriceGuideRow(row, {
       tcgCode: snapshot.tcgCode,
       providerCategoryId: idCategory,
       priceGuideLane: normalizedLane,
+      providerPriceGuideLane: normalizedProviderLane,
     },
     rawPayload: row,
   });
@@ -197,6 +210,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
   observedAt = Date.now(),
   lanes = CARDMARKET_PRICE_LANES,
   tcgCode = 'pokemon',
+  inherentHoloBaseLaneProductIds = new Set(),
 } = {}) {
   if (typeof resolveMapping !== 'function') {
     throw new TypeError('resolveMapping function is required');
@@ -205,6 +219,9 @@ export async function buildCardmarketPriceGuideBatch(payload, {
   const providerPolicy = assertFatePriceProviderApproved('cardmarket-public-download');
   const snapshot = adaptCardmarketPriceGuideSnapshot(payload, { tcgCode });
   const selectedLanes = Object.freeze([...new Set(lanes.map(normaliseLane))]);
+  const auditedInherentHoloBaseLaneProductIds = normaliseProductIdSet(
+    inherentHoloBaseLaneProductIds,
+  );
   const ingestRunId = makeMarketIngestRunId(snapshot.sourceName, snapshot.sourceSnapshotId);
   const observations = [];
   const rejections = [];
@@ -212,14 +229,27 @@ export async function buildCardmarketPriceGuideBatch(payload, {
   for (const row of snapshot.priceGuides) {
     requireObject(row, 'priceGuide.priceGuides[]');
     const sourceRecordId = String(requirePositiveInteger(row.idProduct, 'row.idProduct'));
+    const useInherentHoloBaseLane = selectedLanes.includes('holo')
+      && auditedInherentHoloBaseLaneProductIds.has(sourceRecordId)
+      && hasMeaningfulCardmarketLane(row, 'standard')
+      && !hasMeaningfulCardmarketLane(row, 'holo');
 
     for (const lane of selectedLanes) {
-      if (!hasMeaningfulCardmarketLane(row, lane)) continue;
+      // For a strictly audited inherent-holo product, the provider base lane is
+      // evidence for the canonical holo identity. Do not also emit a canonical
+      // standard observation or an identity_unresolved standard rejection.
+      if (useInherentHoloBaseLane && lane === 'standard') continue;
+
+      const providerLane = useInherentHoloBaseLane && lane === 'holo'
+        ? 'standard'
+        : lane;
+      if (!hasMeaningfulCardmarketLane(row, providerLane)) continue;
 
       const mapping = await resolveMapping({
         sourceName: CARDMARKET_SOURCE_NAME,
         sourceRecordId,
         priceGuideLane: lane,
+        providerPriceGuideLane: providerLane,
         tcgCode: snapshot.tcgCode,
       });
 
@@ -235,6 +265,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
           rawPayload: {
             tcgCode: snapshot.tcgCode,
             priceGuideLane: lane,
+            providerPriceGuideLane: providerLane,
             row,
           },
           createdAt: observedAt,
@@ -247,6 +278,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
           snapshot,
           mapping,
           lane,
+          providerLane,
           observedAt,
         });
         if (observation) observations.push(observation);
@@ -262,6 +294,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
           rawPayload: {
             tcgCode: snapshot.tcgCode,
             priceGuideLane: lane,
+            providerPriceGuideLane: providerLane,
             row,
           },
           createdAt: observedAt,
@@ -289,6 +322,7 @@ export async function buildCardmarketPriceGuideBatch(payload, {
       sourceCurrency: snapshot.currencyCode,
       sourceRows: snapshot.priceGuides.length,
       selectedLanes,
+      inherentHoloBaseLaneProducts: auditedInherentHoloBaseLaneProductIds.size,
     },
     createdAt: terminalAt,
   });
