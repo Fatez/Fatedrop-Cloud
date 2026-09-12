@@ -9,6 +9,8 @@ import {
   sourceVariantKeyForCardmarketPriceLane,
 } from '../src/trader/value/cardmarket-daily-ingest.mjs';
 
+import { CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS } from '../src/trader/value/cardmarket-inherent-holo-base-lane-policy.mjs';
+
 const DAY_1 = Date.parse('2026-08-28T08:00:00.000Z');
 const DAY_2 = Date.parse('2026-08-29T08:00:00.000Z');
 
@@ -158,7 +160,7 @@ test('Postgres batch resolver uses one lookup and never crosses finishes or sele
   const store = { pool: async () => ({ query: async (sql, params) => {
     calls++;
     assert.match(sql, /verification_status='verified'/);
-    assert.deepEqual(params, [['668227']]);
+    assert.deepEqual(params, [[...new Set(['668227', ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS])]]);
     return { rows: [row('standard'), row('holo', 'holo')] };
   } }) };
   const resolve = await createCardmarketBatchExactMappingResolver(store, ['668227']);
