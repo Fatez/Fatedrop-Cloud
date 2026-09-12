@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadReviewedPokemonTcgFinishRecovery,
+  loadReviewedUmbreonSiblingRecovery,
+  loadReviewedCombinedCardmarketRecovery,
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   validateReviewedPokemonTcgInherentHoloMappings,
 } from '../src/trader/value/pokemontcg-reviewed-finish-recovery.mjs';
@@ -21,7 +23,7 @@ const snorlax = {
   verification_status: 'verified',
 };
 
-test('loads the exact frozen 410-card reviewed finish cohort', () => {
+test('loads the exact frozen 410-card external finish cohort', () => {
   const { candidates } = loadReviewedPokemonTcgFinishRecovery();
   assert.equal(candidates.length, 410);
   assert.equal(candidates.filter((row) => row.variantCode === 'standard').length, 359);
@@ -34,6 +36,25 @@ test('loads the exact frozen 410-card reviewed finish cohort', () => {
     assert.equal(row.sourceVariantKey, row.variantCode === 'standard' ? 'normal' : 'holo');
     assert.equal(row.proof.externalFinishKey, row.variantCode === 'standard' ? 'normal' : 'holofoil');
   }
+});
+
+test('loads the exact saved Umbreon sibling mapping and combines without collision', () => {
+  const { candidate } = loadReviewedUmbreonSiblingRecovery();
+  assert.equal(candidate.cardIdentityId, 'fdcard_043a2f0fc48bc2f9afaf7be5');
+  assert.equal(candidate.name, 'Umbreon');
+  assert.equal(candidate.collectorNumber, 'swsh129');
+  assert.equal(candidate.tcgdexCardId, 'swshp-SWSH129');
+  assert.equal(String(candidate.sourceRecordId), '568801');
+  assert.equal(candidate.sourceVariantKey, 'normal');
+  assert.equal(candidate.providerPriceGuideLane, 'standard');
+  assert.equal(candidate.proof.siblingEvidence[0].cardIdentityId, 'fdcard_3c5841311477627da2c18e7d');
+
+  const combined = loadReviewedCombinedCardmarketRecovery().candidates;
+  assert.equal(combined.length, 411);
+  assert.equal(combined.filter((row) => row.variantCode === 'standard').length, 360);
+  assert.equal(combined.filter((row) => row.variantCode === 'holo').length, 51);
+  assert.equal(new Set(combined.map((row) => row.cardIdentityId)).size, 411);
+  assert.equal(new Set(combined.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size, 411);
 });
 
 test('the only reviewed base-lane holo is Snorlax VMAX 687429', () => {
