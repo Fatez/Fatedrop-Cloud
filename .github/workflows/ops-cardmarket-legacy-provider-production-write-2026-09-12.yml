@@ -1,6 +1,11 @@
 name: OPS Cardmarket Legacy Provider Production Write 2026-09-12
 
 on:
+  push:
+    branches:
+      - ops/cardmarket-legacy-provider-write-2026-09-12
+    paths:
+      - '.github/workflows/ops-cardmarket-legacy-provider-production-write-2026-09-12.yml'
   workflow_dispatch:
 
 permissions:
