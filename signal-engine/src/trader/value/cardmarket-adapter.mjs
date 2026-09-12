@@ -199,7 +199,7 @@ export function adaptCardmarketPriceGuideRow(row, {
       tcgCode: snapshot.tcgCode,
       providerCategoryId: idCategory,
       priceGuideLane: normalizedLane,
-      providerPriceGuideLane: normalizedProviderLane,
+      ...(normalizedProviderLane === normalizedLane ? {} : { providerPriceGuideLane: normalizedProviderLane }),
     },
     rawPayload: row,
   });
