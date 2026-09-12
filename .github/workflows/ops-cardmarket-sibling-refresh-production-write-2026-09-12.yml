@@ -1,0 +1,57 @@
+name: OPS Cardmarket Sibling Refresh Production Write 2026-09-12
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-sibling-refresh-write-2026-09-12
+    paths:
+      - '.github/workflows/ops-cardmarket-sibling-refresh-production-write-2026-09-12.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  recover-and-refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Persist newly unlocked exact sibling-finish mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/cardmarket-sibling-finish-exact-recovery-cli.mjs
+      - name: Persist fresh exact Cardmarket normal+holo market observations
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload sibling recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-sibling-refresh-production-recovery
+          path: ${{ runner.temp }}/cardmarket-sibling-finish-exact-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload production-cycle audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-sibling-refresh-production-cycle
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: warn
+          retention-days: 14
