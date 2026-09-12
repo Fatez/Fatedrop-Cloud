@@ -1,3 +1,4 @@
+import { REVIEWED_CLEANED_HOLO_PRODUCT_IDS, isReviewedCleanedHoloProduct, validateReviewedCleanedHoloMappings } from './cardmarket-reviewed-cleaned-holo.mjs';
 import { REVIEWED_SINGLE_FOIL_PRODUCT_IDS, isReviewedSingleFoilProduct, validateReviewedSingleFoilMappings } from './cardmarket-reviewed-single-foil.mjs';
 import {
   REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
@@ -73,6 +74,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       isAuditedInherentHoloBaseLaneProduct(sourceRecordId)
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
+      || isReviewedCleanedHoloProduct(sourceRecordId)
     )) continue;
     if (!hasMeaningfulCardmarketLane(row, 'standard')) continue;
     if (hasMeaningfulCardmarketLane(row, 'holo')) continue;
@@ -120,6 +122,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
+    ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
   ])];
 
   const pool = await store.pool();
@@ -158,12 +161,14 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   const reviewedExplicitHoloIds = hasEligibleReviewedExplicitHolo
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
+  const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const inherentHoloBaseLaneProductIds = new Set(
     [...eligibleInherentHoloProductIds].filter((productId) => (
       (
         integrity.validProductIds.has(productId)
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
+        || cleanedHoloIds.has(productId)
       )
       && mappings.has(mappingKey(productId, 'holo'))
       && mappings.get(mappingKey(productId, 'holo')) != null
