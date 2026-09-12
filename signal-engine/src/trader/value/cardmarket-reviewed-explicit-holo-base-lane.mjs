@@ -29,7 +29,14 @@ function mappingLine(row) {
 }
 
 export function validateReviewedExplicitHoloBaseLaneMappings(rows) {
-  const scoped = (rows || []).filter((row) => productIds.has(String(row.source_record_id)));
+  // The frozen digest proves the 91 exact holo mappings themselves. A product
+  // may also acquire a separate normal mapping later; that competing owner is
+  // still blocked per product by cardmarket-daily-ingest's !normal safeguard.
+  // Do not let such a normal row invalidate unrelated, unchanged holo proofs.
+  const scoped = (rows || []).filter((row) => (
+    productIds.has(String(row.source_record_id))
+    && row.source_variant_key === 'holo'
+  ));
   if (scoped.length !== REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.length) return new Set();
   const seen = new Set(scoped.map((row) => String(row.source_record_id)));
   if (seen.size !== REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.length) return new Set();
