@@ -2,35 +2,22 @@ import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
-import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { normaliseComparableName } from '../catalogue/reconcile.mjs';
-import { parseCardmarketSingleProductName } from './cardmarket-crosswalk.mjs';
 import { fetchCardmarketPokemonSinglesCatalogue, fetchCardmarketPokemonPriceGuide } from './cardmarket-source-client.mjs';
 import { hasMeaningfulCardmarketLane } from './cardmarket-adapter.mjs';
 
 const SOURCE_VARIANT = Object.freeze({ standard: 'normal', holo: 'holo' });
 const PRICE_LANE = Object.freeze({ standard: 'standard', holo: 'holo' });
 const MIN_PROVEN_PRODUCTS = 5;
-
-const pairKey = (...parts) => parts.join('|');
+const key = (...parts) => parts.join('|');
 
 function positiveExpansionId(product) {
   const value = Number(product?.sourceExpansionId);
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 
-function printingKey(name, collectorNumber) {
-  try {
-    return `${normaliseCollectorNumber(collectorNumber)}|${normaliseComparableName(name)}`;
-  } catch {
-    return null;
-  }
-}
-
-function productPrintingKey(product) {
-  const parsed = parseCardmarketSingleProductName(product?.name);
-  if (!parsed) return null;
-  return `${parsed.collectorNumber}|${normaliseComparableName(parsed.cardName)}`;
+function comparableName(value) {
+  return normaliseComparableName(typeof value === 'string' ? value : '');
 }
 
 async function buildAudit(db) {
@@ -38,7 +25,6 @@ async function buildAudit(db) {
     fetchCardmarketPokemonSinglesCatalogue(),
     fetchCardmarketPokemonPriceGuide(),
   ]);
-
   const productById = new Map(products.map((product) => [String(product.sourceRecordId), product]));
   const priceById = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
 
@@ -51,7 +37,6 @@ async function buildAudit(db) {
       AND i.language_code='en'
       AND i.variant_code IN ('standard','holo')
       AND s.verification_status='verified'`);
-
   const { rows: mappings } = await db.query(`
     SELECT m.card_identity_id, m.source_record_id, m.source_variant_key, i.set_id
     FROM fatedrop_card_source_mappings m
@@ -62,70 +47,87 @@ async function buildAudit(db) {
       AND i.language_code='en'`);
 
   const mappedIdentityIds = new Set(mappings.map((row) => row.card_identity_id));
-  const sourceOwner = new Map(mappings.map((row) => [pairKey(row.source_record_id, row.source_variant_key), row.card_identity_id]));
-  const canonicalOwner = new Map(mappings.map((row) => [pairKey(row.card_identity_id, row.source_variant_key), String(row.source_record_id)]));
+  const sourceOwner = new Map(mappings.map((row) => [key(row.source_record_id, row.source_variant_key), row.card_identity_id]));
+  const canonicalOwner = new Map(mappings.map((row) => [key(row.card_identity_id, row.source_variant_key), String(row.source_record_id)]));
 
-  const mappedProductsBySet = new Map();
-  for (const row of mappings) {
-    const setProducts = mappedProductsBySet.get(row.set_id) || new Set();
-    setProducts.add(String(row.source_record_id));
-    mappedProductsBySet.set(row.set_id, setProducts);
+  // A canonical name is eligible only if it identifies exactly one printing in the FateDrop set.
+  // Multiple finish identities for that printing are expected and do not make the printing ambiguous.
+  const printingIdsBySetName = new Map();
+  for (const identity of identities) {
+    const name = comparableName(identity.name);
+    if (!name) continue;
+    const k = key(identity.set_id, name);
+    const ids = printingIdsBySetName.get(k) || new Set();
+    ids.add(identity.printing_id);
+    printingIdsBySetName.set(k, ids);
   }
 
+  // Derive a set's Cardmarket expansion only from its already-accepted exact production mappings.
+  // Fail closed if any mapped product disappeared, there is too little evidence, or the set spans expansions.
+  const mappedProductsBySet = new Map();
+  for (const row of mappings) {
+    const ids = mappedProductsBySet.get(row.set_id) || new Set();
+    ids.add(String(row.source_record_id));
+    mappedProductsBySet.set(row.set_id, ids);
+  }
   const setEvidence = new Map();
   const rejectedSetEvidence = [];
   for (const [setId, sourceIds] of mappedProductsBySet) {
-    const rows = [...sourceIds].map((sourceRecordId) => ({ sourceRecordId, product: productById.get(sourceRecordId) }));
-    const missing = rows.filter((row) => !row.product).map((row) => row.sourceRecordId);
-    const expansions = new Set(rows.map((row) => positiveExpansionId(row.product)).filter(Boolean));
-    const parsed = rows.map((row) => parseCardmarketSingleProductName(row.product?.name)).filter(Boolean);
-    const sourceSetCodes = new Set(parsed.map((row) => String(row.sourceSetCode).trim().toUpperCase()).filter(Boolean));
+    const resolved = [...sourceIds].map((sourceRecordId) => ({ sourceRecordId, product: productById.get(sourceRecordId) }));
+    const missing = resolved.filter((row) => !row.product).map((row) => row.sourceRecordId);
+    const expansions = new Set(resolved.map((row) => positiveExpansionId(row.product)).filter(Boolean));
     const reason = missing.length
       ? 'existing_mapping_product_missing_from_current_catalogue'
       : sourceIds.size < MIN_PROVEN_PRODUCTS
         ? 'insufficient_existing_exact_products'
         : expansions.size !== 1
           ? 'existing_mappings_span_multiple_cardmarket_expansions'
-          : parsed.length !== rows.length
-            ? 'existing_mapping_product_lacks_structured_cardmarket_identity'
-            : sourceSetCodes.size !== 1
-              ? 'existing_mappings_span_multiple_cardmarket_set_codes'
-              : null;
+          : null;
     if (reason) {
-      rejectedSetEvidence.push({ setId, reason, mappedProducts: sourceIds.size, missingProducts: missing.length, expansions: [...expansions], sourceSetCodes: [...sourceSetCodes] });
+      rejectedSetEvidence.push({ setId, reason, mappedProducts: sourceIds.size, missingProducts: missing.length, expansions: [...expansions] });
       continue;
     }
     setEvidence.set(setId, {
       sourceExpansionId: [...expansions][0],
-      sourceSetCode: [...sourceSetCodes][0],
       mappedProducts: sourceIds.size,
       evidenceSourceRecordIds: [...sourceIds].sort(),
     });
   }
 
-  const productsByExpansionPrintingKey = new Map();
+  // The official bulk catalogue often exposes only product name + expansion id.
+  // Therefore a candidate must be an exact normalized name that is unique inside the proven expansion.
+  const productsByExpansionName = new Map();
   for (const product of products) {
     const expansionId = positiveExpansionId(product);
-    const structuredKey = productPrintingKey(product);
-    const parsed = parseCardmarketSingleProductName(product.name);
-    if (!expansionId || !structuredKey || !parsed) continue;
-    const indexKey = pairKey(expansionId, structuredKey);
-    const bucket = productsByExpansionPrintingKey.get(indexKey) || [];
-    bucket.push({ product, parsed });
-    productsByExpansionPrintingKey.set(indexKey, bucket);
+    const name = comparableName(product.name);
+    if (!expansionId || !name) continue;
+    const k = key(expansionId, name);
+    const bucket = productsByExpansionName.get(k) || [];
+    bucket.push(product);
+    productsByExpansionName.set(k, bucket);
   }
 
-  const candidates = [];
+  const rawCandidates = [];
   const reasons = {};
   const unresolvedDiagnostics = [];
   let eligibleUnmapped = 0;
   let inProvenDerivedExpansion = 0;
+  let canonicalNameUniquePrinting = 0;
   let exactUniqueProduct = 0;
   let targetLanePriceable = 0;
 
   const addReason = (reason, identity, extra = {}) => {
     reasons[reason] = (reasons[reason] || 0) + 1;
-    if (unresolvedDiagnostics.length < 2000) unresolvedDiagnostics.push({ id: identity.id, setId: identity.set_id, setName: identity.set_name, name: identity.name, collectorNumber: identity.collector_number, variantCode: identity.variant_code, reason, ...extra });
+    if (unresolvedDiagnostics.length < 2500) unresolvedDiagnostics.push({
+      id: identity.id,
+      setId: identity.set_id,
+      setName: identity.set_name,
+      name: identity.name,
+      collectorNumber: identity.collector_number,
+      variantCode: identity.variant_code,
+      reason,
+      ...extra,
+    });
   };
 
   for (const identity of identities) {
@@ -138,20 +140,25 @@ async function buildAudit(db) {
     }
     inProvenDerivedExpansion++;
 
-    const canonicalKey = printingKey(identity.name, identity.collector_number);
-    if (!canonicalKey) {
-      addReason('canonical_printing_key_unavailable', identity);
+    const name = comparableName(identity.name);
+    const canonicalPrintings = printingIdsBySetName.get(key(identity.set_id, name)) || new Set();
+    if (!name || canonicalPrintings.size !== 1 || !canonicalPrintings.has(identity.printing_id)) {
+      addReason('canonical_name_not_unique_to_one_printing_in_set', identity, { canonicalPrintingCount: canonicalPrintings.size });
       continue;
     }
-    const matches = productsByExpansionPrintingKey.get(pairKey(evidence.sourceExpansionId, canonicalKey)) || [];
-    const sameSetCode = matches.filter(({ parsed }) => String(parsed.sourceSetCode).trim().toUpperCase() === evidence.sourceSetCode);
-    if (sameSetCode.length !== 1) {
-      addReason(sameSetCode.length === 0 ? 'no_exact_product_in_derived_expansion' : 'multiple_exact_products_in_derived_expansion', identity, { sourceExpansionId: evidence.sourceExpansionId, sourceSetCode: evidence.sourceSetCode, matchCount: sameSetCode.length });
+    canonicalNameUniquePrinting++;
+
+    const productMatches = productsByExpansionName.get(key(evidence.sourceExpansionId, name)) || [];
+    if (productMatches.length !== 1) {
+      addReason(productMatches.length === 0 ? 'no_exact_name_product_in_derived_expansion' : 'multiple_exact_name_products_in_derived_expansion', identity, {
+        sourceExpansionId: evidence.sourceExpansionId,
+        matchCount: productMatches.length,
+      });
       continue;
     }
     exactUniqueProduct++;
 
-    const { product } = sameSetCode[0];
+    const product = productMatches[0];
     const sourceRecordId = String(product.sourceRecordId);
     const sourceVariantKey = SOURCE_VARIANT[identity.variant_code];
     const priceLane = PRICE_LANE[identity.variant_code];
@@ -162,18 +169,18 @@ async function buildAudit(db) {
     }
     targetLanePriceable++;
 
-    const sourceKey = pairKey(sourceRecordId, sourceVariantKey);
-    const identityKey = pairKey(identity.id, sourceVariantKey);
+    const sourceKey = key(sourceRecordId, sourceVariantKey);
+    const canonicalKey = key(identity.id, sourceVariantKey);
     if (sourceOwner.has(sourceKey) && sourceOwner.get(sourceKey) !== identity.id) {
       addReason('target_source_finish_owned_by_other_identity', identity, { sourceRecordId, sourceVariantKey, existingCardIdentityId: sourceOwner.get(sourceKey) });
       continue;
     }
-    if (canonicalOwner.has(identityKey) && canonicalOwner.get(identityKey) !== sourceRecordId) {
-      addReason('target_identity_finish_owned_by_other_product', identity, { sourceRecordId, sourceVariantKey, existingSourceRecordId: canonicalOwner.get(identityKey) });
+    if (canonicalOwner.has(canonicalKey) && canonicalOwner.get(canonicalKey) !== sourceRecordId) {
+      addReason('target_identity_finish_owned_by_other_product', identity, { sourceRecordId, sourceVariantKey, existingSourceRecordId: canonicalOwner.get(canonicalKey) });
       continue;
     }
 
-    candidates.push({
+    rawCandidates.push({
       cardIdentityId: identity.id,
       printingId: identity.printing_id,
       setId: identity.set_id,
@@ -184,12 +191,13 @@ async function buildAudit(db) {
       sourceRecordId,
       sourceVariantKey,
       sourceExpansionId: evidence.sourceExpansionId,
-      sourceSetCode: evidence.sourceSetCode,
       priceLane,
       proof: {
-        method: 'existing_exact_mappings_prove_single_cardmarket_expansion_then_exact_name_number_unique_product',
+        method: 'existing_exact_mappings_prove_single_expansion_then_exact_name_unique_on_both_sides',
         existingMappedProductsInSet: evidence.mappedProducts,
         minimumRequiredMappedProducts: MIN_PROVEN_PRODUCTS,
+        canonicalPrintingCountForName: canonicalPrintings.size,
+        cardmarketProductCountForNameInExpansion: productMatches.length,
       },
     });
   }
@@ -198,9 +206,9 @@ async function buildAudit(db) {
   const canonicalBatchOwners = new Map();
   const conflictedSourceKeys = new Set();
   const conflictedCanonicalKeys = new Set();
-  for (const row of candidates) {
-    const sourceKey = pairKey(row.sourceRecordId, row.sourceVariantKey);
-    const canonicalKey = pairKey(row.cardIdentityId, row.sourceVariantKey);
+  for (const row of rawCandidates) {
+    const sourceKey = key(row.sourceRecordId, row.sourceVariantKey);
+    const canonicalKey = key(row.cardIdentityId, row.sourceVariantKey);
     const priorSource = sourceBatchOwners.get(sourceKey);
     const priorCanonical = canonicalBatchOwners.get(canonicalKey);
     if (priorSource && priorSource !== row.cardIdentityId) conflictedSourceKeys.add(sourceKey);
@@ -208,11 +216,13 @@ async function buildAudit(db) {
     if (priorCanonical && priorCanonical !== row.sourceRecordId) conflictedCanonicalKeys.add(canonicalKey);
     else canonicalBatchOwners.set(canonicalKey, row.sourceRecordId);
   }
-  const safeCandidates = candidates.filter((row) => !conflictedSourceKeys.has(pairKey(row.sourceRecordId, row.sourceVariantKey)) && !conflictedCanonicalKeys.has(pairKey(row.cardIdentityId, row.sourceVariantKey)));
+  const safeCandidates = rawCandidates.filter((row) =>
+    !conflictedSourceKeys.has(key(row.sourceRecordId, row.sourceVariantKey))
+    && !conflictedCanonicalKeys.has(key(row.cardIdentityId, row.sourceVariantKey)));
 
   const bySet = {};
   for (const row of safeCandidates) {
-    const current = bySet[row.setName] || { count: 0, sourceExpansionId: row.sourceExpansionId, sourceSetCode: row.sourceSetCode };
+    const current = bySet[row.setName] || { count: 0, sourceExpansionId: row.sourceExpansionId };
     current.count++;
     bySet[row.setName] = current;
   }
@@ -221,12 +231,20 @@ async function buildAudit(db) {
     status: 'audit_complete',
     productionWrites: false,
     source: { cardmarketCatalogueSha256: catalogueArtifact.sha256, cardmarketPriceGuideSha256: priceArtifact.sha256 },
-    policy: { minExistingMappedProductsForDerivedExpansion: MIN_PROVEN_PRODUCTS, exactStructuredNameAndCollectorNumberRequired: true, singleExpansionRequired: true, singleSourceSetCodeRequired: true, meaningfulTargetFinishPriceLaneRequired: true },
+    policy: {
+      minExistingMappedProductsForDerivedExpansion: MIN_PROVEN_PRODUCTS,
+      singleExpansionRequired: true,
+      exactNormalizedNameRequired: true,
+      canonicalNameMustIdentifyOnePrinting: true,
+      cardmarketNameMustIdentifyOneProductInsideExpansion: true,
+      meaningfulTargetFinishPriceLaneRequired: true,
+    },
     counts: {
       eligibleUnmappedNormalHolo: eligibleUnmapped,
       setsWithStrictDerivedExpansionEvidence: setEvidence.size,
       rejectedSetEvidence: rejectedSetEvidence.length,
       inProvenDerivedExpansion,
+      canonicalNameUniquePrinting,
       exactUniqueProduct,
       targetLanePriceable,
       safeExactMappings: safeCandidates.length,
