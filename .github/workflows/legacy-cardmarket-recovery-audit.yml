@@ -1,0 +1,43 @@
+name: Legacy Cardmarket Recovery Audit
+on:
+  push:
+    branches: [feat/cardmarket-legacy-provider-recovery-2026-09-12]
+    paths:
+      - '.github/workflows/legacy-cardmarket-recovery-audit.yml'
+      - 'signal-engine/src/trader/value/cardmarket-legacy-provider-metadata-recovery-cli.mjs'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run read-only recovery audit
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/cardmarket-legacy-provider-metadata-recovery-cli.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cardmarket-legacy-provider-recovery
+          path: ${{ runner.temp }}/cardmarket-legacy-provider-metadata-recovery.json
+          if-no-files-found: error
+          retention-days: 14
