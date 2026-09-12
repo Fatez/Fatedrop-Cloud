@@ -1,0 +1,64 @@
+name: OPS PokemonTCG Reviewed Finish Recovery
+
+on:
+  push:
+    branches:
+      - feat/pokemontcg-finish-evidence-audit-2026-09-12
+    paths:
+      - '.github/workflows/ops-pokemontcg-reviewed-finish-recovery.yml'
+      - 'signal-engine/evidence/pokemontcg-finish-evidence-audit-34719433407.json'
+      - 'signal-engine/src/trader/value/pokemontcg-reviewed-finish-recovery.mjs'
+      - 'signal-engine/src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-daily-ingest.mjs'
+      - 'signal-engine/tests/pokemontcg-reviewed-finish-recovery.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run focused reviewed finish tests
+        run: node --test tests/pokemontcg-reviewed-finish-recovery.test.mjs tests/pokemontcg-finish-evidence-audit.test.mjs
+      - name: Rehearse reviewed mapping activation against production
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+          PRICE_WRITE: 'false'
+          EXPECTED_REVIEWED_MAPPINGS: '410'
+        run: node src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs
+      - name: Require exact clean production-compatible cohort
+        run: |
+          jq -e '
+            .status == "clean" and
+            .productionWrites == false and
+            .activationAuthorized == false and
+            .counts.reviewedCandidates == 410 and
+            .counts.safeNewMappings == 410 and
+            .counts.alreadyAppliedMappings == 0 and
+            .counts.blockedMappings == 0 and
+            .counts.standard == 359 and
+            .counts.holo == 51 and
+            .counts.directLane == 409 and
+            .counts.inherentHoloBaseLane == 1
+          ' "$RUNNER_TEMP/pokemontcg-reviewed-finish-recovery.json" >/dev/null
+      - name: Upload rehearsal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemontcg-reviewed-finish-recovery
+          path: ${{ runner.temp }}/pokemontcg-reviewed-finish-recovery.json
+          if-no-files-found: error
+          retention-days: 14
