@@ -35,14 +35,14 @@ function addReason(reasons, reason) {
   reasons[reason] = (reasons[reason] || 0) + 1;
 }
 
-async function build(db) {
+export async function build(db, { repoEvidence, sources } = {}) {
   const tcgdex = loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO, { includeCards: true });
   const tcgdexCardById = new Map();
   for (const set of tcgdex.sets) for (const card of set.cards) tcgdexCardById.set(card.tcgdexCardId, card);
 
   const [{ artifact: catalogue, products }, { artifact: guide, snapshot }] = await Promise.all([
-    fetchCardmarketPokemonSinglesCatalogue(),
-    fetchCardmarketPokemonPriceGuide(),
+    (sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),
+    (sources?.guide ?? fetchCardmarketPokemonPriceGuide()),
   ]);
   const productById = new Map(products.map((product) => [String(product.sourceRecordId), product]));
   const priceById = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
