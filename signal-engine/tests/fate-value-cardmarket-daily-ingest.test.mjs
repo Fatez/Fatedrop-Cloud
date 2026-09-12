@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   createCardmarketDailyExactMappingResolver,
+  createCardmarketBatchExactMappingResolver,
   ingestCardmarketDailyPriceGuide,
   prepareCardmarketDailyPriceGuideBatch,
   sourceVariantKeyForCardmarketPriceLane,
@@ -147,4 +148,28 @@ test('a later provider snapshot adds another historical market day', async () =>
   const observations = Object.values(store.snapshot().fateValueLab.observations);
   assert.deepEqual(observations.map((item) => item.marketDay).sort(), ['2026-08-28', '2026-08-29']);
   assert.deepEqual(observations.map((item) => item.trendPrice).sort((a, b) => a - b), [10, 12]);
+});
+
+test('Postgres batch resolver uses one lookup and never crosses finishes or selects ambiguous owners', async () => {
+  const row = (id, source_variant_key = 'normal') => ({
+    id, card_identity_id: id, source_name: 'cardmarket', source_record_id: '668227', source_variant_key,
+  });
+  let calls = 0;
+  const store = { pool: async () => ({ query: async (sql, params) => {
+    calls++;
+    assert.match(sql, /verification_status='verified'/);
+    assert.deepEqual(params, [['668227']]);
+    return { rows: [row('standard'), row('holo', 'holo')] };
+  } }) };
+  const resolve = await createCardmarketBatchExactMappingResolver(store, ['668227']);
+  for (let n = 0; n < 1000; n++) {
+    assert.equal((await resolve({ sourceName: 'cardmarket', sourceRecordId: '668227', priceGuideLane: 'standard' })).id, 'standard');
+  }
+  assert.equal(calls, 1);
+  assert.equal((await resolve({ sourceName: 'cardmarket', sourceRecordId: '668227', priceGuideLane: 'holo' })).id, 'holo');
+  assert.equal(await resolve({ sourceName: 'cardmarket', sourceRecordId: 'missing', priceGuideLane: 'standard' }), null);
+  const ambiguous = await createCardmarketBatchExactMappingResolver({
+    pool: async () => ({ query: async () => ({ rows: [row('a'), row('b'), row('c')] }) }),
+  }, ['668227']);
+  assert.equal(await ambiguous({ sourceName: 'cardmarket', sourceRecordId: '668227', priceGuideLane: 'standard' }), null);
 });
