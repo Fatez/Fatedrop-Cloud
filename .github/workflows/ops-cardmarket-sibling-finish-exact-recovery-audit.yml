@@ -1,0 +1,41 @@
+name: OPS Cardmarket Sibling Finish Exact Recovery Audit
+
+on:
+  push:
+    branches:
+      - feat/cardmarket-sibling-finish-exact-recovery-2026-09-12
+    paths:
+      - '.github/workflows/ops-cardmarket-sibling-finish-exact-recovery-audit.yml'
+      - 'signal-engine/src/trader/value/cardmarket-sibling-finish-exact-recovery-cli.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Audit exact sibling-finish mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-sibling-finish-exact-recovery-cli.mjs
+      - name: Upload recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-sibling-finish-exact-recovery-audit
+          path: ${{ runner.temp }}/cardmarket-sibling-finish-exact-recovery.json
+          if-no-files-found: error
+          retention-days: 14
