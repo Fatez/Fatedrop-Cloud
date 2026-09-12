@@ -5,7 +5,7 @@ import { validateProductionTarget } from '../catalogue/production-target-check.m
 import { fetchCardmarketPokemonSinglesCatalogue, fetchCardmarketPokemonPriceGuide } from './cardmarket-source-client.mjs';
 import { hasMeaningfulCardmarketLane } from './cardmarket-adapter.mjs';
 import { rootProductNameMatches } from './cardmarket-tcgdex-root-evidence.mjs';
-import { loadReviewedPokemonTcgFinishRecovery } from './pokemontcg-reviewed-finish-recovery.mjs';
+import { loadReviewedCombinedCardmarketRecovery } from './pokemontcg-reviewed-finish-recovery.mjs';
 
 const QUARANTINED_TCGDEX_SET_IDS = new Set(['base2', 'base3', 'base5', 'gym1', 'neo1', 'neo2', 'neo3', 'neo4']);
 const key = (...parts) => parts.join('|');
@@ -25,7 +25,7 @@ function groupBy(rows, field) {
 }
 
 export async function buildReviewedFinishRecovery(db, { sources } = {}) {
-  const frozen = loadReviewedPokemonTcgFinishRecovery();
+  const frozen = loadReviewedCombinedCardmarketRecovery();
   const candidates = frozen.candidates;
   const identityIds = candidates.map((row) => row.cardIdentityId);
   const productIds = [...new Set(candidates.map((row) => String(row.sourceRecordId)))];
@@ -123,7 +123,18 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
       block(row, 'cardmarket_price_lane_unavailable', { providerPriceGuideLane: row.providerPriceGuideLane });
       continue;
     }
-    if (row.proof?.cardmarketLaneBasis === 'externally_proven_inherent_holo_base_lane') {
+
+    if (row.proof?.method === 'same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane') {
+      const siblings = Array.isArray(row.proof?.siblingEvidence) ? row.proof.siblingEvidence : [];
+      const sibling = siblings.length === 1 ? siblings[0] : null;
+      const siblingOwners = sourceOwners.get(key(String(row.sourceRecordId), 'holo')) || [];
+      if (row.variantCode !== 'standard' || row.sourceVariantKey !== 'normal' || row.providerPriceGuideLane !== 'standard'
+        || !sibling || sibling.variantCode !== 'holo' || sibling.sourceVariantKey !== 'holo'
+        || !siblingOwners.some((existing) => existing.card_identity_id === sibling.cardIdentityId)) {
+        block(row, 'sibling_finish_evidence_drift', { siblingOwners: siblingOwners.map((existing) => existing.card_identity_id).sort() });
+        continue;
+      }
+    } else if (row.proof?.cardmarketLaneBasis === 'externally_proven_inherent_holo_base_lane') {
       const finishKeys = Array.isArray(row.proof?.externalFinishKeys) ? row.proof.externalFinishKeys : [];
       if (row.variantCode !== 'holo' || row.providerPriceGuideLane !== 'standard' || !finishKeys.includes('holofoil') || finishKeys.includes('normal') || hasMeaningfulCardmarketLane(priceRow, 'holo')) {
         block(row, 'inherent_holo_policy_drift');
@@ -163,9 +174,10 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
     productionWrites: false,
     activationAuthorized: false,
     frozenEvidence: {
-      auditRunId: frozen.report.source?.pokemonTcg?.fetchMode ? 34719433407 : null,
+      externalAuditRunId: 34719433407,
+      siblingBundleRunId: 34717195189,
       candidateCount: candidates.length,
-      externalEvidenceSha256: frozen.report.source?.pokemonTcg?.sha256,
+      externalEvidenceSha256: frozen.external.report.source?.pokemonTcg?.sha256,
     },
     currentSources: { cardmarketCatalogueSha256: catalogue.sha256, cardmarketPriceGuideSha256: guide.sha256 },
     counts: {
@@ -177,6 +189,7 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
       holo: candidates.filter((row) => row.variantCode === 'holo').length,
       directLane: candidates.filter((row) => row.proof?.cardmarketLaneBasis === 'direct_cardmarket_finish_lane').length,
       inherentHoloBaseLane: candidates.filter((row) => row.proof?.cardmarketLaneBasis === 'externally_proven_inherent_holo_base_lane').length,
+      siblingProven: candidates.filter((row) => row.proof?.method === 'same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane').length,
     },
     blockedByReason: groupBy(blocked, 'reason'),
     safeNew,
@@ -217,7 +230,7 @@ async function main() {
   let report;
   try {
     report = await buildReviewedFinishRecovery(db);
-    const expectedReviewed = Number(process.env.EXPECTED_REVIEWED_MAPPINGS || 410);
+    const expectedReviewed = Number(process.env.EXPECTED_REVIEWED_MAPPINGS || 411);
     if (report.counts.reviewedCandidates !== expectedReviewed) throw new Error(`Expected ${expectedReviewed} reviewed mappings, found ${report.counts.reviewedCandidates}`);
     if (process.env.MAPPING_WRITE === 'true') {
       const persistence = await persistReviewedFinishRecovery(db, report);
