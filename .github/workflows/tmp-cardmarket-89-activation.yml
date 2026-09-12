@@ -1,0 +1,81 @@
+name: TEMP Cardmarket 89 Activation
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-89-activation-2026-09-12
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  dry_run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 4
+      - name: Verify exact activation base and workflow-only diff
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD^)" = "3dabace37977d39b0c3f0091da7801f7608a183f"
+          test -z "$(git diff --name-only 3dabace37977d39b0c3f0091da7801f7608a183f..HEAD | grep -v '^.github/workflows/tmp-cardmarket-89-activation.yml$' || true)"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Require 89 admitted reviewed holo products and 2 held conflicts
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { Pool } from 'pg';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { listVerifiedPriceCapableCardmarketProductIds, scopeCardmarketPriceGuideToMappedProducts } from './src/trader/value/cardmarket-market-cycle.mjs';
+          import { collectCurrentGuideInherentHoloBaseLaneEligibleProductIds, createCardmarketBatchExactMappingResolution } from './src/trader/value/cardmarket-daily-ingest.mjs';
+          import { REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS } from './src/trader/value/cardmarket-reviewed-explicit-holo-base-lane.mjs';
+          const policy = new Set(REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS.map(String));
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+          const store = { pool: async () => pool };
+          try {
+            const source = await fetchCardmarketPokemonPriceGuide();
+            const mapped = await listVerifiedPriceCapableCardmarketProductIds(store);
+            const scoped = scopeCardmarketPriceGuideToMappedProducts(source.artifact.payload, mapped);
+            const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(scoped);
+            const resolution = await createCardmarketBatchExactMappingResolution(store, new Set(scoped.priceGuides.map((row) => String(row?.idProduct ?? ''))), { inherentHoloBaseLaneEligibleProductIds: eligible });
+            const admitted = [...resolution.inherentHoloBaseLaneProductIds].filter((id) => policy.has(String(id))).sort();
+            const held = [...policy].filter((id) => !admitted.includes(id)).sort();
+            const report = { admittedCount: admitted.length, held, guideSha256: source.artifact.sha256 };
+            console.log(JSON.stringify(report));
+            if (admitted.length !== 89) throw new Error(`expected 89 admitted reviewed products, got ${admitted.length}`);
+            if (JSON.stringify(held) !== JSON.stringify(['568801','760792'])) throw new Error(`unexpected held reviewed products: ${held.join(',')}`);
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Run production-connected dry cycle
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: dry-run
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload dry audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-89-dry-audit
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: error
+          retention-days: 14
