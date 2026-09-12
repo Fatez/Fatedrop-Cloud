@@ -39,10 +39,10 @@ function stripProviderDescriptors(name){let value=String(name||'').trim().replac
 function providerDescriptorTerms(name){const groups=[...String(name||'').matchAll(/\[([^\]]+)\]/g)].map(m=>m[1]);const terms=[];for(const g of groups){for(const part of g.split('|')){const v=normaliseComparableName(part);if(v&&!/^\d+[a-z]?$/.test(v))terms.push(v);}}return [...new Set(terms)].sort();}
 function sameTermSet(left,right){return left.length>0&&left.length===right.length&&left.every((v,i)=>v===right[i]);}
 
-async function build(db){
-  const repo=loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
+export async function build(db, { repoEvidence, sources } = {}) {
+  const repo = repoEvidence || loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
   const tcgdexCards=new Map();for(const set of repo.sets)for(const card of set.cards)tcgdexCards.set(card.tcgdexCardId,card);
-  const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([fetchCardmarketPokemonSinglesCatalogue(),fetchCardmarketPokemonPriceGuide()]);
+  const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([(sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),(sources?.guide ?? fetchCardmarketPokemonPriceGuide())]);
   const {rows:sets}=await db.query(`SELECT s.id set_id,t.source_record_id tcgdex_set_id,cm.source_record_id cardmarket_expansion_override FROM fatedrop_card_sets s LEFT JOIN fatedrop_card_set_source_mappings t ON t.set_id=s.id AND t.source_name='tcgdex' LEFT JOIN fatedrop_card_set_source_mappings cm ON cm.set_id=s.id AND cm.source_name='cardmarket' WHERE s.verification_status='verified'`);
   const expansionBySet=new Map();
   for(const s of sets){const ev=s.tcgdex_set_id?repo.bySetId.get(s.tcgdex_set_id):null;const override=Number(s.cardmarket_expansion_override),sourceId=Number(ev?.cardmarketExpansionId);const id=Number.isSafeInteger(override)&&override>0?override:sourceId;if(Number.isSafeInteger(id)&&id>0)expansionBySet.set(s.set_id,id);}

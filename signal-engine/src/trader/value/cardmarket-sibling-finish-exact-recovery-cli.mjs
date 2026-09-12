@@ -11,10 +11,10 @@ const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(par
 const sourceVariantFor = Object.freeze({ standard: 'normal', holo: 'holo' });
 const priceLaneFor = Object.freeze({ standard: 'standard', holo: 'holo' });
 
-async function build(db) {
+export async function build(db, { repoEvidence, sources } = {}) {
   const [{ artifact: catalogue, products }, { artifact: guide, snapshot }] = await Promise.all([
-    fetchCardmarketPokemonSinglesCatalogue(),
-    fetchCardmarketPokemonPriceGuide(),
+    (sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),
+    (sources?.guide ?? fetchCardmarketPokemonPriceGuide()),
   ]);
 
   const productById = new Map(products.map((product) => [String(product.sourceRecordId), product]));

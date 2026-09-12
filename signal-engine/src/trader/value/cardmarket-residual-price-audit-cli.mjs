@@ -45,7 +45,7 @@ function increment(object, name) {
   object[name] = (object[name] || 0) + 1;
 }
 
-async function build(db) {
+export async function build(db, { repoEvidence, sources } = {}) {
   const { rows: identities } = await db.query(`
     SELECT i.id AS card_identity_id,
            i.printing_id,
@@ -107,7 +107,7 @@ async function build(db) {
       AND source_record_id=ANY($1::text[])
     ORDER BY created_at DESC`, [productIds]);
 
-  const { artifact: guideArtifact, snapshot } = await fetchCardmarketPokemonPriceGuide();
+  const { artifact: guideArtifact, snapshot } = await (sources?.guide ?? fetchCardmarketPokemonPriceGuide());
   const currentByProduct = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
 
   const mappingsByIdentity = new Map();

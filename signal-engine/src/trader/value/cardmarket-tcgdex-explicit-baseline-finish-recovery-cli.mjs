@@ -23,14 +23,14 @@ function isBaselineVariant(variant,targetType){
     && Number(variant.cardmarketProductId)>0;
 }
 
-async function build(db){
-  const repo=loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
+export async function build(db, { repoEvidence, sources } = {}) {
+  const repo = repoEvidence || loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO,{includeCards:true});
   const tcgdexCards=new Map();
   for(const set of repo.sets)for(const card of set.cards)tcgdexCards.set(card.tcgdexCardId,card);
 
   const [{artifact:catalogue,products},{artifact:guide,snapshot}]=await Promise.all([
-    fetchCardmarketPokemonSinglesCatalogue(),
-    fetchCardmarketPokemonPriceGuide(),
+    (sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue()),
+    (sources?.guide ?? fetchCardmarketPokemonPriceGuide()),
   ]);
   const productById=new Map(products.map(p=>[String(p.sourceRecordId),p]));
   const priceById=new Map(snapshot.priceGuides.map(r=>[String(r.idProduct),r]));
