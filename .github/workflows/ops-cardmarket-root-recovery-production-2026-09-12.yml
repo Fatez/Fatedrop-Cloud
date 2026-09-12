@@ -91,3 +91,5 @@ jobs:
           path: ${{ runner.temp }}/cardmarket-production-cycle.json
           if-no-files-found: warn
           retention-days: 14
+
+# retriggered after cancelled conversation; concurrency gate preserves single-writer safety
