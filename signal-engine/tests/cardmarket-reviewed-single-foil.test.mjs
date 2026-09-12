@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { REVIEWED_SINGLE_FOIL_PRODUCTS, validateReviewedSingleFoilMappings } from '../src/trader/value/cardmarket-reviewed-single-foil.mjs';
 import { prepareCardmarketDailyPriceGuideBatch } from '../src/trader/value/cardmarket-daily-ingest.mjs';
 const rows = REVIEWED_SINGLE_FOIL_PRODUCTS.map(r => ({...r,source_name:'cardmarket',language_code:'en',verification_status:'verified'}));
-test('203 exact reviewed products remain uniquely owned', () => {
- assert.equal(new Set(rows.map(r=>r.source_record_id)).size,203);
- assert.equal(validateReviewedSingleFoilMappings(rows).size,203);
+test('213 exact reviewed products remain uniquely owned', () => {
+ assert.equal(new Set(rows.map(r=>r.source_record_id)).size,213);
+ assert.equal(validateReviewedSingleFoilMappings(rows).size,213);
 });
 test('ownership, variant, language and verification drift fail closed', () => {
  const original=rows[0];
