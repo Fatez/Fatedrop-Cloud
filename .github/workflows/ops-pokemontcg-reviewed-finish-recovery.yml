@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/ops-pokemontcg-reviewed-finish-recovery.yml'
       - 'signal-engine/evidence/pokemontcg-finish-evidence-audit-34719433407.json'
+      - 'signal-engine/evidence/english-pricing-bundle-34717195189-reviewed-mapping.json'
       - 'signal-engine/src/trader/value/pokemontcg-reviewed-finish-recovery.mjs'
       - 'signal-engine/src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-daily-ingest.mjs'
@@ -37,7 +38,7 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           MAPPING_WRITE: 'false'
           PRICE_WRITE: 'false'
-          EXPECTED_REVIEWED_MAPPINGS: '410'
+          EXPECTED_REVIEWED_MAPPINGS: '411'
         run: node src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs
       - name: Require exact clean production-compatible cohort
         run: |
@@ -45,14 +46,15 @@ jobs:
             .status == "clean" and
             .productionWrites == false and
             .activationAuthorized == false and
-            .counts.reviewedCandidates == 410 and
-            .counts.safeNewMappings == 410 and
+            .counts.reviewedCandidates == 411 and
+            .counts.safeNewMappings == 411 and
             .counts.alreadyAppliedMappings == 0 and
             .counts.blockedMappings == 0 and
-            .counts.standard == 359 and
+            .counts.standard == 360 and
             .counts.holo == 51 and
-            .counts.directLane == 409 and
-            .counts.inherentHoloBaseLane == 1
+            .counts.directLane == 410 and
+            .counts.inherentHoloBaseLane == 1 and
+            .counts.siblingProven == 1
           ' "$RUNNER_TEMP/pokemontcg-reviewed-finish-recovery.json" >/dev/null
       - name: Upload rehearsal report
         if: always()
