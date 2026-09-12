@@ -12,7 +12,15 @@ export const REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE = Object.freeze({
   candidateDigest: '2e80a4d2dba6d76db242b0437e7961a5778856456d59dc4b2647eab9f34a7f5c',
 });
 
+export const REVIEWED_UMBREON_SIBLING_SOURCE = Object.freeze({
+  runId: 34717195189,
+  artifactId: 10304941238,
+  artifactZipSha256: '81c9306b5cb38cf53695fd75d3bfff67b853f168f7876a99856548602eacc59b',
+  bundleDigest: '7ef2c1d7c159fa33b634867add6357363cb8bdfbef1bd515524bb04348af1d0d',
+});
+
 const evidenceUrl = new URL('../../../evidence/pokemontcg-finish-evidence-audit-34719433407.json', import.meta.url);
+const umbreonEvidenceUrl = new URL('../../../evidence/english-pricing-bundle-34717195189-reviewed-mapping.json', import.meta.url);
 
 function candidateLine(row) {
   return [
@@ -54,6 +62,59 @@ export function loadReviewedPokemonTcgFinishRecovery() {
     .map(candidateLine).join('\n')).digest('hex');
   if (digest !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.candidateDigest) throw new Error('Frozen PokemonTCG finish candidate digest drifted');
   return Object.freeze({ report, candidates: Object.freeze(candidates.map((row) => Object.freeze(row))) });
+}
+
+export function loadReviewedUmbreonSiblingRecovery() {
+  const evidence = JSON.parse(readFileSync(umbreonEvidenceUrl, 'utf8'));
+  const row = evidence.candidate;
+  if (evidence.source?.runId !== REVIEWED_UMBREON_SIBLING_SOURCE.runId
+    || evidence.source?.artifactId !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactId
+    || evidence.source?.artifactZipSha256 !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactZipSha256
+    || evidence.source?.bundleDigest !== REVIEWED_UMBREON_SIBLING_SOURCE.bundleDigest) {
+    throw new Error('Frozen Umbreon sibling evidence source drifted');
+  }
+  if (evidence.classification?.outcome !== 'mapping_candidate_with_price'
+    || evidence.classification?.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5'
+    || evidence.classification?.variant !== 'standard'
+    || evidence.classification?.collectorNumber !== 'swsh129') {
+    throw new Error('Frozen Umbreon classification drifted');
+  }
+  if (!row
+    || row.id !== 'fdcardmap_37b5617121cc48a802b034cb'
+    || row.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5'
+    || row.variantCode !== 'standard'
+    || row.cardName !== 'Umbreon'
+    || row.collectorNumber !== 'swsh129'
+    || row.tcgdexCardId !== 'swshp-SWSH129'
+    || String(row.sourceRecordId) !== '568801'
+    || row.sourceVariantKey !== 'normal'
+    || row.providerPriceGuideLane !== 'standard'
+    || row.proof?.method !== 'same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane'
+    || !Array.isArray(row.proof?.siblingEvidence)
+    || row.proof.siblingEvidence.length !== 1
+    || row.proof.siblingEvidence[0].cardIdentityId !== 'fdcard_3c5841311477627da2c18e7d'
+    || row.proof.siblingEvidence[0].variantCode !== 'holo'
+    || row.proof.siblingEvidence[0].sourceVariantKey !== 'holo') {
+    throw new Error('Frozen Umbreon sibling mapping evidence drifted');
+  }
+  return Object.freeze({
+    evidence,
+    candidate: Object.freeze({
+      ...row,
+      name: row.cardName,
+      proof: Object.freeze({ ...row.proof, cardmarketLaneBasis: 'direct_cardmarket_finish_lane' }),
+    }),
+  });
+}
+
+export function loadReviewedCombinedCardmarketRecovery() {
+  const external = loadReviewedPokemonTcgFinishRecovery();
+  const sibling = loadReviewedUmbreonSiblingRecovery();
+  const candidates = [...external.candidates, sibling.candidate];
+  if (candidates.length !== 411) throw new Error('Combined reviewed Cardmarket recovery count drifted');
+  if (new Set(candidates.map((row) => row.cardIdentityId)).size !== 411) throw new Error('Combined reviewed identity collision');
+  if (new Set(candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size !== 411) throw new Error('Combined reviewed source-finish collision');
+  return Object.freeze({ external, sibling, candidates: Object.freeze(candidates) });
 }
 
 export const REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS = Object.freeze(['687429']);
