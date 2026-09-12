@@ -1,0 +1,53 @@
+name: OPS PokemonTCG Finish Evidence Audit
+
+on:
+  push:
+    branches:
+      - feat/pokemontcg-finish-evidence-audit-2026-09-12
+    paths:
+      - '.github/workflows/ops-pokemontcg-finish-evidence-audit.yml'
+      - 'signal-engine/src/trader/value/pokemontcg-finish-evidence-audit-cli.mjs'
+      - 'signal-engine/tests/pokemontcg-finish-evidence-audit.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Test finish evidence policy
+        run: node --test tests/pokemontcg-finish-evidence-audit.test.mjs
+      - name: Audit unresolved identities with external TCGplayer finish keys
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          MAPPING_WRITE: 'false'
+          PRICE_WRITE: 'false'
+        run: node src/trader/value/pokemontcg-finish-evidence-audit-cli.mjs
+      - name: Upload finish evidence audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pokemontcg-finish-evidence-audit
+          path: ${{ runner.temp }}/pokemontcg-finish-evidence-audit.json
+          if-no-files-found: error
+          retention-days: 14
