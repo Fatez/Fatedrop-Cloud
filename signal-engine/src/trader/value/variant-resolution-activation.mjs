@@ -64,7 +64,9 @@ export function renderDeltaActivationSql(plan) {
       statements.push(`INSERT INTO fatedrop_catalogue_audit_flags (id,card_identity_id,flag_type,reason,evidence_sha256,review_reference,active,created_at,resolved_at) VALUES (${sqlString(flagId)},${sqlString(row.cardIdentityId)},'invalid_catalogue_entry',${sqlString(row.reason)},${sqlString(row.evidenceSha256)},${sqlString(row.reviewReference)},TRUE,${row.classifiedAt},NULL) ON CONFLICT (id) DO NOTHING;`);
     }
     if (row.state === 'UNRESOLVED_EVIDENCE') {
-      statements.push(`INSERT INTO fatedrop_variant_audit_hold (card_identity_id,finish,reason,evidence_sha256,created_at,updated_at) VALUES (${sqlString(row.cardIdentityId)},${sqlString(row.finish)},${sqlString(row.reason)},${sqlString(row.evidenceSha256)},${row.classifiedAt},${row.classifiedAt}) ON CONFLICT (card_identity_id) DO UPDATE SET finish=EXCLUDED.finish,reason=EXCLUDED.reason,evidence_sha256=EXCLUDED.evidence_sha256,updated_at=EXCLUDED.updated_at;`);
+      statements.push(`INSERT INTO fatedrop_variant_audit_hold (card_identity_id,finish,reason,evidence_sha256,active,created_at,updated_at,resolved_at) VALUES (${sqlString(row.cardIdentityId)},${sqlString(row.finish)},${sqlString(row.reason)},${sqlString(row.evidenceSha256)},TRUE,${row.classifiedAt},${row.classifiedAt},NULL) ON CONFLICT (card_identity_id) DO UPDATE SET finish=EXCLUDED.finish,reason=EXCLUDED.reason,evidence_sha256=EXCLUDED.evidence_sha256,active=TRUE,updated_at=EXCLUDED.updated_at,resolved_at=NULL;`);
+    } else {
+      statements.push(`UPDATE fatedrop_variant_audit_hold SET active=FALSE,updated_at=${row.classifiedAt},resolved_at=${row.classifiedAt} WHERE card_identity_id=${sqlString(row.cardIdentityId)} AND active=TRUE;`);
     }
   }
   statements.push('', '-- Price observations are intentionally not written here.', '-- Existing guarded Cardmarket ingestion remains the only price writer.', 'COMMIT;', '');
