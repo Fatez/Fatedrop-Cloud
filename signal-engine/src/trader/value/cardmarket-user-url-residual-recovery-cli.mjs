@@ -261,7 +261,7 @@ async function main() {
   }
   const output = `${process.env.RUNNER_TEMP || '.'}/cardmarket-user-url-residual-recovery.json`;
   await writeFile(output, JSON.stringify(report, null, 2));
-  console.log(JSON.stringify({ status: report.status, productionWrites: report.productionWrites, counts: report.counts, reasons: report.reasons, candidateDigest: report.candidateDigest, priceableCandidateDigest: report.priceableCandidateDigest, persistence: report.persistence }, null, 2));
+  console.log(JSON.stringify({ status: report.status, productionWrites: report.productionWrites, error: report.error ? String(report.error).replace(/postgres(?:ql)?:\/\/[^\s]+/gi, '[redacted database URL]').split(process.env.DATABASE_URL || '\u0000').join('[redacted database URL]') : undefined, counts: report.counts, reasons: report.reasons, candidateDigest: report.candidateDigest, priceableCandidateDigest: report.priceableCandidateDigest, persistence: report.persistence }, null, 2));
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
