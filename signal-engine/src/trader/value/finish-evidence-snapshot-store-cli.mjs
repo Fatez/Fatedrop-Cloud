@@ -10,11 +10,18 @@ const idFor = snapshot => `fdevidence_${createHash('sha256').update([
   snapshot.payloadSha256,
 ].join('|')).digest('hex').slice(0, 32)}`;
 
+function snapshotRows(report) {
+  if (Array.isArray(report?.snapshots)) return report.snapshots;
+  if (Array.isArray(report?.snapshotRows)) return report.snapshotRows;
+  return null;
+}
+
 export async function persistEvidenceSnapshots(db, acquisition, { write = false } = {}) {
-  if (acquisition?.productionWrites !== false || acquisition?.priceWrites !== false || !Array.isArray(acquisition?.snapshots)) {
-    throw new Error('Expected a read-only acquisition report');
+  const rawSnapshots = snapshotRows(acquisition);
+  if (acquisition?.productionWrites !== false || acquisition?.priceWrites !== false || !rawSnapshots) {
+    throw new Error('Expected a read-only evidence report with snapshot rows');
   }
-  const snapshots = acquisition.snapshots.map(verifySnapshot);
+  const snapshots = rawSnapshots.map(verifySnapshot);
   const identityIds = [...new Set(snapshots.map(row => row.cardIdentityId))];
   const { rows: identities } = identityIds.length
     ? await db.query(`SELECT id FROM fatedrop_card_identities WHERE id=ANY($1::text[])`, [identityIds])
@@ -64,7 +71,7 @@ export async function persistEvidenceSnapshots(db, acquisition, { write = false 
 async function main() {
   if (process.env.PRICE_WRITE === 'true') throw new Error('Evidence acquisition never writes prices');
   const acquisitionPath = process.argv[2];
-  if (!acquisitionPath) throw new Error('Usage: node finish-evidence-snapshot-store-cli.mjs acquisition.json');
+  if (!acquisitionPath) throw new Error('Usage: node finish-evidence-snapshot-store-cli.mjs evidence-report.json');
   validateProductionTarget(process.env.DATABASE_URL);
   const acquisition = JSON.parse(await readFile(acquisitionPath, 'utf8'));
   const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
