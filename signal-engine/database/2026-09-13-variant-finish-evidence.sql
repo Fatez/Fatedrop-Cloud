@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS fatedrop_variant_evidence_snapshots (
   request_fingerprint TEXT NOT NULL,
   observed_at BIGINT NOT NULL,
   payload_sha256 TEXT NOT NULL CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
-  raw_payload JSONB NOT NULL,
+  artifact_sha256 TEXT CHECK (artifact_sha256 IS NULL OR artifact_sha256 ~ '^[0-9a-f]{64}$'),
+  raw_payload_text TEXT NOT NULL,
   created_at BIGINT NOT NULL,
   UNIQUE(provider, card_identity_id, payload_sha256)
 );
