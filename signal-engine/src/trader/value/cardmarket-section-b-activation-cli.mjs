@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
 
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
@@ -136,4 +137,4 @@ async function main() {
   console.log(JSON.stringify(report, null, 2));
 }
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();
