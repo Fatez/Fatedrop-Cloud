@@ -5,6 +5,8 @@
   "sourceFile": "FateDrop_Cardmarket_Direct_URLs_1316_Cards.xlsx",
   "sourceFileSha256": "8692f0a71cd61f0a73245e0163f46bfb4c17125151156c5fe52047e3ce7fca47",
   "reviewedUserUrlRows": 57,
+  "reviewedIdentityDigest": "f7b09f25458dfdd706b15ccdff35c669ccf5f68aeb72b5be4b34de48588933fb",
+  "reviewedUrlDigest": "c2a59f296bb308ecf15ff696591389d01fef9d2a86fc48807e3934270eec90b5",
   "cardmarketExpansionSlug": "DP-Black-Star-Promos",
   "userUrlEvidence": "All 57 DP Black Star Promos rows in the reviewed source file match the FateDrop set/name/collector/finish queue and use the same direct Cardmarket expansion path segment DP-Black-Star-Promos. URLs are identity locators only and are not scraped for prices.",
   "pinnedTcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
