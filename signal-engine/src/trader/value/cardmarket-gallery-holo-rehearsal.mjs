@@ -32,6 +32,10 @@ try {
  const batch=await prepareCardmarketDailyPriceGuideBatch({store:{pool:async()=>db},priceGuidePayload:{version:Number(snapshot.sourceVersion),createdAt:new Date(snapshot.sourceEffectiveAt).toISOString(),priceGuides:snapshot.priceGuides}});
  const ids=new Set(REVIEWED_GALLERY_HOLO.map(e=>e.card_identity_id));
  const accepted=batch.observations.filter(o=>ids.has(o.cardIdentityId));
+ for (const o of accepted) {
+  assert.equal(o.sourceVariantKey,'holo'); assert.equal(o.marketSegmentKey,'holo');
+  assert.ok(['marketPrice','trendPrice','avg1d','avg7d','avg30d'].some(k=>Number.isFinite(o[k]) && o[k]>0),'Supported central price required');
+ }
  assert.equal(accepted.length,136,'Every reviewed identity must produce an observation');
  assert.equal(new Set(accepted.map(o=>o.cardIdentityId)).size,136);
  const report={status:'rehearsal_passed',productionWrites:false,count:accepted.length,tcgdexRevision:REVIEWED_GALLERY_HOLO_REVISION,catalogueSha256:catalogue.sha256,guideSha256:guide.sha256,observations:accepted};
