@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { extractTcgdexTcgplayerProductIds } from '../src/trader/value/tcgdex-tcgplayer-product-evidence.mjs';
 import { buildReviewQueue } from '../src/trader/value/finish-evidence-review-queue-cli.mjs';
 
@@ -35,4 +37,10 @@ test('review queue isolates zero-key cases and deck-or-box-risk negative candida
   assert.equal(report.counts.deckOrBoxRisk, 1);
   assert.equal(report.rows.find(row => row.cardIdentityId === 'a').queue, 'negative_evidence_candidate');
   assert.equal(report.rows.find(row => row.cardIdentityId === 'b').queue, 'manual_edge_case');
+});
+
+test('finish evidence acquisition Python compiles', () => {
+  const script = fileURLToPath(new URL('../scripts/acquire_finish_evidence.py', import.meta.url));
+  const result = spawnSync('python3', ['-m', 'py_compile', script], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
 });
