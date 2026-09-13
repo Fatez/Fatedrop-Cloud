@@ -4,7 +4,7 @@ import { Pool } from 'pg';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
 import { buildResolutionLedger } from './variant-resolution-ledger.mjs';
 import { buildVariantResolutionActivationPlan, renderDeltaActivationSql } from './variant-resolution-activation.mjs';
-import { loadPersistedApprovedFinishEvidence, mergeReviewedFinishDecisions } from './persisted-finish-evidence.mjs';
+import { applyReviewedEvidenceSupersessions, loadPersistedApprovedFinishEvidence, mergeReviewedFinishDecisions } from './persisted-finish-evidence.mjs';
 
 const hash = raw => createHash('sha256').update(raw).digest('hex');
 const reviewId = decision => `fdreview_${hash([decision.cardIdentityId, decision.finish, decision.snapshotSha256, decision.verdict, decision.reviewReference].join('|')).slice(0, 32)}`;
@@ -93,7 +93,7 @@ async function assertPinnedSnapshotsPersisted(db, plan) {
   return exact;
 }
 
-export async function persistVariantResolutionActivation(db, plan, currentDecisions) {
+export async function persistVariantResolutionActivation(db, plan, currentDecisions, supersededReviewReferences = []) {
   if (plan.productionWrites !== false || plan.priceWrites !== false || plan.baseCardDeletes !== false) throw new Error('Unsafe activation plan');
   const snapshotByKey = await assertPinnedSnapshotsPersisted(db, plan);
   const ids = plan.rows.map(row => row.cardIdentityId);
@@ -105,18 +105,32 @@ export async function persistVariantResolutionActivation(db, plan, currentDecisi
       throw new Error(`Canonical identity drift for ${row.cardIdentityId}`);
     }
   }
-  const { rows: activeFlags } = await db.query(`SELECT card_identity_id FROM fatedrop_catalogue_audit_flags WHERE active=TRUE AND card_identity_id=ANY($1::text[])`, [ids]);
-  const invalidFlagged = new Set(activeFlags.map(row => row.card_identity_id));
+  const superseded = new Set(supersededReviewReferences);
+  const { rows: activeFlags } = await db.query(`SELECT card_identity_id,review_reference FROM fatedrop_catalogue_audit_flags WHERE active=TRUE AND card_identity_id=ANY($1::text[])`, [ids]);
+  const flagsByIdentity = new Map();
+  for (const flag of activeFlags) {
+    if (!flagsByIdentity.has(flag.card_identity_id)) flagsByIdentity.set(flag.card_identity_id, []);
+    flagsByIdentity.get(flag.card_identity_id).push(flag);
+  }
   for (const row of plan.rows) {
-    if ((row.state === 'ACTIVE_PRICED' || row.state === 'ACTIVE_UNPRICED') && invalidFlagged.has(row.cardIdentityId)) {
-      throw new Error(`Active state conflicts with existing invalid catalogue flag for ${row.cardIdentityId}`);
-    }
+    if (row.state !== 'ACTIVE_PRICED' && row.state !== 'ACTIVE_UNPRICED') continue;
+    const blocking = (flagsByIdentity.get(row.cardIdentityId) || []).filter(flag => !superseded.has(flag.review_reference));
+    if (blocking.length) throw new Error(`Active state conflicts with existing invalid catalogue flag for ${row.cardIdentityId}`);
   }
 
   await db.query('BEGIN');
   try {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext('fatedrop-variant-resolution-activation'))`);
     const now = Date.now();
+    if (supersededReviewReferences.length) {
+      const result = await db.query(`UPDATE fatedrop_variant_evidence_reviews
+        SET approval_state='rejected'
+        WHERE approval_state='approved' AND review_reference=ANY($1::text[])
+        RETURNING review_reference`, [supersededReviewReferences]);
+      const updated = new Set(result.rows.map(row => row.review_reference));
+      const missing = supersededReviewReferences.filter(reference => !updated.has(reference));
+      if (missing.length) throw new Error(`Superseded approved review not found during activation: ${missing.join(',')}`);
+    }
     for (const decision of currentDecisions) {
       const snapshotId = snapshotByKey.get(`${decision.cardIdentityId}|${decision.snapshotSha256}`)
         ?? (await db.query(`SELECT id FROM fatedrop_variant_evidence_snapshots WHERE card_identity_id=$1 AND payload_sha256=$2`, [decision.cardIdentityId, decision.snapshotSha256])).rows[0]?.id;
@@ -150,12 +164,19 @@ export async function persistVariantResolutionActivation(db, plan, currentDecisi
       }
       if (row.state === 'INVALID_CATALOGUE_ENTRY') {
         await db.query(`INSERT INTO fatedrop_catalogue_audit_flags (id,card_identity_id,flag_type,reason,evidence_sha256,review_reference,active,created_at,resolved_at)
-          VALUES ($1,$2,'invalid_catalogue_entry',$3,$4,$5,TRUE,$6,NULL) ON CONFLICT (id) DO NOTHING`,
+          VALUES ($1,$2,'invalid_catalogue_entry',$3,$4,$5,TRUE,$6,NULL)
+          ON CONFLICT (id) DO UPDATE SET reason=EXCLUDED.reason,evidence_sha256=EXCLUDED.evidence_sha256,
+            review_reference=EXCLUDED.review_reference,active=TRUE,resolved_at=NULL`,
           [flagId(row),row.cardIdentityId,row.reason,row.evidenceSha256,row.reviewReference,now]);
+      } else if (row.state === 'ACTIVE_PRICED' || row.state === 'ACTIVE_UNPRICED') {
+        await db.query(`UPDATE fatedrop_catalogue_audit_flags
+          SET active=FALSE,resolved_at=$2
+          WHERE card_identity_id=$1 AND active=TRUE AND review_reference=ANY($3::text[])`,
+          [row.cardIdentityId,now,supersededReviewReferences]);
       }
     }
     await db.query('COMMIT');
-    return { savedStates: plan.rows.length, savedReviews: currentDecisions.length, priceWrites: 0, baseCardDeletes: 0 };
+    return { savedStates: plan.rows.length, savedReviews: currentDecisions.length, supersededReviews: supersededReviewReferences.length, priceWrites: 0, baseCardDeletes: 0 };
   } catch (error) {
     await db.query('ROLLBACK');
     throw error;
@@ -183,7 +204,8 @@ async function main() {
   try {
     const identityIds = rows.map(row => row.cardIdentityId);
     const persistedDecisions = await loadPersistedApprovedFinishEvidence(db, identityIds, snapshots);
-    const decisions = mergeReviewedFinishDecisions(persistedDecisions, reviewed.decisions);
+    const supersession = applyReviewedEvidenceSupersessions(persistedDecisions, reviewed.decisions);
+    const decisions = mergeReviewedFinishDecisions(supersession.effectivePersisted, reviewed.decisions);
     const prices = await loadCurrentExactPrices(db, identityIds, snapshots);
     const now = Date.now();
     const ledger = buildResolutionLedger(rows, { decisions, snapshots, prices, now });
@@ -196,10 +218,15 @@ async function main() {
     report = {
       status: 'clean', productionWrites: false, priceWrites: false,
       counts: plan.counts, deltaSha256: plan.deltaSha256,
-      evidence: { persistedApproved: persistedDecisions.length, currentReviewed: reviewed.decisions.length, cumulativeReviewed: decisions.length },
+      evidence: {
+        persistedApproved: persistedDecisions.length,
+        currentReviewed: reviewed.decisions.length,
+        cumulativeReviewed: decisions.length,
+        supersededApprovedReviews: supersession.supersededReviewReferences.length,
+      },
     };
     if (process.env.ACTIVATION_WRITE === 'true') {
-      const persistence = await persistVariantResolutionActivation(db, plan, reviewed.decisions);
+      const persistence = await persistVariantResolutionActivation(db, plan, reviewed.decisions, supersession.supersededReviewReferences);
       report = { ...report, productionWrites: true, persistence };
     }
   } catch (error) {
