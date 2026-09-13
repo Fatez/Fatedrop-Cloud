@@ -1,0 +1,103 @@
+name: Ops Japanese Catalogue Rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_sets:
+        description: "0 = full physical Japanese catalogue; non-zero = canary only"
+        required: true
+        default: "0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    defaults:
+      run:
+        working-directory: signal-engine
+    env:
+      SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY }}
+      SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID }}
+      JAPANESE_REVIEW_REFERENCE: ${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Record immutable rehearsal scope
+        env:
+          MAX_SETS: ${{ inputs.max_sets }}
+        run: |
+          mode="canary"
+          full=false
+          if [ "$MAX_SETS" = "0" ]; then mode="full"; full=true; fi
+          printf '{"githubRunId":"%s","commit":"%s","maxSets":%s,"mode":"%s","fullCatalogue":%s}\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_SHA" "$MAX_SETS" "$mode" "$full" \
+            > "$RUNNER_TEMP/japanese-rehearsal-scope.json"
+
+      - name: Acquire raw Japanese catalogue evidence
+        run: |
+          python3 scripts/acquire_japanese_catalogue.py \
+            --output="$RUNNER_TEMP/japanese-catalogue-acquisition.json" \
+            --max-sets="${{ inputs.max_sets }}"
+
+      - name: Prove provider-manifest completeness
+        run: |
+          mode="canary"
+          if [ "${{ inputs.max_sets }}" = "0" ]; then mode="full"; fi
+          node src/trader/catalogue/japanese-catalogue-completeness-cli.mjs \
+            --input="$RUNNER_TEMP/japanese-catalogue-acquisition.json" \
+            --output="$RUNNER_TEMP/japanese-catalogue-completeness.json" \
+            --mode="$mode"
+
+      - name: Compile exact identities and four-state ledger
+        run: |
+          stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          node src/trader/catalogue/japanese-catalogue-compile-cli.mjs \
+            --input="$RUNNER_TEMP/japanese-catalogue-acquisition.json" \
+            --output="$RUNNER_TEMP/japanese-catalogue-artifact.json" \
+            --audit="$RUNNER_TEMP/japanese_evidence_audit_${stamp}.json" \
+            --review-reference="${GITHUB_SHA}"
+
+      - name: Dry-run guarded loader
+        run: |
+          node src/trader/catalogue/japanese-catalogue-load-cli.mjs \
+            --artifact="$RUNNER_TEMP/japanese-catalogue-artifact.json" \
+            --report="$RUNNER_TEMP/japanese-catalogue-persist-report.json" \
+            --mode=dry-run
+
+      - name: Pin artifact SHA
+        run: |
+          sha256sum "$RUNNER_TEMP/japanese-catalogue-artifact.json" | tee "$RUNNER_TEMP/japanese-catalogue-artifact.sha256"
+
+      - name: Upload rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: japanese-catalogue-rehearsal
+          path: |
+            ${{ runner.temp }}/japanese-rehearsal-scope.json
+            ${{ runner.temp }}/japanese-catalogue-acquisition.json
+            ${{ runner.temp }}/japanese-catalogue-completeness.json
+            ${{ runner.temp }}/japanese-catalogue-artifact.json
+            ${{ runner.temp }}/japanese-catalogue-artifact.sha256
+            ${{ runner.temp }}/japanese_evidence_audit_*.json
+            ${{ runner.temp }}/japanese-catalogue-persist-report.json
+          if-no-files-found: warn
+          retention-days: 14
