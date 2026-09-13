@@ -1,3 +1,4 @@
+import { REVIEWED_STALE_VARIANT_RETIREMENTS } from './cardmarket-reviewed-stale-variant-retirement.mjs';
 import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
@@ -9,6 +10,15 @@ import { loadReviewedCombinedCardmarketRecovery } from './pokemontcg-reviewed-fi
 
 const QUARANTINED_TCGDEX_SET_IDS = new Set(['base2', 'base3', 'base5', 'gym1', 'neo1', 'neo2', 'neo3', 'neo4']);
 const key = (...parts) => parts.join('|');
+
+export function isPreviouslyRetiredMapping(row) {
+  return REVIEWED_STALE_VARIANT_RETIREMENTS.some(retired =>
+    retired.mappingId === row.id || (
+      retired.cardIdentityId === row.cardIdentityId
+      && retired.sourceRecordId === String(row.sourceRecordId)
+      && retired.sourceVariantKey === row.sourceVariantKey
+    ));
+}
 
 export function normaliseReviewedCollectorNumber(value) {
   return String(value ?? '')
@@ -88,6 +98,7 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
   const block = (row, reason, detail = {}) => blocked.push({ cardIdentityId: row.cardIdentityId, tcgdexCardId: row.tcgdexCardId, sourceRecordId: String(row.sourceRecordId), sourceVariantKey: row.sourceVariantKey, reason, ...detail });
 
   for (const row of candidates) {
+    if (isPreviouslyRetiredMapping(row)) { block(row, 'previously_retired_mapping_requires_new_review'); continue; }
     const identity = identityById.get(row.cardIdentityId);
     if (!identity) { block(row, 'canonical_identity_missing'); continue; }
     if (identity.verification_status !== 'verified' || identity.language_code !== 'en' || identity.variant_code !== row.variantCode) {
@@ -200,6 +211,7 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
 
 export async function persistReviewedFinishRecovery(db, report) {
   if (report.status !== 'clean' || report.blocked.length) throw new Error('Reviewed finish recovery is not clean');
+  if (report.safeNew.some(isPreviouslyRetiredMapping)) throw new Error('Previously retired mapping cannot be restored by finish recovery');
   const expectedNew = process.env.EXPECTED_NEW_MAPPINGS === undefined ? null : Number(process.env.EXPECTED_NEW_MAPPINGS);
   if (expectedNew != null && report.safeNew.length !== expectedNew) throw new Error(`Expected ${expectedNew} new mappings, found ${report.safeNew.length}`);
   await db.query('BEGIN');
