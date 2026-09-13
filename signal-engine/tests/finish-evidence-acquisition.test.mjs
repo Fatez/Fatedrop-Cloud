@@ -65,6 +65,50 @@ test('TCGplayer accepts explicit subTypeName only after an exact product crosswa
   assert.equal(proved.decision.finish, 'holo');
 });
 
+test('TCGplayer complete SKU enumeration can deterministically prove a missing finish', () => {
+  const standard = { ...target, variantCode: 'standard', tcgplayerProductId: 123, tcgplayerExactCrosswalk: true };
+  const snapshot = rawSnapshot('tcgplayer', 'fdcard_test', {
+    mode: 'complete_product_sku_enumeration',
+    product: { productId: 123, categoryId: 3 },
+    skus: [
+      { skuId: 1, productId: 123, languageId: 1, printingId: 11, conditionId: 1 },
+      { skuId: 2, productId: 123, languageId: 1, printingId: 12, conditionId: 1 },
+    ],
+    printings: [
+      { printingId: 11, name: 'Holofoil' },
+      { printingId: 12, name: 'Reverse Holofoil' },
+    ],
+    languages: [{ languageId: 1, name: 'English', abbr: 'EN' }],
+    completeness: {
+      productDetailsComplete: true,
+      productSkusComplete: true,
+      categoryPrintingsComplete: true,
+      categoryLanguagesComplete: true,
+      noPagination: true,
+      errorsEmpty: true,
+    },
+  });
+  const result = normalizeExplicitFinishEvidence(standard, snapshot);
+  assert.equal(result.reason, 'complete_sku_enumeration_excludes_target_finish');
+  assert.equal(result.decision.verdict, 'does_not_exist');
+  assert.equal(result.decision.basis, 'exact_printing_checklist');
+});
+
+test('TCGplayer omission stays unresolved unless completeness is explicit', () => {
+  const standard = { ...target, variantCode: 'standard', tcgplayerProductId: 123, tcgplayerExactCrosswalk: true };
+  const snapshot = rawSnapshot('tcgplayer', 'fdcard_test', {
+    mode: 'complete_product_sku_enumeration',
+    product: { productId: 123, categoryId: 3 },
+    skus: [{ skuId: 1, productId: 123, languageId: 1, printingId: 11, conditionId: 1 }],
+    printings: [{ printingId: 11, name: 'Holofoil' }],
+    languages: [{ languageId: 1, name: 'English', abbr: 'EN' }],
+    completeness: { productDetailsComplete: true, productSkusComplete: false },
+  });
+  const result = normalizeExplicitFinishEvidence(standard, snapshot);
+  assert.equal(result.decision, null);
+  assert.equal(result.reason, 'tcgplayer_sku_completeness_not_proven');
+});
+
 test('Cardmarket idProduct alone never proves finish', () => {
   assert.deepEqual(finishFromCardmarketPayload({ idProduct: 123, name: 'Test Pokémon' }), []);
   const snapshot = rawSnapshot('cardmarket', 'fdcard_test', { idProduct: 123, name: 'Test Pokémon' });
@@ -96,6 +140,36 @@ test('manual review requires explicit human confirmation and set rules require c
     provider: 'set_rule', reviewer: 'operator', approvalReference: 'rule-1',
     reviews: [{ cardIdentityId: 'fdcard_test', finish: 'holo', verdict: 'exists', basis: 'explicit_variant_record', sourceLocator: 'https://evidence.example', evidencePayload: { finish: 'holo' }, observedAt: 1 }],
   }), /exact_printing_checklist/);
+});
+
+test('negative reviewed evidence requires exhaustive sealed-product-aware coverage', () => {
+  const base = {
+    provider: 'set_rule', reviewer: 'operator', approvalReference: 'rule-negative',
+    reviews: [{
+      cardIdentityId: 'fdcard_test', finish: 'standard', verdict: 'does_not_exist', basis: 'exact_printing_checklist',
+      sourceLocator: 'https://evidence.example/checklist', observedAt: 1,
+      evidencePayload: { completeness: { checklistComplete: true, paginationComplete: true, alternateDistributionCovered: true } },
+    }],
+  };
+  assert.throws(() => buildReviewedDecisionManifest(base), /sealed-product\/decklist coverage/);
+  base.reviews[0].evidencePayload.completeness.sealedProductDecklistsCovered = true;
+  const reviewed = buildReviewedDecisionManifest(base);
+  assert.equal(reviewed.decisions[0].verdict, 'does_not_exist');
+});
+
+test('invalid-state reversal requires explicit manual supersession confirmation', () => {
+  const input = {
+    provider: 'manual', reviewer: 'operator', approvalReference: 'restore-1',
+    reviews: [{
+      cardIdentityId: 'fdcard_test', finish: 'standard', verdict: 'exists', basis: 'explicit_variant_record',
+      sourceLocator: 'https://evidence.example/scan', evidencePayload: { physicalScan: true }, observedAt: 1,
+      humanConfirmed: true, supersedesReviewReferences: ['old-invalid-review'], reversalReason: 'Previously unknown deck printing surfaced',
+    }],
+  };
+  assert.throws(() => buildReviewedDecisionManifest(input), /reversalConfirmed/);
+  input.reviews[0].reversalConfirmed = true;
+  const reviewed = buildReviewedDecisionManifest(input);
+  assert.deepEqual(reviewed.decisions[0].supersedesReviewReferences, ['old-invalid-review']);
 });
 
 test('approved evidence merges cumulatively without duplicating identical reviews', () => {
