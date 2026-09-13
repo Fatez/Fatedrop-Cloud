@@ -8,7 +8,9 @@ on:
     paths:
       - '.github/workflows/cardmarket-resolution-aware-root-audit.yml'
       - 'signal-engine/src/trader/value/cardmarket-resolution-aware-root-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-relaxed-secondary-recovery-cli.mjs'
       - 'signal-engine/tests/cardmarket-resolution-aware-root-recovery.test.mjs'
+      - 'signal-engine/tests/cardmarket-relaxed-secondary-recovery.test.mjs'
 
 permissions:
   contents: read
@@ -36,7 +38,7 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
       - name: Run focused regression tests
-        run: node --test tests/cardmarket-resolution-aware-root-recovery.test.mjs
+        run: node --test tests/cardmarket-resolution-aware-root-recovery.test.mjs tests/cardmarket-relaxed-secondary-recovery.test.mjs
       - name: Rehearse Section B exact mapping recovery
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
@@ -45,11 +47,27 @@ jobs:
           EXPECTED_SECTION_B: '1222'
           MAPPING_WRITE: 'false'
         run: node src/trader/value/cardmarket-resolution-aware-root-recovery-cli.mjs
-      - name: Upload recovery audit
+      - name: Run relaxed secondary pass over primary no-root holds
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_NO_ROOT: '560'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-relaxed-secondary-recovery-cli.mjs
+      - name: Upload primary recovery audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cardmarket-resolution-aware-root-recovery
           path: ${{ runner.temp }}/cardmarket-resolution-aware-root-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload relaxed secondary audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-relaxed-secondary-recovery
+          path: ${{ runner.temp }}/cardmarket-relaxed-secondary-recovery.json
           if-no-files-found: error
           retention-days: 14
