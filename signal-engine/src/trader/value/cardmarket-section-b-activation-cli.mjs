@@ -68,14 +68,23 @@ async function persistCombined(db, candidates, sourceVersion) {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext('fatedrop-cardmarket-section-b-activation'))`);
     let insertedMappings = 0;
     for (const row of candidates) {
+      // Lock only the canonical identity row. PostgreSQL cannot apply FOR UPDATE
+      // to the nullable side of a LEFT JOIN, so resolution state is read in a
+      // separate query while this transaction holds the identity-row lock.
       const target = await db.query(`
-        SELECT i.id,i.variant_code,i.language_code,i.verification_status,rs.classifier_state
-        FROM fatedrop_card_identities i
-        LEFT JOIN fatedrop_variant_resolution_state rs ON rs.card_identity_id=i.id
-        WHERE i.id=$1 FOR UPDATE`, [row.cardIdentityId]);
+        SELECT id,variant_code,language_code,verification_status
+        FROM fatedrop_card_identities
+        WHERE id=$1
+        FOR UPDATE`, [row.cardIdentityId]);
       const current = target.rows[0];
       if (!current || current.verification_status !== 'verified' || current.language_code !== 'en' || current.variant_code !== row.variantCode) throw new Error(`Canonical identity changed: ${row.cardIdentityId}`);
-      if (['INVALID_CATALOGUE_ENTRY','UNRESOLVED_EVIDENCE'].includes(current.classifier_state)) throw new Error(`Resolution state changed: ${row.cardIdentityId}`);
+
+      const resolution = await db.query(`
+        SELECT classifier_state
+        FROM fatedrop_variant_resolution_state
+        WHERE card_identity_id=$1`, [row.cardIdentityId]);
+      const classifierState = resolution.rows[0]?.classifier_state ?? null;
+      if (['INVALID_CATALOGUE_ENTRY','UNRESOLVED_EVIDENCE'].includes(classifierState)) throw new Error(`Resolution state changed: ${row.cardIdentityId}`);
 
       const canonical = await db.query(`SELECT source_record_id,source_variant_key FROM fatedrop_card_source_mappings WHERE source_name='cardmarket' AND card_identity_id=$1 FOR UPDATE`, [row.cardIdentityId]);
       if (canonical.rowCount) throw new Error(`Identity already mapped: ${row.cardIdentityId}`);
