@@ -1,0 +1,36 @@
+{
+  "status": "activation_bundle_prepared_no_production_writes",
+  "productionWrites": false,
+  "baseline": {
+    "eligible": 18538,
+    "uniquelyPriced": 17914,
+    "unpriced": 624,
+    "mappedUnpriced": 97,
+    "unmappedUnpriced": 527
+  },
+  "bundles": [
+    {
+      "name": "reviewed-residual-28",
+      "safeMappings": 28,
+      "activationDigest": "40e1c37ddf40e4f330b05fa0ca9609d8f12a8469604838728c3094a4b1b13c59",
+      "rehearsalRun": 34788883271
+    },
+    {
+      "name": "dp-promos-29",
+      "safeMappings": 29,
+      "currentlyPriceable": 27,
+      "mappedButUnpriced": 2,
+      "candidateDigest": "9e6b3db9da206fba54c422bb008e820f6a035a425b239f2bb14975365f1f8787",
+      "rehearsalRun": 34789862688
+    }
+  ],
+  "combinedSafeMappings": 57,
+  "policy": {
+    "approvedPriceProvider": "cardmarket-public-download",
+    "manualConfirmation": "ACTIVATE_SAFE57",
+    "oneCardmarketProductionRefreshAfterMappings": true,
+    "noWebScraping": true,
+    "noCrossFinishPriceCopy": true,
+    "failClosedOnAnyManifestOrOwnershipDrift": true
+  }
+}
