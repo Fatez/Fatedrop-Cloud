@@ -8,7 +8,7 @@ import { loadTcgdexRepositoryEvidence } from './tcgdex-repository-cardmarket-evi
 import { assessBaselineFinishEvidence, rootProductNameMatches } from './cardmarket-tcgdex-root-evidence.mjs';
 import { hasMeaningfulCardmarketLane } from './cardmarket-adapter.mjs';
 import { prepareCardmarketDailyPriceGuideBatch } from './cardmarket-daily-ingest.mjs';
-import { digest, checkpointValid, combineRecoveryProposals } from './english-pricing-bundle.mjs';
+import { digest, checkpointValid, combineRecoveryProposals, buildEnglishPricingScope, buildEnglishPricingClosure } from './english-pricing-bundle.mjs';
 import { build as stage0 } from './cardmarket-tcgdex-explicit-baseline-finish-recovery-cli.mjs';
 import { build as stage1 } from './cardmarket-tcgdex-root-product-recovery-v2-cli.mjs';
 import { build as stage2 } from './cardmarket-attack-ability-exact-recovery-cli.mjs';
@@ -46,17 +46,23 @@ async function main() {
     await save(path.join(output,'source-snapshots.json'),{catalogue:catalogue.artifact,guide:guide.artifact});
     db=await pool.connect();
     await db.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const {rows:identities}=await db.query(`SELECT i.id,i.variant_code,i.language_code,i.verification_status,p.name,p.collector_number,
+    const {rows:sourceIdentities}=await db.query(`SELECT i.id,i.variant_code,i.language_code,i.verification_status,p.name,p.collector_number,rs.classifier_state,
       ARRAY(SELECT DISTINCT m.source_record_id FROM fatedrop_card_source_mappings m WHERE m.card_identity_id=i.id AND m.source_name='tcgdex' ORDER BY m.source_record_id) AS tcgdex_card_ids,
       ARRAY(SELECT DISTINCT m.source_record_id FROM fatedrop_card_set_source_mappings m WHERE m.set_id=i.set_id AND m.source_name='tcgdex' ORDER BY m.source_record_id) AS tcgdex_set_ids
       FROM fatedrop_card_identities i JOIN fatedrop_card_printings p ON p.id=i.printing_id
+      LEFT JOIN fatedrop_variant_resolution_state rs ON rs.card_identity_id=i.id
       WHERE i.language_code='en' AND i.verification_status='verified' AND i.variant_code IN ('standard','holo') ORDER BY i.id`);
-    const {rows:mappings}=await db.query("SELECT id,card_identity_id,source_record_id,source_variant_key FROM fatedrop_card_source_mappings WHERE source_name='cardmarket' ORDER BY id");
-    const {rows:pricedRows}=await db.query("SELECT DISTINCT card_identity_id FROM fatedrop_market_observations WHERE source_name='cardmarket' AND greatest(market_price,trend_price,avg_1d,avg_7d,avg_30d)>0 ORDER BY card_identity_id");
+    const pricingScope=buildEnglishPricingScope(sourceIdentities);
+    const identities=pricingScope.eligibleCards;
+    const eligibleIds=new Set(identities.map((row)=>row.id));
+    const {rows:allMappings}=await db.query("SELECT id,card_identity_id,source_record_id,source_variant_key FROM fatedrop_card_source_mappings WHERE source_name='cardmarket' ORDER BY id");
+    const mappings=allMappings.filter((row)=>eligibleIds.has(row.card_identity_id));
+    const {rows:allPricedRows}=await db.query("SELECT DISTINCT card_identity_id FROM fatedrop_market_observations WHERE source_name='cardmarket' AND greatest(market_price,trend_price,avg_1d,avg_7d,avg_30d)>0 ORDER BY card_identity_id");
+    const pricedRows=allPricedRows.filter((row)=>eligibleIds.has(row.card_identity_id));
     const priced=new Set(pricedRows.map(r=>r.card_identity_id));
     const backlog=identities.filter(i=>!priced.has(i.id));
     const {rows:setMappings}=await db.query("SELECT * FROM fatedrop_card_set_source_mappings ORDER BY id");
-    const context=digest({setMappings,code:process.env.GITHUB_SHA||'local',revision:process.env.TCGDEX_REVISION,source:[catalogue.artifact.sha256,guide.artifact.sha256],identities,mappings,pricedRows});
+    const context=digest({setMappings,code:process.env.GITHUB_SHA||'local',revision:process.env.TCGDEX_REVISION,source:[catalogue.artifact.sha256,guide.artifact.sha256],pricingScope:{sourceCardCount:pricingScope.sourceCardCount,eligibleCardCount:pricingScope.eligibleCardCount,excludedInvalidCatalogueEntryCount:pricingScope.excludedInvalidCatalogueEntryCount,excludedUnresolvedEvidenceCount:pricingScope.excludedUnresolvedEvidenceCount},identities,mappings,pricedRows});
     const reports=[], failures=[];
     for(const [stage,build] of STAGES) {
       const file=path.join(output,stage+'.json');let checkpoint;
@@ -109,14 +115,16 @@ async function main() {
         tcgdexCardIds:identity.tcgdex_card_ids,outcome,reasons:[...new Set(heldById.get(identity.id)||[])],candidate:candidate||null};
     });
     const counts=classifications.reduce((a,r)=>(a[r.outcome]=(a[r.outcome]||0)+1,a),{});
-    const bundle={schemaVersion:1,status:failures.length?'incomplete_review_required':'review_required',productionWrites:false,activationAuthorized:false,
+    const closure=buildEnglishPricingClosure({scope:pricingScope,pricedCount:priced.size,classifications,candidateCount:combined.candidates.length,stageFailures:failures});
+    const bundle={schemaVersion:2,status:failures.length?'incomplete_review_required':'review_required',productionWrites:false,activationAuthorized:false,
       context,source:{tcgdexRevision:process.env.TCGDEX_REVISION,catalogueSha256:catalogue.artifact.sha256,guideSha256:guide.artifact.sha256},
-      baseline:{verifiedStandardHolo:identities.length,priced:identities.length-backlog.length,unpriced:backlog.length},
-      counts,stageFailures:failures,candidates:combined.candidates,held:combined.held,classifications};
+      pricingEligibility:{sourceCardCount:pricingScope.sourceCardCount,eligibleCardCount:pricingScope.eligibleCardCount,excludedInvalidCatalogueEntryCount:pricingScope.excludedInvalidCatalogueEntryCount,excludedUnresolvedEvidenceCount:pricingScope.excludedUnresolvedEvidenceCount},
+      baseline:{verifiedStandardHolo:pricingScope.sourceCardCount,pricingEligibleStandardHolo:identities.length,priced:priced.size,unpriced:backlog.length},
+      closure,counts,stageFailures:failures,candidates:combined.candidates,held:combined.held,classifications};
     bundle.bundleDigest=digest(bundle);
     await save(path.join(output,'bundle.json'),bundle);
     await db.query('COMMIT');
-    console.log(JSON.stringify({status:bundle.status,bundleDigest:bundle.bundleDigest,baseline:bundle.baseline,counts,stageFailures:failures,productionWrites:false}));
+    console.log(JSON.stringify({status:bundle.status,bundleDigest:bundle.bundleDigest,pricingEligibility:bundle.pricingEligibility,baseline:bundle.baseline,closure,counts,stageFailures:failures,productionWrites:false}));
     if(failures.length)process.exitCode=1;
   } catch(error) {
     if(db)await db.query('ROLLBACK').catch(()=>{});
