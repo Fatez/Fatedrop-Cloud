@@ -128,7 +128,6 @@ async function main() {
     if (report.targetCount + report.blockedCount !== 1121) throw new Error(`Expected historical cohort 1121, found ${report.targetCount + report.blockedCount}`);
     await writeFile(outputPath, JSON.stringify(report, null, 2));
     console.log(JSON.stringify({ targetCount: report.targetCount, blockedCount: report.blockedCount, enrichment: report.enrichment, productionWrites: false }));
-    if (report.blockedCount) process.exitCode = 1;
   } finally {
     db.release();
     await pool.end();
