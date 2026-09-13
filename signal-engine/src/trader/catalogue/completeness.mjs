@@ -1,6 +1,6 @@
-function intOrNull(value) {
+function positiveIntOrNull(value) {
   const n = Number(value);
-  return Number.isInteger(n) && n >= 0 ? n : null;
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 
 function text(value) {
@@ -15,7 +15,8 @@ export function assessCanonicalSetCompleteness({ set, canonicalCards = [], canon
   const setId = text(set.id);
   if (!setId) throw new TypeError('set.id is required');
 
-  const expectedTotal = intOrNull(set.total) ?? intOrNull(set.printedTotal);
+  const exactTotal = positiveIntOrNull(set.total);
+  const printedMinimum = positiveIntOrNull(set.printedTotal);
   const verifiedPrintingIds = new Set(
     (canonicalPrintings ?? canonicalCards)
       .filter((row) => row && row.verificationStatus === 'verified')
@@ -25,44 +26,69 @@ export function assessCanonicalSetCompleteness({ set, canonicalCards = [], canon
   );
   const observedTotal = verifiedPrintingIds.size;
 
-  if (expectedTotal == null || expectedTotal === 0) {
-    return Object.freeze({
-      status: 'unknown',
-      reason: 'declared_set_total_unavailable',
-      setId,
-      expectedTotal: expectedTotal || null,
-      observedTotal,
-      missingCanonicalCount: null,
-    });
-  }
+  if (exactTotal != null) {
+    if (observedTotal < exactTotal) {
+      return Object.freeze({
+        status: 'incomplete',
+        reason: 'canonical_checklist_incomplete',
+        setId,
+        expectedTotal: exactTotal,
+        observedTotal,
+        missingCanonicalCount: exactTotal - observedTotal,
+      });
+    }
 
-  if (observedTotal < expectedTotal) {
-    return Object.freeze({
-      status: 'incomplete',
-      reason: 'canonical_checklist_incomplete',
-      setId,
-      expectedTotal,
-      observedTotal,
-      missingCanonicalCount: expectedTotal - observedTotal,
-    });
-  }
+    if (observedTotal > exactTotal) {
+      return Object.freeze({
+        status: 'conflict',
+        reason: 'canonical_checklist_exceeds_declared_total',
+        setId,
+        expectedTotal: exactTotal,
+        observedTotal,
+        missingCanonicalCount: 0,
+      });
+    }
 
-  if (observedTotal > expectedTotal) {
     return Object.freeze({
-      status: 'conflict',
-      reason: 'canonical_checklist_exceeds_declared_total',
+      status: 'complete',
+      reason: null,
       setId,
-      expectedTotal,
+      expectedTotal: exactTotal,
       observedTotal,
       missingCanonicalCount: 0,
     });
   }
 
+  if (printedMinimum == null) {
+    return Object.freeze({
+      status: 'unknown',
+      reason: 'declared_set_total_unavailable',
+      setId,
+      expectedTotal: null,
+      observedTotal,
+      missingCanonicalCount: null,
+    });
+  }
+
+  if (observedTotal < printedMinimum) {
+    return Object.freeze({
+      status: 'incomplete',
+      reason: 'canonical_checklist_incomplete',
+      setId,
+      expectedTotal: printedMinimum,
+      observedTotal,
+      missingCanonicalCount: printedMinimum - observedTotal,
+    });
+  }
+
+  // `printedTotal` is the official numbered-card count. Pokémon sets can have
+  // verified secret/special printings beyond that number, so it is a floor
+  // when an exact all-printings `total` is unavailable rather than a ceiling.
   return Object.freeze({
     status: 'complete',
     reason: null,
     setId,
-    expectedTotal,
+    expectedTotal: observedTotal,
     observedTotal,
     missingCanonicalCount: 0,
   });

@@ -3,6 +3,7 @@ import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
 import { enrichCardsWithPrintingArtwork, enrichPrintingsWithArtwork } from '../catalogue/artwork-store.mjs';
 import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { getOwnedFatePrices, exactCardValuesFromFatePrices } from './collector-summary-service.mjs';
+import { filterCollectionEligibleCardsFromStore } from './catalogue-eligibility.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
 import { listSetCompletionAssertionsFromStore } from './set-completion.mjs';
@@ -50,8 +51,9 @@ export async function getCollectionSetProgressFromStore(store, {
     listVerifiedCardsFromStore(store, { setId: canonicalSetId, limit: 500 }),
     listVerifiedPrintingsFromStore(store, { setId: canonicalSetId, limit: 1000 }),
   ]);
+  const eligibleCanonicalCards = await filterCollectionEligibleCardsFromStore(store, rawCanonicalCards);
   const [canonicalCards, canonicalPrintings] = await Promise.all([
-    enrichCardsWithPrintingArtwork(store, rawCanonicalCards),
+    enrichCardsWithPrintingArtwork(store, eligibleCanonicalCards),
     enrichPrintingsWithArtwork(store, rawCanonicalPrintings),
   ]);
   const printingChecklist = canonicalPrintings.length ? canonicalPrintings : null;
