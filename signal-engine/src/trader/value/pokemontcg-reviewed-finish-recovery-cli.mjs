@@ -242,6 +242,7 @@ async function main() {
   let report;
   try {
     report = await buildReviewedFinishRecovery(db);
+    if (report.status !== 'clean') process.exitCode = 1;
     const expectedReviewed = Number(process.env.EXPECTED_REVIEWED_MAPPINGS || 411);
     if (report.counts.reviewedCandidates !== expectedReviewed) throw new Error(`Expected ${expectedReviewed} reviewed mappings, found ${report.counts.reviewedCandidates}`);
     if (process.env.MAPPING_WRITE === 'true') {
