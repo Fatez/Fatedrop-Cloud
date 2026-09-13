@@ -1,6 +1,7 @@
 import { listVerifiedCardsByIdsFromStore, listVerifiedCardsFromStore, listVerifiedCardSetsByIdsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
 import { FatePriceStoreUnavailableError } from '../value/fate-price-store.mjs';
 import { getFatePricesFromStore, getPresentedFatePricesFromStore } from '../value/fate-price-service.mjs';
+import { filterCollectionEligibleCardsFromStore } from './catalogue-eligibility.mjs';
 import { computeFateCollectorSummary } from './collector-summary.mjs';
 import { buildFateCollectorPersonalPulse } from './personal-pulse.mjs';
 import { listTrackedCollectionSetBindersFromStore } from './set-binder-store.mjs';
@@ -68,7 +69,8 @@ export async function getFateCollectorSummaryFromStore(store, {
   const language=requireText(preferredLanguageCode,'preferredLanguageCode').toLowerCase();
   const collectionItems=await listCollectionItemsFromStore(store,{userId:ownerId,limit:2000});
   const ownedCardIds=[...new Set(collectionItems.map((item)=>item.fateCardId).filter(Boolean))];
-  const ownedCards=await listVerifiedCardsByIdsFromStore(store,ownedCardIds,{limit:2000});
+  const rawOwnedCards=await listVerifiedCardsByIdsFromStore(store,ownedCardIds,{limit:2000});
+  const ownedCards=await filterCollectionEligibleCardsFromStore(store,rawOwnedCards);
   const resolvedIds=new Set(ownedCards.map((card)=>card.fateCardId));
   const rawOwnedCardIds=new Set(collectionItems
     .filter((item)=>item?.status!=='removed'&&String(item?.copyState||'raw').toLowerCase()==='raw')
@@ -86,10 +88,11 @@ export async function getFateCollectorSummaryFromStore(store, {
   const canonicalCards=[];
   const canonicalPrintings=[];
   for(const set of sets){
-    const [cards,printings]=await Promise.all([
+    const [rawCards,printings]=await Promise.all([
       listVerifiedCardsFromStore(store,{setId:set.id,limit:500}),
       listVerifiedPrintingsFromStore(store,{setId:set.id,limit:1000}),
     ]);
+    const cards=await filterCollectionEligibleCardsFromStore(store,rawCards);
     canonicalCards.push(...cards);
     canonicalPrintings.push(...printings);
   }
