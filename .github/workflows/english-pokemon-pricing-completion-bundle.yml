@@ -7,6 +7,9 @@ on:
         required: false
         type: string
         default: ''
+  push:
+    branches:
+      - ops/english-pricing-stage2-closure-2026-09-13
 permissions:
   contents: read
   actions: read
