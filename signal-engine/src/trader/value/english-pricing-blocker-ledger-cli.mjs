@@ -2,6 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
 import { build as mappingAudit } from './cardmarket-approved-residual-recovery-cli.mjs';
+import { build as holoAudit } from './cardmarket-residual-holo-evidence-audit-cli.mjs';
 import { build as priceAudit } from './cardmarket-residual-price-audit-cli.mjs';
 import { fetchCardmarketPokemonPriceGuide, fetchCardmarketPokemonSinglesCatalogue } from './cardmarket-source-client.mjs';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
@@ -65,9 +66,12 @@ async function main() {
     const pricing = await priceAudit(db,{ sources });
     const report = reconcileLedger(mapping,pricing,rows.map(r=>r.id));
     report.source = mapping.source;
+    const holo = await holoAudit(db,{ sources });
+    const eligible = new Set(rows.map(r=>r.id));
+    report.holoEvidence = holo.rows.filter(r=>eligible.has(r.cardIdentityId));
     await db.query('COMMIT');
     await writeFile(`${process.env.RUNNER_TEMP || '.'}/english-pricing-blocker-ledger.json`,JSON.stringify(report,null,2));
-    console.log(JSON.stringify({ status:report.status,productionWrites:false,counts:report.counts,groups:report.groups },null,2));
+    console.log(JSON.stringify({ status:report.status,productionWrites:false,counts:report.counts,groups:report.groups, holoEvidence:report.holoEvidence },null,2));
   } catch(error) { await db.query('ROLLBACK'); throw error; }
   finally { db.release(); await pool.end(); }
 }
