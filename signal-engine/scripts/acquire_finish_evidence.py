@@ -23,7 +23,7 @@ from pathlib import Path
 SCRYDEX_BASE = os.getenv("SCRYDEX_BASE_URL", "https://api.scrydex.com/pokemon/v1/en/cards").rstrip("/")
 TCGPLAYER_BASE = os.getenv("TCGPLAYER_BASE_URL", "https://api.tcgplayer.com/v1.39.0").rstrip("/")
 CARDMARKET_PRODUCTS = os.getenv("CARDMARKET_PRODUCTS_URL", "https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_6.json")
-USER_AGENT = "FateDrop-FinishEvidence/1.1"
+USER_AGENT = "FateDrop-FinishEvidence/1.2"
 RETRY_HTTP = {408, 425, 429, 500, 502, 503, 504}
 
 
@@ -115,6 +115,38 @@ def acquire_scrydex(targets: list[dict], timeout: int, retries: int, pace: float
     return snapshots, held
 
 
+def _tcgplayer_envelope(payload: object) -> dict:
+    if not isinstance(payload, dict):
+        return {"results": [], "errors": ["not_object"], "complete": False, "noPagination": False, "errorsEmpty": False}
+    results = payload.get("results") if isinstance(payload.get("results"), list) else []
+    errors = payload.get("errors") if isinstance(payload.get("errors"), list) else []
+    total_raw = payload.get("totalItems")
+    total_matches = True
+    if total_raw is not None:
+        try:
+            total_matches = int(total_raw) == len(results)
+        except (TypeError, ValueError):
+            total_matches = False
+    pagination_keys = ("nextPage", "previousPage", "page", "pageSize", "totalPages", "pagination", "next")
+    no_pagination = all(payload.get(key) in (None, "") for key in pagination_keys)
+    errors_empty = len(errors) == 0
+    complete = payload.get("success") is True and errors_empty and total_matches and no_pagination
+    return {
+        "results": results,
+        "errors": errors,
+        "complete": complete,
+        "noPagination": no_pagination,
+        "errorsEmpty": errors_empty,
+        "totalMatches": total_matches,
+    }
+
+
+def _tcgplayer_product(payload: object, product_id: object) -> dict | None:
+    expected = str(product_id)
+    envelope = _tcgplayer_envelope(payload)
+    return next((row for row in envelope["results"] if isinstance(row, dict) and str(row.get("productId")) == expected), None)
+
+
 def acquire_tcgplayer(targets: list[dict], timeout: int, retries: int, pace: float) -> tuple[list[dict], list[dict]]:
     if os.getenv("TCGPLAYER_METADATA_APPROVED") != "true":
         return [], [{"cardIdentityId": t.get("cardIdentityId"), "provider": "tcgplayer", "reason": "metadata_provider_approval_required"} for t in targets]
@@ -122,26 +154,88 @@ def acquire_tcgplayer(targets: list[dict], timeout: int, retries: int, pace: flo
     if not token:
         return [], [{"cardIdentityId": t.get("cardIdentityId"), "provider": "tcgplayer", "reason": "bearer_token_missing"} for t in targets]
     headers = {"Authorization": f"bearer {token}"}
-    cache: dict[str, tuple[object, str]] = {}
+    product_cache: dict[str, dict] = {}
+    category_cache: dict[str, dict] = {}
     snapshots, held = [], []
-    for target in targets:
-        group_id = str(target.get("tcgplayerGroupId") or "").strip()
+    for index, target in enumerate(targets):
         product_id = target.get("tcgplayerProductId")
-        if target.get("tcgplayerExactCrosswalk") is not True or not group_id or product_id is None:
+        if target.get("tcgplayerExactCrosswalk") is not True or product_id is None:
             held.append({"cardIdentityId": target.get("cardIdentityId"), "provider": "tcgplayer", "reason": "exact_tcgplayer_crosswalk_required"})
             continue
-        url = f"{TCGPLAYER_BASE}/pricing/group/{urllib.parse.quote(group_id, safe='')}"
+        product_key = str(product_id)
         try:
-            if group_id not in cache:
-                payload, _raw, artifact_hash = request_json(url, headers=headers, timeout=timeout, retries=retries)
-                cache[group_id] = (payload, artifact_hash)
-                if pace > 0:
-                    time.sleep(pace)
-            payload, artifact_hash = cache[group_id]
-            rows = [r for r in payload.get("results", []) if str(r.get("productId")) == str(product_id)] if isinstance(payload, dict) else []
-            snapshots.append(snapshot("tcgplayer", target, url, {"success": bool(payload.get("success", False)), "results": rows}, artifact_sha256=artifact_hash))
+            bundle = product_cache.get(product_key)
+            if bundle is None:
+                product_url = f"{TCGPLAYER_BASE}/catalog/products/{urllib.parse.quote(product_key, safe='')}"
+                skus_url = f"{product_url}/skus"
+                product_payload, _product_raw, product_hash = request_json(product_url, headers=headers, timeout=timeout, retries=retries)
+                product = _tcgplayer_product(product_payload, product_id)
+                category_id = product.get("categoryId") if isinstance(product, dict) else None
+                try:
+                    category_key = str(int(category_id))
+                except (TypeError, ValueError):
+                    raise RuntimeError("exact_product_category_unavailable")
+                skus_payload, _skus_raw, skus_hash = request_json(skus_url, headers=headers, timeout=timeout, retries=retries)
+                category = category_cache.get(category_key)
+                if category is None:
+                    printings_url = f"{TCGPLAYER_BASE}/catalog/categories/{urllib.parse.quote(category_key, safe='')}/printings"
+                    languages_url = f"{TCGPLAYER_BASE}/catalog/categories/{urllib.parse.quote(category_key, safe='')}/languages"
+                    printings_payload, _printings_raw, printings_hash = request_json(printings_url, headers=headers, timeout=timeout, retries=retries)
+                    languages_payload, _languages_raw, languages_hash = request_json(languages_url, headers=headers, timeout=timeout, retries=retries)
+                    category = {
+                        "printingsUrl": printings_url,
+                        "languagesUrl": languages_url,
+                        "printingsPayload": printings_payload,
+                        "languagesPayload": languages_payload,
+                        "printingsHash": printings_hash,
+                        "languagesHash": languages_hash,
+                    }
+                    category_cache[category_key] = category
+                bundle = {
+                    "productUrl": product_url,
+                    "skusUrl": skus_url,
+                    "productPayload": product_payload,
+                    "skusPayload": skus_payload,
+                    "productHash": product_hash,
+                    "skusHash": skus_hash,
+                    "product": product,
+                    "category": category,
+                }
+                product_cache[product_key] = bundle
+
+            product_check = _tcgplayer_envelope(bundle["productPayload"])
+            skus_check = _tcgplayer_envelope(bundle["skusPayload"])
+            printings_check = _tcgplayer_envelope(bundle["category"]["printingsPayload"])
+            languages_check = _tcgplayer_envelope(bundle["category"]["languagesPayload"])
+            exact_skus = [row for row in skus_check["results"] if isinstance(row, dict) and str(row.get("productId")) == product_key]
+            payload = {
+                "mode": "complete_product_sku_enumeration",
+                "product": bundle["product"],
+                "skus": exact_skus,
+                "printings": printings_check["results"],
+                "languages": languages_check["results"],
+                "completeness": {
+                    "productDetailsComplete": product_check["complete"] and bundle["product"] is not None,
+                    "productSkusComplete": skus_check["complete"] and len(exact_skus) == len(skus_check["results"]),
+                    "categoryPrintingsComplete": printings_check["complete"],
+                    "categoryLanguagesComplete": languages_check["complete"],
+                    "noPagination": product_check["noPagination"] and skus_check["noPagination"] and printings_check["noPagination"] and languages_check["noPagination"],
+                    "errorsEmpty": product_check["errorsEmpty"] and skus_check["errorsEmpty"] and printings_check["errorsEmpty"] and languages_check["errorsEmpty"],
+                },
+                "sourceLocators": {
+                    "product": bundle["productUrl"],
+                    "skus": bundle["skusUrl"],
+                    "printings": bundle["category"]["printingsUrl"],
+                    "languages": bundle["category"]["languagesUrl"],
+                },
+                "policy": {"pricesIgnored": True, "omissionRequiresCompleteEnumeration": True},
+            }
+            combined_hash = sha256_text("|".join((bundle["productHash"], bundle["skusHash"], bundle["category"]["printingsHash"], bundle["category"]["languagesHash"])))
+            snapshots.append(snapshot("tcgplayer", target, bundle["skusUrl"], payload, artifact_sha256=combined_hash))
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, RuntimeError) as error:
             held.append({"cardIdentityId": target.get("cardIdentityId"), "provider": "tcgplayer", "reason": "acquisition_failed", "detail": str(error)})
+        if pace > 0 and index + 1 < len(targets):
+            time.sleep(pace)
     return snapshots, held
 
 
@@ -207,9 +301,15 @@ def main() -> int:
     acquire = {"scrydex": acquire_scrydex, "tcgplayer": acquire_tcgplayer, "cardmarket": acquire_cardmarket}[args.provider]
     snapshots, held = acquire(targets, args.timeout, args.retries, max(0.0, args.pace_seconds))
     report = {
-        "schemaVersion": 1, "provider": args.provider, "productionWrites": False, "priceWrites": False,
-        "targetCount": len(targets), "snapshotCount": len(snapshots), "heldCount": len(held),
-        "snapshots": snapshots, "held": held,
+        "schemaVersion": 2 if args.provider == "tcgplayer" else 1,
+        "provider": args.provider,
+        "productionWrites": False,
+        "priceWrites": False,
+        "targetCount": len(targets),
+        "snapshotCount": len(snapshots),
+        "heldCount": len(held),
+        "snapshots": snapshots,
+        "held": held,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
