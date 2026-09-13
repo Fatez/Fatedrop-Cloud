@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { assessCanonicalSetCompleteness } from '../catalogue/completeness.mjs';
 import { getVerifiedCardSetFromStore, listVerifiedCardsFromStore, listVerifiedPrintingsFromStore } from '../catalogue/store.mjs';
+import { filterCollectionEligibleCardsFromStore } from './catalogue-eligibility.mjs';
 import { computeCollectionSetProgress } from './set-progress.mjs';
 import { listCollectionItemsFromStore } from './store.mjs';
 
@@ -221,7 +222,7 @@ export async function listSetCompletionAssertionsFromStore(store, { userId, setI
 }
 
 async function previewInputsFromStore(store, { userId, setId }) {
-  const [set, canonicalCards, canonicalPrintings, collectionItems, assertions] = await Promise.all([
+  const [set, rawCanonicalCards, canonicalPrintings, collectionItems, assertions] = await Promise.all([
     getVerifiedCardSetFromStore(store, setId),
     listVerifiedCardsFromStore(store, { setId, limit: 500 }),
     listVerifiedPrintingsFromStore(store, { setId, limit: 1000 }),
@@ -229,6 +230,7 @@ async function previewInputsFromStore(store, { userId, setId }) {
     listSetCompletionAssertionsFromStore(store, { userId, setIds: [setId] }),
   ]);
   if (!set) throw taggedError('SET_IDENTITY_NOT_VERIFIED', 'Verified set identity is not available.');
+  const canonicalCards = await filterCollectionEligibleCardsFromStore(store, rawCanonicalCards);
   return { set, canonicalCards, canonicalPrintings, collectionItems, assertion: assertions[0] ?? null };
 }
 
@@ -408,7 +410,9 @@ async function postgresPreview(client, options) {
       JOIN fatedrop_card_printings p ON p.id=c.printing_id
       JOIN fatedrop_card_sets s ON s.id=c.set_id
       JOIN fatedrop_tcgs t ON t.id=c.tcg_id
-      WHERE c.set_id=$1 AND c.verification_status='verified' AND p.verification_status='verified' AND s.verification_status='verified'`, [options.setId]),
+      LEFT JOIN fatedrop_variant_resolution_state rs ON rs.card_identity_id=c.id
+      WHERE c.set_id=$1 AND c.verification_status='verified' AND p.verification_status='verified' AND s.verification_status='verified'
+        AND (rs.classifier_state IS NULL OR rs.classifier_state NOT IN ('INVALID_CATALOGUE_ENTRY','UNRESOLVED_EVIDENCE'))`, [options.setId]),
     client.query(`SELECT p.id,p.set_id,p.collector_number,p.printing_code,p.name,p.rarity,p.supertype,p.verification_status,p.verified_at,
         s.name AS set_name,t.code AS tcg_code
       FROM fatedrop_card_printings p
