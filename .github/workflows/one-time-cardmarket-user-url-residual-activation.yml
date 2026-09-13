@@ -1,0 +1,108 @@
+name: One-time Cardmarket URL Residual Activation
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-user-url-residual-activation-2026-09-14
+    paths:
+      - '.github/workflows/one-time-cardmarket-user-url-residual-activation.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: one-time-cardmarket-user-url-residual-activation-2026-09-14
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: signal-engine/.tcgdex-evidence
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Persist reviewed exact Cardmarket mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/signal-engine/.tcgdex-evidence
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/cardmarket-user-url-residual-recovery-cli.mjs
+      - name: Persist approved Cardmarket price observations
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Verify production closure counts
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { writeFile } from 'node:fs/promises';
+          import { Pool } from 'pg';
+          const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 });
+          try {
+            const { rows } = await pool.query(`
+              WITH eligible AS (
+                SELECT i.id
+                FROM fatedrop_card_identities i
+                LEFT JOIN fatedrop_variant_resolution_state rs ON rs.card_identity_id=i.id
+                WHERE i.verification_status='verified'
+                  AND i.language_code='en'
+                  AND i.variant_code IN ('standard','holo')
+                  AND COALESCE(rs.classifier_state,'ACTIVE_UNPRICED') NOT IN ('INVALID_CATALOGUE_ENTRY','UNRESOLVED_EVIDENCE')
+              ), priced AS (
+                SELECT DISTINCT o.card_identity_id AS id
+                FROM fatedrop_market_observations o
+                JOIN eligible e ON e.id=o.card_identity_id
+                WHERE o.source_name='cardmarket'
+                  AND greatest(COALESCE(o.market_price,0),COALESCE(o.trend_price,0),COALESCE(o.avg_1d,0),COALESCE(o.avg_7d,0),COALESCE(o.avg_30d,0))>0
+              ), mapped AS (
+                SELECT DISTINCT m.card_identity_id AS id
+                FROM fatedrop_card_source_mappings m
+                JOIN eligible e ON e.id=m.card_identity_id
+                WHERE m.source_name='cardmarket'
+              )
+              SELECT
+                (SELECT count(*) FROM eligible)::int AS eligible,
+                (SELECT count(*) FROM priced)::int AS priced,
+                (SELECT count(*) FROM eligible e WHERE NOT EXISTS (SELECT 1 FROM priced p WHERE p.id=e.id))::int AS unpriced,
+                (SELECT count(*) FROM eligible e WHERE NOT EXISTS (SELECT 1 FROM priced p WHERE p.id=e.id) AND EXISTS (SELECT 1 FROM mapped m WHERE m.id=e.id))::int AS section_a,
+                (SELECT count(*) FROM eligible e WHERE NOT EXISTS (SELECT 1 FROM priced p WHERE p.id=e.id) AND NOT EXISTS (SELECT 1 FROM mapped m WHERE m.id=e.id))::int AS section_b
+            `);
+            const report = { status: 'production_verified', ...rows[0] };
+            if (report.eligible !== 18538) throw new Error(`Eligible scope drift: ${report.eligible}`);
+            if (report.section_b !== 527) throw new Error(`Section B mapping closure drift: ${report.section_b}`);
+            if (report.priced < 17778) throw new Error(`Expected at least 17,778 supported central prices, found ${report.priced}`);
+            await writeFile(`${process.env.RUNNER_TEMP}/cardmarket-user-url-production-verification.json`, JSON.stringify(report, null, 2));
+            console.log(JSON.stringify(report));
+          } finally {
+            await pool.end();
+          }
+          NODE
+      - name: Upload activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-user-url-residual-activation
+          path: |
+            ${{ runner.temp }}/cardmarket-user-url-residual-recovery.json
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+            ${{ runner.temp }}/cardmarket-user-url-production-verification.json
+          if-no-files-found: warn
+          retention-days: 14
