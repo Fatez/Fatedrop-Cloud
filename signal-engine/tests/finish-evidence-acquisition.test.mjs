@@ -6,8 +6,11 @@ import {
   finishFromScrydexVariantName,
   finishFromTcgplayerSubtype,
   normalizeExplicitFinishEvidence,
+  verifySnapshot,
 } from '../src/trader/value/finish-evidence-normalizer.mjs';
 import { buildVariantResolutionActivationPlan, renderDeltaActivationSql } from '../src/trader/value/variant-resolution-activation.mjs';
+import { buildReviewedDecisionManifest } from '../src/trader/value/reviewed-finish-decision-cli.mjs';
+import { mergeReviewedFinishDecisions } from '../src/trader/value/persisted-finish-evidence.mjs';
 
 const rawSnapshot = (provider, cardIdentityId, payload) => {
   const rawPayload = JSON.stringify(payload);
@@ -74,6 +77,30 @@ test('Cardmarket explicit finish attribute can prove finish without using produc
   const snapshot = rawSnapshot('cardmarket', 'fdcard_test', { idProduct: 123, attributes: { finish: 'Holofoil' } });
   const result = normalizeExplicitFinishEvidence({ ...target, cardmarketProductId: 123 }, snapshot);
   assert.equal(result.decision.finish, 'holo');
+});
+
+test('manual and set-rule snapshots are hash-valid but never auto-authorized', () => {
+  const manual = rawSnapshot('manual', 'fdcard_test', { observed: 'holo' });
+  assert.equal(verifySnapshot(manual).provider, 'manual');
+  const result = normalizeExplicitFinishEvidence(target, manual);
+  assert.equal(result.decision, null);
+  assert.equal(result.reason, 'human_or_rule_review_required');
+});
+
+test('manual review requires explicit human confirmation and set rules require checklist basis', () => {
+  assert.throws(() => buildReviewedDecisionManifest({
+    provider: 'manual', reviewer: 'operator', approvalReference: 'ticket-1',
+    reviews: [{ cardIdentityId: 'fdcard_test', finish: 'holo', verdict: 'exists', basis: 'explicit_variant_record', sourceLocator: 'https://evidence.example', evidencePayload: { finish: 'holo' }, observedAt: 1 }],
+  }), /humanConfirmed/);
+  assert.throws(() => buildReviewedDecisionManifest({
+    provider: 'set_rule', reviewer: 'operator', approvalReference: 'rule-1',
+    reviews: [{ cardIdentityId: 'fdcard_test', finish: 'holo', verdict: 'exists', basis: 'explicit_variant_record', sourceLocator: 'https://evidence.example', evidencePayload: { finish: 'holo' }, observedAt: 1 }],
+  }), /exact_printing_checklist/);
+});
+
+test('approved evidence merges cumulatively without duplicating identical reviews', () => {
+  const decision = { cardIdentityId: 'fdcard_test', finish: 'holo', language: 'en', edition: 'unspecified', verdict: 'exists', snapshotSha256: 'a'.repeat(64), reviewReference: 'r' };
+  assert.equal(mergeReviewedFinishDecisions([decision], [decision]).length, 1);
 });
 
 test('delta activation is deterministic and cannot write prices or delete base cards', () => {
