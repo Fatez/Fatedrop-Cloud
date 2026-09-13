@@ -29,7 +29,7 @@ const pool=new Pool({connectionString:process.env.DATABASE_URL,max:1});
 const db=await pool.connect();
 try {
  await db.query('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY');
- const batch=await prepareCardmarketDailyPriceGuideBatch({store:{pool:async()=>db},priceGuidePayload:snapshot});
+ const batch=await prepareCardmarketDailyPriceGuideBatch({store:{pool:async()=>db},priceGuidePayload:{version:Number(snapshot.sourceVersion),createdAt:new Date(snapshot.sourceEffectiveAt).toISOString(),priceGuides:snapshot.priceGuides}});
  const ids=new Set(REVIEWED_GALLERY_HOLO.map(e=>e.card_identity_id));
  const accepted=batch.observations.filter(o=>ids.has(o.cardIdentityId));
  assert.equal(accepted.length,136,'Every reviewed identity must produce an observation');
