@@ -4,6 +4,7 @@ import { Pool } from 'pg';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
 import { buildResolutionLedger } from './variant-resolution-ledger.mjs';
 import { buildVariantResolutionActivationPlan, renderDeltaActivationSql } from './variant-resolution-activation.mjs';
+import { loadPersistedApprovedFinishEvidence, mergeReviewedFinishDecisions } from './persisted-finish-evidence.mjs';
 
 const hash = raw => createHash('sha256').update(raw).digest('hex');
 const reviewId = decision => `fdreview_${hash([decision.cardIdentityId, decision.finish, decision.snapshotSha256, decision.verdict, decision.reviewReference].join('|')).slice(0, 32)}`;
@@ -37,14 +38,9 @@ export async function loadCurrentExactPrices(db, identityIds, snapshotMap) {
     const amount = positivePrice(row);
     if (amount == null) continue;
     const raw = JSON.stringify({
-      observationId: row.observation_id,
-      mappingId: row.mapping_id,
-      cardIdentityId: row.card_identity_id,
-      productId: String(row.source_record_id),
-      subtype: row.source_variant_key,
-      currency: row.currency_code,
-      amount,
-      observedAt: Number(row.observed_at),
+      observationId: row.observation_id, mappingId: row.mapping_id, cardIdentityId: row.card_identity_id,
+      productId: String(row.source_record_id), subtype: row.source_variant_key, currency: row.currency_code,
+      amount, observedAt: Number(row.observed_at),
     });
     const snapshotSha256 = hash(raw);
     snapshotMap[snapshotSha256] = raw;
@@ -68,14 +64,14 @@ export async function loadCurrentExactPrices(db, identityIds, snapshotMap) {
 }
 
 function assertExpectedCounts(plan) {
-  const envNames = {
+  const names = {
     ACTIVE_PRICED: 'EXPECTED_ACTIVE_PRICED',
     ACTIVE_UNPRICED: 'EXPECTED_ACTIVE_UNPRICED',
     INVALID_CATALOGUE_ENTRY: 'EXPECTED_INVALID_CATALOGUE_ENTRY',
     UNRESOLVED_EVIDENCE: 'EXPECTED_UNRESOLVED_EVIDENCE',
   };
-  for (const [state, envName] of Object.entries(envNames)) {
-    if (process.env[envName] === undefined) continue;
+  for (const [state, envName] of Object.entries(names)) {
+    if (process.env[envName] === undefined || process.env[envName] === '') continue;
     const expected = Number(process.env[envName]);
     if (!Number.isSafeInteger(expected) || expected < 0 || plan.counts[state] !== expected) {
       throw new Error(`${envName} expected ${process.env[envName]}, found ${plan.counts[state]}`);
@@ -83,17 +79,23 @@ function assertExpectedCounts(plan) {
   }
 }
 
-export async function persistVariantResolutionActivation(db, plan, decisions) {
-  if (plan.productionWrites !== false || plan.priceWrites !== false || plan.baseCardDeletes !== false) throw new Error('Unsafe activation plan');
-  const evidenceShas = [...new Set(plan.rows.map(row => row.evidenceSha256).filter(Boolean))];
-  if (evidenceShas.length) {
-    const { rows } = await db.query(`SELECT card_identity_id,payload_sha256,id FROM fatedrop_variant_evidence_snapshots WHERE payload_sha256=ANY($1::text[])`, [evidenceShas]);
-    const exact = new Set(rows.map(row => `${row.card_identity_id}|${row.payload_sha256}`));
-    for (const row of plan.rows.filter(row => row.evidenceSha256)) {
-      if (!exact.has(`${row.cardIdentityId}|${row.evidenceSha256}`)) throw new Error(`Pinned evidence snapshot is not persisted for ${row.cardIdentityId}`);
+async function assertPinnedSnapshotsPersisted(db, plan) {
+  const resolved = plan.rows.filter(row => row.state !== 'UNRESOLVED_EVIDENCE');
+  const evidenceShas = [...new Set(resolved.map(row => row.evidenceSha256).filter(Boolean))];
+  if (!evidenceShas.length) return new Map();
+  const { rows } = await db.query(`SELECT id,card_identity_id,payload_sha256 FROM fatedrop_variant_evidence_snapshots WHERE payload_sha256=ANY($1::text[])`, [evidenceShas]);
+  const exact = new Map(rows.map(row => [`${row.card_identity_id}|${row.payload_sha256}`, row.id]));
+  for (const row of resolved) {
+    if (!row.evidenceSha256 || !exact.has(`${row.cardIdentityId}|${row.evidenceSha256}`)) {
+      throw new Error(`Pinned evidence snapshot is not persisted for ${row.cardIdentityId}`);
     }
   }
+  return exact;
+}
 
+export async function persistVariantResolutionActivation(db, plan, currentDecisions) {
+  if (plan.productionWrites !== false || plan.priceWrites !== false || plan.baseCardDeletes !== false) throw new Error('Unsafe activation plan');
+  const snapshotByKey = await assertPinnedSnapshotsPersisted(db, plan);
   const ids = plan.rows.map(row => row.cardIdentityId);
   const { rows: current } = await db.query(`SELECT id,variant_code,language_code,verification_status FROM fatedrop_card_identities WHERE id=ANY($1::text[])`, [ids]);
   const byId = new Map(current.map(row => [row.id, row]));
@@ -103,7 +105,6 @@ export async function persistVariantResolutionActivation(db, plan, decisions) {
       throw new Error(`Canonical identity drift for ${row.cardIdentityId}`);
     }
   }
-
   const { rows: activeFlags } = await db.query(`SELECT card_identity_id FROM fatedrop_catalogue_audit_flags WHERE active=TRUE AND card_identity_id=ANY($1::text[])`, [ids]);
   const invalidFlagged = new Set(activeFlags.map(row => row.card_identity_id));
   for (const row of plan.rows) {
@@ -116,14 +117,10 @@ export async function persistVariantResolutionActivation(db, plan, decisions) {
   try {
     await db.query(`SELECT pg_advisory_xact_lock(hashtext('fatedrop-variant-resolution-activation'))`);
     const now = Date.now();
-    const snapshotRows = evidenceShas.length
-      ? (await db.query(`SELECT id,card_identity_id,payload_sha256 FROM fatedrop_variant_evidence_snapshots WHERE payload_sha256=ANY($1::text[])`, [evidenceShas])).rows
-      : [];
-    const snapshotByKey = new Map(snapshotRows.map(row => [`${row.card_identity_id}|${row.payload_sha256}`, row.id]));
-
-    for (const decision of decisions) {
-      const snapshotId = snapshotByKey.get(`${decision.cardIdentityId}|${decision.snapshotSha256}`);
-      if (!snapshotId) continue;
+    for (const decision of currentDecisions) {
+      const snapshotId = snapshotByKey.get(`${decision.cardIdentityId}|${decision.snapshotSha256}`)
+        ?? (await db.query(`SELECT id FROM fatedrop_variant_evidence_snapshots WHERE card_identity_id=$1 AND payload_sha256=$2`, [decision.cardIdentityId, decision.snapshotSha256])).rows[0]?.id;
+      if (!snapshotId) throw new Error(`Current reviewed decision snapshot is not persisted for ${decision.cardIdentityId}`);
       await db.query(`INSERT INTO fatedrop_variant_evidence_reviews
         (id,snapshot_id,card_identity_id,finish,language,edition,observed_finish,verdict,basis,review_reference,reviewer,approval_state,reviewed_at,created_at)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'approved',$12,$12)
@@ -158,7 +155,7 @@ export async function persistVariantResolutionActivation(db, plan, decisions) {
       }
     }
     await db.query('COMMIT');
-    return { savedStates: plan.rows.length, savedReviews: decisions.length, priceWrites: 0, baseCardDeletes: 0 };
+    return { savedStates: plan.rows.length, savedReviews: currentDecisions.length, priceWrites: 0, baseCardDeletes: 0 };
   } catch (error) {
     await db.query('ROLLBACK');
     throw error;
@@ -184,16 +181,23 @@ async function main() {
   const db = await pool.connect();
   let report;
   try {
-    const prices = await loadCurrentExactPrices(db, rows.map(row => row.cardIdentityId), snapshots);
+    const identityIds = rows.map(row => row.cardIdentityId);
+    const persistedDecisions = await loadPersistedApprovedFinishEvidence(db, identityIds, snapshots);
+    const decisions = mergeReviewedFinishDecisions(persistedDecisions, reviewed.decisions);
+    const prices = await loadCurrentExactPrices(db, identityIds, snapshots);
     const now = Date.now();
-    const ledger = buildResolutionLedger(rows, { decisions: reviewed.decisions, snapshots, prices, now });
+    const ledger = buildResolutionLedger(rows, { decisions, snapshots, prices, now });
     const plan = buildVariantResolutionActivationPlan(ledger, { classifiedAt: now });
     assertExpectedCounts(plan);
     const sql = renderDeltaActivationSql(plan);
     await writeFile(`${outputDir}/variant-resolution-ledger.json`, JSON.stringify(ledger, null, 2));
     await writeFile(`${outputDir}/variant-resolution-activation-plan.json`, JSON.stringify(plan, null, 2));
     await writeFile(`${outputDir}/delta_activation.sql`, sql);
-    report = { status: 'clean', productionWrites: false, priceWrites: false, counts: plan.counts, deltaSha256: plan.deltaSha256 };
+    report = {
+      status: 'clean', productionWrites: false, priceWrites: false,
+      counts: plan.counts, deltaSha256: plan.deltaSha256,
+      evidence: { persistedApproved: persistedDecisions.length, currentReviewed: reviewed.decisions.length, cumulativeReviewed: decisions.length },
+    };
     if (process.env.ACTIVATION_WRITE === 'true') {
       const persistence = await persistVariantResolutionActivation(db, plan, reviewed.decisions);
       report = { ...report, productionWrites: true, persistence };
