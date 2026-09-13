@@ -1,0 +1,48 @@
+name: Qualify Shuffled Pokemon retailer
+on:
+  pull_request:
+    paths:
+      - "signal-engine/src/retailers/shuffled-reviewed.mjs"
+      - "signal-engine/scripts/shuffled-qualification-cli.mjs"
+      - ".github/workflows/qualify-shuffled-retailer.yml"
+  workflow_dispatch:
+    inputs:
+      activate:
+        description: Enable monitoring only after a fresh complete qualification
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: shuffled-retailer-qualification
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: ${{ !inputs.activate || github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+        working-directory: signal-engine
+      - name: Qualify without writes
+        if: ${{ !inputs.activate }}
+        run: node scripts/shuffled-qualification-cli.mjs
+        working-directory: signal-engine
+      - name: Qualify and enable guarded monitoring
+        if: ${{ inputs.activate }}
+        run: node scripts/shuffled-qualification-cli.mjs --activate
+        working-directory: signal-engine
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shuffled-retailer-qualification
+          path: signal-engine/shuffled-qualification-report.json
+          if-no-files-found: warn

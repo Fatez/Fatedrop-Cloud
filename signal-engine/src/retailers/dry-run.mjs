@@ -3,7 +3,7 @@ import { shouldPublishCatalogue } from "./onboarding.mjs";
 import { retailerToAdapterConfig } from "./runtime.mjs";
 
 const SEALED_SHAPE = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|mini portfolio|ultra premium/i;
-const NON_TARGET = /\bsingle\b|code card|sleeve|binder(?: only)?|playmat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
+const NON_TARGET = /\bsingle\b(?![\s-]+(?:booster[\s-]+)?packs?\b)|code card|sleeve|binder(?: only)?|playmat|toploader|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
 const POKEMON_NAMED = /pok[eé]mon/i;
 
 function catalogueLooksPokemonScoped(retailer) {
