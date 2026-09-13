@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - fix/cardmarket-exact-recovery-conflict-partition-2026-09-11
+      - ops/english-pricing-stage2-closure-2026-09-13
     paths:
       - '.github/workflows/ops-live-exact-cardmarket-mapping-recovery.yml'
       - 'signal-engine/src/trader/value/cardmarket-live-exact-recovery-cli.mjs'
@@ -45,7 +46,7 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
-          MAPPING_WRITE: ${{ inputs.write || 'false' }}
+          MAPPING_WRITE: 'false'
         run: node src/trader/value/cardmarket-live-exact-recovery-cli.mjs
       - name: Upload recovery audit
         if: always()
