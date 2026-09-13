@@ -3,7 +3,7 @@ import { ADAPTER_TYPES, RETAILER_CLASSES, RRP_AUTHORITY, VERIFICATION_STATES } f
 
 const SEALED_POKEMON = /pokemon|pokémon/i;
 const SEALED_PRODUCT = /booster|elite trainer|\betb\b|collection|tin\b|blister|deck\b|battle academy|trainer toolkit|build\s*&\s*battle|premium|bundle|display|box\b|pack\b|poster|tech sticker|mini portfolio|first partner|ultra premium/i;
-const NON_PRODUCT = /\bsingle\b|code card|\bsleeves?\b|binder only|play\s?mat|top\s?loader|blind box|fridge magnet|plush|key ?(?:chain|ring)|backpack|rucksack|journal|notebook|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
+const NON_PRODUCT = /\bsingle\b(?![\s-]+(?:booster[\s-]+)?packs?\b)|code card|\bsleeves?\b|binder only|play\s?mat|top\s?loader|blind box|fridge magnet|plush|key ?(?:chain|ring)|backpack|rucksack|journal|notebook|graded|\bpsa\b|\bcgc\b|\bbgs\b/i;
 
 function shopifyPokemonRetailer({ id, name, enabled, baseUrl, collection, retailerClass = RETAILER_CLASSES.INDEPENDENT, maxPages = 20, delayMs = 900, include = SEALED_PRODUCT, exclude = NON_PRODUCT }) {
   return {
@@ -99,7 +99,7 @@ export const retailers = [
     delayMs: 1800,
     officialRrpSource: false,
     include: /pokemon/i,
-    exclude: /\bsingle\b|code card|online play/i,
+    exclude: /\bsingle\b(?![\s-]+(?:booster[\s-]+)?packs?\b)|code card|online play/i,
   },
   {
     id: "hamleys-uk",
@@ -268,7 +268,7 @@ export const retailers = [
   shopifyPokemonRetailer({ id: "titan-cards", name: "Titan Cards", enabled: env.retailers.titanCards, baseUrl: "https://titancards.co.uk/", collection: "/collections/pokemon-sealed-products", maxPages: 6, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "eterna-cards", name: "Eterna Cards", enabled: env.retailers.eternaCards, baseUrl: "https://eternacards.co.uk/", collection: "/collections/pokemon-tcg-sealed-products", maxPages: 8, include: SEALED_POKEMON }),
   shopifyPokemonRetailer({ id: "card-collective", name: "Card Collective UK", enabled: env.retailers.cardCollective, baseUrl: "https://card-collective.com/", collection: "/collections/pokemon-tcg", maxPages: 6 }),
-  shopifyPokemonRetailer({ id: "jet-cards", name: "JET Cards", enabled: env.retailers.jetCards, baseUrl: "https://jetcards.uk/", collection: "/collections/pokemon-trading-cards", maxPages: 6 }),
+  shopifyPokemonRetailer({ id: "jet-cards", name: "JET Cards", enabled: env.retailers.jetCards, baseUrl: "https://jetcards.uk/", collection: "/collections/pokemon-trading-cards", maxPages: 12 }),
   shopifyPokemonRetailer({ id: "gathering-games", name: "Gathering Games", enabled: env.retailers.gatheringGames, baseUrl: "https://gatheringgames.co.uk/", collection: "/collections/pokemon", maxPages: 6 }),
   shopifyPokemonRetailer({ id: "zatu-games", name: "Zatu Games", enabled: env.retailers.zatuGames, baseUrl: "https://zatu.com/", collection: "/collections/other-sealed-product-pokemon", retailerClass: RETAILER_CLASSES.SPECIALIST, maxPages: 4, delayMs: 2500, include: SEALED_POKEMON }),
 ].filter((retailer) => retailer.enabled);
