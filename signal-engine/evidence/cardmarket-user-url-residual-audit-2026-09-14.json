@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "sourceFile": "FateDrop_Cardmarket_Direct_URLs_1316_Cards.xlsx",
+  "sourceFileSha256": "8692f0a71cd61f0a73245e0163f46bfb4c17125151156c5fe52047e3ce7fca47",
+  "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+  "cardmarketCatalogueSha256": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+  "cardmarketPriceGuideSha256": "ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c",
+  "sourceSnapshotId": "pokemon-price-guide-v1-2026-09-13T00:47:49.000Z",
+  "productionBaseline": {
+    "eligible": 18538,
+    "priced": 17719,
+    "backlog": 819,
+    "sectionA": 94,
+    "sectionB": 725
+  },
+  "review": {
+    "workbookRows": 1316,
+    "currentBacklogRowsMatchedExactly": 819,
+    "currentBacklogCardmarketUrlsStructurallyValidated": 819,
+    "sectionBSafeExactMappings": 198,
+    "sectionBCurrentlyCentralPriceable": 59,
+    "sectionBHeld": 527,
+    "candidateDigest": "4e0a8e76ad3f85aae0344a478c8a623e29bdaf8b267d35db4fe536c6f9ece57b",
+    "priceableCandidateDigest": "10bedc81f8aaa7dd6104ae615b96da4910bf6e1a09f0722a07fa3acfa02459ff",
+    "holdReasons": {
+      "NO_EXPLICIT_TARGET_FINISH_PRODUCT_ID": 355,
+      "MULTIPLE_EXPLICIT_TARGET_FINISH_PRODUCT_IDS": 77,
+      "BATCH_SOURCE_COLLISION": 57,
+      "PRODUCT_NAME_MISMATCH": 17,
+      "TCGDEX_NAME_MISMATCH": 13,
+      "SOURCE_OWNED_BY_OTHER_IDENTITY": 7,
+      "PRODUCT_MISSING_OFFICIAL_CATALOGUE": 1
+    }
+  },
+  "policy": {
+    "priceProvider": "cardmarket-public-download",
+    "userUrlsUsedAs": "reviewed identity locators only; no webpage price scraping",
+    "exactTargetFinishProductIdRequired": true,
+    "exactTcgdexCardNameAndCollectorRequired": true,
+    "officialCataloguePresenceRequired": true,
+    "providerProductNameMatchRequired": true,
+    "sourceOwnershipFailClosed": true,
+    "batchCollisionsHeld": true,
+    "productionWrites": false
+  }
+}
