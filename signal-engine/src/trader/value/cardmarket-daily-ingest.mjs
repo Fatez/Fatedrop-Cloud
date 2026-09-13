@@ -6,6 +6,11 @@ import {
   validateReviewedExplicitHoloBaseLaneMappings,
 } from './cardmarket-reviewed-explicit-holo-base-lane.mjs';
 import {
+  REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
+  isReviewedPokemonTcgInherentHoloProduct,
+  validateReviewedPokemonTcgInherentHoloMappings,
+} from './pokemontcg-reviewed-finish-recovery.mjs';
+import {
   CARDMARKET_PRICE_LANES,
   CARDMARKET_SOURCE_NAME,
   buildCardmarketPriceGuideBatch,
@@ -75,6 +80,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
+      || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
     )) continue;
     if (!hasMeaningfulCardmarketLane(row, 'standard')) continue;
     if (hasMeaningfulCardmarketLane(row, 'holo')) continue;
@@ -123,6 +129,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
+    ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   ])];
 
   const pool = await store.pool();
@@ -162,6 +169,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
+  const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
   const inherentHoloBaseLaneProductIds = new Set(
     [...eligibleInherentHoloProductIds].filter((productId) => (
       (
@@ -169,6 +177,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
         || cleanedHoloIds.has(productId)
+        || reviewedPokemonTcgHoloIds.has(productId)
       )
       && mappings.has(mappingKey(productId, 'holo'))
       && mappings.get(mappingKey(productId, 'holo')) != null
