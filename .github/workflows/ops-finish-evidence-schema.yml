@@ -1,0 +1,47 @@
+name: OPS Finish Evidence Schema
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: 'Apply append-only finish evidence schema to production'
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-finish-evidence-schema
+  cancel-in-progress: false
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify or apply finish evidence schema
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          SCHEMA_WRITE: ${{ inputs.apply && 'true' || 'false' }}
+          PRICE_WRITE: 'false'
+        run: node src/trader/value/finish-evidence-schema-cli.mjs
+      - name: Upload schema audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finish-evidence-schema-audit
+          path: ${{ runner.temp }}/finish-evidence-schema-report.json
+          if-no-files-found: error
+          retention-days: 30
