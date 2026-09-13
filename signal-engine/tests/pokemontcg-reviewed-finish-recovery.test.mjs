@@ -50,21 +50,21 @@ test('keeps saved Umbreon evidence auditable but excludes it from the release co
   assert.equal(candidate.proof.siblingEvidence[0].cardIdentityId, 'fdcard_3c5841311477627da2c18e7d');
 
   const combined = loadReviewedCombinedCardmarketRecovery();
-  assert.equal(combined.candidates.length, 410);
+  assert.equal(combined.candidates.length, 409);
   assert.equal(combined.candidates.filter((row) => row.variantCode === 'standard').length, 359);
-  assert.equal(combined.candidates.filter((row) => row.variantCode === 'holo').length, 51);
+  assert.equal(combined.candidates.filter((row) => row.variantCode === 'holo').length, 50);
   assert.equal(combined.excludedRetiredCandidates.length, 1);
   assert.equal(combined.excludedRetiredCandidates[0].id, candidate.id);
   assert.ok(!combined.candidates.some((row) => row.id === candidate.id));
   assert.ok(!combined.candidates.some((row) => row.cardIdentityId === candidate.cardIdentityId && String(row.sourceRecordId) === '568801' && row.sourceVariantKey === 'normal'));
-  assert.equal(new Set(combined.candidates.map((row) => row.cardIdentityId)).size, 410);
-  assert.equal(new Set(combined.candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size, 410);
+  assert.equal(new Set(combined.candidates.map((row) => row.cardIdentityId)).size, 409);
+  assert.equal(new Set(combined.candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}` )).size, 409);
 });
 
 test('the only reviewed base-lane holo is Snorlax VMAX 687429', () => {
   const { candidates } = loadReviewedPokemonTcgFinishRecovery();
   const exceptional = candidates.filter((row) => row.proof.cardmarketLaneBasis === 'externally_proven_inherent_holo_base_lane');
-  assert.deepEqual(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS, ['687429']);
+  assert.deepEqual(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS, []);
   assert.equal(exceptional.length, 1);
   assert.equal(String(exceptional[0].sourceRecordId), '687429');
   assert.equal(exceptional[0].variantCode, 'holo');
@@ -74,7 +74,7 @@ test('the only reviewed base-lane holo is Snorlax VMAX 687429', () => {
 });
 
 test('Snorlax mapping integrity accepts only the frozen verified English holo owner', () => {
-  assert.deepEqual([...validateReviewedPokemonTcgInherentHoloMappings([snorlax])], ['687429']);
+  assert.deepEqual([...validateReviewedPokemonTcgInherentHoloMappings([snorlax])], []);
   assert.equal(validateReviewedPokemonTcgInherentHoloMappings([{ ...snorlax, language_code: 'ja' }]).size, 0);
   assert.equal(validateReviewedPokemonTcgInherentHoloMappings([{ ...snorlax, canonical_variant_code: 'standard' }]).size, 0);
   assert.equal(validateReviewedPokemonTcgInherentHoloMappings([{ ...snorlax, source_variant_key: 'normal' }]).size, 0);
@@ -84,7 +84,7 @@ test('Cardmarket guide eligibility recognizes reviewed Snorlax only with base pr
   const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds({
     priceGuides: [{ idProduct: 687429, trend: 10.5, avg1: 10.4, avg7: 10.3, avg30: 10.2 }],
   });
-  assert.ok(eligible.has('687429'));
+  assert.ok(!eligible.has('687429'));
 
   const explicitHolo = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds({
     priceGuides: [{ idProduct: 687429, trend: 10.5, 'trend-holo': 12.5 }],
@@ -109,4 +109,15 @@ test('retired Umbreon mapping remains blocked even with a different mapping ID',
     /Previously retired mapping/
   );
   assert.equal(queries, 0);
+});
+
+test('release uses explicit target finish and its direct price lane only', () => {
+ const release = loadReviewedCombinedCardmarketRecovery();
+ assert.equal(release.excludedFinishCandidates.length, 1);
+ assert.equal(String(release.excludedFinishCandidates[0].sourceRecordId), '687429');
+ for (const row of release.candidates) {
+   assert.equal(isPreviouslyRetiredMapping(row), false);
+   assert.equal(row.proof.externalFinishKey, row.variantCode === 'standard' ? 'normal' : 'holofoil');
+   assert.equal(row.providerPriceGuideLane, row.variantCode === 'standard' ? 'standard' : 'holo');
+ }
 });
