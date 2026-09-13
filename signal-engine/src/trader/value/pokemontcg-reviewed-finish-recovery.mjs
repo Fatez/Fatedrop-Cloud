@@ -23,43 +23,22 @@ const evidenceUrl = new URL('../../../evidence/pokemontcg-finish-evidence-audit-
 const umbreonEvidenceUrl = new URL('../../../evidence/english-pricing-bundle-34717195189-reviewed-mapping.json', import.meta.url);
 
 function candidateLine(row) {
-  return [
-    row.id,
-    row.cardIdentityId,
-    row.variantCode,
-    row.tcgdexCardId,
-    String(row.sourceRecordId),
-    row.sourceVariantKey,
-    row.providerPriceGuideLane,
-  ].join('|');
+  return [row.id,row.cardIdentityId,row.variantCode,row.tcgdexCardId,String(row.sourceRecordId),row.sourceVariantKey,row.providerPriceGuideLane].join('|');
 }
 
 export function loadReviewedPokemonTcgFinishRecovery() {
   const report = JSON.parse(readFileSync(evidenceUrl, 'utf8'));
   const candidates = Array.isArray(report.candidates) ? report.candidates : [];
-  if (report.status !== 'audit_complete' || report.productionWrites !== false || report.activationAuthorized !== false) {
-    throw new Error('Frozen PokemonTCG finish evidence is not a read-only completed audit');
-  }
-  if (report.counts?.safeExactMappings !== 410 || report.byVariant?.standard !== 359 || report.byVariant?.holo !== 51) {
-    throw new Error('Frozen PokemonTCG finish evidence counts drifted');
-  }
-  if (report.source?.tcgdexRevision !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.tcgdexRevision
-    || report.source?.cardmarketCatalogueSha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.cardmarketCatalogueSha256
-    || report.source?.cardmarketPriceGuideSha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.cardmarketPriceGuideSha256
-    || report.source?.pokemonTcg?.sha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.pokemonTcgEvidenceSha256) {
-    throw new Error('Frozen PokemonTCG finish evidence source fingerprint drifted');
-  }
+  if (report.status !== 'audit_complete' || report.productionWrites !== false || report.activationAuthorized !== false) throw new Error('Frozen PokemonTCG finish evidence is not a read-only completed audit');
+  if (report.counts?.safeExactMappings !== 410 || report.byVariant?.standard !== 359 || report.byVariant?.holo !== 51) throw new Error('Frozen PokemonTCG finish evidence counts drifted');
+  if (report.source?.tcgdexRevision !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.tcgdexRevision || report.source?.cardmarketCatalogueSha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.cardmarketCatalogueSha256 || report.source?.cardmarketPriceGuideSha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.cardmarketPriceGuideSha256 || report.source?.pokemonTcg?.sha256 !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.pokemonTcgEvidenceSha256) throw new Error('Frozen PokemonTCG finish evidence source fingerprint drifted');
   if (candidates.length !== 410) throw new Error('Frozen PokemonTCG finish candidate count drifted');
   if (new Set(candidates.map((row) => row.cardIdentityId)).size !== 410) throw new Error('Duplicate canonical identities in reviewed finish cohort');
   if (new Set(candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size !== 410) throw new Error('Duplicate Cardmarket source keys in reviewed finish cohort');
   if (candidates.some((row) => !['standard', 'holo'].includes(row.variantCode))) throw new Error('Unsupported finish in reviewed finish cohort');
   if (candidates.some((row) => row.sourceVariantKey !== (row.variantCode === 'standard' ? 'normal' : 'holo'))) throw new Error('Source finish mismatch in reviewed finish cohort');
   if (candidates.some((row) => row.proof?.externalFinishKey !== (row.variantCode === 'standard' ? 'normal' : 'holofoil'))) throw new Error('External finish proof mismatch in reviewed finish cohort');
-  const digest = createHash('sha256').update([...candidates]
-    .sort((a, b) => a.cardIdentityId.localeCompare(b.cardIdentityId)
-      || String(a.sourceRecordId).localeCompare(String(b.sourceRecordId))
-      || a.sourceVariantKey.localeCompare(b.sourceVariantKey))
-    .map(candidateLine).join('\n')).digest('hex');
+  const digest = createHash('sha256').update([...candidates].sort((a,b)=>a.cardIdentityId.localeCompare(b.cardIdentityId)||String(a.sourceRecordId).localeCompare(String(b.sourceRecordId))||a.sourceVariantKey.localeCompare(b.sourceVariantKey)).map(candidateLine).join('\n')).digest('hex');
   if (digest !== REVIEWED_POKEMONTCG_FINISH_RECOVERY_SOURCE.candidateDigest) throw new Error('Frozen PokemonTCG finish candidate digest drifted');
   return Object.freeze({ report, candidates: Object.freeze(candidates.map((row) => Object.freeze(row))) });
 }
@@ -67,60 +46,26 @@ export function loadReviewedPokemonTcgFinishRecovery() {
 export function loadReviewedUmbreonSiblingRecovery() {
   const evidence = JSON.parse(readFileSync(umbreonEvidenceUrl, 'utf8'));
   const row = evidence.candidate;
-  if (evidence.source?.runId !== REVIEWED_UMBREON_SIBLING_SOURCE.runId
-    || evidence.source?.artifactId !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactId
-    || evidence.source?.artifactZipSha256 !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactZipSha256
-    || evidence.source?.bundleDigest !== REVIEWED_UMBREON_SIBLING_SOURCE.bundleDigest) {
-    throw new Error('Frozen Umbreon sibling evidence source drifted');
-  }
-  if (evidence.classification?.outcome !== 'mapping_candidate_with_price'
-    || evidence.classification?.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5'
-    || evidence.classification?.variant !== 'standard'
-    || evidence.classification?.collectorNumber !== 'swsh129') {
-    throw new Error('Frozen Umbreon classification drifted');
-  }
-  if (!row
-    || row.id !== 'fdcardmap_37b5617121cc48a802b034cb'
-    || row.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5'
-    || row.variantCode !== 'standard'
-    || row.cardName !== 'Umbreon'
-    || row.collectorNumber !== 'swsh129'
-    || row.tcgdexCardId !== 'swshp-SWSH129'
-    || String(row.sourceRecordId) !== '568801'
-    || row.sourceVariantKey !== 'normal'
-    || row.providerPriceGuideLane !== 'standard'
-    || row.proof?.method !== 'same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane'
-    || !Array.isArray(row.proof?.siblingEvidence)
-    || row.proof.siblingEvidence.length !== 1
-    || row.proof.siblingEvidence[0].cardIdentityId !== 'fdcard_3c5841311477627da2c18e7d'
-    || row.proof.siblingEvidence[0].variantCode !== 'holo'
-    || row.proof.siblingEvidence[0].sourceVariantKey !== 'holo') {
-    throw new Error('Frozen Umbreon sibling mapping evidence drifted');
-  }
-  return Object.freeze({
-    evidence,
-    candidate: Object.freeze({
-      ...row,
-      name: row.cardName,
-      proof: Object.freeze({ ...row.proof, cardmarketLaneBasis: 'direct_cardmarket_finish_lane' }),
-    }),
-  });
+  if (evidence.source?.runId !== REVIEWED_UMBREON_SIBLING_SOURCE.runId || evidence.source?.artifactId !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactId || evidence.source?.artifactZipSha256 !== REVIEWED_UMBREON_SIBLING_SOURCE.artifactZipSha256 || evidence.source?.bundleDigest !== REVIEWED_UMBREON_SIBLING_SOURCE.bundleDigest) throw new Error('Frozen Umbreon sibling evidence source drifted');
+  if (evidence.classification?.outcome !== 'mapping_candidate_with_price' || evidence.classification?.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5' || evidence.classification?.variant !== 'standard' || evidence.classification?.collectorNumber !== 'swsh129') throw new Error('Frozen Umbreon classification drifted');
+  if (!row || row.id !== 'fdcardmap_37b5617121cc48a802b034cb' || row.cardIdentityId !== 'fdcard_043a2f0fc48bc2f9afaf7be5' || row.variantCode !== 'standard' || row.cardName !== 'Umbreon' || row.collectorNumber !== 'swsh129' || row.tcgdexCardId !== 'swshp-SWSH129' || String(row.sourceRecordId) !== '568801' || row.sourceVariantKey !== 'normal' || row.providerPriceGuideLane !== 'standard' || row.proof?.method !== 'same_printing_single_exact_cardmarket_product_with_meaningful_target_finish_lane' || !Array.isArray(row.proof?.siblingEvidence) || row.proof.siblingEvidence.length !== 1 || row.proof.siblingEvidence[0].cardIdentityId !== 'fdcard_3c5841311477627da2c18e7d' || row.proof.siblingEvidence[0].variantCode !== 'holo' || row.proof.siblingEvidence[0].sourceVariantKey !== 'holo') throw new Error('Frozen Umbreon sibling mapping evidence drifted');
+  return Object.freeze({ evidence, candidate: Object.freeze({ ...row, name: row.cardName, proof: Object.freeze({ ...row.proof, cardmarketLaneBasis: 'direct_cardmarket_finish_lane' }) }) });
 }
 
 export function loadReviewedCombinedCardmarketRecovery() {
   const external = loadReviewedPokemonTcgFinishRecovery();
   const sibling = loadReviewedUmbreonSiblingRecovery();
-  const candidates = [...external.candidates, sibling.candidate];
-  if (candidates.length !== 411) throw new Error('Combined reviewed Cardmarket recovery count drifted');
-  if (new Set(candidates.map((row) => row.cardIdentityId)).size !== 411) throw new Error('Combined reviewed identity collision');
-  if (new Set(candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size !== 411) throw new Error('Combined reviewed source-finish collision');
-  return Object.freeze({ external, sibling, candidates: Object.freeze(candidates) });
+  const candidates = [...external.candidates];
+  if (candidates.length !== 410) throw new Error('Reviewed Cardmarket release cohort count drifted');
+  if (new Set(candidates.map((row) => row.cardIdentityId)).size !== 410) throw new Error('Reviewed release identity collision');
+  if (new Set(candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size !== 410) throw new Error('Reviewed release source-finish collision');
+  if (candidates.some((row) => row.id === sibling.candidate.id || (row.cardIdentityId === sibling.candidate.cardIdentityId && String(row.sourceRecordId) === String(sibling.candidate.sourceRecordId) && row.sourceVariantKey === sibling.candidate.sourceVariantKey))) throw new Error('Retired Umbreon candidate leaked into reviewed release cohort');
+  return Object.freeze({ external, sibling, excludedRetiredCandidates: Object.freeze([sibling.candidate]), candidates: Object.freeze(candidates) });
 }
 
 export const REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS = Object.freeze(['687429']);
 const inherentIds = new Set(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS);
 export const isReviewedPokemonTcgInherentHoloProduct = (id) => inherentIds.has(String(id));
-
 export const REVIEWED_POKEMONTCG_INHERENT_HOLO_MAPPING_DIGEST = 'eb04494accf9022bb439d0857fa94e0cb58e82ff04901970957e1329491d6095';
 
 export function validateReviewedPokemonTcgInherentHoloMappings(rows) {
@@ -129,7 +74,5 @@ export function validateReviewedPokemonTcgInherentHoloMappings(rows) {
   const row = scoped[0];
   if (row.canonical_variant_code !== 'holo' || row.language_code !== 'en' || row.verification_status !== 'verified') return new Set();
   const line = [row.id, row.card_identity_id, String(row.source_record_id), row.source_variant_key, row.canonical_variant_code, row.language_code, row.verification_status].join('|');
-  return createHash('sha256').update(line).digest('hex') === REVIEWED_POKEMONTCG_INHERENT_HOLO_MAPPING_DIGEST
-    ? new Set(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS)
-    : new Set();
+  return createHash('sha256').update(line).digest('hex') === REVIEWED_POKEMONTCG_INHERENT_HOLO_MAPPING_DIGEST ? new Set(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS) : new Set();
 }
