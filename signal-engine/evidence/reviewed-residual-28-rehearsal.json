@@ -1,0 +1,983 @@
+{
+  "status": "mapping_rehearsal_passed_pending_independent_finish_review",
+  "productionWrites": false,
+  "workflowRun": 34788114956,
+  "candidateCount": 28,
+  "candidateDigest": "b552388cdfdcafaf6fd545511715b03e8cf31c7a8d03325d9fe2df4786c3f91c",
+  "source": {
+    "cardmarketCatalogueSha256": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+    "cardmarketPriceGuideSha256": "ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c",
+    "sourceSnapshotId": "pokemon-price-guide-v1-2026-09-13T00:47:49.000Z",
+    "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9"
+  },
+  "candidates": [
+    {
+      "cardIdentityId": "fdcard_05f4c2ad95abc1566c84038e",
+      "cardmarketProductName": "Dustox [Flap | Wind Shard]",
+      "collectorNumber": "8",
+      "id": "fdcardmap_219cb3f706d835875719b3dc",
+      "name": "Dustox",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "flap",
+          "plus",
+          "wind shard"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "flap",
+          "wind shard"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/8.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282676",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-8",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_08d3aeb99a07e7ab4b9ef884",
+      "cardmarketProductName": "Torchic [Flare Bonus | Claw]",
+      "collectorNumber": "26",
+      "id": "fdcardmap_2471d7c002f12ff8a94e95f1",
+      "name": "Torchic",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrage",
+          "claw",
+          "flare bonus"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "claw",
+          "flare bonus"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/26.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273557",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-26",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_32d8886da24d58289ab7b9b4",
+      "cardmarketProductName": "Vespiquen [Bee Drain | Fury Swipes]",
+      "collectorNumber": "11",
+      "id": "fdcardmap_05c4c1f7fd07eca5958a2c90",
+      "name": "Vespiquen",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "bee drain",
+          "fury swipes",
+          "title"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1660,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "bee drain",
+          "fury swipes"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Ancient Origins/11.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy7"
+      },
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins",
+      "sourceExpansionId": 1660,
+      "sourceRecordId": "284192",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy7-11",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_378fd501430fe8aa583516e2",
+      "cardmarketProductName": "Articuno [Chilling Sigh | Tri Edge]",
+      "collectorNumber": "17",
+      "id": "fdcardmap_48e20edb9a9fea09d6525a42",
+      "name": "Articuno",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "chilling sigh",
+          "plus",
+          "tri edge"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "chilling sigh",
+          "tri edge"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/17.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282685",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-17",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_39fc0ee85f3b18f3116b1c98",
+      "cardmarketProductName": "Metagross [Machine Gun Stomp | Guard Press]",
+      "collectorNumber": "50",
+      "id": "fdcardmap_cd4c9a0391f186faa80ae48c",
+      "name": "Metagross",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "guard press",
+          "machine gun stomp",
+          "title"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1660,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "guard press",
+          "machine gun stomp"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Ancient Origins/50.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy7"
+      },
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins",
+      "sourceExpansionId": 1660,
+      "sourceRecordId": "284231",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy7-50",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_4a030dacc458dd4ce819710b",
+      "cardmarketProductName": "Banette [Evolution Jammer | Curse Deeply]",
+      "collectorNumber": "32",
+      "id": "fdcardmap_f1817cd61d011d6e8e2da538",
+      "name": "Banette",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "curse deeply",
+          "evolution",
+          "evolution jammer"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "curse deeply",
+          "evolution jammer"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/32.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282700",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-32",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_4d6e2e1dab79fc3cf3c179c0",
+      "cardmarketProductName": "Natu [Psywave]",
+      "collectorNumber": "28",
+      "id": "fdcardmap_d06f736bf4ea642cff80fb2b",
+      "name": "Natu",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "plus",
+          "psywave"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "psywave"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/28.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282696",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-28",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_515aadc50455d0af3ae2e52e",
+      "cardmarketProductName": "Baltoy [Future Spin]",
+      "collectorNumber": "32",
+      "id": "fdcardmap_12dccc52f1ff0b67c6e6501f",
+      "name": "Baltoy",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "future spin",
+          "title"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1660,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "future spin"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Ancient Origins/32.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy7"
+      },
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins",
+      "sourceExpansionId": 1660,
+      "sourceRecordId": "284213",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy7-32",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_67582c792b08dbdff8ae7b7b",
+      "cardmarketProductName": "Volcarona [Burning Scales | Wind Wheel]",
+      "collectorNumber": "18",
+      "id": "fdcardmap_8706b1188d01929d14445f2e",
+      "name": "Volcarona",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "burning scales",
+          "title",
+          "wind wheel"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1660,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "burning scales",
+          "wind wheel"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Ancient Origins/18.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy7"
+      },
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins",
+      "sourceExpansionId": 1660,
+      "sourceRecordId": "284199",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy7-18",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_89aad1746e825bf395936710",
+      "cardmarketProductName": "Altaria [Clear Humming | Wing Attack]",
+      "collectorNumber": "74",
+      "id": "fdcardmap_c42471937815651495fbfb6a",
+      "name": "Altaria",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "clear humming",
+          "evolution",
+          "wing attack"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "clear humming",
+          "wing attack"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/74.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282742",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-74",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_8cd5bd5278d144a6a86a5e37",
+      "cardmarketProductName": "Gyarados Gold Star δ Delta Species [Spiral Growth | All-out Blast]",
+      "collectorNumber": "102",
+      "id": "fdcardmap_5d8bd1b8a3cf7e46984b24e4",
+      "name": "Gyarados ☆ δ",
+      "priceLane": "holo",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "all out blast",
+          "spiral growth"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1551,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "all out blast",
+          "spiral growth"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/EX/Holon Phantoms/102.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "ex13"
+      },
+      "setId": "fdset_6a13cbc6691901a57cbc3711",
+      "setName": "Holon Phantoms",
+      "sourceExpansionId": 1551,
+      "sourceRecordId": "277072",
+      "sourceVariantKey": "holo",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "ex13-102",
+      "variantCode": "holo"
+    },
+    {
+      "cardIdentityId": "fdcard_9823669f8d52a65d187ae557",
+      "cardmarketProductName": "Whiscash [Water Gun | Earthquake]",
+      "collectorNumber": "41",
+      "id": "fdcardmap_34a4c861753cd5a28a5cb7a4",
+      "name": "Whiscash",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "earthquake",
+          "growth",
+          "water gun"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "earthquake",
+          "water gun"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/41.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273572",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-41",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_9aee98ae0d762710e6ea398a",
+      "cardmarketProductName": "Electrike [Thunder Fang]",
+      "collectorNumber": "60",
+      "id": "fdcardmap_8de3de2925de10f2b8b039da",
+      "name": "Electrike",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrier",
+          "thunder fang"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "thunder fang"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/60.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273591",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-60",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_ab9a762049357652ba268035",
+      "cardmarketProductName": "Mew Gold Star δ Delta Species [Mimicry | Rainbow Wave]",
+      "collectorNumber": "101",
+      "id": "fdcardmap_479778d9921437c6f589c91e",
+      "name": "Mew ☆ δ",
+      "priceLane": "holo",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "mimicry",
+          "rainbow wave"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1553,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "mimicry",
+          "rainbow wave"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/EX/Dragon Frontiers/101.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "ex15"
+      },
+      "setId": "fdset_6e382f280911e2055e3018bc",
+      "setName": "Dragon Frontiers",
+      "sourceExpansionId": 1553,
+      "sourceRecordId": "277306",
+      "sourceVariantKey": "holo",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "ex15-101",
+      "variantCode": "holo"
+    },
+    {
+      "cardIdentityId": "fdcard_ae690ac2461401d5ee1266f4",
+      "cardmarketProductName": "Tentacool [Psyshot]",
+      "collectorNumber": "71",
+      "id": "fdcardmap_db5c3df7e42b4577f30ea45e",
+      "name": "Tentacool",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "psyshot",
+          "recovery"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "psyshot"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/71.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273602",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-71",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_b744f1e7aa2456fa64341e1f",
+      "cardmarketProductName": "Bunnelby [Burrow | Rototiller]",
+      "collectorNumber": "121",
+      "id": "fdcardmap_12b0f056939ae24642fbda7c",
+      "name": "Bunnelby",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrage",
+          "burrow",
+          "rototiller"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "burrow",
+          "rototiller"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/121.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273652",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-121",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_c7e5081b66a166e432186cde",
+      "cardmarketProductName": "Eelektrik [Thrash]",
+      "collectorNumber": "64",
+      "id": "fdcardmap_8e8f5ffbb568b7763a805432",
+      "name": "Eelektrik",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "recovery",
+          "thrash"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "thrash"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/64.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273595",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-64",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_c929548c146a93893170ff0c",
+      "cardmarketProductName": "Ludicolo [Astonish | Splash Dance]",
+      "collectorNumber": "37",
+      "id": "fdcardmap_f5cfbc2c59f51b306a50f0a2",
+      "name": "Ludicolo",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "astonish",
+          "recovery",
+          "splash dance"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "astonish",
+          "splash dance"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/37.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273568",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-37",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_d22acd3aa8b1e0c75a2c74d9",
+      "cardmarketProductName": "Excadrill [Dredge | Mach Claw]",
+      "collectorNumber": "97",
+      "id": "fdcardmap_3b9c216f1ecb6e1abc78fdd6",
+      "name": "Excadrill",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrage",
+          "dredge",
+          "mach claw"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "dredge",
+          "mach claw"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/97.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273628",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-97",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_d363bad11dd9f7fd7f64c04d",
+      "cardmarketProductName": "Unfezant [Feather Dance | Sky Attack]",
+      "collectorNumber": "81",
+      "id": "fdcardmap_125667b0f6dfd505985a8ede",
+      "name": "Unfezant",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "evolution",
+          "feather dance",
+          "sky attack"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "feather dance",
+          "sky attack"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/81.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282749",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-81",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_d6aba5eb2425165f58b88824",
+      "cardmarketProductName": "Magcargo [Ram | Indomitable Blaze]",
+      "collectorNumber": "24",
+      "id": "fdcardmap_e4e6dbfec25b9998ae57535c",
+      "name": "Magcargo",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrier",
+          "indomitable blaze",
+          "ram"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "indomitable blaze",
+          "ram"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/24.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273555",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-24",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_d908d5e275cbdd556e565ffa",
+      "cardmarketProductName": "Dragonite [Wrapped in Wind | Heavy Impact]",
+      "collectorNumber": "52",
+      "id": "fdcardmap_3365b881ed059b4c91f3fb57",
+      "name": "Dragonite",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "heavy impact",
+          "plus",
+          "wrapped in wind"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1649,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "heavy impact",
+          "wrapped in wind"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Roaring Skies/52.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy6"
+      },
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies",
+      "sourceExpansionId": 1649,
+      "sourceRecordId": "282720",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy6-52",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_db238266bd59890314eb3f07",
+      "cardmarketProductName": "Bidoof [Drench]",
+      "collectorNumber": "117",
+      "id": "fdcardmap_0a1a1b39b60da2a11f2e5132",
+      "name": "Bidoof",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "drench",
+          "recovery"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "drench"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/117.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273648",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-117",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_e21cad85afa8dea213da1389",
+      "cardmarketProductName": "Nidoqueen [Poison Jab | Dynamite Punch]",
+      "collectorNumber": "69",
+      "id": "fdcardmap_8803343f5078b772cd2aff66",
+      "name": "Nidoqueen",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrage",
+          "dynamite punch",
+          "poison jab"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "dynamite punch",
+          "poison jab"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/69.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273600",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-69",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_e4af9209b1ac489475eb7532",
+      "cardmarketProductName": "Charizard Gold Star δ Delta Species [Rotating Claws | Dark Swirl]",
+      "collectorNumber": "100",
+      "id": "fdcardmap_f96bc83c5079078ba0abf19b",
+      "name": "Charizard ☆ δ",
+      "priceLane": "holo",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "dark swirl",
+          "rotating claws"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1553,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "dark swirl",
+          "rotating claws"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/EX/Dragon Frontiers/100.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "ex15"
+      },
+      "setId": "fdset_6e382f280911e2055e3018bc",
+      "setName": "Dragon Frontiers",
+      "sourceExpansionId": 1553,
+      "sourceRecordId": "277305",
+      "sourceVariantKey": "holo",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "ex15-100",
+      "variantCode": "holo"
+    },
+    {
+      "cardIdentityId": "fdcard_edb891a20f9e957fb72887be",
+      "cardmarketProductName": "Swampert [Diving Search | Hydro Pump]",
+      "collectorNumber": "36",
+      "id": "fdcardmap_88cb0b2587ae1e73707de413",
+      "name": "Swampert",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "diving search",
+          "growth",
+          "hydro pump"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "diving search",
+          "hydro pump"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/36.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273567",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-36",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_f1105ed9e183f6dc3ceb8720",
+      "cardmarketProductName": "Medicham [Calm Mind | Yoga Kick]",
+      "collectorNumber": "81",
+      "id": "fdcardmap_0e3a7d8777614c77650464ae",
+      "name": "Medicham",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "barrage",
+          "calm mind",
+          "yoga kick"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "calm mind",
+          "yoga kick"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/81.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273612",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-81",
+      "variantCode": "standard"
+    },
+    {
+      "cardIdentityId": "fdcard_f1a335ed64ea010e68e4393a",
+      "cardmarketProductName": "Gorebyss [Psy Bolt]",
+      "collectorNumber": "52",
+      "id": "fdcardmap_7c70c477dcbdca851931f4c2",
+      "name": "Gorebyss",
+      "priceLane": "standard",
+      "priceableNow": true,
+      "proof": {
+        "exactTcgdexDescriptors": [
+          "growth",
+          "psy bolt"
+        ],
+        "expansionBasis": "pinned_tcgdex_cardmarket_expansion",
+        "expansionId": 1585,
+        "finishProofSource": "canonical_fatedrop_identity",
+        "method": "scoped_unique_provider_descriptor_subset_match",
+        "providerDescriptorTerms": [
+          "psy bolt"
+        ],
+        "tcgdexCardSourcePath": "/home/runner/work/Fatedrop-Cloud/Fatedrop-Cloud/_evidence/tcgdex/data/XY/Primal Clash/52.ts",
+        "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+        "tcgdexSetId": "xy5"
+      },
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash",
+      "sourceExpansionId": 1585,
+      "sourceRecordId": "273583",
+      "sourceVariantKey": "normal",
+      "sourceVersion": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+      "tcgdexCardId": "xy5-52",
+      "variantCode": "standard"
+    }
+  ],
+  "limitations": [
+    "The current matcher cites canonical_fatedrop_identity as finish proof. Rehearsal success alone does not independently establish the physical finish or authorise copying a base guide lane to holo.",
+    "DP promo set scope remains held: one explicit product link in the pinned source is not sufficient to approve all 52 requested card mappings.",
+    "The 136-card policy is merged in PR508; its production price ingestion must be recounted separately."
+  ]
+}

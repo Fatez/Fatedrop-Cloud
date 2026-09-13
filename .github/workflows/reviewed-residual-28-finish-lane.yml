@@ -1,0 +1,56 @@
+name: Reviewed Residual 28 Finish-Lane Rehearsal
+
+on:
+  push:
+    branches:
+      - fix/reviewed-residual-28-finish-lane-2026-09-14
+    paths:
+      - '.github/workflows/reviewed-residual-28-finish-lane.yml'
+      - 'signal-engine/src/trader/value/reviewed-residual-28-finish-lane-cli.mjs'
+      - 'signal-engine/tests/reviewed-residual-28-finish-lane.test.mjs'
+      - 'signal-engine/evidence/reviewed-residual-28-rehearsal.json'
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify exact finish-lane proof semantics
+        run: node --test tests/reviewed-residual-28-finish-lane.test.mjs
+      - name: Rehearse reviewed residual release against production
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '527'
+          EXPECTED_APPROVED: '28'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/reviewed-residual-28-finish-lane-cli.mjs
+      - name: Upload reviewed release rehearsal
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-residual-28-finish-lane
+          path: ${{ runner.temp }}/reviewed-residual-28-finish-lane.json
+          if-no-files-found: error
+          retention-days: 14

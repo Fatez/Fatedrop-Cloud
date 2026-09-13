@@ -1,0 +1,41 @@
+name: Reviewed Residual Mapping Rehearsal
+on:
+  push:
+    branches: ['ops/reviewed-residual-28-2026-09-14']
+permissions:
+  contents: read
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - name: Rehearse exact remaining mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '527'
+          EXPECTED_SAFE_MAPPINGS: '28'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-approved-residual-recovery-cli.mjs
+      - name: Show exact candidate evidence
+        run: node -e "const fs=require('fs');const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+'/cardmarket-approved-residual-recovery.json'));console.log(JSON.stringify({source:r.source,candidates:r.candidates}))"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-residual-28
+          path: ${{ runner.temp }}/cardmarket-approved-residual-recovery.json
+          if-no-files-found: error

@@ -1,0 +1,67 @@
+name: Reviewed Residual 28 Production Activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type ACTIVATE_28 to persist the reviewed mappings and refresh Cardmarket prices'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: ${{ inputs.confirm == 'ACTIVATE_28' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify exact finish-lane proof semantics
+        run: node --test tests/reviewed-residual-28-finish-lane.test.mjs
+      - name: Persist exactly the reviewed 28 mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '527'
+          EXPECTED_APPROVED: '28'
+          EXPECTED_ACTIVATION_DIGEST: 40e1c37ddf40e4f330b05fa0ca9609d8f12a8469604838728c3094a4b1b13c59
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/reviewed-residual-28-finish-lane-cli.mjs
+      - name: Refresh exact Cardmarket normal+holo observations
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-residual-28-production-activation
+          path: |
+            ${{ runner.temp }}/reviewed-residual-28-finish-lane.json
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: error
+          retention-days: 14
