@@ -1,0 +1,40 @@
+{
+  "status": "release_rehearsed_pending_guarded_activation",
+  "productionWrites": false,
+  "workflowRun": 34789862688,
+  "scope": {
+    "setName": "DP Black Star Promos",
+    "residualIdentities": 57,
+    "safeExactMappings": 29,
+    "supportedCentralPriceNow": 27,
+    "mappedButNoSupportedCentralPrice": 2,
+    "held": 28,
+    "batchCollisionKeys": 0
+  },
+  "source": {
+    "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+    "userUrlFileSha256": "8692f0a71cd61f0a73245e0163f46bfb4c17125151156c5fe52047e3ce7fca47",
+    "userUrlDigest": "c2a59f296bb308ecf15ff696591389d01fef9d2a86fc48807e3934270eec90b5",
+    "cardmarketCatalogueSha256": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+    "cardmarketPriceGuideSha256": "ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c",
+    "sourceSnapshotId": "pokemon-price-guide-v1-2026-09-13T00:47:49.000Z",
+    "anchorProductId": "275562",
+    "provenCardmarketExpansionId": 1609
+  },
+  "candidateDigest": "9e6b3db9da206fba54c422bb008e820f6a035a425b239f2bb14975365f1f8787",
+  "heldReasons": {
+    "HOLD_AMBIGUOUS_PRODUCT_NO_UNIQUE_DESCRIPTOR_MATCH": 10,
+    "HOLD_NO_PRODUCT_NAME_MATCH_IN_PROVEN_EXPANSION": 12,
+    "HOLD_MULTIPLE_DESCRIPTOR_MATCHES": 6
+  },
+  "policy": {
+    "approvedPriceAcquisition": "cardmarket-public-download",
+    "userUrlsAreIdentityLocatorsOnly": true,
+    "noWebPagePriceScraping": true,
+    "exactPerCardProductRequired": true,
+    "exactPinnedTcgdexFinishRequired": true,
+    "setScopeAloneDoesNotProveProduct": true,
+    "ownershipFailClosed": true,
+    "batchCollisionsFailClosed": true
+  }
+}
