@@ -20,6 +20,13 @@ jobs:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -29,6 +36,8 @@ jobs:
       - name: Export approved Cardmarket catalogue and current production backlog
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
         run: node src/trader/value/cardmarket-user-url-input-export-cli.mjs
       - name: Upload read-only inputs
         if: always()
