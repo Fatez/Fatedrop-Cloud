@@ -1,0 +1,37 @@
+name: Reviewed Gallery Holo Price Rehearsal
+on:
+  push:
+    branches: ['fix/reviewed-gallery-holo-prices-2026-09-14']
+permissions:
+  contents: read
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: node --test tests/cardmarket-reviewed-gallery-holo.test.mjs
+      - name: Verify pinned source evidence and all 136 production mappings read-only
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/cardmarket-gallery-holo-rehearsal.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gallery-holo-rehearsal
+          path: ${{ runner.temp }}/gallery-holo-rehearsal.json
+          if-no-files-found: error
