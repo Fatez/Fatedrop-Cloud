@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { extractTcgdexTcgplayerProductIds } from '../src/trader/value/tcgdex-tcgplayer-product-evidence.mjs';
 import { buildReviewQueue } from '../src/trader/value/finish-evidence-review-queue-cli.mjs';
 
