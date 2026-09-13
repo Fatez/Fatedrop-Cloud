@@ -1,3 +1,4 @@
+import { REVIEWED_GALLERY_HOLO_IDS, isReviewedGalleryHolo, validateReviewedGalleryHolo } from './cardmarket-reviewed-gallery-holo.mjs';
 import { REVIEWED_CLEANED_HOLO_PRODUCT_IDS, isReviewedCleanedHoloProduct, validateReviewedCleanedHoloMappings } from './cardmarket-reviewed-cleaned-holo.mjs';
 import { REVIEWED_SINGLE_FOIL_PRODUCT_IDS, isReviewedSingleFoilProduct, validateReviewedSingleFoilMappings } from './cardmarket-reviewed-single-foil.mjs';
 import {
@@ -80,6 +81,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
+      || isReviewedGalleryHolo(sourceRecordId)
       || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
     )) continue;
     if (!hasMeaningfulCardmarketLane(row, 'standard')) continue;
@@ -129,6 +131,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
+    ...REVIEWED_GALLERY_HOLO_IDS,
     ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   ])];
 
@@ -168,6 +171,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   const reviewedExplicitHoloIds = hasEligibleReviewedExplicitHolo
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
+  const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
   const inherentHoloBaseLaneProductIds = new Set(
@@ -177,6 +181,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
         || cleanedHoloIds.has(productId)
+        || galleryHoloIds.has(productId)
         || reviewedPokemonTcgHoloIds.has(productId)
       )
       && mappings.has(mappingKey(productId, 'holo'))
