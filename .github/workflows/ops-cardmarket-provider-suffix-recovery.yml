@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/cardmarket-provider-suffix-recovery-2026-09-11
+      - audit/cardmarket-native-pass3-2026-09-14
     paths:
       - '.github/workflows/ops-cardmarket-provider-suffix-recovery.yml'
       - 'signal-engine/src/trader/value/cardmarket-provider-suffix-recovery-cli.mjs'
