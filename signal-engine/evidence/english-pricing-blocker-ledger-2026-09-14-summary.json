@@ -1,0 +1,1314 @@
+{
+  "schemaVersion": 1,
+  "runUrl": "https://github.com/Fatez/Fatedrop-Cloud/actions/runs/34787077571",
+  "auditedCommit": "b645c8df05b95a76d50ab78ab2ce615a765c8f02",
+  "scope": "Verified English standard/holo identities; excludes INVALID_CATALOGUE_ENTRY and UNRESOLVED_EVIDENCE. Not all finishes or the entire catalogue.",
+  "productionWrites": false,
+  "activationApproval": false,
+  "counts": {
+    "mappedUnpriced": 233,
+    "mappingCandidates": 28,
+    "priceableMappingCandidates": 28,
+    "total": 760,
+    "unmapped": 527
+  },
+  "groups": [
+    {
+      "count": 70,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_e71cb2d098227d82d8b4e78b",
+      "setName": "Crown Zenith Galarian Gallery"
+    },
+    {
+      "count": 68,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_085120eba28504638d1d6ca6",
+      "setName": "SWSH Black Star Promos"
+    },
+    {
+      "count": 56,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_5094a37bf25e906237b4b4a3",
+      "setName": "Scarlet & Violet"
+    },
+    {
+      "count": 52,
+      "finish": "holo",
+      "reason": "HOLD_NO_EXPLICIT_CARDMARKET_SET_SCOPE",
+      "section": "unmapped",
+      "setId": "fdset_151f029d6fa79c05cba8fd0b",
+      "setName": "DP Black Star Promos"
+    },
+    {
+      "count": 34,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_085120eba28504638d1d6ca6",
+      "setName": "SWSH Black Star Promos"
+    },
+    {
+      "count": 30,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_26efa729e1925d0f731e8735",
+      "setName": "Brilliant Stars Trainer Gallery"
+    },
+    {
+      "count": 23,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_18fb8b470cbbf26cb892a5cf",
+      "setName": "Celebrations Classic Collection"
+    },
+    {
+      "count": 20,
+      "finish": "standard",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_938de82c46556d9654b46d84",
+      "setName": "SM Black Star Promos"
+    },
+    {
+      "count": 16,
+      "finish": "holo",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_5094a37bf25e906237b4b4a3",
+      "setName": "Scarlet & Violet"
+    },
+    {
+      "count": 15,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_5522a1db46b7e4c78d565389",
+      "setName": "McDonald's Collection 2022"
+    },
+    {
+      "count": 14,
+      "finish": "standard",
+      "reason": "REVIEWED_MAPPING_CANDIDATE",
+      "section": "unmapped",
+      "setId": "fdset_30636c2eb3a7b69a0b56b271",
+      "setName": "Primal Clash"
+    },
+    {
+      "count": 12,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_a62c92e7e9fd9ca76c57506c",
+      "setName": "Dark Explorers"
+    },
+    {
+      "count": 12,
+      "finish": "holo",
+      "reason": "HOLD_TCGDEX_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_1975ad2b9778939dd4f2915e",
+      "setName": "McDonald's Collection 2012"
+    },
+    {
+      "count": 11,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_938de82c46556d9654b46d84",
+      "setName": "SM Black Star Promos"
+    },
+    {
+      "count": 9,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_45de3ed936afa714349298d9",
+      "setName": "Delta Species"
+    },
+    {
+      "count": 8,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_37fcae1f9a859384ef5cce1c",
+      "setName": "Legends Awakened"
+    },
+    {
+      "count": 8,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_70cff5d8d945a27c879d18bd",
+      "setName": "Skyridge"
+    },
+    {
+      "count": 7,
+      "finish": "standard",
+      "reason": "REVIEWED_MAPPING_CANDIDATE",
+      "section": "unmapped",
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies"
+    },
+    {
+      "count": 6,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_8bc16d464b917df384b1b578",
+      "setName": "Arceus"
+    },
+    {
+      "count": 5,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_7603749bbcea6f3bf8bd9954",
+      "setName": "BW Black Star Promos"
+    },
+    {
+      "count": 5,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_a1ad80bb8a18d2921261e741",
+      "setName": "Cosmic Eclipse"
+    },
+    {
+      "count": 5,
+      "finish": "standard",
+      "reason": "HOLD_NO_EXPLICIT_CARDMARKET_SET_SCOPE",
+      "section": "unmapped",
+      "setId": "fdset_151f029d6fa79c05cba8fd0b",
+      "setName": "DP Black Star Promos"
+    },
+    {
+      "count": 5,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_2ebd590d9099b6f508a99b04",
+      "setName": "Lost Thunder"
+    },
+    {
+      "count": 5,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_4178773980bacce35fafac2e",
+      "setName": "Shrouded Fable"
+    },
+    {
+      "count": 5,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c082bb5814dbad4c9d39049d",
+      "setName": "Stormfront"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "REVIEWED_MAPPING_CANDIDATE",
+      "section": "unmapped",
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_a6246f0f31ce116be6ac6369",
+      "setName": "BREAKpoint"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_NO_EXPLICIT_CARDMARKET_SET_SCOPE",
+      "section": "unmapped",
+      "setId": "fdset_7ee5847974a7dafd800eca75",
+      "setName": "EX trainer Kit 2 (Plusle)"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_3cd5387b35e948b3815e5cb5",
+      "setName": "Great Encounters"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_93de8d7772f7261885c66f4d",
+      "setName": "Guardians Rising"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_1bb2f675404bc92a18277caf",
+      "setName": "HeartGold SoulSilver"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_4e01b4d4f8f460cb8a74679c",
+      "setName": "Majestic Dawn"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_ff14675e2eed3b1fb03cdc50",
+      "setName": "Team Magma vs Team Aqua"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_25c151ca6f490d7abd75a541",
+      "setName": "Team Up"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_15b58d7fe24f94690c51184b",
+      "setName": "Temporal Forces"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_93c0b7f3284b9a56a9cfedfb",
+      "setName": "Triumphant"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_82f4ea83c8a458e30349295e",
+      "setName": "Unbroken Bonds"
+    },
+    {
+      "count": 4,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_36532b26f7f4fdf73e4da57f",
+      "setName": "Unified Minds"
+    },
+    {
+      "count": 4,
+      "finish": "holo",
+      "reason": "HOLD_BATCH_SOURCE_COLLISION",
+      "section": "unmapped",
+      "setId": "fdset_267610fc308ec10741c98902",
+      "setName": "Unleashed"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_03123513d7bbb5eb82bf1d7b",
+      "setName": "Ascended Heroes"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_e7dec59fb1e076f2869b36e8",
+      "setName": "Black Bolt"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_d26ce091d4668bc817c05990",
+      "setName": "Brilliant Stars"
+    },
+    {
+      "count": 3,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_7603749bbcea6f3bf8bd9954",
+      "setName": "BW Black Star Promos"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_45de3ed936afa714349298d9",
+      "setName": "Delta Species"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_3283f28704a001f9aeda2860",
+      "setName": "Diamond & Pearl"
+    },
+    {
+      "count": 3,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_4e01b4d4f8f460cb8a74679c",
+      "setName": "Majestic Dawn"
+    },
+    {
+      "count": 3,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_78dca7f28212b66ae4330bf8",
+      "setName": "McDonald's Collection 2021"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c248a3ba5f934b1058700b3e",
+      "setName": "Mysterious Treasures"
+    },
+    {
+      "count": 3,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_938a6ef52b99309f5498cad7",
+      "setName": "Paldea Evolved"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_0947de8fc8af2a0d62dc78f6",
+      "setName": "Sword & Shield"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_085120eba28504638d1d6ca6",
+      "setName": "SWSH Black Star Promos"
+    },
+    {
+      "count": 3,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_8c439dfacb12fb40df16b8b2",
+      "setName": "Wizards Black Star Promos"
+    },
+    {
+      "count": 3,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_8c439dfacb12fb40df16b8b2",
+      "setName": "Wizards Black Star Promos"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_67d13d5ab0e4657234318978",
+      "setName": "Astral Radiance Trainer Gallery"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_d2b9b50bff39ce2973740a90",
+      "setName": "Best of game"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_e7dec59fb1e076f2869b36e8",
+      "setName": "Black Bolt"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_09d778c5fc5cf3da0bf0bf64",
+      "setName": "BREAKthrough"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_09d778c5fc5cf3da0bf0bf64",
+      "setName": "BREAKthrough"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_7603749bbcea6f3bf8bd9954",
+      "setName": "BW Black Star Promos"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_18fb8b470cbbf26cb892a5cf",
+      "setName": "Celebrations Classic Collection"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_16211d24d1b84ed0340693f0",
+      "setName": "Celestial Storm"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_16211d24d1b84ed0340693f0",
+      "setName": "Celestial Storm"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_90f7da5133e533273f39b5c2",
+      "setName": "Crown Zenith"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_4948262bba7a4ffac91aae3a",
+      "setName": "Destined Rivals"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_6e382f280911e2055e3018bc",
+      "setName": "Dragon Frontiers"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "REVIEWED_MAPPING_CANDIDATE",
+      "section": "unmapped",
+      "setId": "fdset_6e382f280911e2055e3018bc",
+      "setName": "Dragon Frontiers"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_8aea784aff7a9bf3506900d8",
+      "setName": "Dragon Majesty"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_7182fb7b6883e4d4b1c93ee6",
+      "setName": "Dragons Exalted"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_da4c7a7890d1c46b0f1ff16c",
+      "setName": "Evolving Skies"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_6e5a4644a544f44df7d0bcd7",
+      "setName": "Flashfire"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_cb3dde1d04cb5d66d53f5f7c",
+      "setName": "Generations"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_b3b484ff184dadac0f221f5e",
+      "setName": "Gym Challenge"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_1bb2f675404bc92a18277caf",
+      "setName": "HeartGold SoulSilver"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_6a13cbc6691901a57cbc3711",
+      "setName": "Holon Phantoms"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_7b0cff62260cc8d2f55a13f8",
+      "setName": "Journey Together"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_6aca545eab325f63b9e05b7f",
+      "setName": "Kalos Starter Set"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_37fcae1f9a859384ef5cce1c",
+      "setName": "Legends Awakened"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_7199972e78e9670b8e7b5a15",
+      "setName": "Lost Origin"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_5d5fcf56792f8acb162e4929",
+      "setName": "Obsidian Flames"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_5d5fcf56792f8acb162e4929",
+      "setName": "Obsidian Flames"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_938a6ef52b99309f5498cad7",
+      "setName": "Paldea Evolved"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_938a6ef52b99309f5498cad7",
+      "setName": "Paldea Evolved"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_559eec0428699e3f691a8ecb",
+      "setName": "Paradox Rift"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_559eec0428699e3f691a8ecb",
+      "setName": "Paradox Rift"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_beeece5004f9796d6233ea1e",
+      "setName": "Pokémon GO"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_20b6a6dcfa52bbe0cc54b919",
+      "setName": "Prismatic Evolutions"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_09b156dcd7eb1163306b00ee",
+      "setName": "Roaring Skies"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_5c62c8a5ba5fe3d5de0d1aec",
+      "setName": "Secret Wonders"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_5c62c8a5ba5fe3d5de0d1aec",
+      "setName": "Secret Wonders"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_c6a4190cbca80f9085eb79ba",
+      "setName": "Shining Legends"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_70cff5d8d945a27c879d18bd",
+      "setName": "Skyridge"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_a20ab0a98dde1e9f5b1d91c1",
+      "setName": "Steam Siege"
+    },
+    {
+      "count": 2,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_0947de8fc8af2a0d62dc78f6",
+      "setName": "Sword & Shield"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "NO_SUPPORTED_CENTRAL_PRICE",
+      "section": "mapped_unpriced",
+      "setId": "fdset_ff14675e2eed3b1fb03cdc50",
+      "setName": "Team Magma vs Team Aqua"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_97b9b7b996390db1186bd833",
+      "setName": "Ultra Prism"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_36532b26f7f4fdf73e4da57f",
+      "setName": "Unified Minds"
+    },
+    {
+      "count": 2,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_11eaf4e040003e86b1d20d7e",
+      "setName": "XY Black Star Promos"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_5bdac871ad4a052a924c337a",
+      "setName": "Ancient Origins"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_8bc16d464b917df384b1b578",
+      "setName": "Arceus"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_03123513d7bbb5eb82bf1d7b",
+      "setName": "Ascended Heroes"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_4dff17f7d1600cdfaa843fae",
+      "setName": "Astral Radiance"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_4dff17f7d1600cdfaa843fae",
+      "setName": "Astral Radiance"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_5e3fe4921343046cf83b4a0e",
+      "setName": "Black & White"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_5e3fe4921343046cf83b4a0e",
+      "setName": "Black & White"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_16211d24d1b84ed0340693f0",
+      "setName": "Celestial Storm"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_1b3d3a3ba5dcbb5e536af7dc",
+      "setName": "Chilling Reign"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_90f7da5133e533273f39b5c2",
+      "setName": "Crown Zenith"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_a62c92e7e9fd9ca76c57506c",
+      "setName": "Dark Explorers"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_a62c92e7e9fd9ca76c57506c",
+      "setName": "Dark Explorers"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_cbe272b3277162e2a86444f1",
+      "setName": "Deoxys"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_cbe272b3277162e2a86444f1",
+      "setName": "Deoxys"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_1a1039b4b687ce14ef840ca2",
+      "setName": "Dragon"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_6e382f280911e2055e3018bc",
+      "setName": "Dragon Frontiers"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_8aea784aff7a9bf3506900d8",
+      "setName": "Dragon Majesty"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_8aea784aff7a9bf3506900d8",
+      "setName": "Dragon Majesty"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_7182fb7b6883e4d4b1c93ee6",
+      "setName": "Dragons Exalted"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_da4c7a7890d1c46b0f1ff16c",
+      "setName": "Evolving Skies"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_EXPLICIT_CARDMARKET_SET_SCOPE",
+      "section": "unmapped",
+      "setId": "fdset_a3d5ec4be4f839e09cccd6f9",
+      "setName": "EX trainer Kit 2 (Minun)"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_c8cfa5b904c2c4bce4d94328",
+      "setName": "Expedition Base Set"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_c8cfa5b904c2c4bce4d94328",
+      "setName": "Expedition Base Set"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_cbdfd785bfc76557bcd5b43b",
+      "setName": "Fates Collide"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_8b2872aaf7aa67e89a990ec4",
+      "setName": "Forbidden Light"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_8b2872aaf7aa67e89a990ec4",
+      "setName": "Forbidden Light"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_1bb2f675404bc92a18277caf",
+      "setName": "HeartGold SoulSilver"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "NO_SUPPORTED_CENTRAL_PRICE",
+      "section": "mapped_unpriced",
+      "setId": "fdset_1bb2f675404bc92a18277caf",
+      "setName": "HeartGold SoulSilver"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "provider_no_positive_supported_lane",
+      "section": "mapped_unpriced",
+      "setId": "fdset_1bb2f675404bc92a18277caf",
+      "setName": "HeartGold SoulSilver"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_c3ac018d4dae2f96db4d9b3f",
+      "setName": "Hidden Fates"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_6a13cbc6691901a57cbc3711",
+      "setName": "Holon Phantoms"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "REVIEWED_MAPPING_CANDIDATE",
+      "section": "unmapped",
+      "setId": "fdset_6a13cbc6691901a57cbc3711",
+      "setName": "Holon Phantoms"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_7b0cff62260cc8d2f55a13f8",
+      "setName": "Journey Together"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_37fcae1f9a859384ef5cce1c",
+      "setName": "Legends Awakened"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_37fcae1f9a859384ef5cce1c",
+      "setName": "Legends Awakened"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_7199972e78e9670b8e7b5a15",
+      "setName": "Lost Origin"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_ef9a36cff5d2f70b3ce13499",
+      "setName": "Lost Origin Trainer Gallery"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_4e01b4d4f8f460cb8a74679c",
+      "setName": "Majestic Dawn"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c248a3ba5f934b1058700b3e",
+      "setName": "Mysterious Treasures"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_c345d6c4d16fc58501fecf1d",
+      "setName": "Nintendo Black Star Promos"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "provider_no_positive_supported_lane",
+      "section": "mapped_unpriced",
+      "setId": "fdset_5d5fcf56792f8acb162e4929",
+      "setName": "Obsidian Flames"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_TCGDEX_ATTACK_ABILITY_DESCRIPTOR",
+      "section": "unmapped",
+      "setId": "fdset_99239edd0d402da1dc75c16e",
+      "setName": "POP Series 5"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_003357f9cc2052b453e2cd97",
+      "setName": "POP Series 7"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_274e06dbab77319547d073bf",
+      "setName": "Silver Tempest"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_274e06dbab77319547d073bf",
+      "setName": "Silver Tempest"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_edba7af13aa1cd87711a75fe",
+      "setName": "Stellar Crown"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_NO_PROVIDER_DESCRIPTOR_SUBSET_MATCH",
+      "section": "unmapped",
+      "setId": "fdset_c082bb5814dbad4c9d39049d",
+      "setName": "Stormfront"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_259c8dc9998c17928a9b734d",
+      "setName": "Surging Sparks"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_0947de8fc8af2a0d62dc78f6",
+      "setName": "Sword & Shield"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_085120eba28504638d1d6ca6",
+      "setName": "SWSH Black Star Promos"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_ff14675e2eed3b1fb03cdc50",
+      "setName": "Team Magma vs Team Aqua"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_93c0b7f3284b9a56a9cfedfb",
+      "setName": "Triumphant"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "multiple_target_product_mappings",
+      "section": "mapped_unpriced",
+      "setId": "fdset_d0acd7a6c3bd0931d2613fb1",
+      "setName": "Twilight Masquerade"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "holo_base_lane_requires_exact_review",
+      "section": "mapped_unpriced",
+      "setId": "fdset_d0acd7a6c3bd0931d2613fb1",
+      "setName": "Twilight Masquerade"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_MULTIPLE_PROVIDER_DESCRIPTOR_SUBSET_MATCHES",
+      "section": "unmapped",
+      "setId": "fdset_97b9b7b996390db1186bd833",
+      "setName": "Ultra Prism"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_EXPLICIT_PRODUCT_MISSING_FROM_OFFICIAL_CATALOGUE",
+      "section": "unmapped",
+      "setId": "fdset_47d71955ecd6aa052d8e42e0",
+      "setName": "Undaunted"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_267610fc308ec10741c98902",
+      "setName": "Unleashed"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_PRODUCT_ALREADY_OWNED",
+      "section": "unmapped",
+      "setId": "fdset_267610fc308ec10741c98902",
+      "setName": "Unleashed"
+    },
+    {
+      "count": 1,
+      "finish": "holo",
+      "reason": "HOLD_MULTIPLE_EXPLICIT_CARDMARKET_PRODUCTS",
+      "section": "unmapped",
+      "setId": "fdset_362a5a628033941cb3b69603",
+      "setName": "White Flare"
+    },
+    {
+      "count": 1,
+      "finish": "standard",
+      "reason": "HOLD_TCGDEX_NAME_MISMATCH",
+      "section": "unmapped",
+      "setId": "fdset_8c439dfacb12fb40df16b8b2",
+      "setName": "Wizards Black Star Promos"
+    }
+  ],
+  "status": "audit_complete"
+}
