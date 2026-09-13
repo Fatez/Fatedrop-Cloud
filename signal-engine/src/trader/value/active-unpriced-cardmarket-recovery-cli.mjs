@@ -5,7 +5,7 @@ import { fetchCardmarketPokemonSinglesCatalogue, fetchCardmarketPokemonPriceGuid
 import { hasMeaningfulCardmarketLane } from './cardmarket-adapter.mjs';
 
 const EXPECTED_ACTIVE_UNPRICED = 87;
-const EXPECTED_CANDIDATES = 23;
+const EXPECTED_CANDIDATES = 24;
 const expectedSourceVariant = Object.freeze({ standard: 'normal', holo: 'holo' });
 const expectedLane = Object.freeze({ standard: 'standard', holo: 'holo' });
 

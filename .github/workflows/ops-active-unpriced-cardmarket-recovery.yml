@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       write_mappings:
-        description: 'Persist the 23 reviewed exact Cardmarket mappings'
+        description: 'Persist the 24 reviewed exact Cardmarket mappings'
         required: true
         type: boolean
         default: false
@@ -21,6 +21,7 @@ on:
   push:
     branches:
       - feat/active-unpriced-cardmarket-recovery-2026-09-13
+      - fix/active-unpriced-cardmarket-recovery-24-2026-09-13
     paths:
       - '.github/workflows/ops-active-unpriced-cardmarket-recovery.yml'
       - 'signal-engine/evidence/active-unpriced-cardmarket-recovery-2026-09-13.json'
@@ -77,8 +78,8 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           ACTIVATION_WRITE: 'true'
           PRICE_WRITE: 'false'
-          EXPECTED_ACTIVE_PRICED: '23'
-          EXPECTED_ACTIVE_UNPRICED: '64'
+          EXPECTED_ACTIVE_PRICED: '24'
+          EXPECTED_ACTIVE_UNPRICED: '63'
           EXPECTED_INVALID_CATALOGUE_ENTRY: '1034'
           EXPECTED_UNRESOLVED_EVIDENCE: '0'
         run: |

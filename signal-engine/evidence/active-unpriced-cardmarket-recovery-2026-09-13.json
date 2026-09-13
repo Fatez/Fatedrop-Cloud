@@ -6,10 +6,11 @@
     "cardmarketPriceGuideSha256": "ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c"
   },
   "expectedActiveUnpriced": 87,
-  "expectedCandidates": 23,
+  "expectedCandidates": 24,
   "candidates": [
     {"id":"fdcardmap_9950af62ecfcf583549a1663","cardIdentityId":"fdcard_014fdf78e057079680e363ba","name":"Vikavolt","collectorNumber":"52","variantCode":"standard","tcgdexCardId":"sm1-52","sourceRecordId":"295363","sourceVariantKey":"normal","cardmarketProductName":"Vikavolt [Strong Charge | Electro Cannon]"},
     {"id":"fdcardmap_f345b2c89ddedc8cd5799fdc","cardIdentityId":"fdcard_04f9b4bbdfd7c214e1c98a1c","name":"Lightning Energy","collectorNumber":"167","variantCode":"standard","tcgdexCardId":"sm1-167","sourceRecordId":"295673","sourceVariantKey":"normal","cardmarketProductName":"Lightning Energy"},
+    {"id":"fdcardmap_37b5617121cc48a802b034cb","cardIdentityId":"fdcard_043a2f0fc48bc2f9afaf7be5","name":"Umbreon","collectorNumber":"swsh129","variantCode":"standard","tcgdexCardId":"swshp-SWSH129","sourceRecordId":"568801","sourceVariantKey":"normal","cardmarketProductName":"Umbreon [Blindside | Moon Mirage]"},
     {"id":"fdcardmap_3e93a80a91b7e4ea209e8813","cardIdentityId":"fdcard_11c9a252b72591537eff33a0","name":"Metagross","collectorNumber":"95","variantCode":"standard","tcgdexCardId":"sm7-95","sourceRecordId":"360408","sourceVariantKey":"normal","cardmarketProductName":"Metagross [Extend | Meteor Mash]"},
     {"id":"fdcardmap_bb68a8c012bd3d37919806ae","cardIdentityId":"fdcard_16eb6b22691553570f6fd2ec","name":"Naganadel","collectorNumber":"108","variantCode":"standard","tcgdexCardId":"sm8-108","sourceRecordId":"365745","sourceVariantKey":"normal","cardmarketProductName":"Naganadel [Charging Up | Turning Point]"},
     {"id":"fdcardmap_0dab760292beb9245620b461","cardIdentityId":"fdcard_1e7aae5d8106f0bd61815acb","name":"Kangaskhan","collectorNumber":"99","variantCode":"standard","tcgdexCardId":"sm1-99","sourceRecordId":"295410","sourceVariantKey":"normal","cardmarketProductName":"Kangaskhan [Cross-Cut | Hurricane Punch]"},
