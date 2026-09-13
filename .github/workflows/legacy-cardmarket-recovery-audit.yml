@@ -1,7 +1,9 @@
 name: Legacy Cardmarket Recovery Audit
 on:
   push:
-    branches: [feat/cardmarket-legacy-provider-recovery-2026-09-12]
+    branches:
+      - feat/cardmarket-legacy-provider-recovery-2026-09-12
+      - audit/cardmarket-native-pass3-2026-09-14
     paths:
       - '.github/workflows/legacy-cardmarket-recovery-audit.yml'
       - 'signal-engine/src/trader/value/cardmarket-legacy-provider-metadata-recovery-cli.mjs'
