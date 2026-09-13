@@ -7,8 +7,8 @@ on:
         description: 'Evidence provider to acquire'
         required: true
         type: choice
-        options: [scrydex, cardmarket, tcgplayer]
-        default: scrydex
+        options: [tcgdex, scrydex, cardmarket, tcgplayer]
+        default: tcgdex
       persist_evidence:
         description: 'Persist immutable raw snapshots and reviewed decisions'
         required: true
@@ -84,7 +84,14 @@ jobs:
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
         run: node src/trader/value/finish-evidence-targets-cli.mjs evidence/pokemontcg-finish-evidence-audit-34719433407.json ${{ runner.temp }}/finish-evidence-targets.json
+      - name: Build pinned TCGdex reviewed evidence
+        if: ${{ inputs.provider == 'tcgdex' }}
+        env:
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/tcgdex-pinned-finish-evidence-cli.mjs ${{ runner.temp }}/finish-evidence-targets.json ${{ runner.temp }}/finish-evidence-reviewed.json
       - name: Acquire raw provider evidence
+        if: ${{ inputs.provider != 'tcgdex' }}
         env:
           SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY }}
           SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID }}
@@ -92,6 +99,7 @@ jobs:
           TCGPLAYER_METADATA_APPROVED: ${{ secrets.TCGPLAYER_METADATA_APPROVED }}
         run: python scripts/acquire_finish_evidence.py --provider '${{ inputs.provider }}' --targets ${{ runner.temp }}/finish-evidence-targets.json --output ${{ runner.temp }}/finish-evidence-acquisition.json --retries 6 --pace-seconds 0.2
       - name: Normalize explicit evidence fail closed
+        if: ${{ inputs.provider != 'tcgdex' }}
         run: node src/trader/value/finish-evidence-review-cli.mjs ${{ runner.temp }}/finish-evidence-targets.json ${{ runner.temp }}/finish-evidence-reviewed.json ${{ runner.temp }}/finish-evidence-acquisition.json
       - name: Store immutable evidence snapshots
         env:
@@ -99,7 +107,14 @@ jobs:
           EVIDENCE_WRITE: ${{ inputs.persist_evidence && 'true' || 'false' }}
           PRICE_WRITE: 'false'
           EVIDENCE_STORE_REPORT: ${{ runner.temp }}/finish-evidence-store.json
-        run: node src/trader/value/finish-evidence-snapshot-store-cli.mjs ${{ runner.temp }}/finish-evidence-acquisition.json
+          PROVIDER: ${{ inputs.provider }}
+        run: |
+          if [ "$PROVIDER" = "tcgdex" ]; then
+            INPUT=${{ runner.temp }}/finish-evidence-reviewed.json
+          else
+            INPUT=${{ runner.temp }}/finish-evidence-acquisition.json
+          fi
+          node src/trader/value/finish-evidence-snapshot-store-cli.mjs "$INPUT"
       - name: Rehearse or activate cumulative resolution state
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
