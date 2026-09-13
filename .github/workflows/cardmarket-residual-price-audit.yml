@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/cardmarket-residual-price-recovery-2026-09-12
+      - audit/cardmarket-native-pass3-2026-09-14
     paths:
       - 'signal-engine/src/trader/value/cardmarket-residual-price-audit-cli.mjs'
       - '.github/workflows/cardmarket-residual-price-audit.yml'
