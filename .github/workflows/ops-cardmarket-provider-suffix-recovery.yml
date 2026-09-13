@@ -1,5 +1,6 @@
 name: OPS Cardmarket Provider Suffix Recovery
 
+# Re-run after the 2026-09-13 finish-evidence cleanup reached zero unresolved.
 on:
   push:
     branches:
