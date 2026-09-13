@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "setName": "DP Black Star Promos",
+  "tcgdexSetId": "dpp",
+  "sourceFile": "FateDrop_Cardmarket_Direct_URLs_1316_Cards.xlsx",
+  "sourceFileSha256": "8692f0a71cd61f0a73245e0163f46bfb4c17125151156c5fe52047e3ce7fca47",
+  "reviewedUserUrlRows": 57,
+  "cardmarketExpansionSlug": "DP-Black-Star-Promos",
+  "userUrlEvidence": "All 57 DP Black Star Promos rows in the reviewed source file match the FateDrop set/name/collector/finish queue and use the same direct Cardmarket expansion path segment DP-Black-Star-Promos. URLs are identity locators only and are not scraped for prices.",
+  "pinnedTcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+  "tcgdexSetHasExplicitCardmarketExpansionId": false,
+  "anchor": {
+    "tcgdexCardId": "dpp-DP20",
+    "cardName": "Magmortar",
+    "collectorNumber": "DP20",
+    "finish": "holo",
+    "cardmarketProductId": "275562",
+    "basis": "Pinned TCGdex card DP20 explicitly links Cardmarket product 275562; the official Cardmarket public singles catalogue must independently place that product in one expansion before that expansion can scope any other DP promo matching."
+  },
+  "policy": {
+    "cardmarketPublicDownloadsRemainOnlyPriceSource": true,
+    "setScopeAloneDoesNotProveCardProduct": true,
+    "exactProductStillRequiredPerCard": true,
+    "userUrlsAreCorroboratingIdentityLocatorsOnly": true,
+    "attackAbilityDescriptorsMayOnlyDisambiguateWithinProvenExpansion": true,
+    "exactFinishMustBeIndependentlyPresentInPinnedTcgdexVariants": true,
+    "cardmarketProductIdDoesNotProveFinish": true,
+    "productionWrites": false
+  }
+}
