@@ -5,10 +5,11 @@ const text = value => String(value ?? '').trim();
 const folded = value => text(value).normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const collector = value => text(value).toUpperCase().replace(/\s+/g, '').replace(/(^|[^0-9])0+(?=\d)/g, '$1');
 
-export const PROVIDERS = Object.freeze(['scrydex', 'tcgplayer', 'cardmarket']);
+export const SNAPSHOT_PROVIDERS = Object.freeze(['scrydex', 'tcgplayer', 'cardmarket', 'set_rule', 'manual']);
+export const AUTOMATED_PROVIDERS = Object.freeze(['scrydex', 'tcgplayer', 'cardmarket']);
 
 export function verifySnapshot(snapshot) {
-  if (!snapshot || !PROVIDERS.includes(snapshot.provider)) throw new Error('Unsupported finish evidence provider');
+  if (!snapshot || !SNAPSHOT_PROVIDERS.includes(snapshot.provider)) throw new Error('Unsupported finish evidence provider');
   if (!snapshot.cardIdentityId || !snapshot.sourceLocator || !snapshot.rawPayload) throw new Error('Snapshot scope is incomplete');
   if (!Number.isFinite(snapshot.observedAt)) throw new Error('Snapshot observedAt is required');
   const digest = sha256(snapshot.rawPayload);
@@ -80,15 +81,17 @@ function decision(target, snapshot, observedFinish) {
 
 export function normalizeExplicitFinishEvidence(target, rawSnapshot) {
   const snapshot = verifySnapshot(rawSnapshot);
+  if (!AUTOMATED_PROVIDERS.includes(snapshot.provider)) return { decision: null, reason: 'human_or_rule_review_required' };
   if (!exactTarget(target, snapshot)) return { decision: null, reason: 'target_scope_mismatch' };
   const payload = snapshot.payload;
 
   if (snapshot.provider === 'scrydex') {
     const expectedId = text(target.scrydexCardId || target.tcgdexCardId);
     if (!expectedId || text(payload?.id) !== expectedId) return { decision: null, reason: 'scrydex_id_mismatch' };
-    if (collector(payload?.number ?? payload?.collector_number) !== collector(target.collectorNumber)) return { decision: null, reason: 'scrydex_collector_mismatch' };
+    if (collector(payload?.number ?? payload?.collector_number ?? payload?.localId) !== collector(target.collectorNumber)) return { decision: null, reason: 'scrydex_collector_mismatch' };
     if (folded(payload?.name) !== folded(target.name)) return { decision: null, reason: 'scrydex_name_mismatch' };
-    if (text(payload?.language_code).toUpperCase() !== 'EN') return { decision: null, reason: 'scrydex_language_mismatch' };
+    const language = text(payload?.language_code ?? payload?.language ?? 'EN').toUpperCase();
+    if (language !== 'EN') return { decision: null, reason: 'scrydex_language_mismatch' };
     const variants = Array.isArray(payload?.variants) ? payload.variants : [];
     const recognized = variants.map(v => ({ raw: v?.name, parsed: finishFromScrydexVariantName(v?.name) })).filter(v => v.parsed);
     const firstEditionOnly = recognized.length > 0 && recognized.every(v => v.parsed.quarantined === 'first_edition');
