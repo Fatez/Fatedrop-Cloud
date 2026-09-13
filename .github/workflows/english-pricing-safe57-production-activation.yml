@@ -1,0 +1,89 @@
+name: English Pricing Safe57 Production Activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type ACTIVATE_SAFE57 to persist the reviewed residual 28 plus DP promo 29 mappings, then refresh Cardmarket prices'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: ${{ inputs.confirm == 'ACTIVATE_SAFE57' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+
+      - name: Verify residual 28 exact finish-lane semantics
+        run: node --test tests/reviewed-residual-28-finish-lane.test.mjs
+      - name: Persist exactly the reviewed residual 28
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '527'
+          EXPECTED_APPROVED: '28'
+          EXPECTED_ACTIVATION_DIGEST: 40e1c37ddf40e4f330b05fa0ca9609d8f12a8469604838728c3094a4b1b13c59
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/reviewed-residual-28-finish-lane-cli.mjs
+
+      - name: Verify DP promo fail-closed matching semantics
+        run: node --test tests/dp-promos-cardmarket-crosswalk-audit.test.mjs
+      - name: Persist exactly the reviewed DP promo 29
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_DP_PROMO_RESIDUAL: '57'
+          EXPECTED_DP_PROMO_SAFE: '29'
+          EXPECTED_DP_PROMO_PRICEABLE: '27'
+          EXPECTED_DP_PROMO_EXPANSION: '1609'
+          EXPECTED_DP_PROMO_CANDIDATE_DIGEST: 9e6b3db9da206fba54c422bb008e820f6a035a425b239f2bb14975365f1f8787
+          EXPECTED_CARDMARKET_CATALOGUE_SHA256: a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52
+          EXPECTED_CARDMARKET_PRICE_GUIDE_SHA256: ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c
+          EXPECTED_CARDMARKET_SOURCE_SNAPSHOT: pokemon-price-guide-v1-2026-09-13T00:47:49.000Z
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/dp-promos-cardmarket-release-cli.mjs
+
+      - name: Refresh exact Cardmarket normal+holo observations once
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+
+      - name: Upload guarded activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: english-pricing-safe57-production-activation
+          path: |
+            ${{ runner.temp }}/reviewed-residual-28-finish-lane.json
+            ${{ runner.temp }}/dp-promos-cardmarket-release.json
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: error
+          retention-days: 14
