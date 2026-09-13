@@ -1,0 +1,81 @@
+name: Cardmarket Section B Activation On Merge
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cardmarket-section-b-activation-on-merge.yml'
+      - 'signal-engine/src/trader/value/cardmarket-resolution-aware-root-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-relaxed-secondary-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-section-b-activation-cli.mjs'
+      - 'signal-engine/tests/cardmarket-resolution-aware-root-recovery.test.mjs'
+      - 'signal-engine/tests/cardmarket-relaxed-secondary-recovery.test.mjs'
+      - 'signal-engine/tests/cardmarket-section-b-activation.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-section-b-activation
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Re-run focused recovery and activation tests
+        run: node --test tests/cardmarket-resolution-aware-root-recovery.test.mjs tests/cardmarket-relaxed-secondary-recovery.test.mjs tests/cardmarket-section-b-activation.test.mjs
+      - name: Persist pinned primary plus relaxed-secondary exact mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          ACTIVATE: 'true'
+          EXPECTED_SECTION_B: '1222'
+          EXPECTED_PRIMARY_SAFE: '470'
+          EXPECTED_NO_ROOT: '560'
+          EXPECTED_SECONDARY_SAFE: '27'
+          EXPECTED_COMBINED_SAFE: '497'
+          EXPECTED_CARDMARKET_CATALOGUE_SHA256: a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52
+          EXPECTED_CARDMARKET_PRICE_GUIDE_SHA256: ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c
+        run: node src/trader/value/cardmarket-section-b-activation-cli.mjs
+      - name: Persist Cardmarket prices for newly mapped identities
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Upload activation audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-section-b-activation
+          path: ${{ runner.temp }}/cardmarket-section-b-activation.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload price-cycle audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-section-b-price-cycle
+          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: warn
+          retention-days: 14

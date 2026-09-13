@@ -1,0 +1,73 @@
+name: Cardmarket Resolution Aware Root Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/cardmarket-resolution-aware-root-recovery-2026-09-13
+    paths:
+      - '.github/workflows/cardmarket-resolution-aware-root-audit.yml'
+      - 'signal-engine/src/trader/value/cardmarket-resolution-aware-root-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-relaxed-secondary-recovery-cli.mjs'
+      - 'signal-engine/tests/cardmarket-resolution-aware-root-recovery.test.mjs'
+      - 'signal-engine/tests/cardmarket-relaxed-secondary-recovery.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run focused regression tests
+        run: node --test tests/cardmarket-resolution-aware-root-recovery.test.mjs tests/cardmarket-relaxed-secondary-recovery.test.mjs
+      - name: Rehearse Section B exact mapping recovery
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '1222'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-resolution-aware-root-recovery-cli.mjs
+      - name: Run relaxed secondary pass over primary no-root holds
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_NO_ROOT: '560'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-relaxed-secondary-recovery-cli.mjs
+      - name: Upload primary recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-resolution-aware-root-recovery
+          path: ${{ runner.temp }}/cardmarket-resolution-aware-root-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload relaxed secondary audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-relaxed-secondary-recovery
+          path: ${{ runner.temp }}/cardmarket-relaxed-secondary-recovery.json
+          if-no-files-found: error
+          retention-days: 14
