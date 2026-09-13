@@ -8,6 +8,7 @@ on:
     paths:
       - '.github/workflows/ops-cardmarket-provider-suffix-recovery.yml'
       - 'signal-engine/src/trader/value/cardmarket-provider-suffix-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-native-collector-token-audit-cli.mjs'
 
 permissions:
   contents: read
@@ -40,11 +41,26 @@ jobs:
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
         run: node src/trader/value/cardmarket-provider-suffix-recovery-cli.mjs
+      - name: Audit exact collector tokens on current Section B
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '725'
+        run: node src/trader/value/cardmarket-native-collector-token-audit-cli.mjs
       - name: Upload recovery audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cardmarket-provider-suffix-recovery
           path: ${{ runner.temp }}/cardmarket-provider-suffix-recovery.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload collector-token audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-native-collector-token-audit
+          path: ${{ runner.temp }}/cardmarket-native-collector-token-audit.json
           if-no-files-found: error
           retention-days: 14
