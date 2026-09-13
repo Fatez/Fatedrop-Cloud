@@ -10,7 +10,7 @@ import {
 import {
   collectCurrentGuideInherentHoloBaseLaneEligibleProductIds,
 } from '../src/trader/value/cardmarket-daily-ingest.mjs';
-import { normaliseReviewedCollectorNumber } from '../src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs';
+import { normaliseReviewedCollectorNumber, isPreviouslyRetiredMapping, persistReviewedFinishRecovery } from '../src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs';
 
 const snorlax = {
   id: 'fdcardmap_15c449fc9d730a4afc896c79',
@@ -92,4 +92,17 @@ test('collector normalization preserves semantic suffixes', () => {
   assert.equal(normaliseReviewedCollectorNumber(' 067 '), '67');
   assert.equal(normaliseReviewedCollectorNumber('SWSH178'), 'SWSH178');
   assert.equal(normaliseReviewedCollectorNumber('GG026'), 'GG26');
+});
+
+test('retired Umbreon mapping remains blocked even with a different mapping ID', async () => {
+  const row = loadReviewedUmbreonSiblingRecovery().candidate;
+  assert.equal(isPreviouslyRetiredMapping(row), true);
+  assert.equal(isPreviouslyRetiredMapping({ ...row, id: 'new-id' }), true);
+  assert.equal(isPreviouslyRetiredMapping({ ...row, id: 'new-id', sourceVariantKey: 'holo' }), false);
+  let queries = 0;
+  await assert.rejects(
+    persistReviewedFinishRecovery({ query: async () => { queries++; } }, { status: 'clean', blocked: [], safeNew: [row] }),
+    /Previously retired mapping/
+  );
+  assert.equal(queries, 0);
 });
