@@ -1,0 +1,159 @@
+name: Ops Japanese Catalogue Activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      rehearsal_run_id:
+        description: "Successful full Ops Japanese Catalogue Rehearsal run ID"
+        required: true
+        type: string
+      expected_artifact_sha256:
+        description: "SHA-256 from the rehearsal artifact"
+        required: true
+        type: string
+      expected_run_id:
+        description: "runId inside the rehearsed Japanese artifact"
+        required: true
+        type: string
+      expected_sets:
+        required: true
+        type: string
+      expected_printings:
+        required: true
+        type: string
+      expected_identities:
+        required: true
+        type: string
+      expected_states:
+        required: true
+        type: string
+      expected_unresolved:
+        required: true
+        type: string
+      trigger_cardmarket:
+        description: "Run the existing guarded Cardmarket writer only after catalogue activation succeeds"
+        required: true
+        default: true
+        type: boolean
+      confirm:
+        description: "Type ACTIVATE_JAPANESE_CATALOGUE"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: signal-engine
+    env:
+      DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+      ALLOW_JAPANESE_SCHEMA_WRITE: "true"
+      ALLOW_JAPANESE_CATALOGUE_WRITE: "true"
+      EXPECTED_JAPANESE_RUN_ID: ${{ inputs.expected_run_id }}
+      EXPECTED_JAPANESE_ARTIFACT_SHA256: ${{ inputs.expected_artifact_sha256 }}
+      EXPECTED_JAPANESE_SETS: ${{ inputs.expected_sets }}
+      EXPECTED_JAPANESE_PRINTINGS: ${{ inputs.expected_printings }}
+      EXPECTED_JAPANESE_IDENTITIES: ${{ inputs.expected_identities }}
+      EXPECTED_JAPANESE_STATES: ${{ inputs.expected_states }}
+      EXPECTED_JAPANESE_UNRESOLVED: ${{ inputs.expected_unresolved }}
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - name: Confirm production activation
+        run: |
+          test "${{ inputs.confirm }}" = "ACTIVATE_JAPANESE_CATALOGUE" || {
+            echo "Exact confirmation phrase required."
+            exit 1
+          }
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Require a successful rehearsal run
+        run: |
+          conclusion="$(gh run view "${{ inputs.rehearsal_run_id }}" --repo "$GITHUB_REPOSITORY" --json conclusion --jq '.conclusion')"
+          test "$conclusion" = "success" || {
+            echo "Rehearsal run conclusion is $conclusion, not success."
+            exit 1
+          }
+
+      - name: Download exact rehearsal artifact
+        run: |
+          mkdir -p "$RUNNER_TEMP/japanese-rehearsal"
+          gh run download "${{ inputs.rehearsal_run_id }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name japanese-catalogue-rehearsal \
+            --dir "$RUNNER_TEMP/japanese-rehearsal"
+
+      - name: Reject canary or mismatched scope
+        env:
+          REHEARSAL_RUN_ID: ${{ inputs.rehearsal_run_id }}
+        run: |
+          node -e '
+            const fs=require("fs");
+            const p=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/japanese-rehearsal/japanese-rehearsal-scope.json","utf8"));
+            if (p.fullCatalogue !== true || Number(p.maxSets) !== 0 || p.mode !== "full") throw new Error("Activation requires a full-catalogue rehearsal, never a canary");
+            if (String(p.githubRunId) !== String(process.env.REHEARSAL_RUN_ID)) throw new Error("Rehearsal scope/run ID mismatch");
+          '
+
+      - name: Verify pinned artifact SHA
+        run: |
+          actual="$(sha256sum "$RUNNER_TEMP/japanese-rehearsal/japanese-catalogue-artifact.json" | awk '{print $1}')"
+          expected="$(printf '%s' "${{ inputs.expected_artifact_sha256 }}" | tr '[:upper:]' '[:lower:]')"
+          test "$actual" = "$expected" || {
+            echo "Artifact SHA mismatch: expected=$expected actual=$actual"
+            exit 1
+          }
+
+      - name: Revalidate full provider census
+        run: |
+          node src/trader/catalogue/japanese-catalogue-completeness-cli.mjs \
+            --input="$RUNNER_TEMP/japanese-rehearsal/japanese-catalogue-acquisition.json" \
+            --output="$RUNNER_TEMP/japanese-catalogue-activation-completeness.json" \
+            --mode=full
+
+      - name: Apply additive Japanese evidence schema
+        run: |
+          node src/trader/catalogue/japanese-catalogue-schema-cli.mjs \
+            database/2026-09-13-japanese-catalogue-evidence.sql
+
+      - name: Persist exact rehearsed catalogue
+        run: |
+          node src/trader/catalogue/japanese-catalogue-load-cli.mjs \
+            --artifact="$RUNNER_TEMP/japanese-rehearsal/japanese-catalogue-artifact.json" \
+            --report="$RUNNER_TEMP/japanese-catalogue-activation-report.json" \
+            --mode=persist
+
+      - name: Trigger existing guarded Cardmarket price writer
+        if: ${{ inputs.trigger_cardmarket }}
+        env:
+          CARDMARKET_MODE: persist
+        run: |
+          node src/trader/value/cardmarket-production-cycle-cli.mjs
+          cp "$RUNNER_TEMP/cardmarket-production-cycle.json" "$RUNNER_TEMP/japanese-cardmarket-production-cycle.json"
+
+      - name: Upload activation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: japanese-catalogue-activation
+          path: |
+            ${{ runner.temp }}/japanese-catalogue-activation-completeness.json
+            ${{ runner.temp }}/japanese-catalogue-activation-report.json
+            ${{ runner.temp }}/japanese-cardmarket-production-cycle.json
+          if-no-files-found: warn
+          retention-days: 30
