@@ -38,10 +38,12 @@ export function finishFromScrydexVariantName(value) {
 export function finishFromTcgplayerSubtype(value) {
   const key = folded(value);
   if (key === 'normal') return 'standard';
-  if (key === 'holofoil' || key === 'holo foil') return 'holo';
-  if (key === 'reverse holofoil' || key === 'reverse holo foil') return 'reverse_holo';
+  if (key === 'holofoil' || key === 'holo foil' || key === 'holo') return 'holo';
+  if (key === 'reverse holofoil' || key === 'reverse holo foil' || key === 'reverse holo') return 'reverse_holo';
   return null;
 }
+
+export const finishFromTcgplayerPrintingName = finishFromTcgplayerSubtype;
 
 function cardmarketExplicitValues(payload) {
   const attributes = payload?.attributes && typeof payload.attributes === 'object' ? payload.attributes : {};
@@ -63,19 +65,77 @@ export function finishFromCardmarketPayload(payload) {
   return [...finishes].sort();
 }
 
-function decision(target, snapshot, observedFinish) {
+function decision(target, snapshot, observedFinish, { verdict = 'exists', basis = 'explicit_variant_record', reviewPrefix = 'automated-explicit' } = {}) {
   return {
     cardIdentityId: target.cardIdentityId,
     finish: target.variantCode,
     language: target.language || 'en',
     edition: target.edition || 'unspecified',
-    verdict: 'exists',
-    basis: 'explicit_variant_record',
-    reviewReference: `automated-explicit:${snapshot.provider}:${snapshot.payloadSha256}`,
+    verdict,
+    basis,
+    reviewReference: `${reviewPrefix}:${snapshot.provider}:${snapshot.payloadSha256}`,
     sourceLocator: snapshot.sourceLocator,
     snapshotSha256: snapshot.payloadSha256,
     observedFinish,
     reviewer: 'fatedrop-evidence-acquisition',
+  };
+}
+
+function tcgplayerCompleteSkuEvidence(target, snapshot, payload) {
+  if (payload?.mode !== 'complete_product_sku_enumeration') return null;
+  const expectedProductId = String(target.tcgplayerProductId);
+  const product = payload?.product;
+  if (!product || String(product.productId) !== expectedProductId) return { decision: null, reason: 'tcgplayer_product_mismatch' };
+  const completeness = payload?.completeness || {};
+  if (completeness.productDetailsComplete !== true
+      || completeness.productSkusComplete !== true
+      || completeness.categoryPrintingsComplete !== true
+      || completeness.categoryLanguagesComplete !== true
+      || completeness.noPagination !== true
+      || completeness.errorsEmpty !== true) {
+    return { decision: null, reason: 'tcgplayer_sku_completeness_not_proven' };
+  }
+  const skus = Array.isArray(payload?.skus) ? payload.skus : [];
+  const printings = Array.isArray(payload?.printings) ? payload.printings : [];
+  const languages = Array.isArray(payload?.languages) ? payload.languages : [];
+  if (!skus.length || !printings.length || !languages.length) return { decision: null, reason: 'tcgplayer_complete_sku_payload_empty' };
+  if (skus.some(row => String(row?.productId) !== expectedProductId)) return { decision: null, reason: 'tcgplayer_sku_product_scope_mismatch' };
+
+  const englishLanguageIds = new Set(languages
+    .filter(row => folded(row?.name) === 'english' || folded(row?.abbr) === 'en')
+    .map(row => String(row.languageId)));
+  if (!englishLanguageIds.size) return { decision: null, reason: 'tcgplayer_english_language_not_proven' };
+
+  const printingById = new Map();
+  for (const row of printings) {
+    const finish = finishFromTcgplayerPrintingName(row?.name);
+    if (row?.printingId != null) printingById.set(String(row.printingId), finish);
+  }
+  const englishSkus = skus.filter(row => englishLanguageIds.has(String(row?.languageId)));
+  if (!englishSkus.length) return { decision: null, reason: 'tcgplayer_english_skus_absent' };
+  const unknownPrintingIds = new Set();
+  const finishes = new Set();
+  for (const row of englishSkus) {
+    const printingId = String(row?.printingId ?? '');
+    const finish = printingById.get(printingId);
+    if (!finish) unknownPrintingIds.add(printingId || 'missing');
+    else finishes.add(finish);
+  }
+  if (finishes.has(target.variantCode)) {
+    return {
+      decision: decision(target, snapshot, [...finishes].sort().join(',')),
+      reason: 'explicit_variant_record',
+    };
+  }
+  if (unknownPrintingIds.size) return { decision: null, reason: 'tcgplayer_unknown_printing_in_complete_sku_set' };
+  if (!finishes.size) return { decision: null, reason: 'tcgplayer_no_recognised_finish_in_complete_sku_set' };
+  return {
+    decision: decision(target, snapshot, [...finishes].sort().join(','), {
+      verdict: 'does_not_exist',
+      basis: 'exact_printing_checklist',
+      reviewPrefix: 'automated-complete-sku',
+    }),
+    reason: 'complete_sku_enumeration_excludes_target_finish',
   };
 }
 
@@ -103,6 +163,8 @@ export function normalizeExplicitFinishEvidence(target, rawSnapshot) {
 
   if (snapshot.provider === 'tcgplayer') {
     if (target.tcgplayerExactCrosswalk !== true || target.tcgplayerProductId == null) return { decision: null, reason: 'tcgplayer_exact_crosswalk_required' };
+    const completeSkuResult = tcgplayerCompleteSkuEvidence(target, snapshot, payload);
+    if (completeSkuResult) return completeSkuResult;
     const rows = Array.isArray(payload?.results) ? payload.results : [];
     const productRows = rows.filter(row => String(row?.productId) === String(target.tcgplayerProductId));
     const match = productRows.find(row => finishFromTcgplayerSubtype(row?.subTypeName) === target.variantCode);
