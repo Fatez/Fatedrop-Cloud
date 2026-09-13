@@ -1,0 +1,38 @@
+name: Reviewed English Variant Recovery Rehearsal
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: reviewed-english-variant-recovery
+  cancel-in-progress: false
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Validate corrected release against production
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+          PRICE_WRITE: 'false'
+          EXPECTED_REVIEWED_MAPPINGS: '409'
+        run: node src/trader/value/pokemontcg-reviewed-finish-recovery-cli.mjs
+      - name: Retain exact results and exclusions
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-english-variant-rehearsal
+          path: ${{ runner.temp }}/pokemontcg-reviewed-finish-recovery.json
+          if-no-files-found: error
+          retention-days: 30
