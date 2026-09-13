@@ -1,0 +1,70 @@
+name: DP Promos Cardmarket Crosswalk Audit
+
+on:
+  push:
+    branches:
+      - audit/dp-promos-cardmarket-crosswalk-2026-09-14
+    paths:
+      - 'signal-engine/src/trader/value/dp-promos-cardmarket-crosswalk-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/dp-promos-cardmarket-release-cli.mjs'
+      - 'signal-engine/evidence/dp-promos-cardmarket-expansion-evidence-2026-09-14.json'
+      - 'signal-engine/tests/dp-promos-cardmarket-crosswalk-audit.test.mjs'
+      - '.github/workflows/dp-promos-cardmarket-crosswalk-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify DP promo fail-closed matching semantics
+        run: node --test tests/dp-promos-cardmarket-crosswalk-audit.test.mjs
+      - name: Audit current production DP promo residuals read-only
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/dp-promos-cardmarket-crosswalk-audit-cli.mjs
+      - name: Rehearse guarded release manifest read-only
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_DP_PROMO_RESIDUAL: '57'
+          EXPECTED_DP_PROMO_SAFE: '29'
+          EXPECTED_DP_PROMO_PRICEABLE: '27'
+          EXPECTED_DP_PROMO_EXPANSION: '1609'
+          EXPECTED_CARDMARKET_CATALOGUE_SHA256: a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52
+          EXPECTED_CARDMARKET_PRICE_GUIDE_SHA256: ed9a59af5f73eaaedfcb7a27c2d0ba4960363ea7c07635946d349cb925ecbb3c
+          EXPECTED_CARDMARKET_SOURCE_SNAPSHOT: pokemon-price-guide-v1-2026-09-13T00:47:49.000Z
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/dp-promos-cardmarket-release-cli.mjs
+      - name: Upload DP promo audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dp-promos-cardmarket-crosswalk-audit
+          path: |
+            ${{ runner.temp }}/dp-promos-cardmarket-crosswalk-audit.json
+            ${{ runner.temp }}/dp-promos-cardmarket-release.json
+          if-no-files-found: error
+          retention-days: 14
