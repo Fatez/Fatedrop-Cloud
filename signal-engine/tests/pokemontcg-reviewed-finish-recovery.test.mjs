@@ -38,7 +38,7 @@ test('loads the exact frozen 410-card external finish cohort', () => {
   }
 });
 
-test('loads the exact saved Umbreon sibling mapping and combines without collision', () => {
+test('keeps saved Umbreon evidence auditable but excludes it from the release cohort', () => {
   const { candidate } = loadReviewedUmbreonSiblingRecovery();
   assert.equal(candidate.cardIdentityId, 'fdcard_043a2f0fc48bc2f9afaf7be5');
   assert.equal(candidate.name, 'Umbreon');
@@ -49,12 +49,16 @@ test('loads the exact saved Umbreon sibling mapping and combines without collisi
   assert.equal(candidate.providerPriceGuideLane, 'standard');
   assert.equal(candidate.proof.siblingEvidence[0].cardIdentityId, 'fdcard_3c5841311477627da2c18e7d');
 
-  const combined = loadReviewedCombinedCardmarketRecovery().candidates;
-  assert.equal(combined.length, 411);
-  assert.equal(combined.filter((row) => row.variantCode === 'standard').length, 360);
-  assert.equal(combined.filter((row) => row.variantCode === 'holo').length, 51);
-  assert.equal(new Set(combined.map((row) => row.cardIdentityId)).size, 411);
-  assert.equal(new Set(combined.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size, 411);
+  const combined = loadReviewedCombinedCardmarketRecovery();
+  assert.equal(combined.candidates.length, 410);
+  assert.equal(combined.candidates.filter((row) => row.variantCode === 'standard').length, 359);
+  assert.equal(combined.candidates.filter((row) => row.variantCode === 'holo').length, 51);
+  assert.equal(combined.excludedRetiredCandidates.length, 1);
+  assert.equal(combined.excludedRetiredCandidates[0].id, candidate.id);
+  assert.ok(!combined.candidates.some((row) => row.id === candidate.id));
+  assert.ok(!combined.candidates.some((row) => row.cardIdentityId === candidate.cardIdentityId && String(row.sourceRecordId) === '568801' && row.sourceVariantKey === 'normal'));
+  assert.equal(new Set(combined.candidates.map((row) => row.cardIdentityId)).size, 410);
+  assert.equal(new Set(combined.candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size, 410);
 });
 
 test('the only reviewed base-lane holo is Snorlax VMAX 687429', () => {
