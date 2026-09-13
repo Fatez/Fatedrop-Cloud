@@ -1,0 +1,108 @@
+name: OPS Reviewed Finish Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_path:
+        description: 'Repo path below signal-engine/evidence/reviews/ to a reviewed manual or set-rule JSON manifest'
+        required: true
+        type: string
+      persist_evidence:
+        description: 'Persist immutable snapshot and approved review evidence'
+        required: true
+        type: boolean
+        default: false
+      activate_states:
+        description: 'Persist cumulative classifier state after exact rehearsal counts are pinned'
+        required: true
+        type: boolean
+        default: false
+      expected_active_priced:
+        required: false
+        type: string
+      expected_active_unpriced:
+        required: false
+        type: string
+      expected_invalid:
+        required: false
+        type: string
+      expected_unresolved:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-reviewed-finish-evidence
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Validate reviewed manifest path
+        env:
+          MANIFEST: ${{ inputs.manifest_path }}
+        run: |
+          case "$MANIFEST" in
+            evidence/reviews/*.json) ;;
+            *) echo 'manifest_path must be below signal-engine/evidence/reviews/' >&2; exit 1 ;;
+          esac
+          test -f "$MANIFEST"
+      - name: Require pinned activation counts for writes
+        if: ${{ inputs.activate_states }}
+        env:
+          A: ${{ inputs.expected_active_priced }}
+          B: ${{ inputs.expected_active_unpriced }}
+          C: ${{ inputs.expected_invalid }}
+          D: ${{ inputs.expected_unresolved }}
+        run: |
+          test -n "$A" && test -n "$B" && test -n "$C" && test -n "$D"
+          test $((A+B+C+D)) -eq 1121
+      - name: Build explicit reviewed evidence manifest
+        env:
+          MANIFEST: ${{ inputs.manifest_path }}
+        run: node src/trader/value/reviewed-finish-decision-cli.mjs "$MANIFEST" ${{ runner.temp }}/finish-evidence-reviewed.json
+      - name: Store immutable evidence snapshots
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          EVIDENCE_WRITE: ${{ inputs.persist_evidence && 'true' || 'false' }}
+          PRICE_WRITE: 'false'
+          EVIDENCE_STORE_REPORT: ${{ runner.temp }}/finish-evidence-store.json
+        run: node src/trader/value/finish-evidence-snapshot-store-cli.mjs ${{ runner.temp }}/finish-evidence-reviewed.json
+      - name: Rehearse or activate cumulative resolution state
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          ACTIVATION_WRITE: ${{ inputs.activate_states && 'true' || 'false' }}
+          PRICE_WRITE: 'false'
+          EXPECTED_ACTIVE_PRICED: ${{ inputs.activate_states && inputs.expected_active_priced || '' }}
+          EXPECTED_ACTIVE_UNPRICED: ${{ inputs.activate_states && inputs.expected_active_unpriced || '' }}
+          EXPECTED_INVALID_CATALOGUE_ENTRY: ${{ inputs.activate_states && inputs.expected_invalid || '' }}
+          EXPECTED_UNRESOLVED_EVIDENCE: ${{ inputs.activate_states && inputs.expected_unresolved || '' }}
+        run: node src/trader/value/variant-resolution-activation-cli.mjs evidence/pokemontcg-finish-evidence-audit-34719433407.json ${{ runner.temp }}/finish-evidence-reviewed.json ${{ runner.temp }}
+      - name: Upload reviewed evidence audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reviewed-finish-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/finish-evidence-reviewed.json
+            ${{ runner.temp }}/finish-evidence-store.json
+            ${{ runner.temp }}/variant-resolution-ledger.json
+            ${{ runner.temp }}/variant-resolution-activation-plan.json
+            ${{ runner.temp }}/variant-resolution-activation-report.json
+            ${{ runner.temp }}/delta_activation.sql
+          if-no-files-found: warn
+          retention-days: 30
