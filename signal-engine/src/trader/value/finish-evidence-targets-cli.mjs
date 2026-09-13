@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
 import { loadTcgdexRepositoryEvidence } from './tcgdex-repository-cardmarket-evidence.mjs';
+import { tcgdexTcgplayerProductIdsForCard } from './tcgdex-tcgplayer-product-evidence.mjs';
 
 const targetTypeFor = Object.freeze({ standard: 'normal', holo: 'holo', reverse_holo: 'reverse' });
 function isBaselineVariant(variant, type) {
@@ -95,6 +96,15 @@ export async function buildFinishEvidenceTargets(db, audit, { repositoryRoot = p
       } else if (productIds.length > 1) {
         target.cardmarketProductAmbiguity = productIds.map(String).sort();
         enrichment.ambiguousCardmarketProductIds += 1;
+      }
+
+      const tcgplayerIds = tcgdexTcgplayerProductIdsForCard(pinnedCard);
+      if (tcgplayerIds.length === 1) {
+        target.tcgplayerProductId = String(tcgplayerIds[0]);
+        target.tcgplayerExactCrosswalk = true;
+        target.tcgplayerCrosswalkBasis = 'pinned_tcgdex_exact_card_product_id';
+      } else if (tcgplayerIds.length > 1) {
+        target.tcgplayerProductAmbiguity = tcgplayerIds.map(String);
       }
     }
     targets.push(target);
