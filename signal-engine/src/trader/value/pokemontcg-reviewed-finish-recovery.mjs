@@ -55,15 +55,18 @@ export function loadReviewedUmbreonSiblingRecovery() {
 export function loadReviewedCombinedCardmarketRecovery() {
   const external = loadReviewedPokemonTcgFinishRecovery();
   const sibling = loadReviewedUmbreonSiblingRecovery();
-  const candidates = [...external.candidates];
-  if (candidates.length !== 410) throw new Error('Reviewed Cardmarket release cohort count drifted');
-  if (new Set(candidates.map((row) => row.cardIdentityId)).size !== 410) throw new Error('Reviewed release identity collision');
-  if (new Set(candidates.map((row) => `${row.sourceRecordId}|${row.sourceVariantKey}`)).size !== 410) throw new Error('Reviewed release source-finish collision');
-  if (candidates.some((row) => row.id === sibling.candidate.id || (row.cardIdentityId === sibling.candidate.cardIdentityId && String(row.sourceRecordId) === String(sibling.candidate.sourceRecordId) && row.sourceVariantKey === sibling.candidate.sourceVariantKey))) throw new Error('Retired Umbreon candidate leaked into reviewed release cohort');
-  return Object.freeze({ external, sibling, excludedRetiredCandidates: Object.freeze([sibling.candidate]), candidates: Object.freeze(candidates) });
+  const candidates = external.candidates.filter(row =>
+    row.providerPriceGuideLane === (row.variantCode === 'standard' ? 'standard' : 'holo'));
+  const excludedFinishCandidates = external.candidates.filter(row => !candidates.includes(row));
+  if (candidates.length !== 409 || excludedFinishCandidates.length !== 1) throw new Error('Direct finish release partition drifted');
+  if (new Set(candidates.map(row => row.cardIdentityId)).size !== 409) throw new Error('Reviewed release identity collision');
+  if (new Set(candidates.map(row => row.sourceRecordId + '|' + row.sourceVariantKey)).size !== 409) throw new Error('Reviewed release source-finish collision');
+  if (candidates.some(row => row.id === sibling.candidate.id)) throw new Error('Retired Umbreon candidate leaked into release');
+  return Object.freeze({ external, sibling, excludedRetiredCandidates: Object.freeze([sibling.candidate]),
+    excludedFinishCandidates: Object.freeze(excludedFinishCandidates), candidates: Object.freeze(candidates) });
 }
 
-export const REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS = Object.freeze(['687429']);
+export const REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS = Object.freeze([]);
 const inherentIds = new Set(REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS);
 export const isReviewedPokemonTcgInherentHoloProduct = (id) => inherentIds.has(String(id));
 export const REVIEWED_POKEMONTCG_INHERENT_HOLO_MAPPING_DIGEST = 'eb04494accf9022bb439d0857fa94e0cb58e82ff04901970957e1329491d6095';
