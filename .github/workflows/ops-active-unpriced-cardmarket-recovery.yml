@@ -1,0 +1,98 @@
+name: OPS Active Unpriced Cardmarket Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      write_mappings:
+        description: 'Persist the 23 reviewed exact Cardmarket mappings'
+        required: true
+        type: boolean
+        default: false
+      ingest_prices:
+        description: 'Run the guarded Cardmarket production ingest after mappings are written'
+        required: true
+        type: boolean
+        default: false
+      activate_states:
+        description: 'Refresh the frozen 1,121 resolution states after successful price ingest'
+        required: true
+        type: boolean
+        default: false
+  push:
+    branches:
+      - feat/active-unpriced-cardmarket-recovery-2026-09-13
+    paths:
+      - '.github/workflows/ops-active-unpriced-cardmarket-recovery.yml'
+      - 'signal-engine/evidence/active-unpriced-cardmarket-recovery-2026-09-13.json'
+      - 'signal-engine/src/trader/value/active-unpriced-cardmarket-recovery-cli.mjs'
+      - 'signal-engine/tests/active-unpriced-cardmarket-recovery.test.mjs'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-active-unpriced-cardmarket-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run focused manifest regression test
+        run: node --test tests/active-unpriced-cardmarket-recovery.test.mjs
+      - name: Guard dependent production steps
+        if: ${{ inputs.ingest_prices || inputs.activate_states }}
+        env:
+          WRITE_MAPPINGS: ${{ inputs.write_mappings && 'true' || 'false' }}
+          INGEST_PRICES: ${{ inputs.ingest_prices && 'true' || 'false' }}
+          ACTIVATE_STATES: ${{ inputs.activate_states && 'true' || 'false' }}
+        run: |
+          test "$WRITE_MAPPINGS" = 'true'
+          if [ "$ACTIVATE_STATES" = 'true' ]; then test "$INGEST_PRICES" = 'true'; fi
+      - name: Rehearse or persist reviewed exact mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: ${{ inputs.write_mappings && 'true' || 'false' }}
+        run: node src/trader/value/active-unpriced-cardmarket-recovery-cli.mjs evidence/active-unpriced-cardmarket-recovery-2026-09-13.json
+      - name: Persist current Cardmarket observations
+        if: ${{ inputs.ingest_prices }}
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Refresh frozen resolution states
+        if: ${{ inputs.activate_states }}
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          ACTIVATION_WRITE: 'true'
+          PRICE_WRITE: 'false'
+          EXPECTED_ACTIVE_PRICED: '23'
+          EXPECTED_ACTIVE_UNPRICED: '64'
+          EXPECTED_INVALID_CATALOGUE_ENTRY: '1034'
+          EXPECTED_UNRESOLVED_EVIDENCE: '0'
+        run: |
+          printf '%s\n' '{"productionWrites":false,"priceWrites":false,"decisions":[],"snapshots":{}}' > ${{ runner.temp }}/empty-reviewed-evidence.json
+          node src/trader/value/variant-resolution-activation-cli.mjs evidence/pokemontcg-finish-evidence-audit-34719433407.json ${{ runner.temp }}/empty-reviewed-evidence.json ${{ runner.temp }}
+      - name: Upload recovery audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: active-unpriced-cardmarket-recovery-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/active-unpriced-cardmarket-recovery.json
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+            ${{ runner.temp }}/variant-resolution-activation-report.json
+            ${{ runner.temp }}/variant-resolution-activation-plan.json
+          if-no-files-found: warn
+          retention-days: 14
