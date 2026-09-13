@@ -190,6 +190,8 @@ export async function buildReviewedFinishRecovery(db, { sources } = {}) {
       candidateCount: candidates.length,
       externalEvidenceSha256: frozen.external.report.source?.pokemonTcg?.sha256,
     },
+    excludedRetiredCandidates: frozen.excludedRetiredCandidates,
+    excludedFinishCandidates: frozen.excludedFinishCandidates,
     currentSources: { cardmarketCatalogueSha256: catalogue.sha256, cardmarketPriceGuideSha256: guide.sha256 },
     counts: {
       reviewedCandidates: candidates.length,
@@ -243,7 +245,7 @@ async function main() {
   try {
     report = await buildReviewedFinishRecovery(db);
     if (report.status !== 'clean') process.exitCode = 1;
-    const expectedReviewed = Number(process.env.EXPECTED_REVIEWED_MAPPINGS || 411);
+    const expectedReviewed = Number(process.env.EXPECTED_REVIEWED_MAPPINGS || 409);
     if (report.counts.reviewedCandidates !== expectedReviewed) throw new Error(`Expected ${expectedReviewed} reviewed mappings, found ${report.counts.reviewedCandidates}`);
     if (process.env.MAPPING_WRITE === 'true') {
       const persistence = await persistReviewedFinishRecovery(db, report);
