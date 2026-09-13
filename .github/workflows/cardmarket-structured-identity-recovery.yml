@@ -14,6 +14,7 @@ on:
     paths:
       - '.github/workflows/cardmarket-structured-identity-recovery.yml'
       - 'signal-engine/src/trader/value/cardmarket-structured-identity-recovery-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-structured-expansion-audit-cli.mjs'
       - 'signal-engine/tests/cardmarket-structured-identity-recovery.test.mjs'
 
 permissions:
@@ -40,31 +41,16 @@ jobs:
       - run: npm ci
       - name: Run focused structured-recovery regression tests
         run: node --test tests/cardmarket-structured-identity-recovery.test.mjs
-      - name: Resolve Section B against official Cardmarket catalogue
+      - name: Resolve Section B and derive missing Cardmarket set scopes
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           EXPECTED_SECTION_B: '1222'
-          MAPPING_WRITE: ${{ inputs.write && 'true' || 'false' }}
-        run: node src/trader/value/cardmarket-structured-identity-recovery-cli.mjs
-      - name: Persist current Cardmarket prices for newly mapped identities
-        if: ${{ inputs.write }}
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          CARDMARKET_MODE: persist
-        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
-      - name: Upload structured recovery audit
+        run: node src/trader/value/cardmarket-structured-expansion-audit-cli.mjs
+      - name: Upload structured expansion audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-structured-identity-recovery
-          path: ${{ runner.temp }}/cardmarket-structured-identity-recovery.json
-          if-no-files-found: error
-          retention-days: 14
-      - name: Upload price cycle audit
-        if: ${{ always() && inputs.write }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: cardmarket-structured-identity-price-cycle
-          path: ${{ runner.temp }}/cardmarket-production-cycle.json
+          name: cardmarket-structured-expansion-audit
+          path: ${{ runner.temp }}/cardmarket-structured-expansion-audit.json
           if-no-files-found: error
           retention-days: 14
