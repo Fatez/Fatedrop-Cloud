@@ -28,6 +28,32 @@ export async function loadPersistedApprovedFinishEvidence(db, identityIds, snaps
   return decisions;
 }
 
+export function applyReviewedEvidenceSupersessions(persisted = [], current = []) {
+  const byReference = new Map(persisted.map(decision => [decision.reviewReference, decision]));
+  const superseded = new Set();
+  for (const decision of current) {
+    const refs = Array.isArray(decision.supersedesReviewReferences) ? decision.supersedesReviewReferences : [];
+    for (const reference of refs) {
+      const prior = byReference.get(reference);
+      if (!prior) throw new Error(`Superseded review reference is not an approved persisted decision: ${reference}`);
+      if (prior.cardIdentityId !== decision.cardIdentityId
+          || prior.finish !== decision.finish
+          || prior.language !== decision.language
+          || prior.edition !== decision.edition) {
+        throw new Error(`Superseded review scope mismatch: ${reference}`);
+      }
+      if (prior.verdict !== 'does_not_exist' || decision.verdict !== 'exists') {
+        throw new Error(`Only does_not_exist -> exists review reversal is permitted: ${reference}`);
+      }
+      superseded.add(reference);
+    }
+  }
+  return {
+    effectivePersisted: persisted.filter(decision => !superseded.has(decision.reviewReference)),
+    supersededReviewReferences: [...superseded].sort(),
+  };
+}
+
 export function mergeReviewedFinishDecisions(persisted = [], current = []) {
   const seen = new Set();
   const merged = [];
