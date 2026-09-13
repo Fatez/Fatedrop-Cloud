@@ -21,20 +21,24 @@ on:
         default: false
       expected_active_priced:
         description: 'Required when activate_states=true'
-        required: false
+        required: true
         type: string
+        default: '0'
       expected_active_unpriced:
         description: 'Required when activate_states=true'
-        required: false
+        required: true
         type: string
+        default: '28'
       expected_invalid:
         description: 'Required when activate_states=true'
-        required: false
+        required: true
         type: string
+        default: '0'
       expected_unresolved:
         description: 'Required when activate_states=true'
-        required: false
+        required: true
         type: string
+        default: '1093'
 
 permissions:
   contents: read
