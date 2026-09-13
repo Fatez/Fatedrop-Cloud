@@ -16,24 +16,24 @@ function findBalancedEnd(source, start, openChar, closeChar) {
   let escaped = false;
   let lineComment = false;
   let blockComment = false;
-  for (let index = start; index < source.length; index += 1) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (lineComment) { if (char === '\n') lineComment = false; continue; }
-    if (blockComment) { if (char === '*' && next === '/') { blockComment = false; index += 1; } continue; }
+  for (let i = start; i < source.length; i += 1) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (lineComment) { if (c === '\n') lineComment = false; continue; }
+    if (blockComment) { if (c === '*' && n === '/') { blockComment = false; i += 1; } continue; }
     if (quote) {
       if (escaped) { escaped = false; continue; }
-      if (char === '\\') { escaped = true; continue; }
-      if (char === quote) quote = null;
+      if (c === '\\') { escaped = true; continue; }
+      if (c === quote) quote = null;
       continue;
     }
-    if (char === '/' && next === '/') { lineComment = true; index += 1; continue; }
-    if (char === '/' && next === '*') { blockComment = true; index += 1; continue; }
-    if (char === '"' || char === "'" || char === '`') { quote = char; continue; }
-    if (char === openChar) depth += 1;
-    else if (char === closeChar) {
+    if (c === '/' && n === '/') { lineComment = true; i += 1; continue; }
+    if (c === '/' && n === '*') { blockComment = true; i += 1; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+    if (c === openChar) depth += 1;
+    else if (c === closeChar) {
       depth -= 1;
-      if (depth === 0) return index;
+      if (depth === 0) return i;
     }
   }
   return -1;
@@ -48,8 +48,43 @@ function balancedAfter(source, regex, openChar, closeChar) {
   return end < 0 ? null : source.slice(start, end + 1);
 }
 
-function objectProperty(source, property) {
-  return balancedAfter(source, new RegExp(`\\b${property}\\s*:\\s*\\{`), '{', '}');
+function topLevelObjectProperty(source, property) {
+  if (!source || source[0] !== '{') return null;
+  let depth = 1;
+  let quote = null;
+  let escaped = false;
+  let lineComment = false;
+  let blockComment = false;
+  const matcher = new RegExp(`^\\s*${property}\\s*:\\s*\\{`);
+
+  for (let i = 1; i < source.length - 1; i += 1) {
+    const c = source[i];
+    const n = source[i + 1];
+    if (lineComment) { if (c === '\n') lineComment = false; continue; }
+    if (blockComment) { if (c === '*' && n === '/') { blockComment = false; i += 1; } continue; }
+    if (quote) {
+      if (escaped) { escaped = false; continue; }
+      if (c === '\\') { escaped = true; continue; }
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === '/' && n === '/') { lineComment = true; i += 1; continue; }
+    if (c === '/' && n === '*') { blockComment = true; i += 1; continue; }
+    if (c === '"' || c === "'" || c === '`') { quote = c; continue; }
+
+    if (depth === 1) {
+      const match = matcher.exec(source.slice(i));
+      if (match) {
+        const open = i + match[0].lastIndexOf('{');
+        const end = findBalancedEnd(source, open, '{', '}');
+        return end < 0 ? null : source.slice(open, end + 1);
+      }
+    }
+
+    if (c === '{') depth += 1;
+    else if (c === '}') depth -= 1;
+  }
+  return null;
 }
 
 function integerProperty(source, property) {
@@ -63,33 +98,26 @@ function integerProperty(source, property) {
 export function extractRootTcgplayerProductId(cardSource) {
   const root = balancedAfter(cardSource, /:\s*Card\s*=\s*\{/, '{', '}');
   if (!root) return null;
-  return integerProperty(objectProperty(root, 'thirdParty'), 'tcgplayer');
+  return integerProperty(topLevelObjectProperty(root, 'thirdParty'), 'tcgplayer');
 }
 
-function collector(value) {
+const collector = (value) => {
   try { return normaliseCollectorNumber(value); } catch { return null; }
-}
-
-function bump(counts, key) {
-  counts[key] = (counts[key] || 0) + 1;
-}
+};
+const bump = (counts, key) => { counts[key] = (counts[key] || 0) + 1; };
 
 function providerPolicySnapshot() {
   const tcgplayer = getFatePriceProviderPolicy('tcgplayer-api');
   const ebay = getFatePriceProviderPolicy('ebay-api') || getFatePriceProviderPolicy('ebay-sold-api');
+  const compact = (policy, key) => policy ? {
+    key: policy.key,
+    status: policy.status,
+    acquisitionMode: policy.acquisitionMode,
+    reviewedAt: policy.reviewedAt,
+  } : { key, status: 'unreviewed' };
   return {
-    tcgplayerApi: tcgplayer ? {
-      key: tcgplayer.key,
-      status: tcgplayer.status,
-      acquisitionMode: tcgplayer.acquisitionMode,
-      reviewedAt: tcgplayer.reviewedAt,
-    } : { key: 'tcgplayer-api', status: 'unreviewed' },
-    ebaySold: ebay ? {
-      key: ebay.key,
-      status: ebay.status,
-      acquisitionMode: ebay.acquisitionMode,
-      reviewedAt: ebay.reviewedAt,
-    } : { key: 'ebay-sold-api', status: 'unreviewed' },
+    tcgplayerApi: compact(tcgplayer, 'tcgplayer-api'),
+    ebaySold: compact(ebay, 'ebay-sold-api'),
   };
 }
 
@@ -135,11 +163,7 @@ export async function buildSecondaryReadinessAudit(db, { repoEvidence } = {}) {
   `);
 
   const resolutions = [];
-  const counts = {
-    inputUnpriced: rows.length,
-    sectionA_mappedCardmarket: 0,
-    sectionB_unmappedCardmarket: 0,
-  };
+  const counts = { inputUnpriced: rows.length, sectionA_mappedCardmarket: 0, sectionB_unmappedCardmarket: 0 };
   const provisional = [];
 
   for (const row of rows) {
@@ -231,9 +255,7 @@ export async function buildSecondaryReadinessAudit(db, { repoEvidence } = {}) {
     status: 'audit_complete',
     productionWrites: false,
     providerNetworkCalls: false,
-    source: {
-      tcgdexRevision: process.env.TCGDEX_REVISION || null,
-    },
+    source: { tcgdexRevision: process.env.TCGDEX_REVISION || null },
     providerPolicy: providerPolicySnapshot(),
     policy: {
       exactSingleTcgdexCardRequired: true,
@@ -276,8 +298,7 @@ async function main() {
     db.release();
     await pool.end();
   }
-  const output = `${process.env.RUNNER_TEMP || '.'}/fateprice-secondary-readiness-audit.json`;
-  await writeFile(output, JSON.stringify(report, null, 2));
+  await writeFile(`${process.env.RUNNER_TEMP || '.'}/fateprice-secondary-readiness-audit.json`, JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ status: report.status, productionWrites: report.productionWrites, providerNetworkCalls: report.providerNetworkCalls, providerPolicy: report.providerPolicy, counts: report.counts }, null, 2));
 }
 
