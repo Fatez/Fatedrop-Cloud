@@ -8,6 +8,7 @@ on:
       - '.github/workflows/fateprice-secondary-readiness-audit.yml'
       - 'signal-engine/src/trader/value/fateprice-secondary-readiness-audit-cli.mjs'
       - 'signal-engine/src/trader/value/fateprice-secondary-crosswalk-v2-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/fateprice-section-a-tcgplayer-disambiguation-audit-cli.mjs'
       - 'signal-engine/tests/fateprice-secondary-readiness-audit.test.mjs'
 
 permissions:
@@ -55,6 +56,12 @@ jobs:
           EXPECTED_SECTION_A: '94'
           EXPECTED_SECTION_B: '725'
         run: node src/trader/value/fateprice-secondary-crosswalk-v2-audit-cli.mjs
+      - name: Audit Section A TCGplayer disambiguation against existing Cardmarket mappings
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/fateprice-section-a-tcgplayer-disambiguation-audit-cli.mjs
       - name: Upload readiness audit artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -69,5 +76,13 @@ jobs:
         with:
           name: fateprice-secondary-crosswalk-v2-audit
           path: ${{ runner.temp }}/fateprice-secondary-crosswalk-v2-audit.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Section A disambiguation audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-section-a-tcgplayer-disambiguation-audit
+          path: ${{ runner.temp }}/fateprice-section-a-tcgplayer-disambiguation-audit.json
           if-no-files-found: error
           retention-days: 14
