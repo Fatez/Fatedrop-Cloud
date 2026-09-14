@@ -1,0 +1,73 @@
+name: Scarlet & Violet 70 Production Activation
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type ACTIVATE_SV70 to persist exactly the frozen 70 mappings and refresh their Cardmarket prices'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    if: ${{ inputs.confirm == 'ACTIVATE_SV70' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: signal-engine
+    env:
+      DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+      TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+      TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+      EXPECTED_SV70_COUNT: '70'
+      EXPECTED_SV70_EXPANSION: '5223'
+      EXPECTED_SV70_DIGEST: 16dd420a9de2c0c1e2e1ace0e9aa1e915aa84f3bf8a8cf197b2e0e67bc414eb9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify frozen policy and partial-fixture regression
+        run: node --test tests/cardmarket-reviewed-sv-base-lane.test.mjs
+      - name: Read-only production and live-source verification
+        run: node src/trader/value/sv70-production-activation-cli.mjs
+      - name: Persist exactly the audited mappings
+        env:
+          MAPPING_WRITE: 'true'
+        run: node src/trader/value/sv70-production-activation-cli.mjs
+      - name: Ingest current Cardmarket prices
+        env:
+          CARDMARKET_MODE: persist
+        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
+      - name: Post-write audit
+        env:
+          POST_WRITE_AUDIT: 'true'
+        run: node src/trader/value/sv70-production-activation-cli.mjs
+      - name: Upload activation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sv70-production-activation
+          path: |
+            ${{ runner.temp }}/sv70-production-activation.json
+            ${{ runner.temp }}/cardmarket-production-cycle.json
+          if-no-files-found: error
+          retention-days: 14

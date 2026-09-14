@@ -12,6 +12,10 @@ import {
   validateReviewedSwshPromoBaseLaneMappings,
 } from './cardmarket-reviewed-swsh-promo-base-lane.mjs';
 import {
+  isReviewedSvBaseLaneProduct,
+  validateReviewedSvBaseLaneMapping,
+} from './cardmarket-reviewed-sv-base-lane.mjs';
+import {
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   isReviewedPokemonTcgInherentHoloProduct,
   validateReviewedPokemonTcgInherentHoloMappings,
@@ -86,6 +90,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
       || isReviewedSwshPromoBaseLaneProduct(sourceRecordId)
+      || isReviewedSvBaseLaneProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
       || isReviewedGalleryHolo(sourceRecordId)
       || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
@@ -179,6 +184,11 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
   const reviewedSwshPromoBaseLaneIds = validateReviewedSwshPromoBaseLaneMappings(rows);
+  // SV70 is validated row-by-row here. The all-70 production invariant belongs
+  // to the dedicated activation job, not this reusable partial-data resolver.
+  const reviewedSvBaseLaneIds = new Set(rows
+    .filter((row) => validateReviewedSvBaseLaneMapping(row))
+    .map((row) => String(row.source_record_id)));
   const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
@@ -189,6 +199,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
         || reviewedSwshPromoBaseLaneIds.has(productId)
+        || reviewedSvBaseLaneIds.has(productId)
         || cleanedHoloIds.has(productId)
         || galleryHoloIds.has(productId)
         || reviewedPokemonTcgHoloIds.has(productId)
