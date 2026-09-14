@@ -1,0 +1,55 @@
+name: Safe57 Fresh Guide Rehearsal
+
+on:
+  push:
+    branches:
+      - fix/safe57-fresh-cardmarket-guide-2026-09-14
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Rehearse reviewed residual 28 on current guide
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_SECTION_B: '527'
+          EXPECTED_APPROVED: '28'
+          EXPECTED_FROZEN_CANDIDATE_DIGEST: b552388cdfdcafaf6fd545511715b03e8cf31c7a8d03325d9fe2df4786c3f91c
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/reviewed-residual-28-finish-lane-cli.mjs
+      - name: Rehearse reviewed DP promo 29 on current guide
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          EXPECTED_DP_PROMO_RESIDUAL: '57'
+          EXPECTED_DP_PROMO_SAFE: '29'
+          EXPECTED_DP_PROMO_PRICEABLE: '27'
+          EXPECTED_DP_PROMO_EXPANSION: '1609'
+          EXPECTED_DP_PROMO_CANDIDATE_DIGEST: 9e6b3db9da206fba54c422bb008e820f6a035a425b239f2bb14975365f1f8787
+          EXPECTED_CARDMARKET_CATALOGUE_SHA256: a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/dp-promos-cardmarket-release-cli.mjs
