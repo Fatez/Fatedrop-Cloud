@@ -1,0 +1,20 @@
+{
+  "status": "phase3_descriptor_audit_complete",
+  "productionWrites": false,
+  "workflowRun": 34811523955,
+  "artifactId": 10334388447,
+  "counts": {"input":55,"candidates":4,"directlyPriceable":0,"baseLaneReview":4,"resolvedPriceUnavailable":0,"held":51,"ownershipCollisions":0},
+  "reasons": {"HOLD_MULTIPLE_DESCRIPTOR_MATCHES":46,"HOLD_NO_UNIQUE_DESCRIPTOR_MATCH":5,"REVIEW_BASE_LANE_ELIGIBLE":4},
+  "candidateDigest": "eb9376e958c6acf83b155eab6edfca729317e4433e0f89bc37502610779c3fc7",
+  "candidates": [
+    {"collectorNumber":"swsh139","name":"Pikachu V-UNION","cardIdentityId":"fdcard_fffef22ab570e8cef5fafe90","sourceRecordId":"576738","descriptor":"Union Gain","status":"REVIEW_BASE_LANE_ELIGIBLE"},
+    {"collectorNumber":"swsh155","name":"Greninja V-UNION","cardIdentityId":"fdcard_717621254bbda0b9ec64f074","sourceRecordId":"572155","descriptor":"Union Gain","status":"REVIEW_BASE_LANE_ELIGIBLE"},
+    {"collectorNumber":"swsh159","name":"Mewtwo V-UNION","cardIdentityId":"fdcard_f4cafa7e2bacf15ba571bc51","sourceRecordId":"572159","descriptor":"Union Gain","status":"REVIEW_BASE_LANE_ELIGIBLE"},
+    {"collectorNumber":"swsh163","name":"Zacian V-UNION","cardIdentityId":"fdcard_4cd3324ee8315a618847a522","sourceRecordId":"572163","descriptor":"Union Gain","status":"REVIEW_BASE_LANE_ELIGIBLE"}
+  ],
+  "notes": [
+    "Attack/ability descriptors were used only to disambiguate multiple explicit ordinary holo variant product IDs within the already-proven SWSH promo expansion.",
+    "All four winners have zero ownership collisions and current supported central Cardmarket data on the base lane only.",
+    "No production writes occurred."
+  ]
+}
