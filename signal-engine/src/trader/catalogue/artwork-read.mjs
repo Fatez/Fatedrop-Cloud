@@ -51,3 +51,38 @@ export async function enrichCardsWithArtworkFromStore(store, cards) {
 
   return Array.isArray(cards) ? enriched : enriched[0];
 }
+
+export async function getVerifiedPrintingArtworkFromStore(store, { setId, collectorNumber } = {}) {
+  const canonicalSetId = String(setId || '').trim();
+  const canonicalCollectorNumber = String(collectorNumber || '').trim();
+  if (!canonicalSetId || !canonicalCollectorNumber) return null;
+
+  if (typeof store?.read === 'function') {
+    const state = await store.read();
+    const printings = Object.values(state?.traderCatalogue?.printings || {});
+    const matches = printings.filter((printing) => (
+      printing?.verificationStatus === 'verified'
+      && printing?.setId === canonicalSetId
+      && String(printing?.collectorNumber || '') === canonicalCollectorNumber
+    ));
+    if (matches.length !== 1) return null;
+    return thumbnailFromAttributes(matches[0].attributes);
+  }
+
+  if (typeof store?.pool === 'function') {
+    const pool = await store.pool();
+    const { rows } = await pool.query(
+      `SELECT attributes->'artwork'->>'thumbnailUrl' AS thumbnail_url
+         FROM fatedrop_card_printings
+        WHERE verification_status='verified'
+          AND set_id=$1
+          AND collector_number=$2
+        LIMIT 2`,
+      [canonicalSetId, canonicalCollectorNumber],
+    );
+    if (rows.length !== 1) return null;
+    return normaliseArtworkUrl(rows[0].thumbnail_url);
+  }
+
+  return null;
+}
