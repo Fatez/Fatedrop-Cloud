@@ -1,12 +1,8 @@
-name: Scarlet & Violet 70 Production Activation
+name: SV70 Read-only Production Verification
 
 on:
-  workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type ACTIVATE_SV70 to persist exactly the frozen 70 mappings and refresh their Cardmarket prices'
-        required: true
-        type: string
+  push:
+    branches: [fix/sv70-root-evidence]
 
 permissions:
   contents: read
@@ -16,8 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  activate:
-    if: ${{ inputs.confirm == 'ACTIVATE_SV70' }}
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
@@ -49,25 +44,11 @@ jobs:
         run: node --test tests/cardmarket-reviewed-sv-base-lane.test.mjs tests/sv70-production-activation.test.mjs
       - name: Read-only production and live-source verification
         run: node src/trader/value/sv70-production-activation-cli.mjs
-      - name: Persist exactly the audited mappings
-        env:
-          MAPPING_WRITE: 'true'
-        run: node src/trader/value/sv70-production-activation-cli.mjs
-      - name: Ingest current Cardmarket prices
-        env:
-          CARDMARKET_MODE: persist
-        run: node src/trader/value/cardmarket-production-cycle-cli.mjs
-      - name: Post-write audit
-        env:
-          POST_WRITE_AUDIT: 'true'
-        run: node src/trader/value/sv70-production-activation-cli.mjs
-      - name: Upload activation evidence
+      - name: Upload read-only evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sv70-production-activation
-          path: |
-            ${{ runner.temp }}/sv70-production-activation.json
-            ${{ runner.temp }}/cardmarket-production-cycle.json
+          name: sv70-read-only-verification
+          path: ${{ runner.temp }}/sv70-production-activation.json
           if-no-files-found: error
           retention-days: 14

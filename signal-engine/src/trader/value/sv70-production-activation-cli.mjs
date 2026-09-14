@@ -7,12 +7,13 @@ import { validateProductionTarget } from '../catalogue/production-target-check.m
 import { normaliseCollectorNumber } from '../card-identity.mjs';
 import { fetchCardmarketPokemonSinglesCatalogue, fetchCardmarketPokemonPriceGuide } from './cardmarket-source-client.mjs';
 import { loadTcgdexRepositoryEvidence } from './tcgdex-repository-cardmarket-evidence.mjs';
-import { rootProductNameMatches } from './cardmarket-tcgdex-root-evidence.mjs';
+import { getRootCardmarketProductId, rootProductNameMatches } from './cardmarket-tcgdex-root-evidence.mjs';
 import {
   REVIEWED_SV_BASE_LANE,
   REVIEWED_SV_BASE_LANE_EXPANSION_ID,
   REVIEWED_SV_BASE_LANE_MANIFEST_DIGEST,
   REVIEWED_SV_BASE_LANE_REVISION,
+  validateReviewedSvBaseLaneMapping,
   validateReviewedSvBaseLaneMappings,
 } from './cardmarket-reviewed-sv-base-lane.mjs';
 
@@ -76,34 +77,41 @@ async function mappingState(db, entry, lock = false) {
       AND (m.card_identity_id=$1 OR m.source_record_id=$2)${suffix}`,
     [entry.cardIdentityId, entry.sourceRecordId]);
   if (result.rowCount === 0) return { state: 'missing', rows: [] };
-  if (result.rowCount === 1 && validateReviewedSvBaseLaneMappings(
-    REVIEWED_SV_BASE_LANE.map((item) => item.sourceRecordId === entry.sourceRecordId
-      ? result.rows[0]
-      : ({
-        id: item.mappingId,
-        card_identity_id: item.cardIdentityId,
-        source_record_id: item.sourceRecordId,
-        source_variant_key: 'holo',
-        canonical_variant_code: 'holo',
-        language_code: 'en',
-        verification_status: 'verified',
-      })),
-  ).size === REVIEWED_SV_BASE_LANE.length) return { state: 'exact_existing', rows: result.rows };
+  if (result.rowCount === 1 && validateReviewedSvBaseLaneMapping(result.rows[0])) {
+    return { state: 'exact_existing', rows: result.rows };
+  }
   throw new Error(`Mapping ownership drift ${entry.cardIdentityId}/${entry.sourceRecordId}`);
 }
 
-function verifyEvidence(entry, card, productById, priceById) {
+export function verifyEvidence(entry, card, productById, priceById) {
   assert.ok(card, `Pinned TCGdex card missing ${entry.tcgdexCardId}`);
   assert.ok(rootProductNameMatches(entry.name, card.name), `TCGdex name drift ${entry.tcgdexCardId}`);
   assert.equal(collector(card.localId), collector(entry.collectorNumber));
-  const baselineIds = [...new Set((card.variants || []).filter(isBaselineHolo)
-    .map((variant) => Number(variant.cardmarketProductId))
-    .filter((id) => Number.isSafeInteger(id) && id > 0))]
-    .map(String);
-  assert.deepEqual(baselineIds, [entry.sourceRecordId], `Ordinary holo ownership drift ${entry.sourceRecordId}`);
+  assert.equal(card.tcgdexCardId, entry.tcgdexCardId, 'TCGdex card identity drift');
+  // The audited proof is a root-level product plus one explicit ordinary holo
+  // variant. It does not require a variant-level thirdParty product ID.
+  assert.equal(String(getRootCardmarketProductId(card)), entry.sourceRecordId,
+    `Root Cardmarket product drift ${entry.sourceRecordId}`);
+  assert.equal(card.variants?.length, 1, 'Expected sole ordinary holo finish');
+  assert.ok(isBaselineHolo(card.variants[0]), 'Expected sole ordinary holo finish');
+  const variantProduct = card.variants[0].cardmarketProductId;
+  if (variantProduct != null) {
+    assert.equal(String(variantProduct), entry.sourceRecordId, 'Variant/root product conflict');
+  }
   const product = productById.get(entry.sourceRecordId);
   assert.ok(product, `Cardmarket product missing ${entry.sourceRecordId}`);
   assert.equal(Number(product.sourceExpansionId), REVIEWED_SV_BASE_LANE_EXPANSION_ID);
+  if (entry.proof === 'professor_label_sole_ordinary_holo_finish') {
+    const labels = {
+      '240': "Professor's Research - Professor Sada",
+      '241': "Professor's Research - Professor Turo",
+    };
+    assert.ok(labels[entry.collectorNumber], 'Unreviewed Professor collector number');
+    assert.equal(product.name, labels[entry.collectorNumber], 'Professor provider label drift');
+  } else {
+    assert.equal(entry.proof, 'root_sole_ordinary_holo_finish');
+    assert.ok(rootProductNameMatches(entry.name, product.name), 'Cardmarket product name drift');
+  }
   const price = priceById.get(entry.sourceRecordId);
   assert.ok(centralLane(price, 'standard'), `Current base-lane price missing ${entry.sourceRecordId}`);
   assert.equal(centralLane(price, 'holo'), false, `Separate holo lane now exists ${entry.sourceRecordId}`);
@@ -127,6 +135,7 @@ export async function release(db, { repoEvidence, sources } = {}) {
   const repo = repoEvidence || loadTcgdexRepositoryEvidence(process.env.TCGDEX_REPO, { includeCards: true });
   const set = repo.bySetId.get(SET_ID);
   assert.ok(set, 'Pinned Scarlet & Violet set missing');
+  assert.equal(set.setName, SET_NAME);
   assert.equal(Number(set.cardmarketExpansionId), REVIEWED_SV_BASE_LANE_EXPANSION_ID);
   const [{ artifact: catalogue, products }, { artifact: guide, snapshot }] = await Promise.all([
     sources?.catalogue ?? fetchCardmarketPokemonSinglesCatalogue(),
