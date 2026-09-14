@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+  push:
+    branches:
+      - ops/cardmarket-production-cycle-2026-09-15
+    paths:
+      - '.github/workflows/ops-cardmarket-production-cycle.yml'
 
 permissions:
   contents: read
@@ -34,7 +39,7 @@ jobs:
       - name: Run exact Cardmarket normal+holo cycle
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          CARDMARKET_MODE: ${{ inputs.persist && 'persist' || 'dry-run' }}
+          CARDMARKET_MODE: ${{ (github.event_name == 'push' || inputs.persist) && 'persist' || 'dry-run' }}
         run: node src/trader/value/cardmarket-production-cycle-cli.mjs
       - name: Upload cycle audit
         if: always()
