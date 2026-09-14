@@ -1,0 +1,79 @@
+{
+  "status": "phase2_audit_complete",
+  "productionWrites": false,
+  "workflowRun": 34811316030,
+  "artifactId": 10334308761,
+  "setName": "SWSH Black Star Promos",
+  "source": {
+    "sourceAuditRun": 34810903043,
+    "sourceAuditArtifactId": 10333784648,
+    "sourceAuditCohortDigest": "79822399c7cd2e791a7eabec9850045175fdbd47a5e2c9a34ab110d663b8b5c8",
+    "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+    "tcgdexSetId": "swshp",
+    "cardmarketExpansionId": 2916,
+    "cardmarketCatalogueSha256": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+    "cardmarketPriceGuideSha256": "07952597d464f0c0cc68c6e526546fb7ad1c1afaf96200b951eefc30472d5879",
+    "sourceSnapshotId": "pokemon-price-guide-v1-2026-09-14T00:46:31.000Z"
+  },
+  "counts": {
+    "heldInput": 97,
+    "mappingCandidates": 4,
+    "directlyPriceable": 0,
+    "baseLaneReview": 4,
+    "resolvedPriceUnavailable": 0,
+    "held": 93,
+    "ownershipCollisions": 0
+  },
+  "reasons": {
+    "HOLD_NO_EXPLICIT_ORDINARY_VARIANT_PRODUCT_ID": 35,
+    "HOLD_MULTIPLE_ORDINARY_VARIANT_PRODUCT_IDS": 55,
+    "REVIEW_BASE_LANE_ELIGIBLE": 4,
+    "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH": 3
+  },
+  "candidateDigest": "9b5c0c35d39459194d6ae30d02497bbd1610f38288f09b6bbbc0a456af18d84f",
+  "candidates": [
+    {
+      "collectorNumber": "swsh149",
+      "name": "Flareon V",
+      "variantCode": "holo",
+      "ordinaryProductId": "576502",
+      "isolatedSpecialProductIds": ["697074"],
+      "cardmarketProductName": "Flareon V [Flaming Breath | Scorching Column]",
+      "status": "REVIEW_BASE_LANE_ELIGIBLE"
+    },
+    {
+      "collectorNumber": "swsh150",
+      "name": "Vaporeon V",
+      "variantCode": "holo",
+      "ordinaryProductId": "576503",
+      "isolatedSpecialProductIds": ["697081"],
+      "cardmarketProductName": "Vaporeon V [Triple Draw | Splash Jump]",
+      "status": "REVIEW_BASE_LANE_ELIGIBLE"
+    },
+    {
+      "collectorNumber": "swsh151",
+      "name": "Jolteon V",
+      "variantCode": "holo",
+      "ordinaryProductId": "576504",
+      "isolatedSpecialProductIds": ["697097"],
+      "cardmarketProductName": "Jolteon V [Thunder Spear | Pin Missile]",
+      "status": "REVIEW_BASE_LANE_ELIGIBLE"
+    },
+    {
+      "collectorNumber": "swsh225",
+      "name": "Alolan Exeggutor V",
+      "variantCode": "holo",
+      "ordinaryProductId": "653693",
+      "isolatedSpecialProductIds": ["668989"],
+      "cardmarketProductName": "Alolan Exeggutor V [Growing Tall | Head Swing]",
+      "status": "REVIEW_BASE_LANE_ELIGIBLE"
+    }
+  ],
+  "notes": [
+    "All four candidates are un-stamped exact-finish TCGdex variant-level Cardmarket product links with zero ownership collisions.",
+    "Each candidate also has a distinct special/stamped product id which remains isolated and is not inherited by the ordinary promo identity.",
+    "The current Cardmarket guide exposes supported central data only on the base/standard numeric lane for these four products; no production price write is authorised by this audit alone.",
+    "Professor's Research SWSH152/SWSH178 and Boss's Orders SWSH251 remain held because their explicit ordinary product names include identity-bearing trainer-name disambiguation not represented in the canonical FateDrop card name.",
+    "No production mappings, prices, resolution states or quarantines were changed."
+  ]
+}
