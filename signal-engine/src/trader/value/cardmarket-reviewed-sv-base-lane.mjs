@@ -97,20 +97,24 @@ export function isReviewedSvBaseLaneProduct(id) {
   return byProductId.has(String(id));
 }
 
+export function validateReviewedSvBaseLaneMapping(row) {
+  const expected = byProductId.get(String(row?.source_record_id));
+  return Boolean(expected
+    && row.id === expected.mappingId
+    && row.card_identity_id === expected.cardIdentityId
+    && row.source_variant_key === 'holo'
+    && row.canonical_variant_code === 'holo'
+    && row.language_code === 'en'
+    && row.verification_status === 'verified');
+}
+
 export function validateReviewedSvBaseLaneMappings(rows) {
   const scoped = (rows || []).filter((row) => byProductId.has(String(row.source_record_id)) && row.source_variant_key === 'holo');
   if (scoped.length !== REVIEWED_SV_BASE_LANE.length) return new Set();
   const valid = new Set();
   for (const row of scoped) {
     const expected = byProductId.get(String(row.source_record_id));
-    if (!expected
-      || row.id !== expected.mappingId
-      || row.card_identity_id !== expected.cardIdentityId
-      || row.source_variant_key !== 'holo'
-      || row.canonical_variant_code !== 'holo'
-      || row.language_code !== 'en'
-      || row.verification_status !== 'verified'
-      || valid.has(expected.sourceRecordId)) return new Set();
+    if (!validateReviewedSvBaseLaneMapping(row) || valid.has(expected.sourceRecordId)) return new Set();
     valid.add(expected.sourceRecordId);
   }
   return valid.size === REVIEWED_SV_BASE_LANE.length ? valid : new Set();
