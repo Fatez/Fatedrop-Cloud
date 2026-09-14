@@ -14,7 +14,7 @@ import {
 import {
   REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
   isReviewedSvBaseLaneProduct,
-  validateReviewedSvBaseLaneMappings,
+  validateReviewedSvBaseLaneMapping,
 } from './cardmarket-reviewed-sv-base-lane.mjs';
 import {
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
@@ -186,7 +186,11 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
   const reviewedSwshPromoBaseLaneIds = validateReviewedSwshPromoBaseLaneMappings(rows);
-  const reviewedSvBaseLaneIds = validateReviewedSvBaseLaneMappings(rows);
+  // SV70 is validated row-by-row here. The all-70 production invariant belongs
+  // to the dedicated activation job, not this reusable partial-data resolver.
+  const reviewedSvBaseLaneIds = new Set(rows
+    .filter((row) => validateReviewedSvBaseLaneMapping(row))
+    .map((row) => String(row.source_record_id)));
   const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
