@@ -6,6 +6,7 @@ import {
   REVIEWED_SV_BASE_LANE_MANIFEST_DIGEST,
   REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
   isReviewedSvBaseLaneProduct,
+  validateReviewedSvBaseLaneMapping,
   validateReviewedSvBaseLaneMappings,
 } from '../src/trader/value/cardmarket-reviewed-sv-base-lane.mjs';
 
@@ -99,4 +100,12 @@ test('Professor Research releases are collector-pinned and only 240/241 are incl
   assert.ok(professors.every((row) => row.proof === 'professor_label_sole_ordinary_holo_finish'));
   assert.equal(REVIEWED_SV_BASE_LANE.some((row) => row.collectorNumber === '189'), false);
   assert.equal(REVIEWED_SV_BASE_LANE.some((row) => row.collectorNumber === '190'), false);
+});
+
+
+test('single-card eligibility does not require the full production cohort', () => {
+  const [first] = rows();
+  assert.equal(validateReviewedSvBaseLaneMapping(first), true);
+  assert.equal(validateReviewedSvBaseLaneMapping({ ...first, card_identity_id: 'drift' }), false);
+  assert.equal(validateReviewedSvBaseLaneMappings([first]).size, 0);
 });
