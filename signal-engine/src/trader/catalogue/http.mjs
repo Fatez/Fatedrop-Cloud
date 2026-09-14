@@ -5,7 +5,8 @@ import {
   listVerifiedCardsFromStore,
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
-} from './store.mjs';
+} from './public-store.mjs';
+import { getVerifiedPrintingArtworkFromStore } from './artwork-read.mjs';
 import {
   getFatePriceFromStore,
   getFatePriceHistoryFromStore,
@@ -87,6 +88,7 @@ export function isFateTraderCataloguePath(pathname) {
     || pathname.startsWith('/v1/cards/')
     || pathname === '/v1/card-series'
     || pathname === '/v1/card-sets'
+    || pathname === '/v1/card-artwork'
     || /^\/v1\/card-sets\/[^/]+\/cards$/.test(pathname)
     || isFatePricePath(pathname);
 }
@@ -97,6 +99,24 @@ export async function handleFateTraderCatalogue(req, res, {
 } = {}) {
   const url = new URL(req.url || '/', `http://${req.headers?.host || 'localhost'}`);
   if (req.method !== 'GET' || !isFateTraderCataloguePath(url.pathname)) return false;
+
+  if (url.pathname === '/v1/card-artwork') {
+    const thumbnailUrl = await getVerifiedPrintingArtworkFromStore(store, {
+      setId: url.searchParams.get('setId'),
+      collectorNumber: url.searchParams.get('collectorNumber'),
+    });
+    if (!thumbnailUrl) {
+      notFound(res, 'CARD_ARTWORK_NOT_VERIFIED', 'Verified artwork is not available for this exact canonical printing.');
+      return true;
+    }
+    res.writeHead(302, {
+      location: thumbnailUrl,
+      'cache-control': 'public, max-age=86400, stale-while-revalidate=604800',
+      'access-control-allow-origin': '*',
+    });
+    res.end();
+    return true;
+  }
 
   // Fate Price is a shared canonical valuation service for Collectors, Pulse and
   // Trader. It is intentionally not coupled to Fate Trader UI feature flags.
