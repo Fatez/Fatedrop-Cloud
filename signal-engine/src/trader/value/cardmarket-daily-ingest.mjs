@@ -12,7 +12,6 @@ import {
   validateReviewedSwshPromoBaseLaneMappings,
 } from './cardmarket-reviewed-swsh-promo-base-lane.mjs';
 import {
-  REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
   isReviewedSvBaseLaneProduct,
   validateReviewedSvBaseLaneMapping,
 } from './cardmarket-reviewed-sv-base-lane.mjs';
@@ -143,7 +142,6 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS,
-    ...REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
     ...REVIEWED_GALLERY_HOLO_IDS,
     ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
