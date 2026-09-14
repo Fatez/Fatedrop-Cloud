@@ -1,0 +1,42 @@
+{
+  "status": "audit_complete",
+  "productionWrites": false,
+  "workflowRun": 34810903043,
+  "setName": "SWSH Black Star Promos",
+  "source": {
+    "tcgdexRevision": "5b6a2859f454972477a9953ffe5cb554d24c45e9",
+    "tcgdexSetId": "swshp",
+    "cardmarketExpansionId": 2916,
+    "cardmarketCatalogueSha256": "a5a4cb310b38580e64160dd5fb330706ab259777522f5acf0cdeac5d8b887f52",
+    "cardmarketPriceGuideSha256": "07952597d464f0c0cc68c6e526546fb7ad1c1afaf96200b951eefc30472d5879",
+    "sourceSnapshotId": "pokemon-price-guide-v1-2026-09-14T00:46:31.000Z"
+  },
+  "counts": {
+    "unpricedCohort": 106,
+    "unmapped": 72,
+    "mappedUnpriced": 34,
+    "unmappedHolo": 71,
+    "unmappedStandard": 1,
+    "mappingCandidatesUnderStrictRule": 0,
+    "directlyPriceableUnderStrictRule": 0,
+    "baseLaneHoloReviewUnderStrictRule": 0,
+    "priceUnavailableUnderStrictRule": 9,
+    "held": 97,
+    "expansionProducts": 386
+  },
+  "providerCollectorNumberFields": {},
+  "reasons": {
+    "HOLD_EXPLICIT_PRODUCT_NAME_MISMATCH": 4,
+    "HOLD_MULTIPLE_EXACT_FINISH_VARIANTS": 92,
+    "PRICE_UNAVAILABLE": 9,
+    "HOLD_MAPPED_PRODUCT_NAME_MISMATCH": 1
+  },
+  "cohortDigest": "79822399c7cd2e791a7eabec9850045175fdbd47a5e2c9a34ab110d663b8b5c8",
+  "candidateDigest": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+  "notes": [
+    "Production truth corrects the supplied assumption: the 72 unmapped identities are 71 holo plus one standard identity, Champions Festival SWSH296.",
+    "The official Cardmarket downloadable singles catalogue exposes no collector-number field for products in expansion 2916, so the proposed three-tier SWSH collector-number matrix cannot be used as independent Cardmarket catalogue evidence.",
+    "Pinned TCGdex exposes multiple variants for 92 identities, so a blanket 'promo product is holo-only' interpretation would weaken finish proof and is not activation-safe.",
+    "This run is read-only. No mappings, prices, resolution states or quarantines were changed."
+  ]
+}
