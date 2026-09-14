@@ -91,16 +91,18 @@ function assertFrozenCandidateSet(current, frozen) {
 function assertExpectedActivation(report) {
   const expectedSectionB = Number(process.env.EXPECTED_SECTION_B || 0);
   const expectedApproved = Number(process.env.EXPECTED_APPROVED || 0);
-  const expectedDigest = String(process.env.EXPECTED_ACTIVATION_DIGEST || '').trim();
+  const expectedFrozenDigest = String(process.env.EXPECTED_FROZEN_CANDIDATE_DIGEST || '').trim();
   if (expectedSectionB > 0 && report.counts.sectionB !== expectedSectionB) {
     throw new Error(`Section B drift: expected ${expectedSectionB}, found ${report.counts.sectionB}`);
   }
   if (expectedApproved > 0 && report.counts.activationApproved !== expectedApproved) {
     throw new Error(`Activation-approved count drift: expected ${expectedApproved}, found ${report.counts.activationApproved}`);
   }
-  if (expectedDigest && report.activationDigest !== expectedDigest) throw new Error('Activation manifest drift');
-  if (process.env.MAPPING_WRITE === 'true' && (!expectedSectionB || !expectedApproved || !expectedDigest)) {
-    throw new Error('Production writes require pinned Section B count, activation-approved count and activation digest');
+  if (expectedFrozenDigest && report.frozenCandidateDigest !== expectedFrozenDigest) {
+    throw new Error('Frozen candidate manifest drift');
+  }
+  if (process.env.MAPPING_WRITE === 'true' && (!expectedSectionB || !expectedApproved || !expectedFrozenDigest)) {
+    throw new Error('Production writes require pinned Section B count, activation-approved count and frozen candidate digest');
   }
 }
 
@@ -113,12 +115,6 @@ export async function buildFinishReviewedRelease(db) {
 
   if (catalogueSource.artifact.sha256 !== frozen.source.cardmarketCatalogueSha256) {
     throw new Error('Cardmarket catalogue SHA drift from reviewed rehearsal');
-  }
-  if (guideSource.artifact.sha256 !== frozen.source.cardmarketPriceGuideSha256) {
-    throw new Error('Cardmarket price-guide SHA drift from reviewed rehearsal');
-  }
-  if (guideSource.snapshot.sourceSnapshotId !== frozen.source.sourceSnapshotId) {
-    throw new Error('Cardmarket price-guide snapshot drift from reviewed rehearsal');
   }
   if (String(process.env.TCGDEX_REVISION || '') !== frozen.source.tcgdexRevision) {
     throw new Error('TCGdex revision drift from reviewed rehearsal');
@@ -168,9 +164,16 @@ export async function buildFinishReviewedRelease(db) {
     policy: Object.freeze({
       ...base.policy,
       independentFinishProofRequiredForActivation: true,
-      independentFinishProof: 'positive central value in exact Cardmarket public price-guide lane matching canonical finish',
+      independentFinishProof: 'positive central value in exact current Cardmarket public price-guide lane matching canonical finish',
+      currentPriceGuideRevalidatedAtActivation: true,
+      volatilePriceGuideShaIsEvidenceNotIdentityPin: true,
       oppositeLaneSubstitutionForbidden: true,
       cardmarketProductIdAloneIsNotFinishProof: true,
+    }),
+    source: Object.freeze({
+      ...base.source,
+      currentCardmarketPriceGuideSha256: guideSource.artifact.sha256,
+      currentCardmarketSourceSnapshotId: guideSource.snapshot.sourceSnapshotId,
     }),
     counts: Object.freeze({
       ...base.counts,
@@ -209,6 +212,7 @@ async function main() {
   console.log(JSON.stringify({
     status: report.status,
     productionWrites: report.productionWrites,
+    source: report.source,
     counts: report.counts,
     activationDigest: report.activationDigest,
     frozenCandidateDigest: report.frozenCandidateDigest,

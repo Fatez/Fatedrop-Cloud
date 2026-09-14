@@ -15,8 +15,6 @@ function assertExpectedRelease(report) {
   const expectedExpansion = Number(process.env.EXPECTED_DP_PROMO_EXPANSION || 0);
   const expectedDigest = String(process.env.EXPECTED_DP_PROMO_CANDIDATE_DIGEST || '').trim();
   const expectedCatalogueSha = String(process.env.EXPECTED_CARDMARKET_CATALOGUE_SHA256 || '').trim();
-  const expectedGuideSha = String(process.env.EXPECTED_CARDMARKET_PRICE_GUIDE_SHA256 || '').trim();
-  const expectedSnapshot = String(process.env.EXPECTED_CARDMARKET_SOURCE_SNAPSHOT || '').trim();
 
   if (expectedResidual > 0 && report.counts.residualDpPromoIdentities !== expectedResidual) {
     throw new Error(`DP promo residual drift: expected ${expectedResidual}, found ${report.counts.residualDpPromoIdentities}`);
@@ -32,12 +30,10 @@ function assertExpectedRelease(report) {
   }
   if (expectedDigest && report.candidateDigest !== expectedDigest) throw new Error('DP promo candidate manifest drift');
   if (expectedCatalogueSha && report.source.cardmarketCatalogueSha256 !== expectedCatalogueSha) throw new Error('Cardmarket catalogue SHA drift');
-  if (expectedGuideSha && report.source.cardmarketPriceGuideSha256 !== expectedGuideSha) throw new Error('Cardmarket price-guide SHA drift');
-  if (expectedSnapshot && report.source.sourceSnapshotId !== expectedSnapshot) throw new Error('Cardmarket source snapshot drift');
 
   if (process.env.MAPPING_WRITE === 'true') {
-    if (!expectedResidual || !expectedSafe || !expectedPriceable || !expectedExpansion || !expectedDigest || !expectedCatalogueSha || !expectedGuideSha || !expectedSnapshot) {
-      throw new Error('Production DP promo writes require all pinned release counts, expansion, candidate digest and source hashes');
+    if (!expectedResidual || !expectedSafe || !expectedPriceable || !expectedExpansion || !expectedDigest || !expectedCatalogueSha) {
+      throw new Error('Production DP promo writes require pinned release counts, expansion, candidate digest and catalogue hash');
     }
     if (report.counts.batchCollisionKeys !== 0) throw new Error('DP promo batch collisions remain');
     if (report.counts.safeExactMappings !== report.candidates.length) throw new Error('DP promo candidate count is internally inconsistent');
@@ -103,7 +99,15 @@ export async function buildRelease(db) {
   const audit = await buildDpPromoAudit(db);
   if (audit.status !== 'audit_complete') throw new Error(`DP promo audit did not complete: ${audit.status}`);
   const candidateDigest = digest(audit.candidates);
-  return Object.freeze({ ...audit, candidateDigest });
+  return Object.freeze({
+    ...audit,
+    policy: Object.freeze({
+      ...audit.policy,
+      currentPriceGuideRevalidatedAtActivation: true,
+      volatilePriceGuideShaIsEvidenceNotIdentityPin: true,
+    }),
+    candidateDigest,
+  });
 }
 
 async function main() {
