@@ -12,6 +12,11 @@ import {
   validateReviewedSwshPromoBaseLaneMappings,
 } from './cardmarket-reviewed-swsh-promo-base-lane.mjs';
 import {
+  REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
+  isReviewedSvBaseLaneProduct,
+  validateReviewedSvBaseLaneMappings,
+} from './cardmarket-reviewed-sv-base-lane.mjs';
+import {
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   isReviewedPokemonTcgInherentHoloProduct,
   validateReviewedPokemonTcgInherentHoloMappings,
@@ -86,6 +91,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
       || isReviewedSwshPromoBaseLaneProduct(sourceRecordId)
+      || isReviewedSvBaseLaneProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
       || isReviewedGalleryHolo(sourceRecordId)
       || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
@@ -137,6 +143,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS,
+    ...REVIEWED_SV_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
     ...REVIEWED_GALLERY_HOLO_IDS,
     ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
@@ -179,6 +186,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
   const reviewedSwshPromoBaseLaneIds = validateReviewedSwshPromoBaseLaneMappings(rows);
+  const reviewedSvBaseLaneIds = validateReviewedSvBaseLaneMappings(rows);
   const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
@@ -189,6 +197,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
         || reviewedSwshPromoBaseLaneIds.has(productId)
+        || reviewedSvBaseLaneIds.has(productId)
         || cleanedHoloIds.has(productId)
         || galleryHoloIds.has(productId)
         || reviewedPokemonTcgHoloIds.has(productId)
