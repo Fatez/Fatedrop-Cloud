@@ -9,6 +9,18 @@ import {
   validateReviewedSvBaseLaneMappings,
 } from '../src/trader/value/cardmarket-reviewed-sv-base-lane.mjs';
 
+const EXPECTED_LANE_LENGTH = 70;
+const EXPECTED_MANIFEST_DIGEST = '16dd420a9de2c0c1e2e1ace0e9aa1e915aa84f3bf8a8cf197b2e0e67bc414eb9';
+
+function duplicateProductIds(ids) {
+  const counts = new Map();
+  for (const id of ids) counts.set(id, (counts.get(id) ?? 0) + 1);
+  return [...counts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([id]) => id)
+    .sort();
+}
+
 function rows() {
   return REVIEWED_SV_BASE_LANE.map((entry) => ({
     id: entry.mappingId,
@@ -22,10 +34,40 @@ function rows() {
   }));
 }
 
-test('reviewed Scarlet & Violet Base manifest is exactly 70 unique products', () => {
-  assert.equal(REVIEWED_SV_BASE_LANE.length, 70);
-  assert.equal(REVIEWED_SV_BASE_LANE_MANIFEST_DIGEST, '16dd420a9de2c0c1e2e1ace0e9aa1e915aa84f3bf8a8cf197b2e0e67bc414eb9');
-  assert.equal(new Set(REVIEWED_SV_BASE_LANE_PRODUCT_IDS).size, 70);
+test('reviewed Scarlet & Violet Base laneLength is frozen at 70', () => {
+  const laneLength = REVIEWED_SV_BASE_LANE.length;
+  assert.equal(laneLength, EXPECTED_LANE_LENGTH, `laneLength=${laneLength}`);
+});
+
+test('reviewed Scarlet & Violet Base productIdsLength is frozen at 70', () => {
+  const productIdsLength = REVIEWED_SV_BASE_LANE_PRODUCT_IDS.length;
+  assert.equal(productIdsLength, EXPECTED_LANE_LENGTH, `productIdsLength=${productIdsLength}`);
+});
+
+test('reviewed Scarlet & Violet Base uniqueProductIds is frozen at 70', () => {
+  const uniqueProductIds = new Set(REVIEWED_SV_BASE_LANE_PRODUCT_IDS).size;
+  const duplicateIds = duplicateProductIds(REVIEWED_SV_BASE_LANE_PRODUCT_IDS);
+  assert.equal(
+    uniqueProductIds,
+    EXPECTED_LANE_LENGTH,
+    `uniqueProductIds=${uniqueProductIds}; duplicateIds=${JSON.stringify(duplicateIds)}`,
+  );
+});
+
+test('reviewed Scarlet & Violet Base duplicateIds remains empty', () => {
+  const duplicateIds = duplicateProductIds(REVIEWED_SV_BASE_LANE_PRODUCT_IDS);
+  assert.deepEqual(duplicateIds, [], `duplicateIds=${JSON.stringify(duplicateIds)}`);
+});
+
+test('reviewed Scarlet & Violet Base frozenDigest remains unchanged', () => {
+  assert.equal(
+    REVIEWED_SV_BASE_LANE_MANIFEST_DIGEST,
+    EXPECTED_MANIFEST_DIGEST,
+    `frozenDigest=${REVIEWED_SV_BASE_LANE_MANIFEST_DIGEST}`,
+  );
+});
+
+test('reviewed Scarlet & Violet Base product lookup accepts only the frozen product IDs', () => {
   for (const id of REVIEWED_SV_BASE_LANE_PRODUCT_IDS) assert.equal(isReviewedSvBaseLaneProduct(id), true);
   assert.equal(isReviewedSvBaseLaneProduct('not-reviewed'), false);
 });
