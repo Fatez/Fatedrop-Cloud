@@ -2,6 +2,7 @@ import { REVIEWED_GALLERY_HOLO_IDS } from '../src/trader/value/cardmarket-review
 import { REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS } from '../src/trader/value/pokemontcg-reviewed-finish-recovery.mjs';
 import { REVIEWED_CLEANED_HOLO_PRODUCT_IDS } from '../src/trader/value/cardmarket-reviewed-cleaned-holo.mjs';
 import { REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS } from '../src/trader/value/cardmarket-reviewed-explicit-holo-base-lane.mjs';
+import { REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS } from '../src/trader/value/cardmarket-reviewed-swsh-promo-base-lane.mjs';
 import { REVIEWED_SINGLE_FOIL_PRODUCT_IDS } from '../src/trader/value/cardmarket-reviewed-single-foil.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -165,7 +166,7 @@ test('Postgres batch resolver uses one lookup and never crosses finishes or sele
   const store = { pool: async () => ({ query: async (sql, params) => {
     calls++;
     assert.match(sql, /verification_status='verified'/);
-    assert.deepEqual(params, [[...new Set(['668227', ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS, ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS, ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS, ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS, ...REVIEWED_GALLERY_HOLO_IDS, ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS])]]);
+    assert.deepEqual(params, [[...new Set(['668227', ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS, ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS, ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS, ...REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS, ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS, ...REVIEWED_GALLERY_HOLO_IDS, ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS])]]);
     return { rows: [row('standard'), row('holo', 'holo')] };
   } }) };
   const resolve = await createCardmarketBatchExactMappingResolver(store, ['668227']);

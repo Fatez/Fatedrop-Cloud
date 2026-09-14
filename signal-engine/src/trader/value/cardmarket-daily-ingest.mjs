@@ -7,6 +7,11 @@ import {
   validateReviewedExplicitHoloBaseLaneMappings,
 } from './cardmarket-reviewed-explicit-holo-base-lane.mjs';
 import {
+  REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS,
+  isReviewedSwshPromoBaseLaneProduct,
+  validateReviewedSwshPromoBaseLaneMappings,
+} from './cardmarket-reviewed-swsh-promo-base-lane.mjs';
+import {
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   isReviewedPokemonTcgInherentHoloProduct,
   validateReviewedPokemonTcgInherentHoloMappings,
@@ -80,6 +85,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       isAuditedInherentHoloBaseLaneProduct(sourceRecordId)
       || isReviewedSingleFoilProduct(sourceRecordId)
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
+      || isReviewedSwshPromoBaseLaneProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
       || isReviewedGalleryHolo(sourceRecordId)
       || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
@@ -130,6 +136,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...CARDMARKET_INHERENT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
+    ...REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
     ...REVIEWED_GALLERY_HOLO_IDS,
     ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
@@ -171,6 +178,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   const reviewedExplicitHoloIds = hasEligibleReviewedExplicitHolo
     ? validateReviewedExplicitHoloBaseLaneMappings(rows)
     : new Set();
+  const reviewedSwshPromoBaseLaneIds = validateReviewedSwshPromoBaseLaneMappings(rows);
   const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
@@ -180,6 +188,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         integrity.validProductIds.has(productId)
         || reviewedFoilIds.has(productId)
         || reviewedExplicitHoloIds.has(productId)
+        || reviewedSwshPromoBaseLaneIds.has(productId)
         || cleanedHoloIds.has(productId)
         || galleryHoloIds.has(productId)
         || reviewedPokemonTcgHoloIds.has(productId)
