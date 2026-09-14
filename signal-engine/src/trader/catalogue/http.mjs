@@ -5,7 +5,7 @@ import {
   listVerifiedCardsFromStore,
   listVerifiedCardSeriesFromStore,
   listVerifiedCardSetsFromStore,
-} from './store.mjs';
+} from './public-store.mjs';
 import {
   getFatePriceFromStore,
   getFatePriceHistoryFromStore,
