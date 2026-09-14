@@ -1,0 +1,54 @@
+name: SWSH Promos Reviewed 8 Rehearsal
+
+on:
+  push:
+    branches:
+      - feat/swsh-promos-reviewed-8-v3
+    paths:
+      - 'signal-engine/src/trader/value/cardmarket-reviewed-swsh-promo-base-lane.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-daily-ingest.mjs'
+      - 'signal-engine/src/trader/value/swsh-promos-reviewed-8-rehearsal.mjs'
+      - 'signal-engine/tests/cardmarket-reviewed-swsh-promo-base-lane.test.mjs'
+      - '.github/workflows/swsh-promos-reviewed-8-rehearsal.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Verify reviewed policy semantics
+        run: node --test tests/cardmarket-reviewed-swsh-promo-base-lane.test.mjs
+      - name: Rehearse exact mapping inserts and price routing with rollback
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/swsh-promos-reviewed-8-rehearsal.mjs
+      - name: Upload rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swsh-promos-reviewed-8-rehearsal
+          path: ${{ runner.temp }}/swsh-promos-reviewed-8-rehearsal.json
+          if-no-files-found: error
+          retention-days: 14
