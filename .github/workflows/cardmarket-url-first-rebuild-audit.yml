@@ -15,7 +15,11 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-mapping-release-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six-release-cli.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
+      - 'signal-engine/tests/cardmarket-stale-ownership-six.test.mjs'
 
 permissions:
   contents: read
@@ -36,7 +40,7 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
       - name: Run focused URL-first model tests
-        run: node --test tests/cardmarket-url-first-rebuild.test.mjs
+        run: node --test tests/cardmarket-url-first-rebuild.test.mjs tests/cardmarket-stale-ownership-six.test.mjs
       - name: Compare URL-first model with production mappings and live Cardmarket data
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
@@ -53,7 +57,16 @@ jobs:
         run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
       - name: Require official Cardmarket product-name compatibility
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
-      - name: Rehearse exact mapping persistence
+      - name: Verify six stale owners and their replacement products
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-stale-ownership-six-audit-cli.mjs
+      - name: Rehearse six-owner correction with full rollback
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-stale-ownership-six-release-cli.mjs
+      - name: Rehearse exact 361 mapping persistence
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           EXPECTED_MAPPING_COUNT: '361'
@@ -70,6 +83,8 @@ jobs:
             ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
+            ${{ runner.temp }}/cardmarket-stale-ownership-six-audit.json
+            ${{ runner.temp }}/cardmarket-stale-ownership-six-release.json
             ${{ runner.temp }}/cardmarket-url-first-mapping-release.json
           if-no-files-found: warn
           retention-days: 14
