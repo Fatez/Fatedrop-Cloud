@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
@@ -8,6 +8,7 @@ import { validateProductionTarget } from '../catalogue/production-target-check.m
 import { build as buildLegacyPlan } from './cardmarket-full-market-recertification-cli.mjs';
 
 const OUTPUT = () => path.join(process.env.RUNNER_TEMP || '.', 'cardmarket-full-market-recertification.json');
+const STRICT_REPORT = () => path.join(process.env.RUNNER_TEMP || '.', 'cardmarket-url-first-tcggo-strict.json');
 
 function sha256(lines) {
   const hash = createHash('sha256');
@@ -82,6 +83,57 @@ function reverseCandidateFromLegacyQuarantine(row) {
   });
 }
 
+function buildStrictIndex(strict) {
+  const resolved = new Map();
+  const collided = new Set();
+  for (const row of [...(strict?.safeMappings || []), ...(strict?.conflicts || [])]) {
+    const identityId = row.cardIdentityId;
+    if (!identityId) continue;
+    const prior = resolved.get(identityId);
+    if (prior && String(prior.sourceRecordId) !== String(row.sourceRecordId)) {
+      resolved.delete(identityId);
+      collided.add(identityId);
+      continue;
+    }
+    if (!collided.has(identityId)) resolved.set(identityId, row);
+  }
+  for (const row of strict?.rejectedNameMismatch || []) {
+    resolved.delete(row.cardIdentityId);
+    collided.add(row.cardIdentityId);
+  }
+  return { resolved, collided };
+}
+
+function reverseCandidateFromStrict(row, strictRow) {
+  const productId = String(strictRow?.sourceRecordId || '').trim();
+  const reviewedUrl = String(strictRow?.reviewedCardmarketUrl || row?.details?.reviewedCardmarketUrl || '').trim();
+  if (!productId || !reviewedUrl) return null;
+  return Object.freeze({
+    cardIdentityId: row.cardIdentityId,
+    setCode: row.setCode,
+    setName: row.setName,
+    name: row.name,
+    collectorNumber: row.collectorNumber,
+    variantCode: row.variantCode,
+    classifierState: row.classifierState,
+    sourceRecordId: productId,
+    sourceVariantKey: 'reverse',
+    reviewedCardmarketUrl: reviewedUrl,
+    forensicEvidenceUrl: strictRow?.tcggo?.url || null,
+    cardmarketProductName: strictRow?.cardmarketProductName || null,
+    cardmarketExpansionId: String(strictRow?.cardmarketExpansionId || ''),
+    method: strictRow?.proof?.method
+      ? `${strictRow.proof.method}:reverse-public-product`
+      : 'forensic:exact_tcgdex_to_cardmarket:reverse-public-product',
+    priceEvidence: Object.freeze({
+      standard: Boolean(strictRow?.priceEvidence?.standard),
+      holo: Boolean(strictRow?.priceEvidence?.holo),
+      targetLane: false,
+      reverseOfferDerived: true,
+    }),
+  });
+}
+
 async function currentCardmarketMappings(db) {
   const { rows } = await db.query(`
     SELECT id,card_identity_id,source_record_id,source_variant_key,source_url,source_version
@@ -107,6 +159,12 @@ export async function build(db, options = {}) {
     throw new Error('Completed legacy full-market plan required before reverse correction');
   }
 
+  const strict = options.strictReport || JSON.parse(await readFile(STRICT_REPORT(), 'utf8'));
+  if (strict?.status !== 'audit_complete' || strict?.productionWrites !== false) {
+    throw new Error('Completed exact-proof report required before reverse correction');
+  }
+  const strictIndex = buildStrictIndex(strict);
+
   const currentMappings = await currentCardmarketMappings(db);
   const mappingsByIdentity = groupBy(currentMappings, (row) => row.card_identity_id);
   const ownersBySourceKey = groupBy(currentMappings, (row) => sourceKey(row.source_record_id, row.source_variant_key));
@@ -114,6 +172,14 @@ export async function build(db, options = {}) {
   const candidates = new Map((base.certified || []).map((row) => [row.cardIdentityId, Object.freeze({ ...row })]));
   const quarantine = new Map();
   for (const row of base.quarantine || []) {
+    if (row.variantCode === 'reverse-holo') {
+      const strictRow = strictIndex.resolved.get(row.cardIdentityId);
+      const recoveredStrict = reverseCandidateFromStrict(row, strictRow);
+      if (recoveredStrict) {
+        candidates.set(recoveredStrict.cardIdentityId, recoveredStrict);
+        continue;
+      }
+    }
     if (row.reason === 'CARDMARKET_REVERSE_PRICE_LANE_UNAVAILABLE') {
       const recovered = reverseCandidateFromLegacyQuarantine(row);
       if (recovered) {
@@ -218,7 +284,7 @@ export async function build(db, options = {}) {
     programme: 'cardmarket_full_market_recertification_v1',
     policy: Object.freeze({
       ...base.policy,
-      deterministicSimpleMethod: 'resolved Cardmarket expansion + exact structured card name + collector number + explicit source finish key',
+      deterministicSimpleMethod: 'exact FateDrop identity -> pinned TCGdex card/collector -> explicit Cardmarket product ID -> official Cardmarket catalogue',
       reverseHoloMethod: 'same exact Cardmarket URL/product-ID mapping; source_variant_key=reverse; price is extracted separately from public English reverse-holo listings',
       reverseHoloPriceTerminology: 'offer-derived only; never represented as Cardmarket Trend/AVG or completed-sales evidence',
       authenticatedCardmarketApiRequired: false,
