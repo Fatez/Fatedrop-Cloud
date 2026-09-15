@@ -192,7 +192,7 @@ test('card reconciliation rejects card evidence from a set not present in the ma
   assert.equal(result.field, 'corroboratingSourceSet');
 });
 
-test('TCGdex first-edition evidence is quarantined until edition/finish composition is modelled', () => {
+test('TCGdex Base Set edition evidence expands into separate Unlimited, 1st Edition and Shadowless identities', () => {
   const result = adaptTcgdexCard({
     id: 'base1-4',
     localId: '4',
@@ -209,9 +209,13 @@ test('TCGdex first-edition evidence is quarantined until edition/finish composit
     },
   }, { sourceSeriesCode: 'base', languageCode: 'en' });
 
-  assert.equal(result.status, 'quarantined');
-  assert.equal(result.reason, 'first_edition_variant_composition_not_supported');
-  assert.equal(result.variantEvidence.length, 0);
+  assert.equal(result.status, 'staged');
+  assert.equal(result.reason, null);
+  assert.deepEqual(result.variantEvidence.map((item) => item.variantCode), [
+    'holo',
+    'first-edition-holo',
+    'shadowless-holo',
+  ]);
 });
 
 test('Pokémon TCG API card adapter explicitly records that it cannot prove finish variants', () => {

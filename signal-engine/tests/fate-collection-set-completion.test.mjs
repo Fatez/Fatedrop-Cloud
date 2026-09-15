@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { handleFateCollectors } from '../src/trader/collection/collectors-http.mjs';
 import { handleFateTraderCollection } from '../src/trader/collection/http.mjs';
+import { __test as completionTest } from '../src/trader/collection/set-completion.mjs';
 
 const USER = async () => ({ id: 'user-complete', fateId: 'FD-COMPLETE' });
 const FLAGS = Object.freeze({ enabled: true, catalogueEnabled: true, collectionEnabled: true });
@@ -72,7 +73,7 @@ function store({ declaredTotal = 2 } = {}) {
   };
 }
 
-test('preview and confirm complete a binder without creating exact cards or value evidence', async () => {
+test('preview and confirm add one exact raw card per missing checklist slot without duplicates', async () => {
   const subject = store();
   const preview = response();
   await handleFateCollectors(
@@ -82,8 +83,9 @@ test('preview and confirm complete a binder without creating exact cards or valu
   );
   assert.equal(preview.status, 200);
   assert.equal(preview.body.data.action.printingCount, 2);
-  assert.equal(preview.body.data.action.createsExactCardItems, false);
-  assert.equal(preview.body.data.action.changesCollectionValue, false);
+  assert.equal(preview.body.data.action.createsExactCardItems, true);
+  assert.equal(preview.body.data.action.changesCollectionValue, true);
+  assert.equal(preview.body.data.action.conditionCode, 'unknown');
   assert.equal(preview.body.data._plan, undefined);
 
   const confirm = response();
@@ -98,8 +100,9 @@ test('preview and confirm complete a binder without creating exact cards or valu
   assert.equal(confirm.status, 200);
   assert.equal(confirm.body.data.writesPerformed, true);
   assert.equal(confirm.body.data.progress.completionPercent, 100);
-  assert.equal(confirm.body.data.progress.exactOwnedCount, 0);
-  assert.equal(confirm.body.data.progress.exactIdentityConfirmationNeededCount, 2);
+  assert.equal(confirm.body.data.progress.exactOwnedCount, 2);
+  assert.equal(confirm.body.data.progress.exactIdentityConfirmationNeededCount, 0);
+  assert.equal(confirm.body.data.createdCardItemCount, 2);
 
   const collection = response();
   await handleFateTraderCollection(
@@ -108,8 +111,9 @@ test('preview and confirm complete a binder without creating exact cards or valu
     { store: subject, flags: FLAGS, resolveUser: USER },
   );
   assert.equal(collection.status, 200);
-  assert.equal(collection.body.data.summary.totalCopies, 0);
-  assert.deepEqual(collection.body.data.items, []);
+  assert.equal(collection.body.data.summary.totalCopies, 2);
+  assert.deepEqual(collection.body.data.items.map((item) => item.fateCardId).sort(), ['c1', 'c2']);
+  assert.ok(collection.body.data.items.every((item) => item.quantity === 1 && item.copyState === 'raw' && item.conditionCode === 'unknown'));
 
   const progress = response();
   await handleFateCollectors(
@@ -133,6 +137,7 @@ test('preview and confirm complete a binder without creating exact cards or valu
   assert.equal(duplicate.status, 200);
   assert.equal(duplicate.body.data.duplicate, true);
   assert.equal(duplicate.body.data.writesPerformed, false);
+  assert.equal(duplicate.body.data.createdCardItemCount, 0);
 
   const remove = response();
   await handleFateCollectors(
@@ -142,7 +147,7 @@ test('preview and confirm complete a binder without creating exact cards or valu
   );
   assert.equal(remove.status, 200);
   assert.equal(remove.body.data.removed, true);
-  assert.equal(remove.body.data.progress.completionPercent, 0);
+  assert.equal(remove.body.data.progress.completionPercent, 100);
 });
 
 test('printing-only checklist slots are visible without inventing an exact identity', async () => {
@@ -171,9 +176,24 @@ test('printing-only checklist slots are visible without inventing an exact ident
     preview,
     { store: subject, flags: FLAGS, resolveUser: USER },
   );
+  assert.equal(preview.status, 409);
+  assert.equal(preview.body.error.code, 'SET_EXACT_CHECKLIST_UNAVAILABLE');
+});
+
+test('a legacy printing-only completion can be upgraded into exact collection items', async () => {
+  const subject = store();
+  const state = await subject.read();
+  const id = completionTest.assertionId('user-complete', 'complete', 'standard');
+  state.traderCollection.setCompletionAssertions = {
+    [id]: { id, userId:'user-complete', setId:'complete', editionCode:'standard', status:'active', checklistScope:'printing', printingIds:['p1','p2'], catalogueFingerprint:'legacy', source:'user_confirmed_checklist', createdAt:1, updatedAt:1 },
+  };
+  const preview = response();
+  await handleFateCollectors(request('POST', '/v1/collectors/sets/complete/complete/preview'), preview, { store: subject, flags: FLAGS, resolveUser: USER });
   assert.equal(preview.status, 200);
-  assert.equal(preview.body.data.action.printingCount, 3);
-  assert.equal(preview.body.data.action.createsExactCardItems, false);
+  assert.equal(preview.body.data.action.printingCount, 2);
+  const confirm = response();
+  await handleFateCollectors(request('POST', '/v1/collectors/sets/complete/complete/confirm', { confirmationToken:preview.body.data.confirmationToken, confirmed:true }), confirm, { store: subject, flags: FLAGS, resolveUser: USER });
+  assert.equal(confirm.body.data.createdCardItemCount, 2);
 });
 
 test('confirmation is stale when exact binder state changes after preview', async () => {

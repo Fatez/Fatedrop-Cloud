@@ -1,3 +1,5 @@
+import { cardBelongsToEdition, editionTracksForSet, isRegularBinderVariant, requireEditionForSet } from '../catalogue/set-edition-policy.mjs';
+
 const VERIFIED = 'verified';
 
 function text(value) {
@@ -70,6 +72,7 @@ export function computeCollectionSetProgress({
   canonicalPrintings = null,
   collectionItems,
   assertedPrintingIds = [],
+  editionCode = null,
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
 } = {}) {
@@ -82,10 +85,13 @@ export function computeCollectionSetProgress({
   if (!Array.isArray(assertedPrintingIds)) throw new TypeError('assertedPrintingIds must be an array');
 
   const tcgCode = text(set.tcgCode).toLowerCase() || null;
+  const edition = requireEditionForSet(set, editionCode);
   const verifiedCards = canonicalCards
     .filter((card) => card && card.verificationStatus === VERIFIED)
     .filter((card) => text(card.setId) === setId)
     .filter((card) => !tcgCode || text(card.tcgCode).toLowerCase() === tcgCode)
+    .filter((card) => cardBelongsToEdition(card, set, edition))
+    .filter((card) => tcgCode !== 'pokemon' || isRegularBinderVariant(card))
     .filter((card) => text(card.printingId) && text(card.fateCardId ?? card.id));
 
   const printings = new Map();
@@ -117,6 +123,8 @@ export function computeCollectionSetProgress({
       status: 'unavailable',
       reason: 'canonical_set_checklist_unavailable',
       tcgCode,
+      editionCode: edition,
+      editionLabel: editionTracksForSet(set).find((track) => track.code === edition)?.label ?? edition,
       setId,
       setName: set.name ?? null,
       checklistScope: 'printing',
@@ -168,6 +176,8 @@ export function computeCollectionSetProgress({
     status: 'available',
     reason: null,
     tcgCode,
+    editionCode: edition,
+    editionLabel: editionTracksForSet(set).find((track) => track.code === edition)?.label ?? edition,
     setId,
     setName: set.name ?? null,
     checklistScope: 'printing',

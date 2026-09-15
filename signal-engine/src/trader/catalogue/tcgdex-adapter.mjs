@@ -42,7 +42,7 @@ export function adaptTcgdexSet(set, { languageCode = 'en' } = {}) {
   });
 }
 
-export function extractTcgdexVariants(variants) {
+export function extractTcgdexVariants(variants, { setCode = null } = {}) {
   requireObject(variants, 'card.variants');
 
   for (const field of ['normal', 'reverse', 'holo', 'firstEdition']) {
@@ -51,19 +51,27 @@ export function extractTcgdexVariants(variants) {
     }
   }
 
-  if (variants.firstEdition) {
-    return Object.freeze({
-      status: 'quarantined',
-      reason: 'first_edition_variant_composition_not_supported',
-      variants: Object.freeze([]),
-    });
-  }
-
   const found = [];
   if (variants.normal) found.push({ variantCode: 'standard', sourceVariantKey: 'normal' });
   if (variants.reverse) found.push({ variantCode: 'reverse-holo', sourceVariantKey: 'reverse' });
   if (variants.holo) found.push({ variantCode: 'holo', sourceVariantKey: 'holo' });
   if (variants.wPromo === true) found.push({ variantCode: 'w-promo', sourceVariantKey: 'w-promo' });
+
+  if (variants.firstEdition) {
+    const regular = found.filter((item) => item.variantCode === 'standard' || item.variantCode === 'holo');
+    for (const item of regular) {
+      found.push({
+        variantCode: `first-edition-${item.variantCode}`,
+        sourceVariantKey: `first-edition-${item.sourceVariantKey}`,
+      });
+      if (String(setCode || '').trim().toLowerCase() === 'base1') {
+        found.push({
+          variantCode: `shadowless-${item.variantCode}`,
+          sourceVariantKey: `shadowless-${item.sourceVariantKey}`,
+        });
+      }
+    }
+  }
 
   if (found.length === 0) {
     return Object.freeze({
@@ -83,7 +91,7 @@ export function extractTcgdexVariants(variants) {
 export function adaptTcgdexCard(card, { sourceSeriesCode, languageCode = 'en' } = {}) {
   requireObject(card, 'card');
   const set = requireObject(card.set, 'card.set');
-  const variants = extractTcgdexVariants(card.variants);
+  const variants = extractTcgdexVariants(card.variants, { setCode: set.id });
 
   const baseEvidence = Object.freeze({
     sourceName: 'tcgdex',

@@ -28,7 +28,7 @@ function card({
   };
 }
 
-test('Pokemon completion collapses finish variants to one canonical printing slot', () => {
+test('Pokemon regular completion does not let a reverse holo fill the regular slot', () => {
   const cards = [
     card({ tcgCode:'pokemon',setId:'sv-test',printingId:'p1',id:'p1-standard',number:1,name:'Bulbasaur' }),
     card({ tcgCode:'pokemon',setId:'sv-test',printingId:'p1',id:'p1-reverse',number:1,name:'Bulbasaur',variantCode:'reverse-holo' }),
@@ -41,10 +41,10 @@ test('Pokemon completion collapses finish variants to one canonical printing slo
     collectionItems:[{ fateCardId:'p1-reverse',quantity:1 }],
   });
   assert.equal(result.totalCount,3);
-  assert.equal(result.ownedCount,1);
-  assert.equal(result.missingCount,2);
-  assert.equal(result.completionPercent,33.3);
-  assert.deepEqual(result.missingCards.map((entry) => entry.collectorNumber),['2','3']);
+  assert.equal(result.ownedCount,0);
+  assert.equal(result.missingCount,3);
+  assert.equal(result.completionPercent,0);
+  assert.deepEqual(result.missingCards.map((entry) => entry.collectorNumber),['1','2','3']);
 });
 
 test('One Piece uses the same engine and keeps distinct canonical printings distinct', () => {
@@ -62,6 +62,20 @@ test('One Piece uses the same engine and keeps distinct canonical printings dist
   assert.equal(result.ownedCount,2);
   assert.equal(result.missingCount,1);
   assert.equal(result.missingCards[0].fateCardId,'op1-parallel');
+});
+
+test('1st Edition ownership never completes the Unlimited binder track', () => {
+  const cards = [
+    card({ tcgCode:'pokemon',setId:'jungle',printingId:'j1',id:'j1-unlimited',number:1,name:'Clefable',variantCode:'holo' }),
+    card({ tcgCode:'pokemon',setId:'jungle',printingId:'j1',id:'j1-first',number:1,name:'Clefable',variantCode:'first-edition-holo' }),
+  ];
+  const set = { id:'jungle',code:'base2',name:'Jungle',tcgCode:'pokemon' };
+  const collectionItems = [{ fateCardId:'j1-first',quantity:1,status:'active',copyState:'raw' }];
+  const firstEdition = computeCollectionSetProgress({ set, canonicalCards:cards, collectionItems, editionCode:'first-edition' });
+  const unlimited = computeCollectionSetProgress({ set, canonicalCards:cards, collectionItems, editionCode:'unlimited' });
+  assert.equal(firstEdition.ownedCount,1);
+  assert.equal(unlimited.ownedCount,0);
+  assert.equal(unlimited.missingCards[0].fateCardId,'j1-unlimited');
 });
 
 test('Lorcana uses the same calculation without game-specific branches', () => {
@@ -115,7 +129,7 @@ test('graded pride cards never fill a raw binder slot', () => {
   assert.deepEqual(result.missingCards.map((entry) => entry.fateCardId),['a1']);
 });
 
-test('user-confirmed printing checklist completes a binder without inventing exact card identity', () => {
+test('legacy printing assertions never promote a reverse holo into exact regular ownership', () => {
   const cards = [
     card({ tcgCode:'pokemon',setId:'set-a',printingId:'a1',id:'a1-standard',number:1,name:'One' }),
     card({ tcgCode:'pokemon',setId:'set-a',printingId:'a1',id:'a1-reverse',number:1,name:'One',variantCode:'reverse-holo' }),
@@ -128,9 +142,9 @@ test('user-confirmed printing checklist completes a binder without inventing exa
     assertedPrintingIds:['a1','a2','not-in-this-set'],
   });
   assert.equal(result.ownedCount,2);
-  assert.equal(result.exactOwnedCount,1);
+  assert.equal(result.exactOwnedCount,0);
   assert.equal(result.userConfirmedCount,2);
-  assert.equal(result.exactIdentityConfirmationNeededCount,1);
+  assert.equal(result.exactIdentityConfirmationNeededCount,2);
   assert.equal(result.missingCount,0);
   assert.equal(result.completionPercent,100);
   assert.equal(result.valuationPolicy,'exact_identity_only');

@@ -1,3 +1,5 @@
+import { editionTracksForSet } from './set-edition-policy.mjs';
+
 function fileCatalogue(state) {
   state.traderCatalogue ||= {
     tcgs: {},
@@ -28,6 +30,7 @@ function publicSet(set, series, tcg) {
     total: set.total ?? null,
     releasedAt: set.releasedAt ?? null,
     verificationStatus: set.verificationStatus,
+    editionTracks: editionTracksForSet(set),
   };
 }
 
@@ -72,7 +75,7 @@ function publicPrinting(printing, set, series, tcg) {
 }
 
 function dbSet(row) {
-  return {
+  const set = {
     id: row.id,
     code: row.code ?? null,
     tcgCode: row.tcg_code,
@@ -84,6 +87,7 @@ function dbSet(row) {
     releasedAt: row.released_at == null ? null : Number(row.released_at),
     verificationStatus: row.verification_status,
   };
+  return { ...set, editionTracks: editionTracksForSet(set) };
 }
 
 function dbCard(row) {

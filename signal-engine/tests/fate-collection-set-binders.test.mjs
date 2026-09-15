@@ -12,7 +12,10 @@ function store() {
     traderCatalogue: {
       tcgs:{ pokemon:{ id:'pokemon', code:'pokemon', name:'Pokémon TCG' } },
       series:{ sv:{ id:'sv', tcgId:'pokemon', name:'Scarlet & Violet', verificationStatus:'verified' } },
-      sets:{ set151:{ id:'set151', tcgId:'pokemon', seriesId:'sv', name:'Pokémon 151', verificationStatus:'verified' } },
+      sets:{
+        set151:{ id:'set151', code:'sv3pt5', tcgId:'pokemon', seriesId:'sv', name:'Pokémon 151', verificationStatus:'verified' },
+        jungle:{ id:'jungle', code:'base2', tcgId:'pokemon', seriesId:'sv', name:'Jungle', verificationStatus:'verified' },
+      },
       printings:{},cards:{},setSourceMappings:{},cardSourceMappings:{},cardProvenance:{},
     },
   };
@@ -32,6 +35,15 @@ test('a verified set can be tracked before the user owns a card and later remove
   const removed = await setCollectionSetBinderTrackedInStore(subject, { userId:'user-1', setId:'set151', tracked:false });
   assert.equal(removed.tracked, false);
   assert.deepEqual(await listTrackedCollectionSetBindersFromStore(subject, { userId:'user-1' }), []);
+});
+
+test('the same set can track 1st Edition and Unlimited as independent binders', async () => {
+  const subject = store();
+  await setCollectionSetBinderTrackedInStore(subject, { userId:'user-1', setId:'jungle', editionCode:'first-edition' });
+  await setCollectionSetBinderTrackedInStore(subject, { userId:'user-1', setId:'jungle', editionCode:'unlimited' });
+  const binders = await listTrackedCollectionSetBindersFromStore(subject, { userId:'user-1' });
+  assert.deepEqual(new Set(binders.map((row) => row.editionCode)), new Set(['first-edition','unlimited']));
+  assert.notEqual(binders[0].id, binders[1].id);
 });
 
 test('unknown or staged sets cannot become collection binders', async () => {
