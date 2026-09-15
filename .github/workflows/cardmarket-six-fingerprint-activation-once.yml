@@ -1,0 +1,47 @@
+name: Cardmarket Six Fingerprint Activation Once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cardmarket-six-fingerprint-activation-once.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  activate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run complete Signal Engine suite before production activation
+        run: npm test
+      - name: Activate exact reviewed repair and price cycle
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MARKET_REPAIR_MODE: activate
+          APPROVED_MANIFEST_SHA256: 0e426b779c7c6d1055aaca9de92771f840763c2e386e2870aedc3049d4228897
+          APPROVED_PRICE_GUIDE_SHA256: 5acedfc9bda0b7b59b1cab4538135941e55d3cb34381a38ec5d3b1f8841d43ca
+        run: node src/trader/value/cardmarket-six-fingerprint-repair-cli.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cardmarket-six-fingerprint-activation-once
+          path: ${{ runner.temp }}/cardmarket-six-fingerprint-repair.json
+          if-no-files-found: error
+          retention-days: 30
