@@ -24,7 +24,7 @@ permissions:
 
 concurrency:
   group: cardmarket-full-english-recertification-audit
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   audit:
