@@ -13,6 +13,7 @@ const EVIDENCE_PATH = path.resolve('evidence/cardmarket-url-first-rebuild-source
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const sourceVariantKey = (variantCode) => variantCode === 'holo' ? 'holo' : 'normal';
 const priceLane = (variantCode) => variantCode === 'holo' ? 'holo' : 'standard';
+const EDITIONED_SET_CODES = new Set(['base1','base2','base3','base4','base5','gym1','gym2','neo1','neo2','neo3','neo4']);
 
 function extractCardmarketIds(html) {
   const ids = new Set();
@@ -128,8 +129,19 @@ export async function build(db) {
   const productById = new Map(products.map((row) => [String(row.sourceRecordId), row]));
   const priceById = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
 
-  const { rows: targets } = await db.query(`
-    SELECT i.id AS card_identity_id,i.variant_code,p.name,p.collector_number,s.name AS set_name,
+  const baseRows = Array.isArray(baseReport.forensicResidual)
+    ? baseReport.forensicResidual
+    : [
+      ...(baseReport.currentUnmappedResidual || []),
+      ...(baseReport.newMappingCandidates || []),
+      ...(baseReport.mismatches || []),
+      ...(baseReport.currentMappingsNotVerified || []),
+    ];
+  const baseByIdentity = new Map(baseRows.map((row) => [row.cardIdentityId, row]));
+  const targetIds = new Set(baseByIdentity.keys());
+
+  const { rows: allTargets } = await db.query(`
+    SELECT i.id AS card_identity_id,i.variant_code,p.name,p.collector_number,s.name AS set_name,s.code AS set_code,
       p.attributes->'artwork'->>'sourceRecordId' AS tcgdex_id
     FROM fatedrop_card_identities i
     JOIN fatedrop_card_printings p ON p.id=i.printing_id
@@ -139,17 +151,12 @@ export async function build(db) {
       AND i.language_code='en'
       AND i.variant_code IN ('standard','holo')
       AND COALESCE(rs.classifier_state,'ACTIVE_UNPRICED') NOT IN ('INVALID_CATALOGUE_ENTRY','UNRESOLVED_EVIDENCE')
-      AND NOT EXISTS (
-        SELECT 1 FROM fatedrop_card_source_mappings m
-        WHERE m.source_name='cardmarket' AND m.card_identity_id=i.id
-      )
     ORDER BY s.name,p.collector_number,p.name,i.variant_code,i.id`);
 
-  const baseRows = [
-    ...(baseReport.currentUnmappedResidual || []),
-    ...(baseReport.newMappingCandidates || []),
-  ];
-  const baseByIdentity = new Map(baseRows.map((row) => [row.cardIdentityId, row]));
+  const targets = allTargets.filter((row) =>
+    targetIds.has(row.card_identity_id)
+    && !EDITIONED_SET_CODES.has(String(row.set_code || '').toLowerCase()));
+
   const ownerCache = new Map();
   const getOwners = async (sourceRecordId, variantKey) => {
     const key = `${sourceRecordId}|${variantKey}`;
@@ -164,6 +171,11 @@ export async function build(db) {
   };
 
   const counts = {
+    baseForensicResidual: baseRows.length,
+    editionedTargetsSkipped: [...targetIds].filter((id) => {
+      const target = allTargets.find((row) => row.card_identity_id === id);
+      return target && EDITIONED_SET_CODES.has(String(target.set_code || '').toLowerCase());
+    }).length,
     targets: targets.length,
     exactTcgIdAvailable: 0,
     tcggoLookupOk: 0,
@@ -223,6 +235,7 @@ export async function build(db) {
       resolved.push({
         cardIdentityId: target.card_identity_id,
         setName: target.set_name,
+        setCode: target.set_code,
         name: target.name,
         collectorNumber: target.collector_number,
         variantCode: target.variant_code,
