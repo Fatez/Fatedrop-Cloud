@@ -29,6 +29,8 @@ function reviewedProductNameMatches(identityName, productName) {
   // names for the same numbered printing omit it.
   const withoutLvX = providerRoot.replace(/\s+LV\.?\s*X\b/gi, ' ').replace(/\s+/g, ' ').trim();
   if (rootProductNameMatches(identityName, withoutLvX)) return true;
+  const spAlias = withoutLvX.replace(/\[(G|GL|FB|C|E4|M)\]/gi, '$1').replace(/\s+/g, ' ').trim();
+  if (comparable(identityName) === comparable(spAlias)) return true;
 
   // Provider spelling for the e-Reader/EX-era star rarity.
   const starAlias = providerRoot.replace(/\bGold Star\b/gi, 'Star');
