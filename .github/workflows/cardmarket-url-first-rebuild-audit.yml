@@ -51,12 +51,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-sample-validate-cli.mjs
-      - name: Resolve all current unmapped cards through simple exact-id bridge
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
-      - name: Require official Cardmarket product-name compatibility
-        run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
       - name: Verify six stale owners and their replacement products
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
@@ -66,6 +60,12 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           MAPPING_WRITE: 'false'
         run: node src/trader/value/cardmarket-stale-ownership-six-release-cli.mjs
+      - name: Resolve all current unmapped cards through simple exact-id bridge
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
+      - name: Require official Cardmarket product-name compatibility
+        run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
       - name: Rehearse exact 361 mapping persistence
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
