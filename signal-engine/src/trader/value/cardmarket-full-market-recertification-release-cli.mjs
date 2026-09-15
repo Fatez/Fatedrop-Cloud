@@ -128,46 +128,51 @@ export async function release(db, report, { write = WRITE } = {}) {
     const { rows: [planCount] } = await db.query(`SELECT COUNT(*)::int AS count FROM _fatedrop_cardmarket_recert_plan`);
     if (Number(planCount.count) !== certified.length) throw new Error(`Temporary release plan truncated: ${planCount.count}/${certified.length}`);
 
-    // Observations FK to source mappings with ON DELETE RESTRICT. For a
-    // deterministic replacement, retire every historical Cardmarket observation
-    // attached to the identity's stale mapping rows inside this transaction.
-    // The production price cycle immediately after commit rebuilds observations
-    // from the newly certified owner, preventing old prices from surviving a
-    // mapping correction.
+    // A replace action means the identity has historical Cardmarket rows that
+    // do not reduce to exactly one certified source key. Preserve an already-
+    // correct row (and its valid history) when present; retire only rows that
+    // disagree with the deterministic product/finish owner.
     const deletedObservations = await db.query(`
       DELETE FROM fatedrop_market_observations o
       USING fatedrop_card_source_mappings m, _fatedrop_cardmarket_recert_plan p
       WHERE p.action='replace'
         AND m.source_name='cardmarket'
         AND m.card_identity_id=p.card_identity_id
+        AND NOT (
+          m.source_record_id=p.source_record_id
+          AND m.source_variant_key=p.source_variant_key
+        )
         AND o.card_source_mapping_id=m.id`);
 
-    // A certified FateDrop identity owns exactly one Cardmarket source key.
-    // Any replace action therefore removes every historical Cardmarket row for
-    // that identity, including wrong-lane and duplicate leftovers, before the
-    // single deterministic mapping is reinserted.
     const deleted = await db.query(`
       DELETE FROM fatedrop_card_source_mappings m
       USING _fatedrop_cardmarket_recert_plan p
       WHERE p.action='replace'
         AND m.source_name='cardmarket'
-        AND m.card_identity_id=p.card_identity_id`);
+        AND m.card_identity_id=p.card_identity_id
+        AND NOT (
+          m.source_record_id=p.source_record_id
+          AND m.source_variant_key=p.source_variant_key
+        )`);
 
     const sourceVersion = `full-market-recert-v1:${report.certifiedDigest}`;
     const now = Date.now();
 
+    // Retains and repairs both keep an exact existing row if there is one.
     const retained = await db.query(`
       UPDATE fatedrop_card_source_mappings m
       SET source_url=p.source_url,
           source_version=$1,
           last_observed_at=$2
       FROM _fatedrop_cardmarket_recert_plan p
-      WHERE p.action='retain'
+      WHERE p.action IN ('retain','replace')
         AND m.source_name='cardmarket'
         AND m.card_identity_id=p.card_identity_id
         AND m.source_record_id=p.source_record_id
         AND m.source_variant_key=p.source_variant_key`, [sourceVersion, now]);
 
+    // Insert only when the certified owner is genuinely absent. This preserves
+    // correct mapping IDs and their historical observations during de-duplication.
     const inserted = await db.query(`
       INSERT INTO fatedrop_card_source_mappings (
         id,card_identity_id,source_name,source_record_id,source_variant_key,source_url,source_version,
@@ -177,7 +182,14 @@ export async function release(db, report, { write = WRITE } = {}) {
         'cm-recert-' || substr(md5(p.card_identity_id || '|' || p.source_record_id || '|' || p.source_variant_key),1,22),
         p.card_identity_id,'cardmarket',p.source_record_id,p.source_variant_key,p.source_url,$1,$2,$2
       FROM _fatedrop_cardmarket_recert_plan p
-      WHERE p.action IN ('insert','replace')`, [sourceVersion, now]);
+      WHERE p.action IN ('insert','replace')
+        AND NOT EXISTS (
+          SELECT 1 FROM fatedrop_card_source_mappings m
+          WHERE m.source_name='cardmarket'
+            AND m.card_identity_id=p.card_identity_id
+            AND m.source_record_id=p.source_record_id
+            AND m.source_variant_key=p.source_variant_key
+        )`, [sourceVersion, now]);
 
     const provenance = await db.query(`
       INSERT INTO fatedrop_card_provenance (
@@ -244,10 +256,10 @@ export async function release(db, report, { write = WRITE } = {}) {
         certified: certified.length,
         plannedRetains: certified.filter((row) => row.action === 'retain').length,
         plannedInserts: certified.filter((row) => row.action === 'insert').length,
-        plannedReplacements: certified.filter((row) => row.action === 'replace').length,
+        plannedRepairs: certified.filter((row) => row.action === 'replace').length,
         deletedObservationRows: deletedObservations.rowCount,
-        deletedRows: deleted.rowCount,
-        retainedRowsUpdated: retained.rowCount,
+        deletedStaleMappingRows: deleted.rowCount,
+        exactRowsUpdated: retained.rowCount,
         insertedRows: inserted.rowCount,
         provenanceRowsInserted: provenance.rowCount,
       },
