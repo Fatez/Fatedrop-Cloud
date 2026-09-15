@@ -89,6 +89,9 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
           TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          TCGGO_FALLBACK_CONCURRENCY: '12'
+          TCGGO_FALLBACK_DELAY_MS: '150'
+          TCGGO_PROGRESS_EVERY: '100'
         run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
 
       - name: Require official Cardmarket product-name compatibility on exact-proof results
@@ -113,6 +116,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cardmarket-url-first-rebuild.json
             ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
+            ${{ runner.temp }}/cardmarket-full-market-exact-proof-progress.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
             ${{ runner.temp }}/cardmarket-full-market-recertification.json
