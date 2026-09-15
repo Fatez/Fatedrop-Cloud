@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/cardmarket-fast-full-rehearsal-2026-09-15.yml'
       - 'signal-engine/src/trader/value/cardmarket-full-market-history-preservation-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-collision-network-recovery-cli.mjs'
 
 permissions:
   contents: read
@@ -14,7 +15,7 @@ permissions:
 jobs:
   rehearsal:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     defaults:
       run:
         working-directory: signal-engine
@@ -42,6 +43,12 @@ jobs:
           TCGGO_FALLBACK_DELAY_MS: '100'
           TCGGO_PROGRESS_EVERY: '250'
         run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
+      - name: Recover batch source-key collisions with exact TCGGO proof
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGGO_COLLISION_CONCURRENCY: '24'
+          TCGGO_COLLISION_DELAY_MS: '75'
+        run: node src/trader/value/cardmarket-collision-network-recovery-cli.mjs
       - name: Strictly validate exact proof
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
@@ -67,6 +74,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-full-market-exact-proof-progress.json
+            ${{ runner.temp }}/cardmarket-collision-network-recovery.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
             ${{ runner.temp }}/cardmarket-full-market-recertification.json
             ${{ runner.temp }}/cardmarket-full-market-history-preservation-audit.json
