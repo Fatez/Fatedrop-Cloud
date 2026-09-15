@@ -167,6 +167,16 @@ export function makeMarketObservationId(input) {
   ]);
 }
 
+export function marketObservationFromPostgres(row) {
+  const candidate = Object.fromEntries(Object.entries(row).map(([key, value]) => [
+    key.replace(/_([a-z0-9])/g, (_, letter) => letter.toUpperCase()), value,
+  ]));
+  for (const field of ['observedAt', 'sourceEffectiveAt', 'createdAt']) {
+    if (candidate[field] != null) candidate[field] = Number(candidate[field]);
+  }
+  return normaliseMarketObservationCandidate(candidate);
+}
+
 export function normaliseMarketObservationCandidate(input) {
   if (!input || typeof input !== 'object') throw new TypeError('market observation is required');
 
