@@ -19,13 +19,14 @@ const OUTPUT = () => path.join(process.env.RUNNER_TEMP || '.', 'cardmarket-full-
 
 // Cardmarket's public price guide does not expose a separate first-edition /
 // shadowless price lane. These sets are therefore deliberately excluded from
-// this market recertification until the edition-aware market lane is certified.
+// price activation until the edition-aware market lane is certified.
 const EDITIONED_SET_CODES = new Set([
   'base1', 'base2', 'base3', 'base4', 'base5',
   'gym1', 'gym2', 'neo1', 'neo2', 'neo3', 'neo4',
 ]);
 
-const supportedVariant = (variantCode) => variantCode === 'standard' || variantCode === 'holo';
+const supportedVariant = (variantCode) => ['standard', 'holo', 'reverse-holo'].includes(variantCode);
+const priceLaneVariant = (variantCode) => variantCode === 'standard' || variantCode === 'holo';
 const sourceVariantKey = (variantCode) => variantCode === 'holo' ? 'holo' : 'normal';
 const targetPriceLane = (variantCode) => variantCode === 'holo' ? 'holo' : 'standard';
 const sourceKey = (sourceRecordId, variantKey) => `${sourceRecordId}|${variantKey}`;
@@ -133,6 +134,7 @@ function candidateFromModel(identity, model, url, expansion) {
     sourceRecordId: String(model.sourceRecordId),
     sourceVariantKey: sourceVariantKey(identity.variant_code),
     reviewedCardmarketUrl: url,
+    forensicEvidenceUrl: null,
     cardmarketProductName: model.productName || null,
     cardmarketExpansionId: String(model.expansionId || expansion?.expansionId || ''),
     method: `simple:${model.method}`,
@@ -150,6 +152,7 @@ function candidateFromStrict(identity, strictRow, url) {
     sourceRecordId: String(strictRow.sourceRecordId),
     sourceVariantKey: sourceVariantKey(identity.variant_code),
     reviewedCardmarketUrl: strictRow.reviewedCardmarketUrl || url,
+    forensicEvidenceUrl: strictRow.tcggo?.url || strictRow.evidenceUrl || null,
     cardmarketProductName: strictRow.cardmarketProductName || null,
     cardmarketExpansionId: String(strictRow.cardmarketExpansionId || ''),
     method: 'forensic:exact_tcgdex_id_to_cardmarket',
@@ -237,7 +240,7 @@ export async function build(db, { strictReport, evidence, sources } = {}) {
       continue;
     }
     if (!supportedVariant(identity.variant_code)) {
-      quarantine.set(identity.id, quarantineRow(identity, 'CARDMARKET_VARIANT_PRICE_LANE_UNSUPPORTED'));
+      quarantine.set(identity.id, quarantineRow(identity, 'CARDMARKET_VARIANT_UNSUPPORTED'));
       continue;
     }
     if (['INVALID_CATALOGUE_ENTRY', 'UNRESOLVED_EVIDENCE'].includes(identity.classifier_state)) {
@@ -255,6 +258,36 @@ export async function build(db, { strictReport, evidence, sources } = {}) {
     const model = expansion
       ? resolveCardmarketProduct(identity, expansion.expansionId, indexes, priceById)
       : { status: 'unresolved', reason: 'CARDMARKET_EXPANSION_UNRESOLVED' };
+
+    // Cardmarket's downloadable catalogue proves the exact product, but its
+    // public price guide exposes only base/standard and holo numeric lanes.
+    // Reverse-holo is therefore fully checked at product level and explicitly
+    // quarantined from price activation rather than guessed from another lane.
+    if (identity.variant_code === 'reverse-holo') {
+      const currentReverseRows = (mappingsByIdentity.get(identity.id) || [])
+        .filter((row) => row.source_variant_key === 'reverse');
+      const exactProduct = model.status === 'resolved' && model.method === 'structured_name_collector';
+      quarantine.set(identity.id, quarantineRow(identity,
+        exactProduct ? 'CARDMARKET_REVERSE_PRICE_LANE_UNAVAILABLE' : `CARDMARKET_REVERSE_${model.reason || 'PRODUCT_UNRESOLVED'}`,
+        {
+          reviewedCardmarketUrl: url,
+          expansionId: expansion?.expansionId || null,
+          deterministicProductId: exactProduct ? String(model.sourceRecordId) : null,
+          cardmarketProductName: exactProduct ? model.productName : null,
+          currentReverseMappingRows: currentReverseRows.length,
+          currentReverseMappingMatchesProduct: exactProduct
+            ? currentReverseRows.some((row) => String(row.source_record_id) === String(model.sourceRecordId))
+            : false,
+          priceGuideReverseLaneAvailable: false,
+        }));
+      continue;
+    }
+
+    if (!priceLaneVariant(identity.variant_code)) {
+      quarantine.set(identity.id, quarantineRow(identity, 'CARDMARKET_PRICE_LANE_UNSUPPORTED'));
+      continue;
+    }
+
     const strictRow = strictIndexes.resolved.get(identity.id) || null;
 
     // The simple lane is only accepted when Cardmarket itself gives us exact
@@ -336,14 +369,17 @@ export async function build(db, { strictReport, evidence, sources } = {}) {
   for (const identity of identities) {
     const candidate = candidates.get(identity.id);
     if (!candidate) continue;
-    const targetRows = (mappingsByIdentity.get(identity.id) || [])
-      .filter((row) => row.source_variant_key === candidate.sourceVariantKey);
-    const exactRows = targetRows.filter((row) => String(row.source_record_id) === candidate.sourceRecordId);
-    const action = targetRows.length === 1 && exactRows.length === 1 ? 'retain' : targetRows.length === 0 ? 'insert' : 'replace';
+    const currentRows = mappingsByIdentity.get(identity.id) || [];
+    const exactRows = currentRows.filter((row) =>
+      String(row.source_record_id) === candidate.sourceRecordId
+      && row.source_variant_key === candidate.sourceVariantKey);
+    const action = currentRows.length === 1 && exactRows.length === 1
+      ? 'retain'
+      : currentRows.length === 0 ? 'insert' : 'replace';
     certified.push(Object.freeze({
       ...candidate,
       action,
-      currentTargetMappings: targetRows.map((row) => ({
+      currentMappings: currentRows.map((row) => ({
         id: row.id,
         sourceRecordId: String(row.source_record_id),
         sourceVariantKey: row.source_variant_key,
@@ -369,12 +405,16 @@ export async function build(db, { strictReport, evidence, sources } = {}) {
     replacements: certified.filter((row) => row.action === 'replace').length,
     quarantined: quarantined.length,
     wotcEditionDeferred: quarantined.filter((row) => row.reason === 'WOTC_EDITION_PRICE_LANE_DEFERRED').length,
-    unsupportedVariant: quarantined.filter((row) => row.reason === 'CARDMARKET_VARIANT_PRICE_LANE_UNSUPPORTED').length,
+    reverseProductResolvedNoPriceLane: quarantined.filter((row) => row.reason === 'CARDMARKET_REVERSE_PRICE_LANE_UNAVAILABLE').length,
+    reverseProductUnresolved: quarantined.filter((row) => row.reason.startsWith('CARDMARKET_REVERSE_') && row.reason !== 'CARDMARKET_REVERSE_PRICE_LANE_UNAVAILABLE').length,
+    unsupportedVariant: quarantined.filter((row) => ['CARDMARKET_VARIANT_UNSUPPORTED', 'CARDMARKET_PRICE_LANE_UNSUPPORTED'].includes(row.reason)).length,
     classifierHeld: quarantined.filter((row) => row.reason.startsWith('CATALOGUE_')).length,
     deterministicFailureHeld: quarantined.filter((row) => ![
       'WOTC_EDITION_PRICE_LANE_DEFERRED',
-      'CARDMARKET_VARIANT_PRICE_LANE_UNSUPPORTED',
-    ].includes(row.reason) && !row.reason.startsWith('CATALOGUE_')).length,
+      'CARDMARKET_REVERSE_PRICE_LANE_UNAVAILABLE',
+      'CARDMARKET_VARIANT_UNSUPPORTED',
+      'CARDMARKET_PRICE_LANE_UNSUPPORTED',
+    ].includes(row.reason) && !row.reason.startsWith('CATALOGUE_') && !row.reason.startsWith('CARDMARKET_REVERSE_')).length,
     targetLanePriceable: certified.filter((row) => row.priceEvidence?.targetLane).length,
     exactMappedButNoTargetPriceLane: certified.filter((row) => !row.priceEvidence?.targetLane).length,
   };
@@ -385,14 +425,15 @@ export async function build(db, { strictReport, evidence, sources } = {}) {
     programme: 'cardmarket_full_market_recertification_v1',
     policy: Object.freeze({
       language: 'en',
-      deterministicSimpleMethod: 'resolved Cardmarket expansion + exact structured card name + collector number + explicit normal/holo lane',
+      deterministicSimpleMethod: 'resolved Cardmarket expansion + exact structured card name + collector number + explicit normal/holo price lane',
+      reverseHoloMethod: 'exact product is audited but price activation is quarantined because Cardmarket public downloads expose no reverse price lane or fresh reverse-finish proof',
       forensicFallback: 'exact TCGdex identity -> public TCGGO Cardmarket product -> official Cardmarket catalogue',
       preserveCorrectMappings: true,
+      replaceStaleIdentityMappingsAsOneUnit: true,
       sourceKeySingleOwner: true,
       noGuessing: true,
       noZeroPriceFallback: true,
       wotcEditionPriceLane: 'deferred',
-      unsupportedFinishLane: 'quarantine',
     }),
     source: Object.freeze({
       cardmarketCatalogueSha256: catalogueArtifact.sha256,
