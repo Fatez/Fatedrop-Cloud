@@ -119,6 +119,7 @@ export async function release(db, report, { write = WRITE } = {}) {
           cardmarketProductName: row.cardmarketProductName,
           cardmarketExpansionId: row.cardmarketExpansionId,
           reviewedCardmarketUrl: row.reviewedCardmarketUrl,
+          forensicEvidenceUrl: row.forensicEvidenceUrl || null,
           priceEvidence: row.priceEvidence,
           source: report.source,
         },
@@ -127,14 +128,16 @@ export async function release(db, report, { write = WRITE } = {}) {
     const { rows: [planCount] } = await db.query(`SELECT COUNT(*)::int AS count FROM _fatedrop_cardmarket_recert_plan`);
     if (Number(planCount.count) !== certified.length) throw new Error(`Temporary release plan truncated: ${planCount.count}/${certified.length}`);
 
-    // Replacements first vacate stale ownership. Retains are never deleted.
+    // A certified FateDrop identity owns exactly one Cardmarket source key.
+    // Any replace action therefore removes every historical Cardmarket row for
+    // that identity, including wrong-lane and duplicate leftovers, before the
+    // single deterministic mapping is reinserted.
     const deleted = await db.query(`
       DELETE FROM fatedrop_card_source_mappings m
       USING _fatedrop_cardmarket_recert_plan p
       WHERE p.action='replace'
         AND m.source_name='cardmarket'
-        AND m.card_identity_id=p.card_identity_id
-        AND m.source_variant_key=p.source_variant_key`);
+        AND m.card_identity_id=p.card_identity_id`);
 
     const sourceVersion = `full-market-recert-v1:${report.certifiedDigest}`;
     const now = Date.now();
@@ -179,10 +182,14 @@ export async function release(db, report, { write = WRITE } = {}) {
         COUNT(*)::int AS planned,
         COUNT(*) FILTER (WHERE exact_rows=1)::int AS exact,
         COUNT(*) FILTER (WHERE exact_rows<>1)::int AS bad_exact,
+        COUNT(*) FILTER (WHERE identity_rows<>1)::int AS identities_with_extra_rows,
         COUNT(*) FILTER (WHERE foreign_owners>0)::int AS foreign_owner_rows,
         COUNT(*) FILTER (WHERE url_matches=false)::int AS bad_url
       FROM (
         SELECT p.card_identity_id,
+          (SELECT COUNT(*) FROM fatedrop_card_source_mappings m
+            WHERE m.source_name='cardmarket'
+              AND m.card_identity_id=p.card_identity_id) AS identity_rows,
           (SELECT COUNT(*) FROM fatedrop_card_source_mappings m
             WHERE m.source_name='cardmarket'
               AND m.card_identity_id=p.card_identity_id
@@ -206,6 +213,7 @@ export async function release(db, report, { write = WRITE } = {}) {
 
     if (Number(verification.planned) !== certified.length
       || Number(verification.bad_exact) !== 0
+      || Number(verification.identities_with_extra_rows) !== 0
       || Number(verification.foreign_owner_rows) !== 0
       || Number(verification.bad_url) !== 0) {
       throw new Error(`Release verification failed: ${JSON.stringify(verification)}`);
