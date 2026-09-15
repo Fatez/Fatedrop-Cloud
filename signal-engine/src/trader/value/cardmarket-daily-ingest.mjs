@@ -16,6 +16,11 @@ import {
   validateReviewedSvBaseLaneMapping,
 } from './cardmarket-reviewed-sv-base-lane.mjs';
 import {
+  REVIEWED_SV_PROFESSOR_ADDENDUM_PRODUCT_IDS,
+  isReviewedSvProfessorAddendumProduct,
+  validateReviewedSvProfessorAddendumMappings,
+} from './cardmarket-reviewed-sv-professor-addendum.mjs';
+import {
   REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
   isReviewedPokemonTcgInherentHoloProduct,
   validateReviewedPokemonTcgInherentHoloMappings,
@@ -91,6 +96,7 @@ export function collectCurrentGuideInherentHoloBaseLaneEligibleProductIds(priceG
       || isReviewedExplicitHoloBaseLaneProduct(sourceRecordId)
       || isReviewedSwshPromoBaseLaneProduct(sourceRecordId)
       || isReviewedSvBaseLaneProduct(sourceRecordId)
+      || isReviewedSvProfessorAddendumProduct(sourceRecordId)
       || isReviewedCleanedHoloProduct(sourceRecordId)
       || isReviewedGalleryHolo(sourceRecordId)
       || isReviewedPokemonTcgInherentHoloProduct(sourceRecordId)
@@ -142,6 +148,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
     ...REVIEWED_SINGLE_FOIL_PRODUCT_IDS,
     ...REVIEWED_EXPLICIT_HOLO_BASE_LANE_PRODUCT_IDS,
     ...REVIEWED_SWSH_PROMO_BASE_LANE_PRODUCT_IDS,
+    ...REVIEWED_SV_PROFESSOR_ADDENDUM_PRODUCT_IDS,
     ...REVIEWED_CLEANED_HOLO_PRODUCT_IDS,
     ...REVIEWED_GALLERY_HOLO_IDS,
     ...REVIEWED_POKEMONTCG_INHERENT_HOLO_PRODUCT_IDS,
@@ -189,6 +196,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
   const reviewedSvBaseLaneIds = new Set(rows
     .filter((row) => validateReviewedSvBaseLaneMapping(row))
     .map((row) => String(row.source_record_id)));
+  const reviewedSvProfessorAddendumIds = validateReviewedSvProfessorAddendumMappings(rows);
   const galleryHoloIds = validateReviewedGalleryHolo(rows);
   const cleanedHoloIds = validateReviewedCleanedHoloMappings(rows);
   const reviewedPokemonTcgHoloIds = validateReviewedPokemonTcgInherentHoloMappings(rows);
@@ -200,6 +208,7 @@ export async function createCardmarketBatchExactMappingResolution(store, product
         || reviewedExplicitHoloIds.has(productId)
         || reviewedSwshPromoBaseLaneIds.has(productId)
         || reviewedSvBaseLaneIds.has(productId)
+        || reviewedSvProfessorAddendumIds.has(productId)
         || cleanedHoloIds.has(productId)
         || galleryHoloIds.has(productId)
         || reviewedPokemonTcgHoloIds.has(productId)
