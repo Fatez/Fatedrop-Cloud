@@ -15,9 +15,14 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-release-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-reverse-public-market.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-reverse-public-cycle-cli.mjs'
+      - 'signal-engine/src/trader/value/provider-policy.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
+      - 'signal-engine/tests/cardmarket-reverse-public-market.test.mjs'
 
 permissions:
   contents: read
@@ -42,14 +47,19 @@ jobs:
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
 
-      - name: Run URL-first model tests
-        run: node --test tests/cardmarket-url-first-rebuild.test.mjs
+      - name: Run deterministic mapping and reverse-offer tests
+        run: |
+          node --test tests/cardmarket-url-first-rebuild.test.mjs
+          node --test tests/cardmarket-reverse-public-market.test.mjs
 
-      - name: Run syntax gates for full-market planner and release
+      - name: Run syntax gates for corrected full-market planner, reverse lane and release
         run: |
           node --check src/trader/value/cardmarket-full-market-recertification-cli.mjs
+          node --check src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
           node --check src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
           node --check src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs
+          node --check src/trader/value/cardmarket-reverse-public-market.mjs
+          node --check src/trader/value/cardmarket-reverse-public-cycle-cli.mjs
 
       - name: Compare simple deterministic model with every eligible production mapping
         env:
@@ -72,12 +82,12 @@ jobs:
       - name: Require official Cardmarket product-name compatibility on fallback results
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
 
-      - name: Build one full English-market recertification plan
+      - name: Build corrected full English-market reconciliation including reverse mappings
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-full-market-recertification-cli.mjs
+        run: node src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
 
-      - name: Rehearse the complete recertification transaction with rollback
+      - name: Rehearse the complete corrected recertification transaction with rollback
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           MAPPING_WRITE: 'false'
