@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildCardmarketReversePublicUrl,
+  fetchCardmarketReversePublicPage,
   parseCardmarketReverseOffersHtml,
+  runCardmarketReversePublicMarketCycle,
   summariseReverseOfferMarket,
 } from '../src/trader/value/cardmarket-reverse-public-market.mjs';
 
@@ -82,4 +84,50 @@ test('a successfully loaded but empty/thin reverse market stays explicitly unpri
     { currencyCode: 'EUR', price: 1 },
     { currencyCode: 'EUR', price: 1.2 },
   ], { minOffers: 3 }).status, 'insufficient_offers');
+});
+
+test('a redirect that strips the certified reverse filter fails closed', async () => {
+  const productUrl = 'https://www.cardmarket.com/en/Pokemon/Products/Singles/Scarlet-Violet/Fidough-SVI097';
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    url: productUrl,
+    headers: { get: () => 'text/html' },
+    text: async () => '<html><body>Reverse Holo</body></html>',
+  });
+  await assert.rejects(
+    fetchCardmarketReversePublicPage(productUrl, { fetchImpl }),
+    /redirect drifted from the certified product or stripped the reverse\/English filters/,
+  );
+});
+
+test('technical fetch failure is unexplained and never classified as no-market', async () => {
+  const productUrl = 'https://www.cardmarket.com/en/Pokemon/Products/Singles/Scarlet-Violet/Fidough-SVI097';
+  const result = await runCardmarketReversePublicMarketCycle({
+    store: { pool: async () => ({}) },
+    mode: 'dry-run',
+    requestDelayMs: 0,
+    mappings: [{
+      id: 'mapping-1',
+      cardIdentityId: 'fdcard_test_reverse',
+      sourceRecordId: '689768',
+      sourceVariantKey: 'reverse',
+      sourceUrl: productUrl,
+    }],
+    fetchImpl: async (url) => ({
+      ok: false,
+      status: 403,
+      url,
+      headers: { get: () => null },
+      text: async () => '',
+    }),
+  });
+
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.productionWrites, false);
+  assert.equal(result.reconciliation.expectedReverseMappings, 1);
+  assert.equal(result.reconciliation.priced, 0);
+  assert.equal(result.reconciliation.explicitlyUnpriced, 0);
+  assert.equal(result.reconciliation.unexplained, 1);
+  assert.equal(result.outcomes[0].status, 'failed');
 });
