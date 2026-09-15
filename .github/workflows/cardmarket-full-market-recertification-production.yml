@@ -7,12 +7,16 @@ on:
     paths:
       - '.github/workflows/cardmarket-full-market-recertification-production.yml'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-release-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-reverse-public-market.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-reverse-public-cycle-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
+      - 'signal-engine/src/trader/value/provider-policy.mjs'
   workflow_dispatch:
 
 permissions:
@@ -25,7 +29,7 @@ concurrency:
 jobs:
   activate:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: signal-engine
@@ -54,10 +58,10 @@ jobs:
       - name: Strictly validate fallback product identity
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
 
-      - name: Build complete English-market reconciliation
+      - name: Build complete English-market reconciliation including reverse mappings
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-full-market-recertification-cli.mjs
+        run: node src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
 
       - name: Persist exact mappings, URLs and provenance transactionally
         env:
@@ -65,13 +69,22 @@ jobs:
           MAPPING_WRITE: 'true'
         run: node src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
 
-      - name: Refresh Cardmarket pricing from the certified ownership graph
+      - name: Refresh standard and holo Cardmarket guide pricing
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           CARDMARKET_MODE: persist
         run: node src/trader/value/cardmarket-production-cycle-cli.mjs
 
-      - name: Verify every certified mapping and every deterministically priceable lane
+      - name: Price reverse holos from the same certified public product URLs
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          CARDMARKET_REVERSE_MODE: persist
+          CARDMARKET_REVERSE_CONCURRENCY: '2'
+          CARDMARKET_REVERSE_REQUEST_DELAY_MS: '300'
+          CARDMARKET_REVERSE_MIN_OFFERS: '3'
+        run: node src/trader/value/cardmarket-reverse-public-cycle-cli.mjs
+
+      - name: Verify every certified mapping and every deterministic guide lane
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs
@@ -88,6 +101,7 @@ jobs:
             ${{ runner.temp }}/cardmarket-full-market-recertification.json
             ${{ runner.temp }}/cardmarket-full-market-recertification-release.json
             ${{ runner.temp }}/cardmarket-production-cycle.json
+            ${{ runner.temp }}/cardmarket-reverse-public-cycle.json
             ${{ runner.temp }}/cardmarket-full-market-recertification-verify.json
           if-no-files-found: warn
           retention-days: 30
