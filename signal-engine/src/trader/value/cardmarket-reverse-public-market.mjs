@@ -295,6 +295,7 @@ export async function fetchCardmarketReversePublicPage(productUrl, {
   if (typeof fetchImpl !== 'function') throw new TypeError('fetchImpl function is required');
   assertFatePriceProviderApproved('cardmarket-public-product-page');
   const filteredUrl = buildCardmarketReversePublicUrl(productUrl);
+  const expectedUrl = new URL(filteredUrl);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -309,6 +310,13 @@ export async function fetchCardmarketReversePublicPage(productUrl, {
       },
     });
     const finalUrl = validateCardmarketProductUrl(response?.url || filteredUrl);
+    const expectedPath = expectedUrl.pathname.replace(/\/+$/, '');
+    const finalPath = finalUrl.pathname.replace(/\/+$/, '');
+    if (finalPath !== expectedPath
+      || finalUrl.searchParams.get('language') !== '1'
+      || finalUrl.searchParams.get('isReverseHolo') !== 'Y') {
+      throw new Error('Cardmarket reverse product redirect drifted from the certified product or stripped the reverse/English filters');
+    }
     if (!response?.ok) {
       const error = new Error(`Cardmarket reverse product request failed with HTTP ${response?.status ?? 'unknown'}`);
       error.status = response?.status ?? null;
