@@ -1,0 +1,33 @@
+name: Cardmarket Final 46 Diagnostic
+
+on:
+  push:
+    branches:
+      - fix/final-46-cardmarket-url-production-2026-09-15
+    paths:
+      - '.github/workflows/cardmarket-final-46-diagnostic.yml'
+      - 'signal-engine/src/trader/value/cardmarket-final-46-diagnostic-cli.mjs'
+      - 'signal-engine/evidence/cardmarket-final-46-user-urls-2026-09-15.json'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Inspect official Cardmarket catalogue rows
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-final-46-diagnostic-cli.mjs
