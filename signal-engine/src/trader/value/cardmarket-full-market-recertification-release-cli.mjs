@@ -128,6 +128,20 @@ export async function release(db, report, { write = WRITE } = {}) {
     const { rows: [planCount] } = await db.query(`SELECT COUNT(*)::int AS count FROM _fatedrop_cardmarket_recert_plan`);
     if (Number(planCount.count) !== certified.length) throw new Error(`Temporary release plan truncated: ${planCount.count}/${certified.length}`);
 
+    // Observations FK to source mappings with ON DELETE RESTRICT. For a
+    // deterministic replacement, retire every historical Cardmarket observation
+    // attached to the identity's stale mapping rows inside this transaction.
+    // The production price cycle immediately after commit rebuilds observations
+    // from the newly certified owner, preventing old prices from surviving a
+    // mapping correction.
+    const deletedObservations = await db.query(`
+      DELETE FROM fatedrop_market_observations o
+      USING fatedrop_card_source_mappings m, _fatedrop_cardmarket_recert_plan p
+      WHERE p.action='replace'
+        AND m.source_name='cardmarket'
+        AND m.card_identity_id=p.card_identity_id
+        AND o.card_source_mapping_id=m.id`);
+
     // A certified FateDrop identity owns exactly one Cardmarket source key.
     // Any replace action therefore removes every historical Cardmarket row for
     // that identity, including wrong-lane and duplicate leftovers, before the
@@ -231,6 +245,7 @@ export async function release(db, report, { write = WRITE } = {}) {
         plannedRetains: certified.filter((row) => row.action === 'retain').length,
         plannedInserts: certified.filter((row) => row.action === 'insert').length,
         plannedReplacements: certified.filter((row) => row.action === 'replace').length,
+        deletedObservationRows: deletedObservations.rowCount,
         deletedRows: deleted.rowCount,
         retainedRowsUpdated: retained.rowCount,
         insertedRows: inserted.rowCount,
