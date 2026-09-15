@@ -1,0 +1,53 @@
+name: Cardmarket Final Pricing URL Audit
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cardmarket-final-pricing-url-audit.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cardmarket-final-pricing-url-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: .tcgdex-evidence
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run full URL/exact-product proof against current production state
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/.tcgdex-evidence
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          TCGGO_FALLBACK_CONCURRENCY: 24
+          TCGGO_FALLBACK_DELAY_MS: 100
+          TCGGO_PROGRESS_EVERY: 250
+        run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cardmarket-final-pricing-url-audit
+          path: |
+            ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
+            ${{ runner.temp }}/cardmarket-full-market-exact-proof-progress.json
+          if-no-files-found: error
+          retention-days: 30
