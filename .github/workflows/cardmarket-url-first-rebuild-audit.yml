@@ -12,7 +12,7 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-sample-validate-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-probe-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
 
 permissions:
@@ -45,8 +45,10 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-sample-validate-cli.mjs
-      - name: Probe public exact TCG-ID to Cardmarket-ID bridge
-        run: node src/trader/value/cardmarket-url-first-tcggo-probe-cli.mjs
+      - name: Resolve all current unmapped cards through simple exact-id bridge
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
       - name: Upload read-only rebuild reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,6 +57,6 @@ jobs:
           path: |
             ${{ runner.temp }}/cardmarket-url-first-rebuild.json
             ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
-            ${{ runner.temp }}/cardmarket-url-first-tcggo-probe.json
+            ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
           if-no-files-found: warn
           retention-days: 14
