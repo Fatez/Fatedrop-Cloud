@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Pool } from 'pg';
+import { marketObservationFromPostgres, normaliseMarketObservationCandidate } from './market-observation.mjs';
 import { validateProductionTarget } from '../catalogue/production-target-check.mjs';
 import {
   CARDMARKET_STALE_OWNERSHIP_SIX,
@@ -128,10 +129,22 @@ async function correctPair(db, pair, catalogueSha) {
     pair.sourceVariantKey, catalogueSha, now,
   ]);
 
-  const observations = await db.query(`
-    UPDATE fatedrop_market_observations
-    SET card_identity_id=$2,card_source_mapping_id=$3
-    WHERE card_source_mapping_id=$1`, [pair.staleMappingId, pair.target.cardIdentityId, state.targetMappingId]);
+  const { rows: historicalObservations } = await db.query(
+    'SELECT * FROM fatedrop_market_observations WHERE card_source_mapping_id=$1 FOR UPDATE', [pair.staleMappingId]);
+  for (const row of historicalObservations) {
+    const original = marketObservationFromPostgres(row);
+    if (original.id !== row.id || original.contentFingerprint !== row.content_fingerprint) {
+      throw new Error(`Historical observation fingerprint drift: ${row.id}`);
+    }
+    const corrected = normaliseMarketObservationCandidate({ ...original,
+      cardIdentityId: pair.target.cardIdentityId, cardSourceMappingId: state.targetMappingId });
+    const movedObservation = await db.query(`UPDATE fatedrop_market_observations
+      SET card_identity_id=$2,card_source_mapping_id=$3,content_fingerprint=$4
+      WHERE id=$1 AND content_fingerprint=$5`, [row.id, corrected.cardIdentityId,
+      corrected.cardSourceMappingId, corrected.contentFingerprint, row.content_fingerprint]);
+    if (movedObservation.rowCount !== 1) throw new Error(`Observation move drift: ${row.id}`);
+  }
+  const observations = { rowCount: historicalObservations.length };
   if (observations.rowCount !== Number(obsCheck?.total || 0)) throw new Error(`Observation move count drift for ${pair.key}`);
 
   const removed = await db.query(`DELETE FROM fatedrop_card_source_mappings WHERE id=$1`, [pair.staleMappingId]);
