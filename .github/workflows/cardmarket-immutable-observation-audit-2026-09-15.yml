@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/cardmarket-immutable-observation-audit-2026-09-15.yml'
       - 'signal-engine/src/trader/value/cardmarket-immutable-observation-audit-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-sixrepair-fingerprint-rehearsal-cli.mjs'
 
 permissions:
   contents: read
@@ -30,11 +31,17 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-immutable-observation-audit-cli.mjs
-      - name: Upload immutable-conflict audit
+      - name: Rehearse six-repair fingerprint correction and daily-cycle validation
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-sixrepair-fingerprint-rehearsal-cli.mjs
+      - name: Upload immutable-conflict evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cardmarket-immutable-observation-audit-2026-09-15
-          path: ${{ runner.temp }}/cardmarket-immutable-observation-audit.json
+          path: |
+            ${{ runner.temp }}/cardmarket-immutable-observation-audit.json
+            ${{ runner.temp }}/cardmarket-sixrepair-fingerprint-rehearsal.json
           if-no-files-found: warn
           retention-days: 14
