@@ -1,0 +1,42 @@
+name: Cardmarket Final 46 User URL Rehearsal
+
+on:
+  push:
+    branches:
+      - fix/final-46-cardmarket-url-production-2026-09-15
+    paths:
+      - '.github/workflows/cardmarket-final-46-user-url-rehearsal.yml'
+      - 'signal-engine/evidence/cardmarket-final-46-user-urls-2026-09-15.json'
+      - 'signal-engine/src/trader/value/cardmarket-final-46-user-url-release-cli.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Resolve final 46 against production and Cardmarket public downloads
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-final-46-user-url-release-cli.mjs
+      - name: Upload rehearsal report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-final-46-user-url-rehearsal
+          path: ${{ runner.temp }}/cardmarket-final-46-user-url-release.json
+          if-no-files-found: error
+          retention-days: 14
