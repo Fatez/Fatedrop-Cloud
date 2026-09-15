@@ -35,6 +35,9 @@ export async function verify(db, report) {
       SELECT p.*,
         (SELECT COUNT(*) FROM fatedrop_card_source_mappings m
           WHERE m.source_name='cardmarket'
+            AND m.card_identity_id=p.card_identity_id) AS identity_rows,
+        (SELECT COUNT(*) FROM fatedrop_card_source_mappings m
+          WHERE m.source_name='cardmarket'
             AND m.card_identity_id=p.card_identity_id
             AND m.source_record_id=p.source_record_id
             AND m.source_variant_key=p.source_variant_key) AS exact_rows,
@@ -57,6 +60,7 @@ export async function verify(db, report) {
       COUNT(*)::int AS planned,
       COUNT(*) FILTER (WHERE exact_rows=1)::int AS exact,
       COUNT(*) FILTER (WHERE exact_rows<>1)::int AS bad_exact,
+      COUNT(*) FILTER (WHERE identity_rows<>1)::int AS identities_with_extra_rows,
       COUNT(*) FILTER (WHERE foreign_owners>0)::int AS foreign_owner_rows,
       COUNT(*) FILTER (WHERE url_matches=false)::int AS bad_url
     FROM checks`, [JSON.stringify(payload)]);
@@ -100,6 +104,7 @@ export async function verify(db, report) {
   }
   if (Number(mapping.planned) !== certified.length
     || Number(mapping.bad_exact) !== 0
+    || Number(mapping.identities_with_extra_rows) !== 0
     || Number(mapping.foreign_owner_rows) !== 0
     || Number(mapping.bad_url) !== 0) {
     throw new Error(`Exact Cardmarket mapping verification failed: ${JSON.stringify(mapping)}`);
