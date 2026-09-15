@@ -12,8 +12,19 @@ import { getRootCardmarketProductId, rootProductNameMatches } from './cardmarket
 
 const EVIDENCE_PATH = path.resolve('evidence/cardmarket-url-first-rebuild-source-2026-09-15.json');
 const OUTPUT = () => path.join(process.env.RUNNER_TEMP || '.', 'cardmarket-url-first-tcggo-full.json');
+const PROGRESS_OUTPUT = () => path.join(process.env.RUNNER_TEMP || '.', 'cardmarket-full-market-exact-proof-progress.json');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const EDITIONED_SET_CODES = new Set(['base1','base2','base3','base4','base5','gym1','gym2','neo1','neo2','neo3','neo4']);
+
+const positiveInt = (value, fallback, max) => {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
+};
+
+const FALLBACK_CONCURRENCY = positiveInt(process.env.TCGGO_FALLBACK_CONCURRENCY, 12, 32);
+const FALLBACK_DELAY_MS = positiveInt(process.env.TCGGO_FALLBACK_DELAY_MS, 150, 5000);
+const PROGRESS_EVERY = positiveInt(process.env.TCGGO_PROGRESS_EVERY, 100, 5000);
 
 const sourceVariantKey = (variantCode) => {
   if (variantCode === 'holo') return 'holo';
@@ -152,30 +163,48 @@ function localProof(identity, cardById, setByCardId, productById) {
   const sourceRecordId = String(rootProductId);
   const product = productById.get(sourceRecordId);
   if (!product) return { status: 'held', reason: 'TCGDEX_ROOT_PRODUCT_ABSENT_FROM_OFFICIAL_CARDMARKET_CATALOGUE', tcgId, sourceRecordId };
-
-  const expectedExpansionId = Number(set.cardmarketExpansionId);
-  if (!Number.isSafeInteger(expectedExpansionId) || expectedExpansionId <= 0) {
-    return { status: 'held', reason: 'TCGDEX_CARDMARKET_EXPANSION_ID_MISSING', tcgId, sourceRecordId };
-  }
-  if (Number(product.sourceExpansionId) !== expectedExpansionId) {
+  if (!rootProductNameMatches(identity.name, product.name)) {
     return {
       status: 'held',
-      reason: 'TCGDEX_CARDMARKET_EXPANSION_MISMATCH',
+      reason: 'TCGDEX_ROOT_PRODUCT_NAME_MISMATCH',
       tcgId,
       sourceRecordId,
-      expectedExpansionId,
-      actualExpansionId: product.sourceExpansionId ?? null,
+      cardmarketProductName: product.name,
     };
   }
+
+  const expectedExpansionId = Number(set.cardmarketExpansionId);
+  const hasExpectedExpansion = Number.isSafeInteger(expectedExpansionId) && expectedExpansionId > 0;
+  const sameExpansion = hasExpectedExpansion && Number(product.sourceExpansionId) === expectedExpansionId;
 
   return {
     status: 'resolved',
     tcgId,
     sourceRecordId,
     product,
-    expectedExpansionId,
+    expectedExpansionId: hasExpectedExpansion ? expectedExpansionId : null,
+    expansionRelation: hasExpectedExpansion
+      ? (sameExpansion ? 'main_set_expansion' : 'supplemental_cardmarket_expansion')
+      : 'tcgdex_set_expansion_unavailable',
     method: 'pinned_tcgdex_exact_card_root_cardmarket_product',
   };
+}
+
+async function writeProgress({ counts, processed, total, workers, startedAt }) {
+  const elapsedMs = Date.now() - startedAt;
+  const payload = {
+    status: processed >= total ? 'network_fallback_complete' : 'network_fallback_in_progress',
+    productionWrites: false,
+    processed,
+    total,
+    remaining: Math.max(0, total - processed),
+    workers,
+    elapsedMs,
+    counts,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeFile(PROGRESS_OUTPUT(), JSON.stringify(payload, null, 2));
+  console.log(`[cardmarket-exact-proof] fallback ${processed}/${total} processed; resolved=${counts.networkFallbackResolved}; held=${counts.networkFallbackHeld}; workers=${workers}; elapsed=${Math.round(elapsedMs / 1000)}s`);
 }
 
 export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}) {
@@ -234,7 +263,9 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
     targets: targets.length,
     localProofResolved: 0,
     localProofHeld: 0,
+    localProofSupplementalExpansion: 0,
     networkFallbackTargets: 0,
+    networkFallbackLookupTargets: 0,
     networkFallbackResolved: 0,
     networkFallbackHeld: 0,
     batchCollisionRows: 0,
@@ -265,6 +296,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
 
     counts.localProofResolved += 1;
     counts.exactProductResolved += 1;
+    if (proof.expansionRelation === 'supplemental_cardmarket_expansion') counts.localProofSupplementalExpansion += 1;
     const variantKey = sourceVariantKey(identity.variant_code);
     const foreignOwners = (ownersBySourceKey.get(sourceKey(proof.sourceRecordId, variantKey)) || [])
       .filter((owner) => owner !== identity.card_identity_id);
@@ -286,14 +318,18 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
       priceEvidence: priceEvidenceFor(identity, priceById, proof.sourceRecordId),
       proof: {
         method: proof.method,
+        expansionRelation: proof.expansionRelation,
+        expectedExpansionId: proof.expectedExpansionId,
         tcgdexRevision: process.env.TCGDEX_REVISION || null,
       },
     });
   }
 
   counts.networkFallbackTargets = fallback.length;
-  for (let index = 0; index < fallback.length; index += 1) {
-    const { identity, reviewedUrl, localHold } = fallback[index];
+
+  const networkQueue = [];
+  for (const entry of fallback) {
+    const { identity, reviewedUrl, localHold } = entry;
     const tcgIds = Array.isArray(identity.tcgdex_card_ids) ? identity.tcgdex_card_ids : [];
     const tcgId = tcgIds.length === 1 ? tcgIds[0] : null;
     if (!tcgId) {
@@ -313,7 +349,31 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
       });
       continue;
     }
+    networkQueue.push({ ...entry, tcgId });
+  }
 
+  counts.networkFallbackLookupTargets = networkQueue.length;
+  const workers = Math.min(FALLBACK_CONCURRENCY, Math.max(1, networkQueue.length));
+  const startedAt = Date.now();
+  console.log(JSON.stringify({
+    stage: 'local_proof_complete',
+    targets: counts.targets,
+    localProofResolved: counts.localProofResolved,
+    localProofHeld: counts.localProofHeld,
+    localProofSupplementalExpansion: counts.localProofSupplementalExpansion,
+    networkFallbackTargets: counts.networkFallbackTargets,
+    networkFallbackLookupTargets: counts.networkFallbackLookupTargets,
+    immediateHeldWithoutExactTcgId: counts.networkFallbackTargets - counts.networkFallbackLookupTargets,
+    workers,
+  }, null, 2));
+  await writeProgress({ counts, processed: 0, total: networkQueue.length, workers, startedAt });
+
+  let nextIndex = 0;
+  let completed = 0;
+  let lastProgressWritten = 0;
+
+  const runOne = async (entry) => {
+    const { identity, reviewedUrl, localHold, tcgId } = entry;
     const tcggo = await fetchTcggoExact(tcgId);
     const set = setByCardId.get(tcgId);
     const choice = chooseNetworkCandidate(identity, tcggo, productById, set?.cardmarketExpansionId || null);
@@ -340,36 +400,53 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
         rawIds: choice.rawIds,
         localHold,
       });
-    } else {
-      counts.networkFallbackResolved += 1;
-      counts.exactProductResolved += 1;
-      const variantKey = sourceVariantKey(identity.variant_code);
-      const foreignOwners = (ownersBySourceKey.get(sourceKey(choice.sourceRecordId, variantKey)) || [])
-        .filter((owner) => owner !== identity.card_identity_id);
-      resolved.push({
-        cardIdentityId: identity.card_identity_id,
-        setName: identity.set_name,
-        setCode: identity.set_code,
-        name: identity.name,
-        collectorNumber: identity.collector_number,
-        variantCode: identity.variant_code,
-        tcgId,
-        reviewedCardmarketUrl: reviewedUrl,
-        tcggo: { url: tcggo.url, status: tcggo.status, cardmarketIds: tcggo.cardmarketIds },
-        sourceRecordId: choice.sourceRecordId,
-        sourceVariantKey: variantKey,
-        cardmarketProductName: choice.product.name,
-        cardmarketExpansionId: String(choice.product.sourceExpansionId ?? ''),
-        foreignOwners,
-        priceEvidence: priceEvidenceFor(identity, priceById, choice.sourceRecordId),
-        proof: {
-          method: 'network_exact_tcgdex_id_to_cardmarket_product',
-          localHold,
-        },
-      });
+      return;
     }
-    if (index + 1 < fallback.length) await sleep(300);
-  }
+
+    counts.networkFallbackResolved += 1;
+    counts.exactProductResolved += 1;
+    const variantKey = sourceVariantKey(identity.variant_code);
+    const foreignOwners = (ownersBySourceKey.get(sourceKey(choice.sourceRecordId, variantKey)) || [])
+      .filter((owner) => owner !== identity.card_identity_id);
+    resolved.push({
+      cardIdentityId: identity.card_identity_id,
+      setName: identity.set_name,
+      setCode: identity.set_code,
+      name: identity.name,
+      collectorNumber: identity.collector_number,
+      variantCode: identity.variant_code,
+      tcgId,
+      reviewedCardmarketUrl: reviewedUrl,
+      tcggo: { url: tcggo.url, status: tcggo.status, cardmarketIds: tcggo.cardmarketIds },
+      sourceRecordId: choice.sourceRecordId,
+      sourceVariantKey: variantKey,
+      cardmarketProductName: choice.product.name,
+      cardmarketExpansionId: String(choice.product.sourceExpansionId ?? ''),
+      foreignOwners,
+      priceEvidence: priceEvidenceFor(identity, priceById, choice.sourceRecordId),
+      proof: {
+        method: 'network_exact_tcgdex_id_to_cardmarket_product',
+        localHold,
+      },
+    });
+  };
+
+  const worker = async () => {
+    while (true) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= networkQueue.length) return;
+      await runOne(networkQueue[index]);
+      completed += 1;
+      if (completed === networkQueue.length || completed - lastProgressWritten >= PROGRESS_EVERY) {
+        lastProgressWritten = completed;
+        await writeProgress({ counts, processed: completed, total: networkQueue.length, workers, startedAt });
+      }
+      if (FALLBACK_DELAY_MS > 0) await sleep(FALLBACK_DELAY_MS);
+    }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => worker()));
 
   const keyCounts = new Map();
   for (const row of resolved) {
@@ -402,13 +479,15 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
     counts,
     source: {
       identity: 'exact FateDrop English identity -> exact pinned TCGdex card and collector number',
-      localCrosswalk: 'pinned TCGdex explicit/root Cardmarket product ID -> official Cardmarket catalogue',
+      localCrosswalk: 'pinned TCGdex explicit/root Cardmarket product ID -> official Cardmarket catalogue; supplemental Cardmarket expansions are accepted only when the exact TCGdex card/product/name proof closes',
       fallbackCrosswalk: 'public TCGGO exact TCGdex-ID search only when pinned local evidence cannot prove the product',
       price: 'Cardmarket public price guide for standard/holo; reverse is public-offer-derived later',
       tcgdexRevision: process.env.TCGDEX_REVISION || null,
       cardmarketCatalogueSha256: catalogueArtifact.sha256,
       cardmarketPriceGuideSha256: guideArtifact.sha256,
       sourceSnapshotId: snapshot.sourceSnapshotId,
+      networkFallbackConcurrency: FALLBACK_CONCURRENCY,
+      networkFallbackDelayMs: FALLBACK_DELAY_MS,
     },
     collisionKeys: [...collisionKeys].sort(),
     safeMappings,
