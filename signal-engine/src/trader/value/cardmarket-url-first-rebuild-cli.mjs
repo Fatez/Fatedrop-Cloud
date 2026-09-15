@@ -152,6 +152,7 @@ export async function build(db, { sources, evidence } = {}) {
     targetLanePriceable: 0,
     currentUnmappedTargetLanePriceable: 0,
     holoBaseLaneOnly: 0,
+    forensicResidual: 0,
   };
 
   for (const identity of identities) {
@@ -209,6 +210,11 @@ export async function build(db, { sources, evidence } = {}) {
   const mismatchRows = rows.filter((row) => row.comparison.state === 'MISMATCH');
   const currentUnverifiedRows = rows.filter((row) => row.comparison.state === 'CURRENT_MAPPING_NOT_VERIFIED_BY_MODEL');
   const newRows = rows.filter((row) => row.comparison.state === 'NEW_MAPPING_CANDIDATE');
+  const forensicResidual = rows.filter((row) => !(
+    row.model.status === 'resolved'
+    && row.model.method === 'structured_name_collector'
+  ));
+  counts.forensicResidual = forensicResidual.length;
 
   const probeTargets = currentUnmapped.slice(0, 3);
   const urlProbes = [];
@@ -246,6 +252,7 @@ export async function build(db, { sources, evidence } = {}) {
       unresolvedSetDetails: Object.freeze(unresolvedSets),
     }),
     urlProbes: Object.freeze(urlProbes),
+    forensicResidual: Object.freeze(forensicResidual),
     newMappingCandidates: Object.freeze(newRows),
     mismatches: Object.freeze(mismatchRows),
     currentMappingsNotVerified: Object.freeze(currentUnverifiedRows),
