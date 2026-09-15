@@ -94,7 +94,7 @@ test('controlled sync can resume through one source set without duplicating cano
   assert.deepEqual(new Set(cards.map((card) => card.name)), new Set(['Alpha', 'Beta']));
 });
 
-test('first-edition finish holds still persist exact base printing for binder membership', async () => {
+test('first-edition evidence persists separate regular and 1st Edition exact identities', async () => {
   const target = await store();
   const source = clients();
   const held = structuredClone(tcgdexCards['svx-a-1']);
@@ -113,10 +113,10 @@ test('first-edition finish holds still persist exact base printing for binder me
     verifiedAt: 1_777_000_000_010,
   });
 
-  assert.equal(result.verifiedCardIdentities, 0);
+  assert.equal(result.verifiedCardIdentities, 2);
   assert.equal(result.verifiedChecklistPrintings, 1);
-  assert.equal(result.quarantined, 1);
-  assert.equal((await listVerifiedCardsFromStore(target)).length, 0);
+  assert.equal(result.quarantined, 0);
+  assert.deepEqual((await listVerifiedCardsFromStore(target)).map((card) => card.variantCode).sort(), ['first-edition-standard','standard']);
   const printings = await listVerifiedPrintingsFromStore(target);
   assert.equal(printings.length, 1);
   assert.equal(printings[0].collectorNumber, '1');

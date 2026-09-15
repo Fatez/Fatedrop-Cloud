@@ -35,6 +35,7 @@ function unavailable({ reason, setId, set = null, catalogue = null }) {
 export async function getCollectionSetProgressFromStore(store, {
   userId,
   setId,
+  editionCode = 'standard',
   currencyCode = 'GBP',
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
@@ -71,7 +72,7 @@ export async function getCollectionSetProgressFromStore(store, {
     listCollectionItemsFromStore(store, { userId: ownerId, limit: 2000 }),
     listSetCompletionAssertionsFromStore(store, { userId: ownerId, setIds: [canonicalSetId] }),
   ]);
-  const assertedPrintingIds = completionAssertions[0]?.printingIds ?? [];
+  const assertedPrintingIds = completionAssertions.find((assertion) => assertion.editionCode === editionCode)?.printingIds ?? [];
   const valueCards = canonicalCards.filter((card) => (
     (!preferredLanguageCode || card.languageCode === preferredLanguageCode)
     && (!preferredVariantCode || card.variantCode === preferredVariantCode)
@@ -99,6 +100,7 @@ export async function getCollectionSetProgressFromStore(store, {
     currencyCode: currency,
     preferredLanguageCode,
     preferredVariantCode,
+    editionCode,
     setCompletionAssertions: completionAssertions,
   });
   const tracked = await listTrackedCollectionSetBindersFromStore(store, { userId: ownerId });
@@ -106,7 +108,7 @@ export async function getCollectionSetProgressFromStore(store, {
   return Object.freeze({
     ...progress,
     catalogue,
-    explicitlyTracked: tracked.some((binder) => binder.setId === canonicalSetId),
+    explicitlyTracked: tracked.some((binder) => binder.setId === canonicalSetId && binder.editionCode === editionCode),
     hasUserCompletionAssertion: assertedPrintingIds.length > 0,
     priceEvidenceConnected: priceRead.connected,
   });

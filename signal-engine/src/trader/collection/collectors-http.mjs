@@ -55,14 +55,16 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
       const currencyCode=String(url.searchParams.get('currency')||'EUR').trim().toUpperCase();
       const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
       const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
-      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),currencyCode,preferredLanguageCode,preferredVariantCode});
+      const editionCode=String(url.searchParams.get('edition')||'standard').trim().toLowerCase();
+      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(setId),editionCode,currencyCode,preferredLanguageCode,preferredVariantCode});
       ok(res,{contractVersion:2,progress});return true;
     }
     const completion=completionPath(url.pathname);
     if(req.method==='POST'&&completion?.action==='preview'){
       const preferredLanguageCode=String(url.searchParams.get('language')||'en').trim().toLowerCase();
       const preferredVariantCode=String(url.searchParams.get('variant')||'standard').trim().toLowerCase();
-      const preview=await previewSetCompletionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),preferredLanguageCode,preferredVariantCode});
+      const editionCode=String(url.searchParams.get('edition')||'standard').trim().toLowerCase();
+      const preview=await previewSetCompletionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),editionCode,preferredLanguageCode,preferredVariantCode});
       const {_plan,...publicPreview}=preview;
       ok(res,publicPreview);return true;
     }
@@ -71,6 +73,7 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
       const result=await confirmSetCompletionFromStore(store,{
         userId:user.id,
         setId:decodeURIComponent(completion.setId),
+        editionCode:String(body.editionCode||'standard').trim().toLowerCase(),
         confirmationToken:body.confirmationToken,
         confirmed:body.confirmed,
         preferredLanguageCode:String(body.preferredLanguageCode||'en').trim().toLowerCase(),
@@ -79,13 +82,15 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
       ok(res,result);return true;
     }
     if(req.method==='DELETE'&&completion?.action==='remove'){
-      const result=await removeSetCompletionAssertionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId)});
-      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),currencyCode:'GBP',preferredLanguageCode:'en',preferredVariantCode:'standard'});
+      const editionCode=String(url.searchParams.get('edition')||'standard').trim().toLowerCase();
+      const result=await removeSetCompletionAssertionFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),editionCode});
+      const progress=await getCollectionSetProgressFromStore(store,{userId:user.id,setId:decodeURIComponent(completion.setId),editionCode,currencyCode:'GBP',preferredLanguageCode:'en',preferredVariantCode:'standard'});
       ok(res,{contractVersion:1,...result,progress});return true;
     }
     const trackedSetId=binderSetId(url.pathname);
     if((req.method==='PUT'||req.method==='DELETE')&&trackedSetId){
-      const binder=await setCollectionSetBinderTrackedInStore(store,{userId:user.id,setId:decodeURIComponent(trackedSetId),tracked:req.method==='PUT'});
+      const editionCode=String(url.searchParams.get('edition')||'standard').trim().toLowerCase();
+      const binder=await setCollectionSetBinderTrackedInStore(store,{userId:user.id,setId:decodeURIComponent(trackedSetId),editionCode,tracked:req.method==='PUT'});
       ok(res,{contractVersion:1,binder});return true;
     }
     if(req.method==='POST'&&url.pathname===PREVIEW_PATH){
@@ -113,6 +118,8 @@ export async function handleFateCollectors(req,res,{store,flags=resolveFateTrade
     if(error?.code==='SET_COMPLETION_CONFIRMATION_REQUIRED'){fail(res,400,error.code,error.message);return true;}
     if(error?.code==='SET_COMPLETION_PREVIEW_CHANGED'){fail(res,409,error.code,error.message);return true;}
     if(error?.code==='SET_CHECKLIST_UNAVAILABLE'){fail(res,409,error.code,error.message,{details:error.details||{}});return true;}
+    if(error?.code==='SET_EXACT_CHECKLIST_UNAVAILABLE'){fail(res,409,error.code,error.message,{details:error.details||{}});return true;}
+    if(error?.code==='SET_EDITION_NOT_AVAILABLE'){fail(res,409,error.code,error.message);return true;}
     if(error?.code==='SET_IDENTITY_NOT_VERIFIED'){fail(res,404,error.code,error.message);return true;}
     if(error?.code==='42P01'){fail(res,503,'SET_COMPLETION_STORAGE_UNAVAILABLE','Set completion is temporarily unavailable.',{retryable:true});return true;}
     if(error instanceof TypeError){fail(res,400,'INVALID_COLLECTORS_REQUEST',error.message);return true;}
