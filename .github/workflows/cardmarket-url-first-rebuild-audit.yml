@@ -7,10 +7,11 @@ on:
     paths:
       - '.github/workflows/cardmarket-url-first-rebuild-audit.yml'
       - 'signal-engine/evidence/cardmarket-url-first-rebuild-source-2026-09-15.json'
+      - 'signal-engine/evidence/cardmarket-url-first-sample-crosswalk-2026-09-15.json'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-validate.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-url-first-scrydex-crosswalk-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-sample-validate-cli.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
 
 permissions:
@@ -39,12 +40,10 @@ jobs:
         run: node src/trader/value/cardmarket-url-first-rebuild-cli.mjs
       - name: Fail closed on within-batch source collisions
         run: node src/trader/value/cardmarket-url-first-rebuild-validate.mjs
-      - name: Test simple exact-card crosswalk helper against all current unmapped cards
+      - name: Validate exact URL/card-number sample crosswalk
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          SCRYDEX_API_KEY: ${{ secrets.SCRYDEX_API_KEY }}
-          SCRYDEX_TEAM_ID: ${{ secrets.SCRYDEX_TEAM_ID }}
-        run: node src/trader/value/cardmarket-url-first-scrydex-crosswalk-cli.mjs
+        run: node src/trader/value/cardmarket-url-first-sample-validate-cli.mjs
       - name: Upload read-only rebuild reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -52,6 +51,6 @@ jobs:
           name: cardmarket-url-first-rebuild
           path: |
             ${{ runner.temp }}/cardmarket-url-first-rebuild.json
-            ${{ runner.temp }}/cardmarket-url-first-scrydex-crosswalk.json
+            ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
           if-no-files-found: error
           retention-days: 14
