@@ -136,3 +136,19 @@ test("SV retailer shorthand and official Scarlet & Violet set sequence resolve t
   assert.equal(result.officialRrpPence, 4999);
   assert.deepEqual(result.matchedProductIds, ["prismatic-etb"]);
 });
+
+
+test("named Paldean Fates and Brilliant Stars products tolerate omitted correct series only", () => {
+  for (const [set, series, type] of [["Paldean Fates", "Scarlet & Violet", "booster_bundle"], ["Brilliant Stars", "Sword & Shield", "elite_trainer_box"]]) {
+    const format = type === "booster_bundle" ? "Booster Bundle" : "Elite Trainer Box";
+    const source = {id: "source", title: `Pokemon ${series} ${set} ${format}`, productType:type, tcg:"pokemon", officialRrpPence:2599, rrpSource:"fixture-authority"};
+    const registry=buildCanonicalRrpRegistry([source]);
+    const input={title:`${set} ${format}`,productType:type,tcg:"pokemon"};
+    assert.equal(resolveCanonicalRrp(input,registry).resolved,true);
+    for (const prefix of ["Japanese ", "Pokemon Center ", "2 x ", "Sun & Moon "]) {
+      assert.equal(resolveCanonicalRrp({...input,title:prefix+input.title},registry).resolved,false,prefix);
+    }
+    assert.equal(resolveCanonicalRrp({...input,title:input.title.replace(set,"Hidden Fates")},registry).resolved,false);
+    assert.equal(resolveCanonicalRrp(input,buildCanonicalRrpRegistry([source,{...source,id:"conflict",officialRrpPence:2999}])).resolved,false);
+  }
+});

@@ -170,3 +170,21 @@ test("ETBs remain excluded from pack-only component reference even when pack cou
   }, context);
   assert.equal(result.resolved, false);
 });
+
+
+test("SWSH pack references recover without crossing set or packaging identity", () => {
+  const source = { id: "brilliant-reference", title: "Pokemon Sword & Shield Brilliant Stars Booster Pack (10 Cards)", productType: "booster_pack", tcg: "pokemon", officialRrpPence: 499, rrpSource: "pokemon-center-uk" };
+  const ctx = buildRrpValueContext([source]);
+  const input = { title: "SWSH Brilliant Stars 10 Pack Bundle", productType: "other", tcg: "pokemon" };
+  const single = resolveRrpValue({ title: "SWSH Brilliant Stars Booster Pack", productType: "booster_pack", tcg: "pokemon" }, ctx);
+  assert.equal(single.resolved, true);
+  assert.equal(single.rrpPence, 499);
+  const recovered = resolveRrpValue(input, ctx);
+  assert.equal(recovered.resolved, true);
+  assert.equal(recovered.kind, "component_reference");
+  assert.equal(recovered.rrpPence, 4990);
+  assert.deepEqual(recovered.matchedProductIds, [source.id]);
+  assert.equal(resolveRrpValue({...input, title: "SWSH Silver Tempest 10 Pack Bundle"}, ctx).resolved, false);
+  assert.equal(resolveRrpValue(input, buildRrpValueContext([{...source, title: "Pokemon Sword & Shield Brilliant Stars Sleeved Booster Pack (10 Cards)"}])).resolved, false);
+  assert.equal(resolveRrpValue(input, buildRrpValueContext([source, {...source, id: "conflict", officialRrpPence: 599}])).resolved, false);
+});

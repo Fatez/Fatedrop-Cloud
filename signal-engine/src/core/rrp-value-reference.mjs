@@ -66,6 +66,9 @@ function packFormatVariant(title = "") {
 
 function setTokens(title = "") {
   const text = fold(title)
+    // Match the same explicit series abbreviations accepted by the exact registry.
+    .replace(/\bswsh\b/g, "sword and shield")
+    .replace(/\bsv\b(?=\s+[a-z])/g, "scarlet and violet")
     .replace(/\b(?:pokemon|tcg|trading card game|trading cards|cards)\b/g, " ")
     .replace(/\b(?:sleeved|sealed|standard|english|uk|united kingdom)\b/g, " ")
     .replace(/\b(?:booster|packs?|bundle|display|box|half|opened|live|stream)\b/g, " ")
