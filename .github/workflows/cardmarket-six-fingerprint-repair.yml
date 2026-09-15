@@ -1,0 +1,62 @@
+name: Cardmarket Six Fingerprint Repair
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cardmarket-six-fingerprint-repair.yml'
+      - 'signal-engine/src/trader/value/cardmarket-six-fingerprint-repair*.mjs'
+      - 'signal-engine/evidence/cardmarket-six-observation-fingerprints-2026-09-15.json'
+  workflow_dispatch:
+    inputs:
+      activate:
+        description: 'Commit reviewed repair and price cycle (requires explicit operator approval)'
+        type: boolean
+        default: false
+      approved_manifest_sha256:
+        description: 'Exact manifest SHA256 from successful rehearsal'
+        type: string
+        default: ''
+      approved_price_guide_sha256:
+        description: 'Exact price-guide SHA256 from successful rehearsal'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fateprice-cardmarket-daily-ingest
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run complete Signal Engine suite before accessing production
+        run: npm test
+      - name: Rehearse or activate exact repair
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MARKET_REPAIR_MODE: ${{ inputs.activate && 'activate' || 'rehearse' }}
+          APPROVED_MANIFEST_SHA256: ${{ inputs.approved_manifest_sha256 }}
+          APPROVED_PRICE_GUIDE_SHA256: ${{ inputs.approved_price_guide_sha256 }}
+        run: node src/trader/value/cardmarket-six-fingerprint-repair-cli.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cardmarket-six-fingerprint-repair
+          path: ${{ runner.temp }}/cardmarket-six-fingerprint-repair.json
+          if-no-files-found: error
+          retention-days: 30
