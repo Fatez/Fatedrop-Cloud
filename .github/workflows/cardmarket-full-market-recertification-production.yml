@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '.github/workflows/cardmarket-full-market-recertification-production.yml'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-exact-proof-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-release-cli.mjs'
@@ -14,8 +15,10 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-reverse-public-cycle-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
+      - 'signal-engine/src/trader/value/tcgdex-repository-cardmarket-evidence.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-tcgdex-root-evidence.mjs'
       - 'signal-engine/src/trader/value/provider-policy.mjs'
   workflow_dispatch:
 
@@ -24,7 +27,7 @@ permissions:
 
 concurrency:
   group: cardmarket-full-english-recertification-production
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   activate:
@@ -35,11 +38,21 @@ jobs:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
+
       - run: npm ci
 
       - name: Rebuild simple deterministic market model from live production truth
@@ -50,12 +63,14 @@ jobs:
       - name: Fail closed on simple-model source collisions
         run: node src/trader/value/cardmarket-url-first-rebuild-validate.mjs
 
-      - name: Resolve only the residual through exact-ID fallback
+      - name: Prove every market identity locally first, then network-fallback only genuine residuals
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
 
-      - name: Strictly validate fallback product identity
+      - name: Require official Cardmarket product-name compatibility on exact-proof results
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
 
       - name: Build complete English-market reconciliation including reverse mappings
