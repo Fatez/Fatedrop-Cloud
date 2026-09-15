@@ -12,7 +12,7 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-sample-validate-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-exact-proof-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs'
@@ -21,6 +21,8 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-reverse-public-market.mjs'
       - 'signal-engine/src/trader/value/cardmarket-reverse-public-cycle-cli.mjs'
       - 'signal-engine/src/trader/value/provider-policy.mjs'
+      - 'signal-engine/src/trader/value/tcgdex-repository-cardmarket-evidence.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-tcgdex-root-evidence.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
       - 'signal-engine/tests/cardmarket-reverse-public-market.test.mjs'
 
@@ -34,12 +36,19 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 180
     defaults:
       run:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -52,8 +61,9 @@ jobs:
           node --test tests/cardmarket-url-first-rebuild.test.mjs
           node --test tests/cardmarket-reverse-public-market.test.mjs
 
-      - name: Run syntax gates for corrected full-market planner, reverse lane and release
+      - name: Run syntax gates for corrected full-market planner, exact proof, reverse lane and release
         run: |
+          node --check src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
           node --check src/trader/value/cardmarket-full-market-recertification-cli.mjs
           node --check src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
           node --check src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
@@ -74,12 +84,14 @@ jobs:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-sample-validate-cli.mjs
 
-      - name: Run exact-ID bridge only across the currently unmapped residual
+      - name: Prove every market identity from pinned TCGdex then network-fallback only the residual
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
 
-      - name: Require official Cardmarket product-name compatibility on fallback results
+      - name: Require official Cardmarket product-name compatibility on exact-proof results
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
 
       - name: Build corrected full English-market reconciliation including reverse mappings
