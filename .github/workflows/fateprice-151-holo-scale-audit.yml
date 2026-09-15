@@ -1,0 +1,90 @@
+name: Audit FatePrice 151 Holo Scale
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fateprice-151-holo-scale-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-fateprice-151-holo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out FateDrop repository
+        uses: actions/checkout@v4
+
+      - name: Build exact holo-card scale batch through production adapter
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { buildCardmarketPriceGuideBatch } from './src/trader/value/cardmarket-adapter.mjs';
+
+          // These FateDrop identities are holo cards, but Cardmarket exposes their
+          // product-level guide in the provider's standard/normal lane. Source
+          // variant keys describe the provider lane, not the FateDrop variant.
+          const mappings = new Map([
+            ['733789', { id:'fdcardmap_3eec2ca535d46a26622afafc', cardIdentityId:'fdcard_b6b81815dc853957b2e54d3b' }],
+            ['733790', { id:'fdcardmap_1a99710bfa7cfcc0a358f486', cardIdentityId:'fdcard_05516a494469468f58c1e5c8' }],
+            ['733791', { id:'fdcardmap_e15d9b68523d0785cf808c3a', cardIdentityId:'fdcard_0da2f7038691bcc5516a33f7' }],
+            ['733792', { id:'fdcardmap_ba04e209e2b38eac351ce04a', cardIdentityId:'fdcard_320ca2113a04f784c12ffc0e' }],
+            ['733798', { id:'fdcardmap_4dcc27e150158f9f2d5a410c', cardIdentityId:'fdcard_a5c847ecbd20e9a03602df0e' }],
+            ['733799', { id:'fdcardmap_94f7adb9a4be8c2cef50dfa4', cardIdentityId:'fdcard_2e1058e8c94f59b70b2a64de' }],
+            ['733801', { id:'fdcardmap_7dbe10b6f311315e908dbecb', cardIdentityId:'fdcard_14bc50e6c273a9115d679286' }],
+            ['733802', { id:'fdcardmap_af77d7fe6ca95ea2f3b42278', cardIdentityId:'fdcard_f3acc908f16112324e2d4b2e' }],
+          ]);
+
+          const observedAt = Date.now();
+          const source = await fetchCardmarketPokemonPriceGuide({ fetchedAt: observedAt });
+          const allRows = source.snapshot.priceGuides;
+          const rows = allRows.filter((row) => mappings.has(String(row.idProduct)));
+          const missing = [...mappings.keys()].filter((id) => !rows.some((row) => String(row.idProduct) === id));
+          if (missing.length) throw new Error(`Mapped 151 products missing from current price guide: ${missing.join(',')}`);
+
+          const batch = await buildCardmarketPriceGuideBatch({ ...source.artifact.payload, priceGuides: rows }, {
+            observedAt,
+            lanes: ['standard'],
+            resolveMapping: async ({ sourceName, sourceRecordId, priceGuideLane }) => {
+              if (sourceName !== 'cardmarket' || priceGuideLane !== 'standard') return null;
+              const mapping = mappings.get(String(sourceRecordId));
+              return mapping ? { ...mapping, sourceName:'cardmarket', sourceRecordId:String(sourceRecordId), sourceVariantKey:'normal' } : null;
+            },
+          });
+          if (batch.observations.length !== 8 || batch.rejections.length !== 0) {
+            throw new Error(`Expected 8 accepted / 0 rejected; got ${batch.observations.length} / ${batch.rejections.length}`);
+          }
+
+          const result = {
+            generatedAt: new Date(observedAt).toISOString(),
+            source: {
+              url: source.artifact.url,
+              version: Number(source.artifact.payload.version),
+              createdAt: new Date(source.snapshot.sourceEffectiveAt).toISOString(),
+              sha256: source.artifact.sha256,
+              totalRows: allRows.length,
+              currencyCode: source.snapshot.currencyCode,
+            },
+            mode: 'read_only_scale_audit',
+            writesPerformed: false,
+            batch,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-151-holo-scale.json', JSON.stringify(result, null, 2));
+          console.log(`Production adapter accepted ${batch.observations.length}/8 exact 151 holo-card mappings with ${batch.rejections.length} rejects.`);
+          NODE
+
+      - name: Upload normalized holo-card scale artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-151-holo-scale
+          path: ${{ runner.temp }}/fateprice-151-holo-scale.json
+          if-no-files-found: error
+          retention-days: 7
