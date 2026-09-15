@@ -1,0 +1,174 @@
+name: OPS FatePrice Price Coverage Recovery
+
+on:
+  push:
+    branches:
+      - ops/fateprice-price-coverage-recovery-2026-09-06
+    paths:
+      - '.github/workflows/ops-fateprice-price-coverage-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-price-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download verified V2 mapping and price evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice-v2
+          path: ${{ runner.temp }}/v2
+          github-token: ${{ github.token }}
+          run-id: 34034268478
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Classify exact next-step price coverage
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { hasMeaningfulCardmarketLane } from './src/trader/value/cardmarket-adapter.mjs';
+
+          const source = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/v2/fateprice-expanded-price-slice-v2.json', 'utf8'));
+          const { artifact, snapshot } = await fetchCardmarketPokemonPriceGuide();
+          const byProduct = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
+
+          const missingBreakdown = {
+            productAbsentFromCurrentGuide: [],
+            requestedLaneEmpty: [],
+            oppositeLaneAvailable: [],
+          };
+
+          for (const row of source.priceGuideMissing || []) {
+            const guide = byProduct.get(String(row.sourceRecordId));
+            if (!guide) {
+              missingBreakdown.productAbsentFromCurrentGuide.push(row);
+              continue;
+            }
+            const requested = row.lane;
+            const opposite = requested === 'standard' ? 'holo' : 'standard';
+            const requestedHas = hasMeaningfulCardmarketLane(guide, requested);
+            const oppositeHas = hasMeaningfulCardmarketLane(guide, opposite);
+            if (!requestedHas) missingBreakdown.requestedLaneEmpty.push(row);
+            if (!requestedHas && oppositeHas) {
+              missingBreakdown.oppositeLaneAvailable.push({ ...row, oppositeLane: opposite });
+            }
+          }
+
+          const reverseAudit = {
+            total: 0,
+            productAbsentFromCurrentGuide: 0,
+            standardLanePresent: 0,
+            holoLanePresent: 0,
+            bothLanesPresent: 0,
+            neitherLanePresent: 0,
+          };
+          for (const mapping of source.mappingsWithoutDedicatedPriceGuideLane || []) {
+            if (mapping.sourceVariantKey !== 'reverse') continue;
+            reverseAudit.total += 1;
+            const guide = byProduct.get(String(mapping.sourceRecordId));
+            if (!guide) {
+              reverseAudit.productAbsentFromCurrentGuide += 1;
+              continue;
+            }
+            const standard = hasMeaningfulCardmarketLane(guide, 'standard');
+            const holo = hasMeaningfulCardmarketLane(guide, 'holo');
+            if (standard) reverseAudit.standardLanePresent += 1;
+            if (holo) reverseAudit.holoLanePresent += 1;
+            if (standard && holo) reverseAudit.bothLanesPresent += 1;
+            if (!standard && !holo) reverseAudit.neitherLanePresent += 1;
+          }
+
+          const currentPriced = new Set((source.currentPrices || []).map((row) => row.cardIdentityId));
+          const mappedIdentities = new Set((source.mappings || []).map((row) => row.cardIdentityId));
+          const normalHoloMapped = new Set((source.mappings || [])
+            .filter((row) => row.sourceVariantKey === 'normal' || row.sourceVariantKey === 'holo')
+            .map((row) => row.cardIdentityId));
+
+          const summary = {
+            verifiedCanonicalIdentities: source.summary.verifiedCanonicalIdentitiesIndexed,
+            safeExactCardmarketMappings: source.summary.exactCardmarketMappingsSafe,
+            currentlyPricedIdentities: currentPriced.size,
+            exactMappedIdentities: mappedIdentities.size,
+            exactNormalOrHoloMappedIdentities: normalHoloMapped.size,
+            currentPriceGuideMissingRows: source.summary.priceGuideMissingRows,
+            missingBecauseProductAbsent: missingBreakdown.productAbsentFromCurrentGuide.length,
+            missingBecauseRequestedLaneEmpty: missingBreakdown.requestedLaneEmpty.length,
+            rowsWhereOppositeLaneExistsButIsNotSafeToSubstitute: missingBreakdown.oppositeLaneAvailable.length,
+            reverseMappingsWithoutDedicatedContract: reverseAudit.total,
+            canonicalIdentitiesStillWithoutAnySafeCardmarketMapping: Math.max(0, source.summary.verifiedCanonicalIdentitiesIndexed - mappedIdentities.size),
+            productionWrites: 0,
+            fuzzyMatching: false,
+            automaticCrossLaneSubstitution: false,
+          };
+
+          const report = {
+            format: 'fatedrop-price-coverage-recovery-audit-v1',
+            generatedAt: new Date().toISOString(),
+            safety: {
+              productionWrites: false,
+              fuzzyMatching: false,
+              reversePriceInference: false,
+              crossLaneSubstitution: false,
+            },
+            provenance: {
+              v2RunId: 34034268478,
+              v2ArtifactDigest: 'sha256:21094ad9d3f55534dac3700281f9ae85705186ec3f0c0893d460466460dc4370',
+              currentPriceGuideSha256: artifact.sha256,
+              currentPriceGuideLastModified: artifact.lastModified,
+              currentPriceGuideEffectiveAt: snapshot.sourceEffectiveAt,
+            },
+            summary,
+            missingBreakdown,
+            reverseAudit,
+          };
+
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-price-coverage-recovery.json', JSON.stringify(report));
+          console.log(JSON.stringify(summary, null, 2));
+          console.log(JSON.stringify({ reverseAudit }, null, 2));
+          NODE
+
+      - name: Summarise recovery audit
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fateprice-price-coverage-recovery.json', 'utf8'));
+          const s = report.summary;
+          console.log('# FatePrice next exact price-coverage audit');
+          console.log('');
+          console.log(`- Verified canonical identities: **${s.verifiedCanonicalIdentities}**`);
+          console.log(`- Currently priced identities: **${s.currentlyPricedIdentities}**`);
+          console.log(`- Safe exact Cardmarket mappings: **${s.safeExactCardmarketMappings}**`);
+          console.log(`- Canonical identities still without any safe Cardmarket mapping: **${s.canonicalIdentitiesStillWithoutAnySafeCardmarketMapping}**`);
+          console.log(`- Missing current-price rows because product is absent from guide: **${s.missingBecauseProductAbsent}**`);
+          console.log(`- Missing current-price rows because requested lane is empty: **${s.missingBecauseRequestedLaneEmpty}**`);
+          console.log(`- Opposite-lane rows observed but deliberately not substituted: **${s.rowsWhereOppositeLaneExistsButIsNotSafeToSubstitute}**`);
+          console.log(`- Reverse mappings without a dedicated Cardmarket price contract: **${s.reverseMappingsWithoutDedicatedContract}**`);
+          console.log('- No fuzzy matching, no inferred reverse prices, no production writes.');
+          NODE
+
+      - name: Upload recovery audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-price-coverage-recovery
+          path: ${{ runner.temp }}/fateprice-price-coverage-recovery.json
+          retention-days: 14
+          if-no-files-found: error
