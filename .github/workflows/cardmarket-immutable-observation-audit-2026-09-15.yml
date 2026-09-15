@@ -1,0 +1,40 @@
+name: Cardmarket Immutable Observation Audit 2026-09-15
+
+on:
+  push:
+    branches:
+      - ops/cardmarket-immutable-observation-repair-2026-09-15
+    paths:
+      - '.github/workflows/cardmarket-immutable-observation-audit-2026-09-15.yml'
+      - 'signal-engine/src/trader/value/cardmarket-immutable-observation-audit-cli.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Identify immutable Cardmarket observation conflicts
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-immutable-observation-audit-cli.mjs
+      - name: Upload immutable-conflict audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-immutable-observation-audit-2026-09-15
+          path: ${{ runner.temp }}/cardmarket-immutable-observation-audit.json
+          if-no-files-found: warn
+          retention-days: 14
