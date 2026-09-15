@@ -5,15 +5,7 @@ const POLICIES = Object.freeze({
     acquisitionMode: 'public-download',
     status: 'approved',
     reviewedAt: '2026-09-03',
-    notes: 'Use Cardmarket public downloadable price-guide/product-catalogue files for standard/holo aggregate market evidence.',
-  }),
-  'cardmarket-public-product-page': Object.freeze({
-    key: 'cardmarket-public-product-page',
-    sourceName: 'cardmarket',
-    acquisitionMode: 'public-product-page',
-    status: 'approved',
-    reviewedAt: '2026-09-15',
-    notes: 'Read-only exact Cardmarket product URLs may be used for reverse-holo offer evidence. Keep the certified product ID as the identity anchor; use public language=1 and isReverseHolo=Y filters; never substitute normal/holo prices or call listing-derived values Trend/AVG sales metrics.',
+    notes: 'Use only Cardmarket public downloadable price-guide/product-catalogue files. Do not substitute authenticated API access or website scraping.',
   }),
   'pokemon-wizard': Object.freeze({
     key: 'pokemon-wizard',
@@ -37,7 +29,7 @@ const POLICIES = Object.freeze({
     acquisitionMode: 'api',
     status: 'approval-required',
     reviewedAt: '2026-09-03',
-    notes: 'Authenticated API access is not required by the approved FateDrop reverse-holo path. Keep it outside the V1 ingestion path unless separately approved.',
+    notes: 'FateDrop uses the separately published public download files instead. Authenticated API use remains outside the approved V1 path.',
   }),
 });
 
