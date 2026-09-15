@@ -1,0 +1,45 @@
+name: Cardmarket URL-First Rebuild Audit
+
+on:
+  push:
+    branches:
+      - audit/cardmarket-url-first-rebuild-2026-09-15
+    paths:
+      - '.github/workflows/cardmarket-url-first-rebuild-audit.yml'
+      - 'signal-engine/evidence/cardmarket-url-first-rebuild-source-2026-09-15.json'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
+      - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Run focused URL-first model tests
+        run: node --test tests/cardmarket-url-first-rebuild.test.mjs
+      - name: Compare URL-first model with production mappings and live Cardmarket data
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-url-first-rebuild-cli.mjs
+      - name: Upload read-only rebuild report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-url-first-rebuild
+          path: ${{ runner.temp }}/cardmarket-url-first-rebuild.json
+          if-no-files-found: error
+          retention-days: 14
