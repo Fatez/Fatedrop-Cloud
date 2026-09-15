@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  rehearsal:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     defaults:
       run:
         working-directory: signal-engine
@@ -32,7 +32,7 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Run full 26,691-card read-only exact proof
+      - name: Run full 26,691-card fast exact proof
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
@@ -41,7 +41,20 @@ jobs:
           TCGGO_FALLBACK_DELAY_MS: '100'
           TCGGO_PROGRESS_EVERY: '250'
         run: node src/trader/value/cardmarket-full-market-exact-proof-cli.mjs
-      - name: Upload exact-proof report
+      - name: Strictly validate exact proof
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
+      - name: Build simple full-market recertification plan
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
+      - name: Rehearse exact production mapping changes and roll back
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
+      - name: Upload complete rehearsal evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -49,5 +62,8 @@ jobs:
           path: |
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-full-market-exact-proof-progress.json
+            ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
+            ${{ runner.temp }}/cardmarket-full-market-recertification.json
+            ${{ runner.temp }}/cardmarket-full-market-recertification-release.json
           if-no-files-found: warn
           retention-days: 14
