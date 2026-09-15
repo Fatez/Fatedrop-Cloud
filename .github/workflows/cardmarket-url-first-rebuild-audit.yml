@@ -14,6 +14,7 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-sample-validate-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-mapping-release-cli.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
 
 permissions:
@@ -52,6 +53,13 @@ jobs:
         run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
       - name: Require official Cardmarket product-name compatibility
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
+      - name: Rehearse exact mapping persistence
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          EXPECTED_MAPPING_COUNT: '361'
+          EXPECTED_MAPPING_DIGEST: '8e8e073eb17002c9b2f1357bfbed527e23a7188c0331634b6fb080506c16d3ec'
+          MAPPING_WRITE: 'false'
+        run: node src/trader/value/cardmarket-url-first-mapping-release-cli.mjs
       - name: Upload read-only rebuild reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,5 +70,6 @@ jobs:
             ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
+            ${{ runner.temp }}/cardmarket-url-first-mapping-release.json
           if-no-files-found: warn
           retention-days: 14
