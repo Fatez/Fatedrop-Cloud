@@ -146,6 +146,86 @@ function priceEvidenceFor(identity, priceById, sourceRecordId) {
   });
 }
 
+function validCardmarketProductId(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? String(parsed) : null;
+}
+
+function uniqueProductIds(variants) {
+  return [...new Set((variants || [])
+    .map((variant) => validCardmarketProductId(variant?.cardmarketProductId))
+    .filter(Boolean))];
+}
+
+function targetTcgdexType(variantCode) {
+  if (variantCode === 'holo') return 'holo';
+  if (variantCode === 'reverse-holo') return 'reverse';
+  return 'normal';
+}
+
+function isBaselineTargetVariant(variant, targetType) {
+  if (variant?.type !== targetType || variant?.subtype || variant?.foil) return false;
+  const stamps = Array.isArray(variant?.stamp) ? variant.stamp : [];
+  if (targetType === 'reverse') return stamps.length === 0 || stamps.every((stamp) => stamp === 'set-logo');
+  return stamps.length === 0;
+}
+
+function chooseExplicitTcgdexProduct(card, variantCode) {
+  const rootId = validCardmarketProductId(getRootCardmarketProductId(card));
+  const targetType = targetTcgdexType(variantCode);
+  const targetVariants = (card?.variants || []).filter((variant) => variant?.type === targetType);
+  const baselineTargetIds = uniqueProductIds(targetVariants.filter((variant) => isBaselineTargetVariant(variant, targetType)));
+  const targetIds = uniqueProductIds(targetVariants);
+  const allIds = uniqueProductIds(card?.variants || []);
+
+  if (baselineTargetIds.length > 1) {
+    return { status: 'held', reason: 'TCGDEX_MULTIPLE_BASELINE_TARGET_PRODUCT_IDS', rootId, baselineTargetIds, targetIds, allIds };
+  }
+  if (baselineTargetIds.length === 1) {
+    const sourceRecordId = baselineTargetIds[0];
+    if (rootId && rootId !== sourceRecordId) {
+      return { status: 'held', reason: 'TCGDEX_ROOT_TARGET_PRODUCT_ID_CONFLICT', rootId, baselineTargetIds, targetIds, allIds };
+    }
+    return { status: 'resolved', sourceRecordId, method: 'pinned_tcgdex_baseline_variant_cardmarket_product', rootId, baselineTargetIds, targetIds, allIds };
+  }
+
+  if (targetIds.length > 1) {
+    return { status: 'held', reason: 'TCGDEX_MULTIPLE_TARGET_PRODUCT_IDS', rootId, baselineTargetIds, targetIds, allIds };
+  }
+  if (targetIds.length === 1) {
+    const sourceRecordId = targetIds[0];
+    if (rootId && rootId !== sourceRecordId) {
+      return { status: 'held', reason: 'TCGDEX_ROOT_TARGET_PRODUCT_ID_CONFLICT', rootId, baselineTargetIds, targetIds, allIds };
+    }
+    return { status: 'resolved', sourceRecordId, method: 'pinned_tcgdex_target_variant_cardmarket_product', rootId, baselineTargetIds, targetIds, allIds };
+  }
+
+  if (rootId) {
+    return { status: 'resolved', sourceRecordId: rootId, method: 'pinned_tcgdex_root_cardmarket_product', rootId, baselineTargetIds, targetIds, allIds };
+  }
+
+  if (allIds.length === 1) {
+    return {
+      status: 'resolved',
+      sourceRecordId: allIds[0],
+      method: 'pinned_tcgdex_unique_card_level_variant_product',
+      rootId,
+      baselineTargetIds,
+      targetIds,
+      allIds,
+    };
+  }
+
+  return {
+    status: 'held',
+    reason: allIds.length > 1 ? 'TCGDEX_MULTIPLE_CARD_LEVEL_PRODUCT_IDS' : 'TCGDEX_CARDMARKET_PRODUCT_ID_MISSING',
+    rootId,
+    baselineTargetIds,
+    targetIds,
+    allIds,
+  };
+}
+
 function localProof(identity, cardById, setByCardId, productById) {
   const links = Array.isArray(identity.tcgdex_card_ids) ? identity.tcgdex_card_ids : [];
   if (links.length !== 1) return { status: 'held', reason: 'TCGDEX_LINK_COUNT_NOT_ONE' };
@@ -158,18 +238,28 @@ function localProof(identity, cardById, setByCardId, productById) {
     return { status: 'held', reason: 'TCGDEX_COLLECTOR_NUMBER_MISMATCH', tcgId };
   }
 
-  const rootProductId = getRootCardmarketProductId(card);
-  if (!rootProductId) return { status: 'held', reason: 'TCGDEX_ROOT_CARDMARKET_PRODUCT_ID_MISSING', tcgId };
-  const sourceRecordId = String(rootProductId);
+  const productEvidence = chooseExplicitTcgdexProduct(card, identity.variant_code);
+  if (productEvidence.status !== 'resolved') return { ...productEvidence, tcgId };
+
+  const sourceRecordId = String(productEvidence.sourceRecordId);
   const product = productById.get(sourceRecordId);
-  if (!product) return { status: 'held', reason: 'TCGDEX_ROOT_PRODUCT_ABSENT_FROM_OFFICIAL_CARDMARKET_CATALOGUE', tcgId, sourceRecordId };
+  if (!product) {
+    return {
+      status: 'held',
+      reason: 'TCGDEX_EXPLICIT_PRODUCT_ABSENT_FROM_OFFICIAL_CARDMARKET_CATALOGUE',
+      tcgId,
+      sourceRecordId,
+      productEvidence,
+    };
+  }
   if (!rootProductNameMatches(identity.name, product.name)) {
     return {
       status: 'held',
-      reason: 'TCGDEX_ROOT_PRODUCT_NAME_MISMATCH',
+      reason: 'TCGDEX_EXPLICIT_PRODUCT_NAME_MISMATCH',
       tcgId,
       sourceRecordId,
       cardmarketProductName: product.name,
+      productEvidence,
     };
   }
 
@@ -186,7 +276,8 @@ function localProof(identity, cardById, setByCardId, productById) {
     expansionRelation: hasExpectedExpansion
       ? (sameExpansion ? 'main_set_expansion' : 'supplemental_cardmarket_expansion')
       : 'tcgdex_set_expansion_unavailable',
-    method: 'pinned_tcgdex_exact_card_root_cardmarket_product',
+    method: productEvidence.method,
+    productEvidence,
   };
 }
 
@@ -278,6 +369,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
   const resolved = [];
   const held = [];
   const fallback = [];
+  const localHoldReasons = {};
 
   for (const identity of targets) {
     const reviewedUrl = reviewedCardmarketUrl({
@@ -290,6 +382,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
     const proof = localProof(identity, cardById, setByCardId, productById);
     if (proof.status !== 'resolved') {
       counts.localProofHeld += 1;
+      localHoldReasons[proof.reason] = (localHoldReasons[proof.reason] || 0) + 1;
       fallback.push({ identity, reviewedUrl, localHold: proof });
       continue;
     }
@@ -318,6 +411,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
       priceEvidence: priceEvidenceFor(identity, priceById, proof.sourceRecordId),
       proof: {
         method: proof.method,
+        productEvidence: proof.productEvidence,
         expansionRelation: proof.expansionRelation,
         expectedExpansionId: proof.expectedExpansionId,
         tcgdexRevision: process.env.TCGDEX_REVISION || null,
@@ -364,6 +458,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
     networkFallbackTargets: counts.networkFallbackTargets,
     networkFallbackLookupTargets: counts.networkFallbackLookupTargets,
     immediateHeldWithoutExactTcgId: counts.networkFallbackTargets - counts.networkFallbackLookupTargets,
+    localHoldReasons,
     workers,
   }, null, 2));
   await writeProgress({ counts, processed: 0, total: networkQueue.length, workers, startedAt });
@@ -489,6 +584,7 @@ export async function build(db, { sources, repoEvidence, reviewedEvidence } = {}
       networkFallbackConcurrency: FALLBACK_CONCURRENCY,
       networkFallbackDelayMs: FALLBACK_DELAY_MS,
     },
+    diagnostics: { localHoldReasons },
     collisionKeys: [...collisionKeys].sort(),
     safeMappings,
     conflicts,
