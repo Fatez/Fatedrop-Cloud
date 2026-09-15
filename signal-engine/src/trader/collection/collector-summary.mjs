@@ -80,7 +80,6 @@ export function computeFateCollectorSummary({
   currencyCode,
   preferredLanguageCode = null,
   preferredVariantCode = 'standard',
-  editionCode = null,
 } = {}) {
   if (!Array.isArray(sets)) throw new TypeError('sets must be an array');
   if (!Array.isArray(canonicalCards)) throw new TypeError('canonicalCards must be an array');
@@ -122,7 +121,7 @@ export function computeFateCollectorSummary({
   const assertionsBySet = new Map(
     setCompletionAssertions
       .filter((assertion) => assertion?.active === true && text(assertion.setId))
-      .map((assertion) => [`${text(assertion.setId)}|${text(assertion.editionCode) || 'standard'}`, assertion]),
+      .map((assertion) => [text(assertion.setId), assertion]),
   );
 
   const setSummaries = sets.map((set) => {
@@ -135,8 +134,7 @@ export function computeFateCollectorSummary({
       canonicalCards,
       canonicalPrintings: setPrintings,
       collectionItems: rawHoldings,
-      assertedPrintingIds: assertionsBySet.get(`${set.id}|${text(set.editionCode ?? editionCode) || 'standard'}`)?.printingIds ?? [],
-      editionCode: set.editionCode ?? editionCode,
+      assertedPrintingIds: assertionsBySet.get(set.id)?.printingIds ?? [],
       preferredLanguageCode,
       preferredVariantCode,
     });
@@ -151,8 +149,6 @@ export function computeFateCollectorSummary({
 
     return Object.freeze({
       setId: set.id,
-      editionCode: progress.editionCode,
-      editionLabel: progress.editionLabel,
       setName: set.name ?? null,
       tcgCode: set.tcgCode ?? null,
       status: progress.status,

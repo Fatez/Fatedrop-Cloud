@@ -31,7 +31,7 @@ test('current Cardmarket base lane is eligible only when no positive holo lane e
   const eligible = collectCurrentGuideInherentHoloBaseLaneEligibleProductIds({
     priceGuides: [
       { idProduct: 689768, trend: 1.2, avg1: 1.3, trendHolo: null, avg1Holo: null },
-      { idProduct: 689769, trend: 1.4, avg1: 1.5, 'trend-holo': 2.0, 'avg1-holo': null },
+      { idProduct: 689769, trend: 1.4, avg1: 1.5, trendHolo: 2.0, avg1Holo: null },
     ],
   });
   assert.equal(eligible.has('689768'), true);

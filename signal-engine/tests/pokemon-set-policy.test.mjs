@@ -70,11 +70,11 @@ test('reviewed crosswalk can recover Base Set without weakening exact source ide
     asOf: Date.parse('2026-09-04T00:00:00Z'),
   });
 
-  assert.equal(plan.counts.baseMatched, 1);
-  assert.equal(plan.counts.reviewedAliasMatched, 0);
+  assert.equal(plan.counts.baseMatched, 0);
+  assert.equal(plan.counts.reviewedAliasMatched, 1);
   assert.equal(plan.counts.totalMatched, 1);
-  assert.equal(plan.matched[0].matchBasis, 'exact_name');
-  assert.equal(plan.matched[0].setMatch.setName, 'Base Set');
-  assert.equal(plan.matched[0].setMatch.acceptedDifferences.at(-1).reason, 'reviewed_source_set_name_convention');
+  assert.equal(plan.matched[0].matchBasis, 'reviewed_alias');
+  assert.equal(plan.matched[0].setMatch.setName, 'Base');
+  assert.equal(plan.matched[0].setMatch.acceptedDifferences.at(-1).reason, 'reviewed_source_naming_alias');
   assert.equal(plan.counts.pulseEligible, 1);
 });

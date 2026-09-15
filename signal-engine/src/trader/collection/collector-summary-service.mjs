@@ -84,24 +84,10 @@ export async function getFateCollectorSummaryFromStore(store, {
   const explicitlyTrackedSetIds=new Set(trackedBinders.map((binder)=>binder.setId));
   const userConfirmedSetIds=new Set(completionAssertions.map((assertion)=>assertion.setId));
   const binderSetIds=[...new Set([...ownedSetIds,...explicitlyTrackedSetIds,...userConfirmedSetIds])];
-  const baseSets=await listVerifiedCardSetsByIdsFromStore(store,binderSetIds,{limit:2000});
-  const baseSetById=new Map(baseSets.map((set)=>[set.id,set]));
-  const binderKeys=new Map();
-  for(const binder of trackedBinders) binderKeys.set(`${binder.setId}|${binder.editionCode||'standard'}`,{setId:binder.setId,editionCode:binder.editionCode||'standard'});
-  for(const assertion of completionAssertions) binderKeys.set(`${assertion.setId}|${assertion.editionCode||'standard'}`,{setId:assertion.setId,editionCode:assertion.editionCode||'standard'});
-  for(const setId of ownedSetIds){
-    if([...binderKeys.values()].some((entry)=>entry.setId===setId))continue;
-    const baseSet=baseSetById.get(setId);
-    const defaultEdition=baseSet?.editionTracks?.some((track)=>track.code==='unlimited')?'unlimited':'standard';
-    binderKeys.set(`${setId}|${defaultEdition}`,{setId,editionCode:defaultEdition});
-  }
-  const sets=[...binderKeys.values()].map((entry)=>{
-    const set=baseSetById.get(entry.setId);
-    return set?{...set,editionCode:entry.editionCode}:null;
-  }).filter(Boolean);
+  const sets=await listVerifiedCardSetsByIdsFromStore(store,binderSetIds,{limit:2000});
   const canonicalCards=[];
   const canonicalPrintings=[];
-  for(const set of baseSets){
+  for(const set of sets){
     const [rawCards,printings]=await Promise.all([
       listVerifiedCardsFromStore(store,{setId:set.id,limit:500}),
       listVerifiedPrintingsFromStore(store,{setId:set.id,limit:1000}),
@@ -136,14 +122,14 @@ export async function getFateCollectorSummaryFromStore(store, {
     bindersTracked:computedSummary.sets.length,
     sets:Object.freeze(computedSummary.sets.map((set)=>Object.freeze({
       ...set,
-      explicitlyTracked:trackedBinders.some((binder)=>binder.setId===set.setId&&(binder.editionCode||'standard')===(set.editionCode||'standard')),
+      explicitlyTracked:explicitlyTrackedSetIds.has(set.setId),
     }))),
   });
   const personalPulse=buildFateCollectorPersonalPulse({
     collectionItems:collectionItems.filter((item)=>String(item.copyState||'raw').toLowerCase()==='raw'),
     cards:ownedCards,
     prices:fatePrices,
-    limit:5,
+    limit:3,
   });
   const unresolvedCollectionItemCount=collectionItems.filter((item)=>!resolvedIds.has(item.fateCardId)).length;
   const exactIdentityConfirmationNeededCount=summary.sets.reduce((sum,set)=>sum+Number(set.exactIdentityConfirmationNeededCount||0),0);

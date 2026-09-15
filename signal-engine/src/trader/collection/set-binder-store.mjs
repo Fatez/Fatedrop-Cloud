@@ -1,15 +1,14 @@
 import { createHash } from 'node:crypto';
 
 import { getVerifiedCardSetFromStore } from '../catalogue/store.mjs';
-import { requireEditionForSet } from '../catalogue/set-edition-policy.mjs';
 
 function requireText(value, field) {
   if (typeof value !== 'string' || value.trim() === '') throw new TypeError(`${field} is required`);
   return value.trim();
 }
 
-function binderId(userId, setId, editionCode) {
-  const digest = createHash('sha256').update(`${userId}|${setId}|${editionCode}`).digest('hex').slice(0, 24);
+function binderId(userId, setId) {
+  const digest = createHash('sha256').update(`${userId}|${setId}`).digest('hex').slice(0, 24);
   return `fdcollectionbinder_${digest}`;
 }
 
@@ -30,7 +29,6 @@ function publicBinder(row) {
   return Object.freeze({
     id: row.id,
     setId: row.setId,
-    editionCode: row.editionCode ?? 'unspecified',
     tracked: row.status === 'tracked',
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -48,14 +46,13 @@ export async function listTrackedCollectionSetBindersFromStore(store, { userId }
   }
   if (typeof store?.pool !== 'function') return [];
   const pool = await store.pool();
-  const { rows } = await pool.query(`SELECT id,set_id,edition_code,status,created_at,updated_at
+  const { rows } = await pool.query(`SELECT id,set_id,status,created_at,updated_at
     FROM fatedrop_collection_set_binders
     WHERE user_id=$1 AND status='tracked'
     ORDER BY updated_at DESC`, [ownerId]);
   return rows.map((row) => publicBinder({
     id: row.id,
     setId: row.set_id,
-    editionCode: row.edition_code ?? 'unspecified',
     status: row.status,
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -65,7 +62,6 @@ export async function listTrackedCollectionSetBindersFromStore(store, { userId }
 export async function setCollectionSetBinderTrackedInStore(store, {
   userId,
   setId,
-  editionCode = null,
   tracked = true,
 } = {}) {
   const ownerId = requireText(userId, 'userId');
@@ -76,8 +72,7 @@ export async function setCollectionSetBinderTrackedInStore(store, {
     error.code = 'SET_IDENTITY_NOT_VERIFIED';
     throw error;
   }
-  const edition = requireEditionForSet(set, editionCode);
-  const id = binderId(ownerId, canonicalSetId, edition);
+  const id = binderId(ownerId, canonicalSetId);
   const now = Date.now();
   const status = tracked === false ? 'removed' : 'tracked';
 
@@ -89,7 +84,6 @@ export async function setCollectionSetBinderTrackedInStore(store, {
         id,
         userId: ownerId,
         setId: canonicalSetId,
-        editionCode: edition,
         status,
         createdAt: previous?.createdAt ?? now,
         updatedAt: now,
@@ -101,17 +95,16 @@ export async function setCollectionSetBinderTrackedInStore(store, {
   if (typeof store?.pool !== 'function') throw new Error('Collection binder persistence is unavailable');
   const pool = await store.pool();
   const { rows } = await pool.query(`INSERT INTO fatedrop_collection_set_binders
-    (id,user_id,set_id,edition_code,status,created_at,updated_at)
-    VALUES ($1,$2,$3,$4,$5,$6,$6)
-    ON CONFLICT (user_id,set_id,edition_code) DO UPDATE
+    (id,user_id,set_id,status,created_at,updated_at)
+    VALUES ($1,$2,$3,$4,$5,$5)
+    ON CONFLICT (user_id,set_id) DO UPDATE
     SET status=EXCLUDED.status,updated_at=EXCLUDED.updated_at
-    RETURNING id,set_id,edition_code,status,created_at,updated_at`, [id, ownerId, canonicalSetId, edition, status, now]);
+    RETURNING id,set_id,status,created_at,updated_at`, [id, ownerId, canonicalSetId, status, now]);
   const row = rows[0];
   return Object.freeze({
     ...publicBinder({
       id: row.id,
       setId: row.set_id,
-      editionCode: row.edition_code ?? 'unspecified',
       status: row.status,
       createdAt: Number(row.created_at),
       updatedAt: Number(row.updated_at),
