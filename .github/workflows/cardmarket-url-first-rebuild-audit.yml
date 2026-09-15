@@ -9,6 +9,7 @@ on:
       - 'signal-engine/evidence/cardmarket-url-first-rebuild-source-2026-09-15.json'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-url-first-rebuild-validate.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
 
 permissions:
@@ -35,6 +36,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-rebuild-cli.mjs
+      - name: Fail closed on within-batch source collisions
+        run: node src/trader/value/cardmarket-url-first-rebuild-validate.mjs
       - name: Upload read-only rebuild report
         if: always()
         uses: actions/upload-artifact@v4
