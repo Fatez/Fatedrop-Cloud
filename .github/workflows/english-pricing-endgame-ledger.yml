@@ -1,0 +1,44 @@
+name: English Pricing Endgame Ledger
+on:
+  push:
+    branches: ['audit/english-pricing-endgame-2026-09-15']
+    paths:
+      - '.github/workflows/english-pricing-endgame-ledger.yml'
+      - 'signal-engine/src/trader/value/english-pricing-blocker-ledger-cli.mjs'
+      - 'signal-engine/tests/english-pricing-blocker-ledger.test.mjs'
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - run: node --test tests/english-pricing-blocker-ledger.test.mjs
+      - name: Reconcile all remaining identities in a read-only transaction
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+        run: node src/trader/value/english-pricing-blocker-ledger-cli.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: english-pricing-endgame-ledger
+          path: ${{ runner.temp }}/english-pricing-blocker-ledger.json
+          if-no-files-found: error
+          retention-days: 30
