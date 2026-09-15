@@ -1,0 +1,95 @@
+name: OPS FatePrice Current Provider Evidence
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-current-provider-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  exact-current-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out current TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 1c30c50253756bafecf0f065fc377f77016ad12f
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download retained verified catalogue
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ github.token }}
+          run-id: 34083474722
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Build retained canonical universe
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const bundle = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json','utf8'));
+          const verifiedSets = new Map((bundle.sets || []).filter(x => x.verificationStatus === 'verified').map(x => [x.id,x]));
+          const eligibleSets = (bundle.setSourceMappings || []).filter(x => x.sourceName === 'tcgdex' && verifiedSets.has(x.setId)).map(x => {
+            const set = verifiedSets.get(x.setId);
+            return {tcgdexSetId:x.sourceRecordId,pokemonTcgSetId:null,canonicalSetId:set.id,seriesName:null,setName:set.name,releasedAt:set.releasedAt,printedTotal:set.printedTotal,total:set.total,matchBasis:'retained_verified_catalogue_bundle'};
+          });
+          const report = {format:'fatedrop-retained-canonical-universe-v1',generatedAt:new Date().toISOString(),provenance:{catalogueRunId:34083474722,productionWrites:false,fuzzyMatching:false},universe:{verifiedSets:eligibleSets.length,verifiedCardIdentities:(bundle.cardIdentities||[]).filter(x=>x.verificationStatus==='verified').length},eligibleSets};
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/canonical-universe.json', JSON.stringify(report,null,2));
+          NODE
+
+      - name: Run unchanged exact Cardmarket crosswalk
+        run: |
+          node src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs \
+            --as-of=2026-09-09T00:00:00Z \
+            --tcgdex-repo="$GITHUB_WORKSPACE/_evidence/tcgdex-cards-database" \
+            --tcgdex-revision=1c30c50253756bafecf0f065fc377f77016ad12f \
+            --canonical-universe="$RUNNER_TEMP/canonical-universe.json" \
+            > "$RUNNER_TEMP/current-provider-audit.json"
+
+      - name: Summarise current exact provider evidence
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/current-provider-audit.json','utf8'));
+          console.log('# Current provider exact-evidence audit');
+          console.log(`- Canonical eligible sets: **${r.summary?.canonicalEligibleSets ?? 'n/a'}**`);
+          console.log(`- Proven expansion mappings: **${r.summary?.provenExpansionMappings ?? 'n/a'}**`);
+          console.log(`- Cards with verified explicit Cardmarket product: **${r.summary?.cardsWithVerifiedCardmarketProduct ?? 'n/a'}**`);
+          console.log(`- Verified distinct Cardmarket products: **${r.summary?.verifiedDistinctCardmarketProducts ?? 'n/a'}**`);
+          console.log(`- Explicit product-name conflicts: **${r.summary?.explicitProductNameConflicts ?? 'n/a'}**`);
+          console.log('- Matching rules changed: **no**');
+          console.log('- Fuzzy matching: **disabled**');
+          console.log('- Production writes: **0**');
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-current-provider-evidence
+          path: ${{ runner.temp }}/current-provider-audit.json
+          retention-days: 14
+          if-no-files-found: error

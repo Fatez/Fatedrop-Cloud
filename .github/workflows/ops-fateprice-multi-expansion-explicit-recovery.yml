@@ -1,0 +1,203 @@
+name: OPS FatePrice Multi Expansion Explicit Recovery
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-multi-expansion-explicit-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover-multi-expansion-explicit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out current TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 1c30c50253756bafecf0f065fc377f77016ad12f
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download retained verified catalogue
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ github.token }}
+          run-id: 34083474722
+
+      - name: Download retained safe Cardmarket mappings
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice-v2
+          path: ${{ runner.temp }}/v2
+          github-token: ${{ github.token }}
+          run-id: 34034268478
+
+      - name: Download prior derived-expansion recovery
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-derived-expansion-recovery
+          path: ${{ runner.temp }}/derived
+          github-token: ${{ github.token }}
+          run-id: 34311198953
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Recover exact card-level mappings across official supplemental expansions
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { fetchCardmarketPokemonSinglesCatalogue } from './src/trader/value/cardmarket-source-client.mjs';
+          import { indexCardmarketProducts, loadTcgdexRepositoryEvidence } from './src/trader/value/tcgdex-repository-cardmarket-evidence.mjs';
+          import { normaliseComparableName } from './src/trader/catalogue/reconcile.mjs';
+
+          const read = (p) => JSON.parse(fs.readFileSync(p,'utf8'));
+          const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0,24)}`;
+          const comparable = (value) => normaliseComparableName(String(value || '').trim().replace(/♀/g,' female ').replace(/♂/g,' male '));
+          const nameMatch = (productName, cardName) => {
+            const canonical = comparable(cardName);
+            const raw = String(productName || '').trim();
+            let candidate = raw.replace(/^Nidoran\s+\[F\](?=\s|$)/i,'Nidoran female').replace(/^Nidoran\s+\[M\](?=\s|$)/i,'Nidoran male');
+            if (comparable(candidate) === canonical) return true;
+            const trailingDescriptor = /\s+\[[^[\]]+\]\s*$/;
+            while (trailingDescriptor.test(candidate)) {
+              candidate = candidate.replace(trailingDescriptor,'').trim();
+              if (candidate && comparable(candidate) === canonical) return true;
+            }
+            return false;
+          };
+
+          const bundle = read(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json');
+          const retained = read(process.env.RUNNER_TEMP + '/v2/fateprice-expanded-price-slice-v2.json');
+          const derived = read(process.env.RUNNER_TEMP + '/derived/derived-expansion-recovery.json');
+          const repo = loadTcgdexRepositoryEvidence(process.env.GITHUB_WORKSPACE + '/_evidence/tcgdex-cards-database', { includeCards: true });
+          const { artifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
+          const { byId } = indexCardmarketProducts(products);
+
+          const verifiedIds = new Set((bundle.cardIdentities || []).filter(x => x.verificationStatus === 'verified').map(x => x.id));
+          const alreadyMapped = new Set((retained.mappings || []).map(x => x.cardIdentityId));
+          for (const row of derived.safeMappings || []) alreadyMapped.add(row.cardIdentityId);
+
+          const canonicalByTcgdexVariant = new Map();
+          for (const m of bundle.cardSourceMappings || []) {
+            if (m.sourceName === 'tcgdex' && verifiedIds.has(m.cardIdentityId)) canonicalByTcgdexVariant.set(`${m.sourceRecordId}|${m.sourceVariantKey}`, m.cardIdentityId);
+          }
+          const canonicalSetByTcgdex = new Map((bundle.setSourceMappings || []).filter(x=>x.sourceName==='tcgdex').map(x=>[x.sourceRecordId,x.setId]));
+
+          const targetSets = [];
+          for (const set of repo.sets) {
+            if (!canonicalSetByTcgdex.has(set.tcgdexSetId)) continue;
+            if (Number.isSafeInteger(Number(set.cardmarketExpansionId)) && Number(set.cardmarketExpansionId) > 0) continue;
+            const expansionIds = new Set();
+            let explicitProducts = 0;
+            for (const card of set.cards) for (const variant of card.variants) {
+              const product = byId.get(Number(variant.cardmarketProductId));
+              if (!product) continue;
+              explicitProducts += 1;
+              const exp = Number(product.sourceExpansionId);
+              if (Number.isSafeInteger(exp) && exp > 0) expansionIds.add(exp);
+            }
+            if (explicitProducts >= 2 && expansionIds.size > 1) targetSets.push({ set, expansionIds:[...expansionIds] });
+          }
+
+          const candidates = [];
+          const held = [];
+          for (const {set, expansionIds} of targetSets) {
+            const allowed = new Set(expansionIds);
+            for (const card of set.cards) for (const variant of card.variants) {
+              const productId = Number(variant.cardmarketProductId);
+              if (!Number.isSafeInteger(productId) || productId <= 0) continue;
+              const product = byId.get(productId);
+              if (!product) { held.push({tcgdexCardId:card.tcgdexCardId,variant:variant.type,productId,reason:'explicit_product_absent'}); continue; }
+              if (!allowed.has(Number(product.sourceExpansionId))) { held.push({tcgdexCardId:card.tcgdexCardId,variant:variant.type,productId,reason:'product_expansion_outside_observed_set'}); continue; }
+              if (!nameMatch(product.name, card.name)) { held.push({tcgdexCardId:card.tcgdexCardId,variant:variant.type,productId,reason:'explicit_product_name_conflict'}); continue; }
+              const variantKey = String(variant.type || '').trim();
+              const cardIdentityId = canonicalByTcgdexVariant.get(`${card.tcgdexCardId}|${variantKey}`);
+              if (!cardIdentityId) { held.push({tcgdexCardId:card.tcgdexCardId,variant:variantKey,productId,reason:'no_retained_canonical_identity'}); continue; }
+              if (alreadyMapped.has(cardIdentityId)) continue;
+              candidates.push({
+                id: stableId('fdcardmap',[cardIdentityId,'cardmarket',String(productId),variantKey]),
+                cardIdentityId,
+                setId: canonicalSetByTcgdex.get(set.tcgdexSetId),
+                sourceName:'cardmarket',
+                sourceRecordId:String(productId),
+                sourceVariantKey:variantKey,
+                sourceVersion:artifact.sha256,
+                proof:{method:'explicit_product_id_exact_name_across_observed_supplemental_expansions',tcgdexCardId:card.tcgdexCardId,cardmarketProductName:product.name,cardmarketExpansionId:Number(product.sourceExpansionId),observedSetExpansionIds:expansionIds}
+              });
+            }
+          }
+
+          const bySource = new Map(); const badSource = new Set();
+          for (const row of candidates) { const k=`${row.sourceRecordId}|${row.sourceVariantKey}`; const p=bySource.get(k); if (p && p.cardIdentityId!==row.cardIdentityId) badSource.add(k); else if(!p) bySource.set(k,row); }
+          const byCanonical = new Map(); const badCanonical = new Set();
+          for (const [k,row] of bySource) { if (badSource.has(k)) continue; const ck=`${row.cardIdentityId}|${row.sourceVariantKey}`; const p=byCanonical.get(ck); if (p && p.sourceRecordId!==row.sourceRecordId) badCanonical.add(ck); else if(!p) byCanonical.set(ck,row); }
+          const safeMappings = [...byCanonical.entries()].filter(([k])=>!badCanonical.has(k)).map(([,v])=>v);
+          const newIds = new Set(safeMappings.map(x=>x.cardIdentityId));
+          const baselineMapped = alreadyMapped.size;
+          const summary = {
+            targetSets: targetSets.length,
+            targetSetIds: targetSets.map(x=>x.set.tcgdexSetId),
+            targetExpansionSets: targetSets.map(x=>({tcgdexSetId:x.set.tcgdexSetId,setName:x.set.setName,expansionIds:x.expansionIds})),
+            newSafeExactMappings:safeMappings.length,
+            newMappedIdentities:newIds.size,
+            heldRows:held.length,
+            sourceConflictsQuarantined:badSource.size,
+            canonicalConflictsQuarantined:badCanonical.size,
+            baselineMappedIdentities:baselineMapped,
+            projectedMappedIdentities:baselineMapped + newIds.size,
+            projectedRemainingUnmapped:verifiedIds.size - baselineMapped - newIds.size,
+            productionWrites:0,
+            fuzzyMatching:false,
+            matcherChanged:false
+          };
+          const report = {format:'fatedrop-multi-expansion-explicit-recovery-v1',generatedAt:new Date().toISOString(),safety:{productionWrites:false,exactOnly:true,fuzzyMatching:false,matcherChanged:false},provenance:{tcgdexRevision:'1c30c50253756bafecf0f065fc377f77016ad12f',cardmarketCatalogueSha256:artifact.sha256,priorDerivedRunId:34311198953},summary,safeMappings,held};
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/multi-expansion-explicit-recovery.json',JSON.stringify(report,null,2));
+          console.log(JSON.stringify(summary,null,2));
+          NODE
+
+      - name: Summarise
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const r=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/multi-expansion-explicit-recovery.json','utf8'));
+          const s=r.summary;
+          console.log('# FatePrice multi-expansion explicit recovery');
+          console.log(`- Target sets: **${s.targetSets}**`);
+          console.log(`- New safe exact mappings: **${s.newSafeExactMappings}**`);
+          console.log(`- New mapped identities: **${s.newMappedIdentities}**`);
+          console.log(`- Projected mapped identities: **${s.projectedMappedIdentities}**`);
+          console.log(`- Projected remaining unmapped: **${s.projectedRemainingUnmapped}**`);
+          console.log(`- Held rows: **${s.heldRows}**`);
+          console.log('- Matcher changed: **no**');
+          console.log('- Production writes: **0**');
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-multi-expansion-explicit-recovery
+          path: ${{ runner.temp }}/multi-expansion-explicit-recovery.json
+          retention-days: 14
+          if-no-files-found: error

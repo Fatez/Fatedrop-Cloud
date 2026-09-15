@@ -1,0 +1,315 @@
+name: OPS FatePrice Unmapped Exact Recovery
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-unmapped-exact-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-unmapped-exact:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: dd4fc9460b54b91c25df750c68ca36b9946448e2
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download clean canonical catalogue bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ github.token }}
+          run-id: 34083474722
+
+      - name: Download retained safe Cardmarket mappings
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice-v2
+          path: ${{ runner.temp }}/v2
+          github-token: ${{ github.token }}
+          run-id: 34034268478
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Build canonical universe from clean retained bundle
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const bundle = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json', 'utf8'));
+          const setById = new Map((bundle.sets || []).filter((row) => row.verificationStatus === 'verified').map((row) => [row.id, row]));
+          const tcgdexSetByCanonical = new Map((bundle.setSourceMappings || [])
+            .filter((row) => row.sourceName === 'tcgdex' && setById.has(row.setId))
+            .map((row) => [row.setId, row]));
+          const eligibleSets = [];
+          for (const [setId, set] of setById) {
+            const mapping = tcgdexSetByCanonical.get(setId);
+            if (!mapping) continue;
+            eligibleSets.push({
+              tcgdexSetId: mapping.sourceRecordId,
+              pokemonTcgSetId: null,
+              canonicalSetId: set.id,
+              seriesName: null,
+              setName: set.name,
+              releasedAt: set.releasedAt,
+              printedTotal: set.printedTotal,
+              total: set.total,
+              matchBasis: 'retained_verified_catalogue_bundle',
+            });
+          }
+          const report = {
+            format: 'fatedrop-retained-canonical-universe-v1',
+            generatedAt: new Date().toISOString(),
+            provenance: {
+              catalogueRunId: 34083474722,
+              catalogueArtifactDigest: 'sha256:eac64ae7df2951bf9f05621d3f1d2a5e652c2a2b55fe5464be96014dc015f492',
+              productionWrites: false,
+              fuzzyMatching: false,
+            },
+            universe: {
+              verifiedSets: eligibleSets.length,
+              verifiedCardIdentities: (bundle.cardIdentities || []).filter((row) => row.verificationStatus === 'verified').length,
+            },
+            eligibleSets,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/canonical-universe.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify(report.universe));
+          NODE
+
+      - name: Re-evaluate explicit Cardmarket evidence only
+        run: |
+          node src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs \
+            --as-of=2026-09-08T00:00:00Z \
+            --tcgdex-repo="$GITHUB_WORKSPACE/_evidence/tcgdex-cards-database" \
+            --tcgdex-revision=dd4fc9460b54b91c25df750c68ca36b9946448e2 \
+            --canonical-universe="$RUNNER_TEMP/canonical-universe.json" \
+            > "$RUNNER_TEMP/current-cardmarket-audit.json"
+
+      - name: Build exact delta for previously unmapped identities
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { hasMeaningfulCardmarketLane } from './src/trader/value/cardmarket-adapter.mjs';
+
+          const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+          const bundle = read(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json');
+          const retained = read(process.env.RUNNER_TEMP + '/v2/fateprice-expanded-price-slice-v2.json');
+          const audit = read(process.env.RUNNER_TEMP + '/current-cardmarket-audit.json');
+          const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}`;
+
+          const verifiedIds = new Set((bundle.cardIdentities || []).filter((row) => row.verificationStatus === 'verified').map((row) => row.id));
+          const canonicalByTcgdexVariant = new Map();
+          for (const mapping of bundle.cardSourceMappings || []) {
+            if (mapping.sourceName !== 'tcgdex' || !verifiedIds.has(mapping.cardIdentityId)) continue;
+            canonicalByTcgdexVariant.set(`${mapping.sourceRecordId}|${mapping.sourceVariantKey}`, {
+              cardIdentityId: mapping.cardIdentityId,
+            });
+          }
+
+          const setIdByTcgdex = new Map((bundle.setSourceMappings || [])
+            .filter((row) => row.sourceName === 'tcgdex')
+            .map((row) => [row.sourceRecordId, row.setId]));
+
+          const retainedMappedIds = new Set((retained.mappings || []).map((row) => row.cardIdentityId));
+          const candidateRows = [];
+          const joinMisses = [];
+          for (const set of audit.sets || []) {
+            if (set.status !== 'proven') continue;
+            for (const evidence of set.cardAudit?.mappings || []) {
+              if (evidence.status !== 'proven') continue;
+              const variantKey = String(evidence.variant?.type || '').trim();
+              const canonical = canonicalByTcgdexVariant.get(`${evidence.tcgdexCardId}|${variantKey}`);
+              if (!canonical) {
+                joinMisses.push({
+                  tcgdexCardId: evidence.tcgdexCardId,
+                  variantKey,
+                  cardmarketProductId: evidence.cardmarketProductId,
+                  setName: set.setName,
+                  reason: 'exact_tcgdex_variant_has_no_retained_canonical_identity',
+                });
+                continue;
+              }
+              if (retainedMappedIds.has(canonical.cardIdentityId)) continue;
+              const sourceRecordId = String(evidence.cardmarketProductId);
+              candidateRows.push({
+                id: stableId('fdcardmap', [canonical.cardIdentityId, 'cardmarket', sourceRecordId, variantKey]),
+                cardIdentityId: canonical.cardIdentityId,
+                setId: setIdByTcgdex.get(set.tcgdexSetId) || null,
+                sourceName: 'cardmarket',
+                sourceRecordId,
+                sourceVariantKey: variantKey,
+                sourceUrl: null,
+                sourceVersion: audit.cardmarketSource?.sha256 ?? null,
+                proof: {
+                  tcgdexCardId: evidence.tcgdexCardId,
+                  cardmarketProductName: evidence.cardmarketProductName,
+                  cardmarketExpansionId: evidence.cardmarketExpansionId,
+                  expansionRelation: evidence.expansionRelation,
+                  nameMatchBasis: evidence.nameMatchBasis,
+                  reason: evidence.reason,
+                },
+              });
+            }
+          }
+
+          const conflictKeys = new Set();
+          const bySource = new Map();
+          const conflicts = [];
+          for (const row of candidateRows) {
+            const key = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            const prior = bySource.get(key);
+            if (prior && prior.cardIdentityId !== row.cardIdentityId) {
+              conflictKeys.add(key);
+              conflicts.push({ key, left: prior, right: row, status: 'quarantined', reason: 'one_cardmarket_source_identity_points_to_multiple_fate_identities' });
+            } else if (!prior) {
+              bySource.set(key, row);
+            }
+          }
+
+          const uniquePerCanonical = new Map();
+          const canonicalConflicts = [];
+          for (const [key, row] of bySource) {
+            if (conflictKeys.has(key)) continue;
+            const canonicalKey = `${row.cardIdentityId}|${row.sourceVariantKey}`;
+            const prior = uniquePerCanonical.get(canonicalKey);
+            if (prior && prior.sourceRecordId !== row.sourceRecordId) {
+              canonicalConflicts.push({ key: canonicalKey, left: prior, right: row, status: 'quarantined', reason: 'one_fate_identity_variant_points_to_multiple_cardmarket_products' });
+              uniquePerCanonical.set(canonicalKey, null);
+            } else if (!prior) {
+              uniquePerCanonical.set(canonicalKey, row);
+            }
+          }
+          const safeDelta = [...uniquePerCanonical.values()].filter(Boolean);
+
+          const { artifact: priceArtifact, snapshot } = await fetchCardmarketPokemonPriceGuide();
+          const priceByProduct = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
+          const preparedPrices = [];
+          const held = [];
+          for (const mapping of safeDelta) {
+            const lane = mapping.sourceVariantKey === 'normal' ? 'standard' : mapping.sourceVariantKey === 'holo' ? 'holo' : null;
+            if (!lane) {
+              held.push({ cardIdentityId: mapping.cardIdentityId, sourceRecordId: mapping.sourceRecordId, sourceVariantKey: mapping.sourceVariantKey, reason: 'no_dedicated_price_lane' });
+              continue;
+            }
+            const row = priceByProduct.get(mapping.sourceRecordId);
+            if (!row || !hasMeaningfulCardmarketLane(row, lane)) {
+              held.push({ cardIdentityId: mapping.cardIdentityId, sourceRecordId: mapping.sourceRecordId, sourceVariantKey: mapping.sourceVariantKey, reason: 'requested_price_lane_missing' });
+              continue;
+            }
+            preparedPrices.push({
+              cardIdentityId: mapping.cardIdentityId,
+              cardSourceMappingId: mapping.id,
+              sourceName: 'cardmarket',
+              sourceRecordId: mapping.sourceRecordId,
+              sourceVariantKey: mapping.sourceVariantKey,
+              marketSegmentKey: lane,
+              currencyCode: snapshot.currencyCode,
+              sourceSnapshotId: snapshot.sourceSnapshotId,
+              sourceEffectiveAt: snapshot.sourceEffectiveAt,
+            });
+          }
+
+          const newlyMappedIds = new Set(safeDelta.map((row) => row.cardIdentityId));
+          const pricedIds = new Set(preparedPrices.map((row) => row.cardIdentityId));
+          const summary = {
+            verifiedCanonicalIdentities: verifiedIds.size,
+            retainedMappedIdentities: retainedMappedIds.size,
+            previouslyUnmappedIdentities: Math.max(0, verifiedIds.size - retainedMappedIds.size),
+            newSafeExactMappings: safeDelta.length,
+            newMappedIdentities: newlyMappedIds.size,
+            newPreparedPricedIdentities: pricedIds.size,
+            remainingUnmappedAfterPreparedDelta: Math.max(0, verifiedIds.size - retainedMappedIds.size - newlyMappedIds.size),
+            sourceConflictsQuarantined: conflicts.length,
+            canonicalConflictsQuarantined: canonicalConflicts.length,
+            canonicalJoinMisses: joinMisses.length,
+            heldWithoutSafePrice: held.length,
+            productionWrites: 0,
+            fuzzyMatching: false,
+            crossLaneSubstitution: false,
+            reversePriceInference: false,
+          };
+
+          const report = {
+            format: 'fatedrop-unmapped-exact-cardmarket-recovery-v1',
+            generatedAt: new Date().toISOString(),
+            safety: {
+              productionWrites: false,
+              exactOnly: true,
+              fuzzyMatching: false,
+              crossLaneSubstitution: false,
+              reversePriceInference: false,
+            },
+            provenance: {
+              canonicalCatalogueRunId: 34083474722,
+              canonicalCatalogueDigest: 'sha256:eac64ae7df2951bf9f05621d3f1d2a5e652c2a2b55fe5464be96014dc015f492',
+              retainedMappingRunId: 34034268478,
+              retainedMappingDigest: 'sha256:21094ad9d3f55534dac3700281f9ae85705186ec3f0c0893d460466460dc4370',
+              tcgdexRepositoryRevision: 'dd4fc9460b54b91c25df750c68ca36b9946448e2',
+              cardmarketCatalogueSha256: audit.cardmarketSource?.sha256 ?? null,
+              cardmarketPriceGuideSha256: priceArtifact.sha256,
+            },
+            summary,
+            safeMappings: safeDelta,
+            preparedPrices,
+            held,
+            sourceConflicts: conflicts,
+            canonicalConflicts,
+            joinMisses,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-unmapped-exact-recovery.json', JSON.stringify(report));
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Summarise exact recovery
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fateprice-unmapped-exact-recovery.json', 'utf8'));
+          const s = report.summary;
+          console.log('# FatePrice exact unmapped recovery');
+          console.log(`- Previously unmapped identities: **${s.previouslyUnmappedIdentities}**`);
+          console.log(`- New safe exact mappings: **${s.newSafeExactMappings}**`);
+          console.log(`- Newly mapped identities: **${s.newMappedIdentities}**`);
+          console.log(`- Newly priceable identities: **${s.newPreparedPricedIdentities}**`);
+          console.log(`- Remaining unmapped after prepared delta: **${s.remainingUnmappedAfterPreparedDelta}**`);
+          console.log(`- Source conflicts quarantined: **${s.sourceConflictsQuarantined}**`);
+          console.log(`- Canonical conflicts quarantined: **${s.canonicalConflictsQuarantined}**`);
+          console.log(`- Join misses: **${s.canonicalJoinMisses}**`);
+          console.log('- Production writes: **0**');
+          console.log('- Fuzzy matching / cross-lane substitution / reverse inference: **disabled**');
+          NODE
+
+      - name: Upload exact recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-unmapped-exact-recovery
+          path: ${{ runner.temp }}/fateprice-unmapped-exact-recovery.json
+          retention-days: 14
+          if-no-files-found: error

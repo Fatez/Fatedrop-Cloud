@@ -1,0 +1,61 @@
+name: OPS FatePrice Cardmarket Name Census
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-cardmarket-name-census.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  census:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+      - run: npm ci
+      - name: Sample official Cardmarket Pokemon product names
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { fetchCardmarketPokemonSinglesCatalogue } from './src/trader/value/cardmarket-source-client.mjs';
+          import { parseCardmarketSingleProductName } from './src/trader/value/cardmarket-crosswalk.mjs';
+          const { artifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
+          const unparsed = products.filter((p) => !parseCardmarketSingleProductName(p.name));
+          const classify = (name) => {
+            const s = String(name || '').trim();
+            if (/\([^)]+\)$/.test(s)) return 'trailing_parentheses';
+            if (/\[[^\]]+\]$/.test(s)) return 'trailing_brackets';
+            if (/\s\d+[a-zA-Z]?\/?\d*\s*$/.test(s)) return 'trailing_number';
+            if (/\s-\s/.test(s)) return 'dash_delimited';
+            return 'plain_or_other';
+          };
+          const counts = {};
+          const samples = {};
+          for (const p of unparsed) {
+            const k = classify(p.name);
+            counts[k] = (counts[k] || 0) + 1;
+            if (!samples[k]) samples[k] = [];
+            if (samples[k].length < 120) samples[k].push({ id: p.sourceRecordId, expansionId: p.sourceExpansionId, name: p.name });
+          }
+          const report = { format:'fatedrop-cardmarket-name-census-v1', generatedAt:new Date().toISOString(), sourceSha256:artifact.sha256, totalProducts:products.length, parsed:products.length-unparsed.length, unparsed:unparsed.length, counts, samples };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/cardmarket-name-census.json', JSON.stringify(report, null, 2));
+          console.log(JSON.stringify({totalProducts:report.totalProducts,parsed:report.parsed,unparsed:report.unparsed,counts},null,2));
+          NODE
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-cardmarket-name-census
+          path: ${{ runner.temp }}/cardmarket-name-census.json
+          retention-days: 14

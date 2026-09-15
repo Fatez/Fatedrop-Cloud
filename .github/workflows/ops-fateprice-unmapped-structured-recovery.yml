@@ -1,0 +1,334 @@
+name: OPS FatePrice Unmapped Structured Recovery
+
+on:
+  push:
+    branches:
+      - ops/fateprice-card-pricing-prep-2026-09-08
+    paths:
+      - '.github/workflows/ops-fateprice-unmapped-structured-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  recover-unmapped-structured:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: dd4fc9460b54b91c25df750c68ca36b9946448e2
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download clean canonical catalogue bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-catalogue-activation-bundle
+          path: ${{ runner.temp }}/catalogue
+          github-token: ${{ github.token }}
+          run-id: 34083474722
+
+      - name: Download retained safe Cardmarket mappings
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-expanded-price-slice-v2
+          path: ${{ runner.temp }}/v2
+          github-token: ${{ github.token }}
+          run-id: 34034268478
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Recover exact mappings by expansion + collector number + card name
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { createHash } from 'node:crypto';
+          import { normaliseCollectorNumber } from './src/trader/card-identity.mjs';
+          import { normaliseComparableName } from './src/trader/catalogue/reconcile.mjs';
+          import { fetchCardmarketPokemonSinglesCatalogue, fetchCardmarketPokemonPriceGuide } from './src/trader/value/cardmarket-source-client.mjs';
+          import { hasMeaningfulCardmarketLane } from './src/trader/value/cardmarket-adapter.mjs';
+          import { parseCardmarketSingleProductName } from './src/trader/value/cardmarket-crosswalk.mjs';
+          import { loadTcgdexRepositoryEvidence } from './src/trader/value/tcgdex-repository-cardmarket-evidence.mjs';
+
+          const read = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+          const stableId = (prefix, parts) => `${prefix}_${createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 24)}`;
+          const bundle = read(process.env.RUNNER_TEMP + '/catalogue/fateprice-catalogue-activation-bundle.json');
+          const retained = read(process.env.RUNNER_TEMP + '/v2/fateprice-expanded-price-slice-v2.json');
+          const repo = loadTcgdexRepositoryEvidence(process.env.GITHUB_WORKSPACE + '/_evidence/tcgdex-cards-database', { includeCards: false });
+          const { artifact: catalogueArtifact, products } = await fetchCardmarketPokemonSinglesCatalogue();
+          const { artifact: priceArtifact, snapshot } = await fetchCardmarketPokemonPriceGuide();
+
+          const verifiedIdentities = (bundle.cardIdentities || []).filter((row) => row.verificationStatus === 'verified');
+          const verifiedIds = new Set(verifiedIdentities.map((row) => row.id));
+          const retainedMappedIds = new Set((retained.mappings || []).map((row) => row.cardIdentityId));
+          const printingById = new Map((bundle.printings || []).map((row) => [row.id, row]));
+          const setMappingByCanonical = new Map((bundle.setSourceMappings || [])
+            .filter((row) => row.sourceName === 'tcgdex')
+            .map((row) => [row.setId, row.sourceRecordId]));
+
+          const setEvidenceByCanonical = new Map();
+          for (const [canonicalSetId, tcgdexSetId] of setMappingByCanonical) {
+            const setEvidence = repo.bySetId.get(tcgdexSetId) || null;
+            if (!setEvidence) continue;
+            const expansionId = Number(setEvidence.cardmarketExpansionId);
+            if (!Number.isSafeInteger(expansionId) || expansionId <= 0) continue;
+            setEvidenceByCanonical.set(canonicalSetId, { tcgdexSetId, expansionId, setName: setEvidence.setName });
+          }
+
+          const productsByExpansionKey = new Map();
+          const unparsableProducts = [];
+          for (const product of products) {
+            if (product?.sourceName !== 'cardmarket') continue;
+            const expansionId = Number(product.sourceExpansionId);
+            if (!Number.isSafeInteger(expansionId) || expansionId <= 0) continue;
+            const parsed = parseCardmarketSingleProductName(product.name);
+            if (!parsed) {
+              unparsableProducts.push({ sourceRecordId: product.sourceRecordId, expansionId, name: product.name });
+              continue;
+            }
+            const key = `${expansionId}|${parsed.collectorNumber}|${normaliseComparableName(parsed.cardName)}`;
+            const rows = productsByExpansionKey.get(key) || [];
+            rows.push({ product, parsed });
+            productsByExpansionKey.set(key, rows);
+          }
+
+          const candidates = [];
+          const unresolved = [];
+          const ambiguous = [];
+          for (const identity of verifiedIdentities) {
+            if (retainedMappedIds.has(identity.id)) continue;
+            const printing = printingById.get(identity.printingId) || null;
+            if (!printing) {
+              unresolved.push({ cardIdentityId: identity.id, reason: 'printing_missing_from_retained_bundle' });
+              continue;
+            }
+            const setEvidence = setEvidenceByCanonical.get(identity.setId) || null;
+            if (!setEvidence) {
+              unresolved.push({ cardIdentityId: identity.id, setId: identity.setId, reason: 'set_has_no_explicit_cardmarket_expansion_scope' });
+              continue;
+            }
+            let collectorNumber;
+            try {
+              collectorNumber = normaliseCollectorNumber(printing.collectorNumber);
+            } catch {
+              unresolved.push({ cardIdentityId: identity.id, reason: 'canonical_collector_number_invalid' });
+              continue;
+            }
+            const key = `${setEvidence.expansionId}|${collectorNumber}|${normaliseComparableName(printing.name)}`;
+            const matches = productsByExpansionKey.get(key) || [];
+            if (matches.length === 0) {
+              unresolved.push({
+                cardIdentityId: identity.id,
+                setId: identity.setId,
+                setName: setEvidence.setName,
+                expansionId: setEvidence.expansionId,
+                collectorNumber,
+                cardName: printing.name,
+                variantCode: identity.variantCode,
+                reason: 'no_exact_structured_product_in_scoped_expansion',
+              });
+              continue;
+            }
+            if (matches.length !== 1) {
+              ambiguous.push({
+                cardIdentityId: identity.id,
+                setId: identity.setId,
+                expansionId: setEvidence.expansionId,
+                collectorNumber,
+                cardName: printing.name,
+                variantCode: identity.variantCode,
+                sourceRecordIds: matches.map((row) => String(row.product.sourceRecordId)),
+                reason: 'multiple_exact_structured_products_in_scoped_expansion',
+              });
+              continue;
+            }
+            const match = matches[0];
+            const variantKey = String(identity.variantCode || '').trim();
+            if (!variantKey) {
+              unresolved.push({ cardIdentityId: identity.id, reason: 'canonical_variant_missing' });
+              continue;
+            }
+            candidates.push({
+              id: stableId('fdcardmap', [identity.id, 'cardmarket', String(match.product.sourceRecordId), variantKey]),
+              cardIdentityId: identity.id,
+              setId: identity.setId,
+              sourceName: 'cardmarket',
+              sourceRecordId: String(match.product.sourceRecordId),
+              sourceVariantKey: variantKey,
+              sourceUrl: null,
+              sourceVersion: catalogueArtifact.sha256,
+              proof: {
+                method: 'scoped_expansion_exact_collector_and_name',
+                tcgdexSetId: setEvidence.tcgdexSetId,
+                cardmarketExpansionId: setEvidence.expansionId,
+                canonicalCollectorNumber: collectorNumber,
+                canonicalCardName: printing.name,
+                cardmarketProductName: match.product.name,
+                parsedSourceSetCode: match.parsed.sourceSetCode,
+                parsedSourceCollectorNumber: match.parsed.sourceCollectorNumber,
+              },
+            });
+          }
+
+          const sourceKeyOwners = new Map();
+          const sourceConflictKeys = new Set();
+          const sourceConflicts = [];
+          for (const row of candidates) {
+            const key = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            const prior = sourceKeyOwners.get(key);
+            if (prior && prior.cardIdentityId !== row.cardIdentityId) {
+              sourceConflictKeys.add(key);
+              sourceConflicts.push({ key, left: prior.cardIdentityId, right: row.cardIdentityId, reason: 'one_source_variant_points_to_multiple_canonical_identities' });
+            } else if (!prior) sourceKeyOwners.set(key, row);
+          }
+
+          const canonicalOwners = new Map();
+          const canonicalConflictKeys = new Set();
+          const canonicalConflicts = [];
+          for (const row of candidates) {
+            const sourceKey = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            if (sourceConflictKeys.has(sourceKey)) continue;
+            const key = `${row.cardIdentityId}|${row.sourceVariantKey}`;
+            const prior = canonicalOwners.get(key);
+            if (prior && prior.sourceRecordId !== row.sourceRecordId) {
+              canonicalConflictKeys.add(key);
+              canonicalConflicts.push({ key, left: prior.sourceRecordId, right: row.sourceRecordId, reason: 'one_canonical_variant_points_to_multiple_products' });
+            } else if (!prior) canonicalOwners.set(key, row);
+          }
+
+          const safeMappings = candidates.filter((row) => {
+            const sourceKey = `${row.sourceRecordId}|${row.sourceVariantKey}`;
+            const canonicalKey = `${row.cardIdentityId}|${row.sourceVariantKey}`;
+            return !sourceConflictKeys.has(sourceKey) && !canonicalConflictKeys.has(canonicalKey);
+          });
+
+          const priceByProduct = new Map(snapshot.priceGuides.map((row) => [String(row.idProduct), row]));
+          const preparedPrices = [];
+          const heldPrices = [];
+          for (const mapping of safeMappings) {
+            const lane = mapping.sourceVariantKey === 'normal' ? 'standard' : mapping.sourceVariantKey === 'holo' ? 'holo' : null;
+            if (!lane) {
+              heldPrices.push({ cardIdentityId: mapping.cardIdentityId, sourceRecordId: mapping.sourceRecordId, sourceVariantKey: mapping.sourceVariantKey, reason: 'no_dedicated_price_lane' });
+              continue;
+            }
+            const price = priceByProduct.get(mapping.sourceRecordId) || null;
+            if (!price || !hasMeaningfulCardmarketLane(price, lane)) {
+              heldPrices.push({ cardIdentityId: mapping.cardIdentityId, sourceRecordId: mapping.sourceRecordId, sourceVariantKey: mapping.sourceVariantKey, reason: 'requested_price_lane_missing' });
+              continue;
+            }
+            preparedPrices.push({
+              cardIdentityId: mapping.cardIdentityId,
+              cardSourceMappingId: mapping.id,
+              sourceName: 'cardmarket',
+              sourceRecordId: mapping.sourceRecordId,
+              sourceVariantKey: mapping.sourceVariantKey,
+              marketSegmentKey: lane,
+              currencyCode: snapshot.currencyCode,
+              sourceSnapshotId: snapshot.sourceSnapshotId,
+              sourceEffectiveAt: snapshot.sourceEffectiveAt,
+            });
+          }
+
+          const newlyMappedIds = new Set(safeMappings.map((row) => row.cardIdentityId));
+          const newlyPricedIds = new Set(preparedPrices.map((row) => row.cardIdentityId));
+          const summary = {
+            verifiedCanonicalIdentities: verifiedIds.size,
+            retainedMappedIdentities: retainedMappedIds.size,
+            previouslyUnmappedIdentities: verifiedIds.size - retainedMappedIds.size,
+            structuredCandidates: candidates.length,
+            newSafeExactMappings: safeMappings.length,
+            newMappedIdentities: newlyMappedIds.size,
+            preparedPricedIdentities: newlyPricedIds.size,
+            remainingUnmappedAfterStructuredDelta: verifiedIds.size - retainedMappedIds.size - newlyMappedIds.size,
+            unresolved: unresolved.length,
+            ambiguous: ambiguous.length,
+            sourceConflictsQuarantined: sourceConflicts.length,
+            canonicalConflictsQuarantined: canonicalConflicts.length,
+            heldWithoutSafePrice: heldPrices.length,
+            scopedCanonicalSets: setEvidenceByCanonical.size,
+            officialCardmarketProducts: products.length,
+            unparsableOfficialProducts: unparsableProducts.length,
+            productionWrites: 0,
+            fuzzyMatching: false,
+            crossLaneSubstitution: false,
+            reversePriceInference: false,
+          };
+
+          const report = {
+            format: 'fatedrop-unmapped-structured-recovery-v1',
+            generatedAt: new Date().toISOString(),
+            safety: {
+              productionWrites: false,
+              exactOnly: true,
+              fuzzyMatching: false,
+              crossLaneSubstitution: false,
+              reversePriceInference: false,
+              ambiguityQuarantined: true,
+            },
+            provenance: {
+              canonicalCatalogueRunId: 34083474722,
+              canonicalCatalogueDigest: 'sha256:eac64ae7df2951bf9f05621d3f1d2a5e652c2a2b55fe5464be96014dc015f492',
+              retainedMappingRunId: 34034268478,
+              retainedMappingDigest: 'sha256:21094ad9d3f55534dac3700281f9ae85705186ec3f0c0893d460466460dc4370',
+              tcgdexRepositoryRevision: 'dd4fc9460b54b91c25df750c68ca36b9946448e2',
+              cardmarketCatalogueSha256: catalogueArtifact.sha256,
+              cardmarketPriceGuideSha256: priceArtifact.sha256,
+            },
+            summary,
+            safeMappings,
+            preparedPrices,
+            heldPrices,
+            unresolved,
+            ambiguous,
+            sourceConflicts,
+            canonicalConflicts,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/fateprice-unmapped-structured-recovery.json', JSON.stringify(report));
+          console.log(JSON.stringify(summary, null, 2));
+          NODE
+
+      - name: Summarise structured recovery
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/fateprice-unmapped-structured-recovery.json', 'utf8'));
+          const s = report.summary;
+          console.log('# FatePrice unmapped structured exact recovery');
+          console.log(`- Previously unmapped identities: **${s.previouslyUnmappedIdentities}**`);
+          console.log(`- New safe exact mappings: **${s.newSafeExactMappings}**`);
+          console.log(`- New mapped identities: **${s.newMappedIdentities}**`);
+          console.log(`- Newly priceable identities: **${s.preparedPricedIdentities}**`);
+          console.log(`- Remaining unmapped: **${s.remainingUnmappedAfterStructuredDelta}**`);
+          console.log(`- Unresolved: **${s.unresolved}**`);
+          console.log(`- Ambiguous: **${s.ambiguous}**`);
+          console.log(`- Source conflicts quarantined: **${s.sourceConflictsQuarantined}**`);
+          console.log(`- Canonical conflicts quarantined: **${s.canonicalConflictsQuarantined}**`);
+          console.log('- Production writes: **0**');
+          console.log('- Fuzzy matching / cross-lane substitution / reverse inference: **disabled**');
+          NODE
+
+      - name: Upload structured exact recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-unmapped-structured-recovery
+          path: ${{ runner.temp }}/fateprice-unmapped-structured-recovery.json
+          retention-days: 14
+          if-no-files-found: error
