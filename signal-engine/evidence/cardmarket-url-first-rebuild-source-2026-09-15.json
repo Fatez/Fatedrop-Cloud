@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "sourceFile": "FateDrop_Cardmarket_Direct_URLs_1316_Cards.xlsx",
+  "sourceFileSha256": "8692f0a71cd61f0a73245e0163f46bfb4c17125151156c5fe52047e3ce7fca47",
+  "sourceRows": 1316,
+  "uniqueDirectUrls": 1285,
+  "identityRowsUnique": 1316,
+  "urlReconstructionValidatedRows": 1316,
+  "urlReconstructionMismatches": 0,
+  "currentQueueSnapshot": "FateDrop_live_price_mapping_queue_2026-09-15.xlsx",
+  "currentQueueSnapshotSha256": "f5d34a044bf66c9ef0a885a5d2d8e768018639242fd6aa0410271ca1d650b4d6",
+  "currentUnmappedRows": 390,
+  "currentUnmappedRowsCoveredBySource": 390,
+  "currentUnmappedUrlMismatches": 0,
+  "setSlugOverrides": {
+    "Crystal Guardians": "EX-Crystal-Guardians",
+    "Delta Species": "EX-Delta-Species",
+    "Deoxys": "EX-Deoxys",
+    "Dragon Frontiers": "EX-Dragon-Frontiers",
+    "Holon Phantoms": "EX-Holon-Phantoms",
+    "Legend Maker": "EX-Legend-Maker",
+    "Pokémon GO": "Pokémon-GO",
+    "Power Keepers": "EX-Power-Keepers",
+    "Team Magma vs Team Aqua": "EX-Team-Magma-vs-Team-Aqua",
+    "Unseen Forces": "EX-Unseen-Forces",
+    "EX trainer Kit 2 (Minun)": "EX-Trainer-Kit-2-Minun",
+    "EX trainer Kit 2 (Plusle)": "EX-Trainer-Kit-2-Plusle"
+  },
+  "policy": {
+    "productionWrites": false,
+    "cardmarketCatalogueIsPrimaryProductTruth": true,
+    "cardmarketPriceGuideIsPrimaryPriceTruth": true,
+    "existingMappingsAreComparisonOnly": true,
+    "tcgdexIsNotRequiredForPrimaryIdentityResolution": true
+  }
+}
