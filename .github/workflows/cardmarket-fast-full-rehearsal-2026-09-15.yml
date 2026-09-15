@@ -6,6 +6,7 @@ on:
       - ops/cardmarket-fast-full-rehearsal-2026-09-15
     paths:
       - '.github/workflows/cardmarket-fast-full-rehearsal-2026-09-15.yml'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-history-preservation-audit-cli.mjs'
 
 permissions:
   contents: read
@@ -49,6 +50,10 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-full-market-recertification-simple-cli.mjs
+      - name: Audit history-preserving repair shape
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+        run: node src/trader/value/cardmarket-full-market-history-preservation-audit-cli.mjs
       - name: Rehearse exact production mapping changes and roll back
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
@@ -64,6 +69,7 @@ jobs:
             ${{ runner.temp }}/cardmarket-full-market-exact-proof-progress.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
             ${{ runner.temp }}/cardmarket-full-market-recertification.json
+            ${{ runner.temp }}/cardmarket-full-market-history-preservation-audit.json
             ${{ runner.temp }}/cardmarket-full-market-recertification-release.json
           if-no-files-found: warn
           retention-days: 14
