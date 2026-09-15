@@ -21,13 +21,30 @@ jobs:
         working-directory: signal-engine
     steps:
       - uses: actions/checkout@v4
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: 5b6a2859f454972477a9953ffe5cb554d24c45e9
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Inspect official Cardmarket catalogue rows
+      - name: Prove exact Cardmarket product and price lanes
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
+          TCGDEX_REPO: ${{ github.workspace }}/_evidence/tcgdex-cards-database
+          TCGDEX_REVISION: 5b6a2859f454972477a9953ffe5cb554d24c45e9
         run: node src/trader/value/cardmarket-final-46-diagnostic-cli.mjs
+      - name: Upload hard-proof report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cardmarket-final-46-diagnostic-${{ github.run_id }}
+          path: ${{ runner.temp }}/cardmarket-final-46-diagnostic.json
+          if-no-files-found: error
+          retention-days: 14
