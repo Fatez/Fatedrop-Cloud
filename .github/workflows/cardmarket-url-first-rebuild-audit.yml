@@ -1,4 +1,4 @@
-name: Cardmarket URL-First Rebuild Audit
+name: Cardmarket Full English Market Recertification Audit
 
 on:
   push:
@@ -14,20 +14,22 @@ on:
       - 'signal-engine/src/trader/value/cardmarket-url-first-sample-validate-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs'
       - 'signal-engine/src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-url-first-mapping-release-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six-audit-cli.mjs'
-      - 'signal-engine/src/trader/value/cardmarket-stale-ownership-six-release-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-release-cli.mjs'
+      - 'signal-engine/src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs'
       - 'signal-engine/tests/cardmarket-url-first-rebuild.test.mjs'
-      - 'signal-engine/tests/cardmarket-stale-ownership-six.test.mjs'
 
 permissions:
   contents: read
 
+concurrency:
+  group: cardmarket-full-english-recertification-audit
+  cancel-in-progress: false
+
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: signal-engine
@@ -39,52 +41,59 @@ jobs:
           cache: npm
           cache-dependency-path: signal-engine/package-lock.json
       - run: npm ci
-      - name: Run focused URL-first model tests
-        run: node --test tests/cardmarket-url-first-rebuild.test.mjs tests/cardmarket-stale-ownership-six.test.mjs
-      - name: Compare URL-first model with production mappings and live Cardmarket data
+
+      - name: Run URL-first model tests
+        run: node --test tests/cardmarket-url-first-rebuild.test.mjs
+
+      - name: Run syntax gates for full-market planner and release
+        run: |
+          node --check src/trader/value/cardmarket-full-market-recertification-cli.mjs
+          node --check src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
+          node --check src/trader/value/cardmarket-full-market-recertification-verify-cli.mjs
+
+      - name: Compare simple deterministic model with every eligible production mapping
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-rebuild-cli.mjs
-      - name: Fail closed on within-batch source collisions
+
+      - name: Fail closed on simple-model source collisions
         run: node src/trader/value/cardmarket-url-first-rebuild-validate.mjs
-      - name: Validate exact URL/card-number sample crosswalk
+
+      - name: Validate exact URL and collector-number sample crosswalk
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-sample-validate-cli.mjs
-      - name: Verify six stale owners and their replacement products
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-        run: node src/trader/value/cardmarket-stale-ownership-six-audit-cli.mjs
-      - name: Rehearse six-owner correction with full rollback
-        env:
-          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          MAPPING_WRITE: 'false'
-        run: node src/trader/value/cardmarket-stale-ownership-six-release-cli.mjs
-      - name: Resolve all current unmapped cards through simple exact-id bridge
+
+      - name: Run exact-ID bridge only across the currently unmapped residual
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
         run: node src/trader/value/cardmarket-url-first-tcggo-full-cli.mjs
-      - name: Require official Cardmarket product-name compatibility
+
+      - name: Require official Cardmarket product-name compatibility on fallback results
         run: node src/trader/value/cardmarket-url-first-tcggo-strict-validate.mjs
-      - name: Rehearse exact 361 mapping persistence
+
+      - name: Build one full English-market recertification plan
         env:
           DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
-          EXPECTED_MAPPING_COUNT: '361'
-          EXPECTED_MAPPING_DIGEST: '8e8e073eb17002c9b2f1357bfbed527e23a7188c0331634b6fb080506c16d3ec'
+        run: node src/trader/value/cardmarket-full-market-recertification-cli.mjs
+
+      - name: Rehearse the complete recertification transaction with rollback
+        env:
+          DATABASE_URL: ${{ secrets.FATEPRICE_PRODUCTION_DATABASE_URL }}
           MAPPING_WRITE: 'false'
-        run: node src/trader/value/cardmarket-url-first-mapping-release-cli.mjs
-      - name: Upload read-only rebuild reports
+        run: node src/trader/value/cardmarket-full-market-recertification-release-cli.mjs
+
+      - name: Upload full recertification evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: cardmarket-url-first-rebuild
+          name: cardmarket-full-market-recertification
           path: |
             ${{ runner.temp }}/cardmarket-url-first-rebuild.json
             ${{ runner.temp }}/cardmarket-url-first-sample-validation.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-full.json
             ${{ runner.temp }}/cardmarket-url-first-tcggo-strict.json
-            ${{ runner.temp }}/cardmarket-stale-ownership-six-audit.json
-            ${{ runner.temp }}/cardmarket-stale-ownership-six-release.json
-            ${{ runner.temp }}/cardmarket-url-first-mapping-release.json
+            ${{ runner.temp }}/cardmarket-full-market-recertification.json
+            ${{ runner.temp }}/cardmarket-full-market-recertification-release.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
