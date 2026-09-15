@@ -1,0 +1,183 @@
+name: OPS FatePrice Expanded Cardmarket Audit
+
+on:
+  push:
+    branches:
+      - ops/fateprice-cardmarket-expanded-2026-09-06
+    paths:
+      - '.github/workflows/ops-fateprice-expanded-cardmarket-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  audit-expanded-universe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: signal-engine
+    steps:
+      - name: Check out FateDrop repository
+        uses: actions/checkout@v4
+
+      - name: Check out pinned TCGdex evidence
+        uses: actions/checkout@v4
+        with:
+          repository: tcgdex/cards-database
+          ref: dd4fc9460b54b91c25df750c68ca36b9946448e2
+          path: _evidence/tcgdex-cards-database
+          persist-credentials: false
+
+      - name: Download full-universe exact reconciliation summary
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-pokemon-universe-expansion-summary
+          path: ${{ runner.temp }}/base-summary
+          github-token: ${{ github.token }}
+          run-id: 34017737476
+
+      - name: Download transient recovery summary
+        uses: actions/download-artifact@v4
+        with:
+          name: fateprice-transient-recovery-summary
+          path: ${{ runner.temp }}/recovery-summary
+          github-token: ${{ github.token }}
+          run-id: 34030526577
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: signal-engine/package-lock.json
+
+      - run: npm ci
+
+      - name: Retry Prismatic Evolutions exact reconciliation once more
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { adaptTcgdexSet } from './src/trader/catalogue/tcgdex-adapter.mjs';
+          import { adaptPokemonTcgSet } from './src/trader/catalogue/pokemontcg-adapter.mjs';
+          import { createPokemonTcgClient, createTcgdexClient } from './src/trader/catalogue/source-clients.mjs';
+          import { reconcileSetEvidence } from './src/trader/catalogue/reconcile.mjs';
+          import { reconcilePokemonCardCollections } from './src/trader/catalogue/pipeline.mjs';
+          import { promoteMatchedCardEvidence } from './src/trader/catalogue/verification.mjs';
+          import { buildVerifiedCatalogueBatch } from './src/trader/catalogue/persistence.mjs';
+
+          const result = { status: 'rejected', reasons: [], requested: { tcgdexSetId: 'sv08.5', pokemonTcgSetId: 'sv8pt5', setName: 'Prismatic Evolutions' }, safety: { productionWrites: false, exactOnly: true, fuzzyMatching: false } };
+          try {
+            const tcgdex = createTcgdexClient({ languageCode: 'en', retryAttempts: 6 });
+            const pokemon = createPokemonTcgClient({ apiKey: process.env.POKEMON_TCG_API_KEY || null, retryAttempts: 6 });
+            const [rawSet, rawIndependent] = await Promise.all([tcgdex.getSet('sv08.5'), pokemon.getSet('sv8pt5')]);
+            const tcgdexEvidence = adaptTcgdexSet(rawSet);
+            const setMatch = reconcileSetEvidence(tcgdexEvidence, adaptPokemonTcgSet(rawIndependent));
+            if (setMatch.status !== 'matched') throw new Error('Prismatic set crosswalk did not verify');
+            result.requested.canonicalSetId = setMatch.canonicalSetId;
+            const refs = (rawSet.cards || []).map((row) => String(row?.id || '').trim()).filter(Boolean);
+            const tcgdexCards = [];
+            for (const id of refs) tcgdexCards.push(await tcgdex.getCard(id));
+            const pokemonCards = await pokemon.listCardsBySet('sv8pt5');
+            const cards = reconcilePokemonCardCollections({ tcgdexCards, pokemonTcgCards: pokemonCards, setMatch, sourceSeriesCode: tcgdexEvidence.sourceSeriesCode, languageCode: 'en' });
+            if (tcgdexCards.length !== pokemonCards.length) result.reasons.push('source_card_count_mismatch');
+            if (cards.matched.length !== tcgdexCards.length) result.reasons.push('not_all_source_cards_reconciled');
+            if (cards.conflicts.length) result.reasons.push('card_conflicts_present');
+            if (cards.quarantined.length) result.reasons.push('quarantined_cards_present');
+            if (cards.unmatched.length) result.reasons.push('unmatched_cards_present');
+            result.evidence = { sourceCards: tcgdexCards.length, independentCards: pokemonCards.length, matched: cards.matched.length, conflicts: cards.conflicts.length, quarantined: cards.quarantined.length, unmatched: cards.unmatched.length };
+            if (!result.reasons.length) {
+              const verifiedAt = Date.now();
+              const promotions = cards.matched.map((match) => promoteMatchedCardEvidence(match, { verifiedAt }));
+              if (promotions.some((row) => row.status !== 'verified')) throw new Error('Prismatic promotion rejected');
+              const batch = buildVerifiedCatalogueBatch({ setMatch, promotions, verifiedAt });
+              result.status = 'verified';
+              result.counts = { printings: batch.printings.length, cardIdentities: batch.cardIdentities.length };
+            }
+          } catch (error) {
+            result.reasons.push('compiler_error');
+            result.error = error?.message || String(error);
+          }
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/prismatic-retry.json', JSON.stringify(result, null, 2));
+          console.log(JSON.stringify(result));
+          NODE
+
+      - name: Build combined verified canonical universe
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const base = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/base-summary/fateprice-pokemon-universe-expansion.json', 'utf8'));
+          const recovery = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/recovery-summary/fateprice-transient-recovery-summary.json', 'utf8'));
+          const prismatic = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/prismatic-retry.json', 'utf8'));
+          const rows = [...base.verified, ...recovery.recovered];
+          if (prismatic.status === 'verified') rows.push({ ...prismatic.requested, evidence: prismatic.evidence, counts: prismatic.counts });
+          const unique = new Map();
+          for (const row of rows) unique.set(row.tcgdexSetId, row);
+          const eligibleSets = [...unique.values()].map((row) => ({
+            tcgdexSetId: row.tcgdexSetId,
+            pokemonTcgSetId: row.pokemonTcgSetId,
+            canonicalSetId: row.canonicalSetId,
+            setName: row.setName,
+            seriesName: null,
+            releasedAt: null,
+            printedTotal: row.evidence?.sourceCards ?? null,
+            total: row.evidence?.sourceCards ?? null,
+            matchBasis: 'exact_two_source_reconciliation',
+          }));
+          const verifiedCardIdentities = base.counts.verifiedCardIdentities + recovery.counts.recoveredCardIdentities + (prismatic.status === 'verified' ? Number(prismatic.counts?.cardIdentities || 0) : 0);
+          const universe = {
+            format: 'fatedrop-pokemon-verified-universe-v1',
+            generatedAt: new Date().toISOString(),
+            provenance: { baseRunId: 34017737476, recoveryRunId: 34030526577, prismaticRetry: prismatic.status, productionWrites: false, fuzzyMatching: false },
+            sourceCounts: { attemptedSets: base.counts.attemptedSets },
+            reviewedCounts: { pulseEligible: eligibleSets.length },
+            universe: { verifiedSets: eligibleSets.length, verifiedCardIdentities },
+            eligibleSets,
+          };
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/verified-universe.json', JSON.stringify(universe, null, 2));
+          console.log(`Verified universe: ${eligibleSets.length} sets / ${verifiedCardIdentities} exact identities`);
+          NODE
+
+      - name: Audit expanded exact universe against Cardmarket
+        run: |
+          node src/trader/value/cardmarket-pokemon-universe-crosswalk-cli.mjs \
+            --as-of=2026-09-06T00:00:00Z \
+            --tcgdex-repo="$GITHUB_WORKSPACE/_evidence/tcgdex-cards-database" \
+            --tcgdex-revision=dd4fc9460b54b91c25df750c68ca36b9946448e2 \
+            --canonical-universe="$RUNNER_TEMP/verified-universe.json" \
+            > "$RUNNER_TEMP/expanded-cardmarket-audit.json"
+
+      - name: Summarise exact card and price coverage
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import fs from 'node:fs';
+          const universe = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/verified-universe.json', 'utf8'));
+          const report = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/expanded-cardmarket-audit.json', 'utf8'));
+          const prismatic = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/prismatic-retry.json', 'utf8'));
+          console.log('# FatePrice expanded exact cards + Cardmarket coverage');
+          console.log('');
+          console.log(`- Verified canonical sets: **${universe.universe.verifiedSets}**`);
+          console.log(`- Verified exact card identities: **${universe.universe.verifiedCardIdentities}**`);
+          console.log(`- Proven Cardmarket expansion mappings: **${report.summary.provenExpansionMappings}/${report.summary.canonicalEligibleSets}**`);
+          console.log(`- Cards with verified explicit Cardmarket product: **${report.summary.cardsWithVerifiedCardmarketProduct}/${report.summary.cardsInProvenSets}**`);
+          console.log(`- Verified distinct Cardmarket products: **${report.summary.verifiedDistinctCardmarketProducts}**`);
+          console.log(`- Explicit product-name conflicts: **${report.summary.explicitProductNameConflicts}**`);
+          console.log(`- Prismatic retry: **${prismatic.status}**${prismatic.error ? ` — ${prismatic.error}` : ''}`);
+          console.log('- Production writes: **0**');
+          console.log('- Fuzzy matching: **disabled**');
+          NODE
+
+      - name: Upload expanded evidence bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: fateprice-expanded-cardmarket-audit
+          path: |
+            ${{ runner.temp }}/verified-universe.json
+            ${{ runner.temp }}/expanded-cardmarket-audit.json
+            ${{ runner.temp }}/prismatic-retry.json
+          retention-days: 14
+          if-no-files-found: error
