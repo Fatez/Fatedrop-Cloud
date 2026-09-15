@@ -101,8 +101,8 @@ function languageFromRow($, row) {
 }
 
 const CONDITION_NAMES = Object.freeze([
-  ['MT', /\bMint\b/i],
   ['NM', /\bNear Mint\b/i],
+  ['MT', /\bMint\b/i],
   ['EX', /\bExcellent\b/i],
   ['GD', /\bGood\b/i],
   ['LP', /\bLight(?:ly)? Played\b/i],
